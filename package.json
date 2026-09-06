@@ -1,5 +1,5 @@
 {
-  "name": "spec-guard",
+  "name": "@descent-vtt/spec-guard",
   "version": "0.1.0",
   "description": "Executable architecture assertions for Markdown specs & ADRs.",
   "keywords": [
@@ -18,7 +18,7 @@
     "node": ">=22"
   },
   "bin": {
-    "spec-guard": "./bin/spec-guard.js"
+    "spec-guard": "bin/spec-guard.js"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -35,6 +35,9 @@
     "README.md",
     "LICENSE"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",

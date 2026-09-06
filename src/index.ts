@@ -5,7 +5,7 @@
  * script or a custom reporter can do too.
  *
  * ```ts
- * import { runSpecGuard, formatReport } from 'spec-guard';
+ * import { runSpecGuard, formatReport } from '@descent-vtt/spec-guard';
  *
  * const report = await runSpecGuard({ patterns: ['docs/**\/*.md'], root: process.cwd() });
  * if (!report.ok) console.error(formatReport(report, { color: true, verbose: false }));

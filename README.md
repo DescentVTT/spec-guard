@@ -44,8 +44,23 @@ build with a line number, not a landmine.
 ## Quickstart
 
 ```bash
-npm install --save-dev spec-guard
+npm install --save-dev @descent-vtt/spec-guard
 npx spec-guard "docs/**/*.md"
+```
+
+**The package is scoped; the command is not.** Once installed, the binary is
+plain `spec-guard`, so `npx spec-guard`, `npm scripts` and a global install all
+use that name:
+
+```bash
+npm install -g @descent-vtt/spec-guard   # then: spec-guard "docs/**/*.md"
+```
+
+Without a local install, `npx` needs the full package name - `npx spec-guard`
+on its own would resolve to a different package on the registry:
+
+```bash
+npx @descent-vtt/spec-guard "docs/**/*.md"
 ```
 
 Add a directive to any Markdown file, directly under the sentence it makes
@@ -190,7 +205,7 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: '22'
-      - run: npx spec-guard "docs/**/*.md" "README.md" --verbose
+      - run: npx @descent-vtt/spec-guard "docs/**/*.md" "README.md" --verbose
 ```
 
 That job needs nothing else installed. GitHub-hosted runners do **not** ship
@@ -204,7 +219,7 @@ repository is large enough that you want ripgrep's speed, install it first:
 
 Or point spec-guard at a binary you already have with `SPEC_GUARD_RG=/path/to/rg`.
 
-As a pre-commit hook:
+As a pre-commit hook (assuming a local install, so the bare command resolves):
 
 ```bash
 npx spec-guard "docs/**/*.md" --fail-fast
@@ -257,7 +272,7 @@ Two honest caveats:
 ## Programmatic API
 
 ```ts
-import { runSpecGuard, formatReport } from 'spec-guard';
+import { runSpecGuard, formatReport } from '@descent-vtt/spec-guard';
 
 const report = await runSpecGuard({
   patterns: ['docs/**/*.md'],
