@@ -171,7 +171,7 @@ spec-guard [patterns...] [options]
 | `-v, --verbose` | Print passing assertions too |
 | `--fail-fast` | Stop at the first failing assertion |
 | `--json` | Machine-readable report on stdout |
-| `--engine <auto\|rg\|js>` | Search engine (default `auto`: ripgrep when available) |
+| `--engine <auto\|rg\|js>` | Search engine (default `auto`: scanner for small trees, ripgrep for big ones) |
 | `--strict` | Treat a `target` that does not exist as a failure, not a warning |
 | `--include-specs` | Also count matches inside the spec files themselves |
 | `--max-snippets <n>` | Failure snippets per assertion (default 5) |
@@ -255,19 +255,37 @@ in one pass. Measured on Windows 11 / Node 24 / ripgrep 15 against a synthetic
 | ripgrep engine | ~280 ms | **~72 ms** |
 | JavaScript fallback | ~780 ms | **~283 ms** |
 
+`auto` then picks between the two engines **per search group**, because they
+have different shapes of cost: ripgrep is dominated by process startup and
+barely notices tree size, while the built-in scanner has no startup cost and
+grows linearly. Starting a process to search a handful of files is a bad trade.
+
+The decision uses a bounded enumeration as its probe: spec-guard walks the
+target set until it either finishes - in which case the file list is already in
+hand and the scanner runs against it, with no process and no second walk - or
+exceeds a budget, in which case ripgrep takes over. Measured end to end:
+
+| | this repo's own specs | 2,000 files |
+| --- | --- | --- |
+| `--engine rg` | 793.7 ms | 195.8 ms |
+| `--engine js` | 19.5 ms | 330.6 ms |
+| `--engine auto` | **19.1 ms** | **171.9 ms** |
+
+The crossover is ~575 files on Windows and ~25 on Linux, because what is really
+being measured is process spawn cost. `scripts/bench-engines.mjs` reproduces
+both; [ADR-0004](docs/adr/0004-adaptive-engine.md) has the full tables.
+
 Two honest caveats:
 
-- **Process spawning is expensive on Windows** (~27 ms each). On a small tree
-  the JavaScript engine can beat ripgrep outright - spec-guard checks its own
-  repository in ~15 ms with `--engine js` versus ~170 ms with ripgrep. On Linux
-  and macOS, where spawning costs a few milliseconds, ripgrep wins at every
-  size. If your repository is small and you care about the last millisecond,
-  `--engine js` is a legitimate choice.
-- **ripgrep is the reference implementation.** The fallback matches it on
+- **The reported engine is the one that ran, not the one available.** On a small
+  repository `--json` reports `"engine": "javascript"` even with ripgrep
+  installed. That is the optimisation working, not a failure to find `rg`.
+- **ripgrep is the reference implementation.** The scanner matches it on
   everything the test suite covers - counts, snippets, word boundaries, globs,
   binary skipping, file-size limits - but ripgrep also honours `.gitignore`,
-  while the fallback uses a fixed ignore list (`node_modules`, `dist`, `build`,
-  `coverage`, `.git`, dotfiles, and friends).
+  while the scanner uses a fixed ignore list (`node_modules`, `dist`, `build`,
+  `coverage`, `.git`, dotfiles, and friends). On a repository where those differ
+  materially, pin the engine with `--engine rg`.
 
 ## Programmatic API
 
@@ -368,20 +386,21 @@ prebuilt binary and is never a runtime dependency.
 ### Mutation testing
 
 Coverage says a line ran. It does not say an assertion would notice if the line
-behaved differently. This repository measures the difference: **83.16%** of
-2,060 mutants are killed, against 98.98% line coverage.
+behaved differently. This repository measures the difference: **88.76%** of
+2,118 mutants are killed, against 98.98% line coverage.
 
-That gap is the point. The first run scored 77.23%, and the weakest file was
-the reporter at 65.48% - not because it lacked tests, but because its tests were
+That gap is the point. The first run scored 77.23%, and the weakest file was the
+reporter at 65.48% - not because it lacked tests, but because its tests were
 almost all `toContain` against colourless output. A mutant could prepend a junk
-line to the output, drop a colour, or turn `remaining > 0` into `remaining >= 0`
-and every test still passed. Seventy-five tests later - exact whole-output
-comparison instead of substring matching - the reporter is at 87.30%.
+line, drop a colour, or turn `remaining > 0` into `remaining >= 0` and every
+test still passed. Exact whole-output comparison took it to 87.30%. The engine
+and the walker were then rewritten for testability rather than papered over with
+more tests, which is what moved them from 75%/78% to 83%/93%.
 
 `npm run test:mutation` runs it locally. CI runs it on **every push**, gated at
-80% - it takes about seven minutes, which is cheap enough that a stale score is
-the worse trade. The full story, including a run whose score turned out to be
-fiction, is in [ADR-0003](docs/adr/0003-mutation-testing.md).
+85%. Two cautionary tales are in [ADR-0003](docs/adr/0003-mutation-testing.md):
+a run whose score was fiction because the mutants were never activated, and a
+tuning knob that lifted the score by six points without adding a single test.
 
 ## Requirements
 

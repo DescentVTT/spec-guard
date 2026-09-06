@@ -70,7 +70,7 @@ Options
   -v, --verbose           Print passing assertions too
       --fail-fast         Stop at the first failing assertion
       --json              Emit a machine-readable JSON report
-      --engine <name>     auto | rg | js  (default: auto - ripgrep when available)
+      --engine <name>     auto | rg | js  (default: auto - scanner for small trees, ripgrep for big ones)
       --strict            Treat a target path that does not exist as a failure
       --include-specs     Also count matches inside the spec files themselves
       --max-snippets <n>  Failure snippets per assertion (default: ${DEFAULT_MAX_SNIPPETS})

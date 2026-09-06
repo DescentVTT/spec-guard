@@ -18,19 +18,36 @@ export type { CliIO, CliOptions } from './cli.js';
 export {
   buildJsRegExp,
   buildRipgrepArgs,
+  canBatchLiterals,
   createCachedEngine,
+  createRipgrepSink,
+  enumerateCandidates,
   escapeRegExp,
   findRipgrep,
   javascriptEngine,
   resetRipgrepProbe,
   resolveEngine,
+  runSearches,
   scanContent,
+  shouldBatchPatterns,
   MAX_FILE_SIZE,
+  SMALL_TREE_BUDGET,
 } from './engine.js';
-export type { Engine, EnginePreference, SearchRequest } from './engine.js';
+export type {
+  BatchEngine,
+  CachedEngine,
+  Engine,
+  EnginePreference,
+  Enumeration,
+  EnumerationBudget,
+  RipgrepSink,
+  SearchRequest,
+} from './engine.js';
 
 export {
+  compareDirents,
   createGlobMatcher,
+  defaultDirectoryReader,
   expandSpecPatterns,
   globBase,
   globToRegExp,
@@ -39,7 +56,7 @@ export {
   walkFiles,
   DEFAULT_IGNORED_DIRECTORIES,
 } from './glob.js';
-export type { WalkedFile, WalkOptions } from './glob.js';
+export type { DirectoryReader, WalkedFile, WalkOptions } from './glob.js';
 
 export { maskCode, parseAttributes, parseDirectives } from './parser.js';
 export type { ParseContext } from './parser.js';

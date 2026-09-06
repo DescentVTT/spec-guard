@@ -43,10 +43,17 @@ export default {
   htmlReporter: { fileName: 'reports/mutation/index.html' },
   clearTextReporter: { allowColor: false, maxTestsToLog: 0 },
 
+  // Deliberately generous. Stryker counts a timeout as a kill, so this value is
+  // a dial that silently sets the score: dropping it from 60s to 15s moved 220
+  // mutants from "survived" to "timed out" and lifted the score from 88.76% to
+  // 94.48% without adding a single test. Those mutants finish inside 60s and
+  // the suite passes when they do, so they had survived - the shorter clock was
+  // just calling slow code dead. 60s is roughly five times the whole suite, so
+  // reaching it means a mutant genuinely hangs.
   timeoutMS: 60000,
   concurrency: 8,
-  // `break` is a regression guard, not an aspiration: it sits just below the
-  // measured score (83.16%) so that losing ground fails the build, while
-  // ordinary refactoring does not trip it.
-  thresholds: { high: 90, low: 80, break: 80 },
+  // `break` is a regression guard, not an aspiration: it sits below the measured
+  // score (88.76%) so that losing ground fails the build, while ordinary
+  // refactoring does not trip it.
+  thresholds: { high: 90, low: 80, break: 85 },
 };

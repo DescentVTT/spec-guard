@@ -33,10 +33,42 @@ afterEach(async () => {
   resetRipgrepProbe();
 });
 
-afterAll(() => {
+afterAll(async () => {
+  await cleanUpBigRepo();
   if (originalRg === undefined) delete process.env.SPEC_GUARD_RG;
   else process.env.SPEC_GUARD_RG = originalRg;
 });
+
+/**
+ * A tree comfortably past SMALL_TREE_BUDGET on every platform (the Windows
+ * budget is 1MB). Built once and shared: the tests only read it, and rebuilding
+ * a megabyte per test made the suite four times slower.
+ */
+let bigRepoOnce: Promise<string> | undefined;
+
+function makeBigRepo(): Promise<string> {
+  bigRepoOnce ??= (async () => {
+    const filler = 'const padding = 1;\n'.repeat(20_000);
+    const root = await makeTempRepo({
+      'src/a.ts': filler,
+      'src/b.ts': filler,
+      'src/c.ts': `${filler}export class Needle {}\n`,
+    });
+    return root;
+  })();
+  return bigRepoOnce;
+}
+
+async function cleanUpBigRepo(): Promise<void> {
+  if (!bigRepoOnce) return;
+  const root = await bigRepoOnce;
+  bigRepoOnce = undefined;
+  await removeTempRepo(root);
+}
+
+function bigRepoRequest(root: string, symbol = 'Needle'): SearchRequest {
+  return { root, symbol, targets: ['src'], options: searchOptions() };
+}
 
 function request(overrides: Partial<SearchRequest> = {}): SearchRequest {
   return {
@@ -172,12 +204,55 @@ describe('resolveEngine', () => {
     expect(engine.name).toBe('javascript');
   });
 
-  it.runIf(rgPath)('uses ripgrep when it is available', async () => {
+  it.runIf(rgPath)('prefers the scanner over a spawn on a small tree', async () => {
+    // The demo repo is a handful of files: starting a process would cost more
+    // than the whole search. See SMALL_TREE_BUDGET.
     process.env.SPEC_GUARD_RG = rgPath as string;
     const engine = await resolveEngine('auto');
     const result = await engine.search(request());
+
+    expect(result.count).toBe(1);
+    expect(result.engine).toBe('javascript');
+    expect(engine.name).toBe('javascript');
+  });
+
+  it.runIf(rgPath)('uses ripgrep once the tree outgrows the budget', async () => {
+    process.env.SPEC_GUARD_RG = rgPath as string;
+    const root = await makeBigRepo();
+    const engine = await resolveEngine('auto');
+    const result = await engine.search(bigRepoRequest(root));
+
+    expect(result.count).toBe(1);
     expect(result.engine).toBe('ripgrep');
     expect(engine.name).toBe('ripgrep');
+  });
+
+  it('falls back to the scanner on a big tree when ripgrep is missing', async () => {
+    process.env.SPEC_GUARD_RG = path.join(DEMO_REPO, 'definitely-not-ripgrep');
+    const root = await makeBigRepo();
+    const engine = await resolveEngine('auto');
+    const result = await engine.search(bigRepoRequest(root));
+
+    expect(result.count).toBe(1);
+    expect(result.engine).toBe('javascript');
+  });
+
+  it.runIf(rgPath)('agrees with both engines on a tree that crosses the budget', async () => {
+    const root = await makeBigRepo();
+    const query = bigRepoRequest(root, 'Needle');
+
+    process.env.SPEC_GUARD_RG = rgPath as string;
+    resetRipgrepProbe();
+    const [adaptive, js, rg] = await Promise.all([
+      (await resolveEngine('auto')).search(query),
+      javascriptEngine.search(query),
+      (await resolveEngine('ripgrep')).search(query),
+    ]);
+
+    expect(adaptive.count).toBe(js.count);
+    expect(adaptive.count).toBe(rg.count);
+    expect(adaptive.matches).toEqual(js.matches);
+    expect(adaptive.matches).toEqual(rg.matches);
   });
 });
 
@@ -359,12 +434,25 @@ describe('createCachedEngine', () => {
     ).rejects.toThrow();
   });
 
-  it('reports the engine name lazily', async () => {
+  it('reports the engine that actually ran, not the one it hoped for', async () => {
     process.env.SPEC_GUARD_RG = path.join(DEMO_REPO, 'definitely-not-ripgrep');
     const engine = createCachedEngine(await resolveEngine('auto'));
-    expect(engine.name).toBe('ripgrep');
+
+    // Nothing has run yet, so claiming "ripgrep" here would be a guess.
+    expect(engine.name).toBe('javascript');
     await engine.search(request());
     expect(engine.name).toBe('javascript');
+  });
+
+  it.runIf(rgPath)('upgrades the reported name once ripgrep has been used', async () => {
+    process.env.SPEC_GUARD_RG = rgPath as string;
+    resetRipgrepProbe();
+    const root = await makeBigRepo();
+    const engine = createCachedEngine(await resolveEngine('auto'));
+
+    expect(engine.name).toBe('javascript');
+    await engine.search(bigRepoRequest(root));
+    expect(engine.name).toBe('ripgrep');
   });
 });
 
@@ -534,15 +622,17 @@ describe('ripgrep failure handling', () => {
   });
 
   it('falls back to the javascript engine when ripgrep misbehaves mid-run', async () => {
+    // A big tree, so the adaptive engine actually reaches for ripgrep.
     process.env.SPEC_GUARD_RG = process.execPath;
     resetRipgrepProbe();
+    const root = await makeBigRepo();
     const engine = createCachedEngine(await resolveEngine('auto'));
 
-    const result = await engine.search(request());
+    const result = await engine.search(bigRepoRequest(root));
 
     expect(result.count).toBe(1);
     expect(result.engine).toBe('javascript');
-    expect(engine.fallbacks[0]).toMatch(/ripgrep exited with code/);
+    expect(engine.fallbacks[0]).toMatch(/ripgrep exited with code \d+: .+/);
   });
 
   it('returns nothing for an empty ripgrep batch', async () => {

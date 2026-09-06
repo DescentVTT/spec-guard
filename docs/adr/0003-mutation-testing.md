@@ -83,8 +83,41 @@ the difference. One of them is worth naming: mutating the `entries.sort()` in
 returns directory entries in order anyway - the existing ordering test passes
 for the wrong reason there, and only does real work on other filesystems.
 
-The `break` threshold is set at 80: below the measured score, so a regression
-fails the build, but not so tight that ordinary refactoring trips it.
+### 0.2.0: 88.76%, and a dial that fakes it
+
+Making the engine's internals testable (see ADR-0004) moved the score again:
+
+| File | 0.1.0 | 0.2.0 |
+| --- | --- | --- |
+| glob.ts | 78.28% | **92.57%** |
+| runner.ts | 85.74% | **91.80%** |
+| engine.ts | 75.63% | **83.05%** |
+| parser.ts | 88.43% | 90.50% |
+| reporter.ts | 87.30% | 87.30% |
+| cli.ts | 94.68% | 94.68% |
+| **total** | **83.16%** | **88.76%** |
+
+The two files that barely moved in the first round moved most in the second,
+because the fix was structural rather than more tests: the ripgrep JSON handling
+and the batching decision were extracted into pure functions that can be
+asserted directly.
+
+**Timeouts are a dial, and it silently sets the score.** Stryker counts a
+timed-out mutant as killed, which is right when the mutant genuinely hangs -
+several here turn a binary search into an infinite loop. But the timeout is also
+a tuning knob. Lowering `timeoutMS` from 60s to 15s, changing nothing else,
+moved 220 mutants from *survived* to *timed out* and lifted the reported score
+from 88.76% to **94.48%** without adding a single test. Those mutants finish
+within 60s, and the suite passes when they do: they had survived, and the
+shorter clock was merely calling slow code dead.
+
+The 60s budget is kept - about five times the whole suite - so that reaching it
+means a hang rather than a slowdown, and 88.76% is the number this project
+claims. A metric that improves when you shorten a clock is not measuring test
+strength.
+
+The `break` threshold is 85: below the measured score, so a regression fails the
+build, but not so tight that ordinary refactoring trips it.
 
 ## Consequences
 

@@ -6,7 +6,7 @@
  * patterns itself instead of trusting the shell.
  */
 
-import { promises as fs } from 'node:fs';
+import { promises as fs, type Dirent } from 'node:fs';
 import path from 'node:path';
 
 /** Directories never worth searching. Mirrors ripgrep's practical defaults. */
@@ -139,6 +139,12 @@ export function createGlobMatcher(patterns: readonly string[]): (relativePath: s
     );
 }
 
+/** Reads one directory. Injectable so the ordering guarantee can be tested. */
+export type DirectoryReader = (directory: string) => Promise<Dirent[]>;
+
+export const defaultDirectoryReader: DirectoryReader = (directory) =>
+  fs.readdir(directory, { withFileTypes: true });
+
 export interface WalkOptions {
   /** Directory names to skip entirely. */
   ignoredDirectories?: ReadonlySet<string>;
@@ -146,6 +152,15 @@ export interface WalkOptions {
   includeHidden?: boolean;
   /** Follow symbolic links (off by default - cycles are not worth the risk). */
   followSymlinks?: boolean;
+  /**
+   * Directory reader, defaulting to `fs.readdir`.
+   *
+   * This exists because the ordering guarantee below is otherwise untestable on
+   * Windows: NTFS returns directory entries already sorted, so a test that
+   * checks the output is ordered passes even if the sort is deleted. Injecting
+   * an unordered reader makes the guarantee real on every platform.
+   */
+  readDirectory?: DirectoryReader;
 }
 
 export interface WalkedFile {
@@ -153,6 +168,11 @@ export interface WalkedFile {
   /** Path relative to the walk root, POSIX separators. */
   relativePath: string;
   size: number;
+}
+
+/** Orders directory entries by name, byte-wise and stable across platforms. */
+export function compareDirents(a: { name: string }, b: { name: string }): number {
+  return a.name < b.name ? -1 : a.name > b.name ? 1 : 0;
 }
 
 /**
@@ -163,16 +183,20 @@ export async function* walkFiles(root: string, options: WalkOptions = {}): Async
   const ignored = options.ignoredDirectories ?? DEFAULT_IGNORED_DIRECTORIES;
   const includeHidden = options.includeHidden ?? false;
   const followSymlinks = options.followSymlinks ?? false;
+  const readDirectory = options.readDirectory ?? defaultDirectoryReader;
   const seen = new Set<string>();
 
   async function* visit(directory: string, prefix: string): AsyncGenerator<WalkedFile> {
     let entries;
     try {
-      entries = await fs.readdir(directory, { withFileTypes: true });
+      entries = await readDirectory(directory);
     } catch {
       return;
     }
-    entries.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+    // Sorted explicitly: readdir order is filesystem-defined (NTFS happens to
+    // return names in order, ext4 returns them in hash order), and spec-guard
+    // reports snippets in a stable order regardless of where it runs.
+    entries.sort(compareDirents);
 
     for (const entry of entries) {
       const name = entry.name;

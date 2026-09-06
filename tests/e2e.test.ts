@@ -88,10 +88,13 @@ describe.skipIf(!built)('spec-guard executable', () => {
   });
 
   it.runIf(rgPath)('produces the same report with ripgrep as with the fallback', async () => {
-    const withRipgrep = await run(['docs/**/*.md', '--root', DEMO_REPO, '--json'], {
+    // Both engines are forced explicitly: the demo repo is small enough that
+    // `auto` would pick the scanner in both cases and the comparison would be
+    // vacuous.
+    const withRipgrep = await run(['docs/**/*.md', '--root', DEMO_REPO, '--json', '--engine', 'rg'], {
       env: { SPEC_GUARD_RG: rgPath as string },
     });
-    const withFallback = await run(['docs/**/*.md', '--root', DEMO_REPO, '--json'], {
+    const withFallback = await run(['docs/**/*.md', '--root', DEMO_REPO, '--json', '--engine', 'js'], {
       env: { SPEC_GUARD_RG: path.join(DEMO_REPO, 'definitely-not-ripgrep') },
     });
 

@@ -27,9 +27,10 @@ jobs:
   stryker:
     name: stryker
     runs-on: ubuntu-latest
-    # Measured at ~7 minutes. This cap is headroom for a bad day, not a budget:
-    # on a per-push workflow a hung job should fail fast, not hold a runner.
-    timeout-minutes: 30
+    # Measured at ~7 minutes when the suite had few hanging mutants; timeouts
+    # dominate the rest. This cap is headroom for a bad day, not a budget: on a
+    # per-push workflow a hung job should fail fast, not hold a runner.
+    timeout-minutes: 45
 
     steps:
       - uses: actions/checkout@v5

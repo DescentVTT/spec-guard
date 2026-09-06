@@ -198,17 +198,13 @@ class RipgrepEngine implements Engine {
     if (!first) return [];
 
     const patterns = [...new Set(requests.map((request) => request.symbol))];
-    const batchable =
-      patterns.length > 1 && !first.options.regex && !first.options.ignoreCase && canBatchLiterals(patterns);
-
-    if (!batchable) {
+    if (!shouldBatchPatterns(patterns, first.options)) {
       return Promise.all(requests.map((request) => this.search(request)));
     }
 
     try {
       const tallies = await this.run(first, patterns);
       return requests.map((request) => this.toResult(tallies.get(request.symbol)));
-      /* c8 ignore next 4 */
     } catch (error) {
       if (!(error instanceof UnattributableBatch)) throw error;
       return Promise.all(requests.map((request) => this.search(request)));
@@ -229,66 +225,16 @@ class RipgrepEngine implements Engine {
         stdio: ['ignore', 'pipe', 'pipe'],
       });
 
-      const single = patterns.length === 1 ? (patterns[0] as string) : null;
-      const tallies = new Map<string, Tally>(patterns.map((pattern) => [pattern, emptyTally()]));
+      const sink = createRipgrepSink(request, patterns);
       let pending = '';
       let stderr = '';
-      let failure: Error | null = null;
-
-      const handleEvent = (line: string): void => {
-        if (line.length === 0 || failure) return;
-        let event: { type?: string; data?: unknown };
-        try {
-          event = JSON.parse(line) as { type?: string; data?: unknown };
-        } catch {
-          /* c8 ignore next -- ripgrep only ever emits valid JSON lines */
-          return;
-        }
-        if (event.type !== 'match' || !event.data) return;
-
-        const data = event.data as {
-          path?: RipgrepText;
-          lines?: RipgrepText;
-          line_number?: number;
-          submatches?: Array<{ start?: number; match?: RipgrepText }>;
-        };
-        const submatches = data.submatches ?? [];
-        if (submatches.length === 0) return;
-
-        // ripgrep echoes the path as given ("./src/a.ts" when the target is
-        // "."); normalise so both engines report the same relative path.
-        const absolute = path.resolve(request.root, decodeText(data.path));
-        if (request.options.excludeFiles.has(absolute)) return;
-        const file = toPosix(path.relative(request.root, absolute));
-        const lineNumber = data.line_number ?? 0;
-        const text = truncate(decodeText(data.lines));
-
-        for (const submatch of submatches) {
-          // With --fixed-strings and no --ignore-case the matched text is the
-          // pattern verbatim, which is what makes attribution exact.
-          const pattern = single ?? decodeText(submatch.match);
-          const tally = tallies.get(pattern);
-          /* c8 ignore next 4 -- belt and braces: --fixed-strings guarantees a hit */
-          if (!tally) {
-            failure = new UnattributableBatch(`ripgrep reported an unexpected match: ${pattern}`);
-            return;
-          }
-          tally.count += 1;
-          const last = tally.locations.at(-1);
-          if (last && last.file === file && last.line === lineNumber) {
-            last.count += 1;
-          } else if (tally.locations.length < MAX_COLLECTED_MATCHES) {
-            tally.locations.push({ file, line: lineNumber, column: (submatch.start ?? 0) + 1, text, count: 1 });
-          }
-        }
-      };
 
       child.stdout.setEncoding('utf8');
       child.stdout.on('data', (chunk: string) => {
         pending += chunk;
         let newline = pending.indexOf('\n');
         while (newline !== -1) {
-          handleEvent(pending.slice(0, newline));
+          sink.line(pending.slice(0, newline));
           pending = pending.slice(newline + 1);
           newline = pending.indexOf('\n');
         }
@@ -300,9 +246,9 @@ class RipgrepEngine implements Engine {
 
       child.once('error', reject);
       child.once('close', (code) => {
-        handleEvent(pending);
-        if (failure) {
-          reject(failure);
+        sink.line(pending);
+        if (sink.failure) {
+          reject(sink.failure);
           return;
         }
         // 0 = matches, 1 = no matches, 2 = an actual failure.
@@ -310,10 +256,94 @@ class RipgrepEngine implements Engine {
           reject(new Error(`ripgrep exited with code ${code}${stderr ? `: ${stderr.trim()}` : ''}`));
           return;
         }
-        resolve(tallies);
+        resolve(sink.tallies);
       });
     });
   }
+}
+
+/**
+ * Whether a set of patterns may share one ripgrep pass.
+ *
+ * Kept separate from the engine so the decision can be asserted directly: from
+ * the outside a correct batch and a correct set of separate passes are
+ * indistinguishable by design, which makes this the only place the rule is
+ * observable.
+ */
+export function shouldBatchPatterns(patterns: readonly string[], options: SearchOptions): boolean {
+  if (patterns.length <= 1) return false;
+  if (options.regex || options.ignoreCase) return false;
+  return canBatchLiterals(patterns);
+}
+
+export interface RipgrepSink {
+  /** Feeds one line of ripgrep --json output. */
+  line(text: string): void;
+  readonly tallies: Map<string, Tally>;
+  readonly failure: Error | null;
+}
+
+/**
+ * Parses ripgrep's newline-delimited JSON into per-pattern tallies.
+ *
+ * This is deliberately pure and separate from the subprocess: every interesting
+ * case here - a base64 path, a match with no submatches, an excluded file, an
+ * unattributable match - is trivial to exercise as data and nearly impossible
+ * to provoke from a real ripgrep on demand.
+ */
+export function createRipgrepSink(request: SearchRequest, patterns: readonly string[]): RipgrepSink {
+  const single = patterns.length === 1 ? (patterns[0] as string) : null;
+  const tallies = new Map<string, Tally>(patterns.map((pattern) => [pattern, emptyTally()]));
+  const sink = {
+    tallies,
+    failure: null as Error | null,
+    line(text: string): void {
+      if (text.length === 0 || sink.failure) return;
+      let event: { type?: string; data?: unknown };
+      try {
+        event = JSON.parse(text) as { type?: string; data?: unknown };
+      } catch {
+        return;
+      }
+      if (event.type !== 'match' || !event.data) return;
+
+      const data = event.data as {
+        path?: RipgrepText;
+        lines?: RipgrepText;
+        line_number?: number;
+        submatches?: Array<{ start?: number; match?: RipgrepText }>;
+      };
+      const submatches = data.submatches ?? [];
+      if (submatches.length === 0) return;
+
+      // ripgrep echoes the path as given ("./src/a.ts" when the target is
+      // "."); normalise so both engines report the same relative path.
+      const absolute = path.resolve(request.root, decodeText(data.path));
+      if (request.options.excludeFiles.has(absolute)) return;
+      const file = toPosix(path.relative(request.root, absolute));
+      const lineNumber = data.line_number ?? 0;
+      const text_ = truncate(decodeText(data.lines));
+
+      for (const submatch of submatches) {
+        // With --fixed-strings and no --ignore-case the matched text is the
+        // pattern verbatim, which is what makes attribution exact.
+        const pattern = single ?? decodeText(submatch.match);
+        const tally = tallies.get(pattern);
+        if (!tally) {
+          sink.failure = new UnattributableBatch(`ripgrep reported an unexpected match: ${pattern}`);
+          return;
+        }
+        tally.count += 1;
+        const last = tally.locations.at(-1);
+        if (last && last.file === file && last.line === lineNumber) {
+          last.count += 1;
+        } else if (tally.locations.length < MAX_COLLECTED_MATCHES) {
+          tally.locations.push({ file, line: lineNumber, column: (submatch.start ?? 0) + 1, text: text_, count: 1 });
+        }
+      }
+    },
+  };
+  return sink;
 }
 
 /* --------------------------------------------------------------- javascript */
@@ -361,6 +391,13 @@ class JavaScriptEngine implements Engine {
     if (!first) return [];
 
     const files = await this.collectFiles(first);
+    return this.searchFiles(files, requests);
+  }
+
+  /** Scans an already-enumerated file list. */
+  async searchFiles(files: readonly CandidateFile[], requests: SearchRequest[]): Promise<SearchResult[]> {
+    const [first] = requests;
+    if (!first) return [];
     const patterns = [...new Set(requests.map((request) => request.symbol))];
     const regexps = new Map(patterns.map((pattern) => [pattern, buildJsRegExp(pattern, first.options)]));
     const tallies = new Map<string, Tally>(patterns.map((pattern) => [pattern, emptyTally()]));
@@ -408,33 +445,73 @@ class JavaScriptEngine implements Engine {
 
   /** Every file a request should look at, sorted by relative path. */
   private async collectFiles(request: SearchRequest): Promise<CandidateFile[]> {
-    const matcher = createGlobMatcher(request.options.globs);
-    const found = new Map<string, CandidateFile>();
+    return (await enumerateCandidates(request)).files;
+  }
+}
 
-    for (const target of request.targets.length > 0 ? request.targets : ['.']) {
-      const absoluteTarget = path.resolve(request.root, target);
-      const stats = await fs.stat(absoluteTarget).catch(() => null);
-      if (!stats) continue;
+export interface Enumeration {
+  files: CandidateFile[];
+  /** True when the walk stopped early because the budget was reached. */
+  exceeded: boolean;
+  bytes: number;
+}
 
-      if (stats.isFile()) {
-        const relativePath = toPosix(path.relative(request.root, absoluteTarget));
-        if (stats.size <= MAX_FILE_SIZE && matcher(relativePath)) {
-          found.set(absoluteTarget, { absolutePath: absoluteTarget, relativePath });
-        }
-        continue;
+export interface EnumerationBudget {
+  maxFiles: number;
+  maxBytes: number;
+}
+
+/**
+ * Lists the files a request would search, sorted by relative path.
+ *
+ * With a budget, the walk abandons as soon as the tree proves bigger than the
+ * budget allows. That makes it usable as a cheap probe: enumeration is stat-only
+ * work, so finding out a tree is "too big" costs a bounded number of stats
+ * rather than a full traversal.
+ */
+export async function enumerateCandidates(
+  request: SearchRequest,
+  budget?: EnumerationBudget,
+): Promise<Enumeration> {
+  const matcher = createGlobMatcher(request.options.globs);
+  const found = new Map<string, CandidateFile>();
+  let bytes = 0;
+  let exceeded = false;
+
+  const admit = (absolutePath: string, relativePath: string, size: number): boolean => {
+    found.set(absolutePath, { absolutePath, relativePath });
+    bytes += size;
+    if (budget && (found.size > budget.maxFiles || bytes > budget.maxBytes)) {
+      exceeded = true;
+      return false;
+    }
+    return true;
+  };
+
+  outer: for (const target of request.targets.length > 0 ? request.targets : ['.']) {
+    const absoluteTarget = path.resolve(request.root, target);
+    const stats = await fs.stat(absoluteTarget).catch(() => null);
+    if (!stats) continue;
+
+    if (stats.isFile()) {
+      const relativePath = toPosix(path.relative(request.root, absoluteTarget));
+      if (stats.size <= MAX_FILE_SIZE && matcher(relativePath)) {
+        if (!admit(absoluteTarget, relativePath, stats.size)) break outer;
       }
-
-      for await (const file of walkFiles(absoluteTarget)) {
-        if (file.size > MAX_FILE_SIZE) continue;
-        const relativePath = toPosix(path.relative(request.root, file.absolutePath));
-        if (!matcher(relativePath)) continue;
-        found.set(file.absolutePath, { absolutePath: file.absolutePath, relativePath });
-      }
+      continue;
     }
 
-    for (const excluded of request.options.excludeFiles) found.delete(excluded);
-    return [...found.values()].sort((a, b) => (a.relativePath < b.relativePath ? -1 : 1));
+    for await (const file of walkFiles(absoluteTarget)) {
+      if (file.size > MAX_FILE_SIZE) continue;
+      const relativePath = toPosix(path.relative(request.root, file.absolutePath));
+      if (!matcher(relativePath)) continue;
+      if (!admit(file.absolutePath, relativePath, file.size)) break outer;
+    }
   }
+
+  for (const excluded of request.options.excludeFiles) found.delete(excluded);
+  const files = [...found.values()].sort((a, b) => (a.relativePath < b.relativePath ? -1 : 1));
+  return { files, exceeded, bytes };
 }
 
 /** Counts matches in one file and records per-line snippets. */
@@ -489,9 +566,32 @@ export function scanContent(content: string, relativePath: string, regexp: RegEx
 /* ------------------------------------------------------------------ factory */
 
 /** An engine that is guaranteed to implement the batch API. */
-export type BatchEngine = Engine & Required<Pick<Engine, 'searchBatch'>>;
+export type BatchEngine = Engine &
+  Required<Pick<Engine, 'searchBatch'>> & {
+    /** Scans a file list that the caller already enumerated. */
+    searchFiles(files: readonly CandidateFile[], requests: SearchRequest[]): Promise<SearchResult[]>;
+  };
 
 export const javascriptEngine: BatchEngine = new JavaScriptEngine();
+
+/**
+ * How much scanning the JavaScript engine may do before ripgrep is worth a
+ * process spawn.
+ *
+ * Measured with scripts/bench-engines.mjs. ripgrep's cost is dominated by
+ * process startup and is nearly flat in tree size; the JavaScript scanner grows
+ * linearly. The crossover is therefore wherever a spawn costs, and that differs
+ * by an order of magnitude between platforms:
+ *
+ *   Windows 11, Node 24, rg 15   spawn floor ~130ms   crossover ~575 files
+ *   Linux (container), Node 22, rg 13   spawn floor ~15ms   crossover ~25 files
+ *
+ * The budget is set just below each crossover, so choosing JavaScript is never
+ * the slower option by more than a few milliseconds, while a small tree on
+ * Windows avoids a spawn that would cost ten times the whole search.
+ */
+export const SMALL_TREE_BUDGET: EnumerationBudget =
+  process.platform === 'win32' ? { maxFiles: 512, maxBytes: 1024 * 1024 } : { maxFiles: 32, maxBytes: 64 * 1024 };
 
 /** Spawn failures that mean "this binary is not installed", not "search failed". */
 const MISSING_BINARY_CODES = new Set(['ENOENT', 'EACCES', 'EPERM', 'EINVAL', 'UNKNOWN']);
@@ -502,19 +602,55 @@ function isMissingBinary(error: unknown): boolean {
 }
 
 /**
- * Tries ripgrep on the first search and remembers the answer.
+ * Identity tokens for exclude sets.
  *
- * Probing with `rg --version` up front would be simpler, but a process spawn
- * costs ~27ms on Windows - as much as a whole search - and that probe sits on
- * the critical path of every run. Discovering ripgrep's absence from the first
- * real search is free.
+ * The enumeration cache key has to account for `excludeFiles`, because
+ * enumeration applies it - two groups over the same targets but with different
+ * exclusions are different questions. Hashing the paths would be wasteful (a
+ * run excludes every spec file), and the runner passes one set for the whole
+ * run, so identity is both cheap and sufficient.
  */
-class AutoEngine implements Engine {
-  private mode: 'unknown' | 'ripgrep' | 'javascript' = 'unknown';
+const excludeSetIds = new WeakMap<ReadonlySet<string>, number>();
+let nextExcludeSetId = 0;
+
+function excludeSetId(excludeFiles: ReadonlySet<string>): number {
+  let id = excludeSetIds.get(excludeFiles);
+  if (id === undefined) {
+    id = nextExcludeSetId++;
+    excludeSetIds.set(excludeFiles, id);
+  }
+  return id;
+}
+
+function enumerationKey(request: SearchRequest): string {
+  return JSON.stringify([
+    request.root,
+    request.targets,
+    request.options.globs,
+    excludeSetId(request.options.excludeFiles),
+  ]);
+}
+
+/**
+ * Picks an engine per search group instead of once per run.
+ *
+ * The probe is the work: it enumerates the target set under a budget, which is
+ * stat-only. If the tree fits, the file list is already in hand and the
+ * JavaScript scan runs against it with no spawn and no second walk. If the walk
+ * abandons, the tree is big enough that ripgrep will win comfortably, and the
+ * abandoned enumeration cost a bounded number of stats.
+ *
+ * Deciding per group rather than per run matters because one spec can assert
+ * against `src/` and a single file in the same run.
+ */
+class AdaptiveEngine implements Engine {
+  private usedRipgrep = false;
+  private ripgrepMissing = false;
   private readonly ripgrep = new RipgrepEngine(process.env.SPEC_GUARD_RG || 'rg');
+  private readonly enumerations = new Map<string, Promise<Enumeration>>();
 
   get name(): EngineName {
-    return this.mode === 'javascript' ? 'javascript' : 'ripgrep';
+    return this.usedRipgrep ? 'ripgrep' : 'javascript';
   }
 
   async search(request: SearchRequest): Promise<SearchResult> {
@@ -523,16 +659,34 @@ class AutoEngine implements Engine {
   }
 
   async searchBatch(requests: SearchRequest[]): Promise<SearchResult[]> {
-    if (this.mode !== 'javascript') {
+    const [first] = requests;
+    if (!first) return [];
+
+    if (!this.ripgrepMissing) {
+      const key = enumerationKey(first);
+      let probe = this.enumerations.get(key);
+      if (!probe) {
+        probe = enumerateCandidates(first, SMALL_TREE_BUDGET);
+        this.enumerations.set(key, probe);
+      }
+      const enumeration = await probe;
+
+      if (!enumeration.exceeded) {
+        // Small tree: the walk already produced the file list, so scanning it
+        // here costs less than starting a process.
+        return javascriptEngine.searchFiles(enumeration.files, requests);
+      }
+
       try {
         const results = await this.ripgrep.searchBatch(requests);
-        this.mode = 'ripgrep';
+        this.usedRipgrep = true;
         return results;
       } catch (error) {
         if (!isMissingBinary(error)) throw error;
-        this.mode = 'javascript';
+        this.ripgrepMissing = true;
       }
     }
+
     return javascriptEngine.searchBatch(requests);
   }
 }
@@ -547,7 +701,7 @@ export async function resolveEngine(preference: EnginePreference = 'auto'): Prom
     }
     return new RipgrepEngine(binary);
   }
-  return new AutoEngine();
+  return new AdaptiveEngine();
 }
 
 export type CachedEngine = Engine & { fallbacks: string[] };
