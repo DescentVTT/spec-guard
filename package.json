@@ -54,6 +54,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/spec-guard/spec-guard.git"
-  }
+    "url": "git+https://github.com/DescentVTT/spec-guard.git"
+  },
+  "bugs": {
+    "url": "https://github.com/DescentVTT/spec-guard/issues"
+  },
+  "homepage": "https://github.com/DescentVTT/spec-guard#readme"
 }

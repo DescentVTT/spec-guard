@@ -186,15 +186,23 @@ jobs:
   spec-guard:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: '22'
       - run: npx spec-guard "docs/**/*.md" "README.md" --verbose
 ```
 
-ripgrep is preinstalled on GitHub-hosted runners. If it is missing, spec-guard
-falls back to its own scanner and produces identical results.
+That job needs nothing else installed. GitHub-hosted runners do **not** ship
+ripgrep on `PATH` - spec-guard's own CI reports `engine: javascript` there - so
+the fallback is what actually runs, and it produces identical results. If your
+repository is large enough that you want ripgrep's speed, install it first:
+
+```yaml
+      - run: sudo apt-get update && sudo apt-get install -y ripgrep
+```
+
+Or point spec-guard at a binary you already have with `SPEC_GUARD_RG=/path/to/rg`.
 
 As a pre-commit hook:
 
