@@ -339,6 +339,7 @@ npm install
 npm run build      # tsc -> dist/
 npm test           # vitest
 npm run test:coverage
+npm run test:mutation  # stryker (~20 minutes)
 npm run lint       # tsc --noEmit
 npm run selfcheck  # run spec-guard on its own docs
 ```
@@ -348,6 +349,24 @@ they agree, so the fallback cannot quietly drift from ripgrep. `@vscode/ripgrep`
 is a devDependency purely so that the ripgrep path is exercised on every
 platform in CI, including machines that have no `rg` on PATH; it ships a
 prebuilt binary and is never a runtime dependency.
+
+### Mutation testing
+
+Coverage says a line ran. It does not say an assertion would notice if the line
+behaved differently. This repository measures the difference: **83.16%** of
+2,060 mutants are killed, against 98.98% line coverage.
+
+That gap is the point. The first run scored 77.23%, and the weakest file was
+the reporter at 65.48% - not because it lacked tests, but because its tests were
+almost all `toContain` against colourless output. A mutant could prepend a junk
+line to the output, drop a colour, or turn `remaining > 0` into `remaining >= 0`
+and every test still passed. Seventy-five tests later - exact whole-output
+comparison instead of substring matching - the reporter is at 87.30%.
+
+`npm run test:mutation` runs it. CI runs it weekly, on demand, and on pull
+requests that touch `src/` or `tests/`, with the score gated at 80%. The full
+story, including a run whose score turned out to be fiction, is in
+[ADR-0003](docs/adr/0003-mutation-testing.md).
 
 ## Requirements
 

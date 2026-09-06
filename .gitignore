@@ -4,3 +4,6 @@ coverage/
 tests/fixtures/.tmp/
 *.tsbuildinfo
 .DS_Store
+reports/
+.stryker-tmp/
+mutation-run*.log

@@ -1,0 +1,47 @@
+name: Mutation
+
+# Mutation testing runs the whole suite once per mutant, so it is deliberately
+# not on the critical path of every push. It runs weekly, on demand, and on
+# pull requests that actually touch the source or the tests.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 4 * * 1'
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'tests/**'
+      - 'stryker.config.mjs'
+      - 'vitest.mutation.config.ts'
+
+concurrency:
+  group: mutation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  stryker:
+    name: stryker
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      # The config is tuned for a developer machine; hosted runners have far
+      # fewer cores, and each Stryker worker spawns a vitest process of its own.
+      - name: Mutation test
+        run: npx stryker run --concurrency 2
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: mutation-report
+          path: reports/mutation/
+          if-no-files-found: ignore

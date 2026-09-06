@@ -42,15 +42,18 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:mutation": "stryker run",
     "selfcheck": "node ./bin/spec-guard.js \"docs/**/*.md\" \"README.md\" --verbose",
     "prepublishOnly": "npm run clean && npm run build"
   },
   "devDependencies": {
+    "@stryker-mutator/core": "^10.0.0",
+    "@stryker-mutator/vitest-runner": "^10.0.0",
     "@types/node": "^26.4.1",
-    "@vitest/coverage-v8": "^5.0.0",
+    "@vitest/coverage-v8": "^4.1.11",
     "@vscode/ripgrep": "^1.18.0",
     "typescript": "^7.0.2",
-    "vitest": "^5.0.0"
+    "vitest": "^4.1.11"
   },
   "repository": {
     "type": "git",
@@ -59,5 +62,8 @@
   "bugs": {
     "url": "https://github.com/DescentVTT/spec-guard/issues"
   },
-  "homepage": "https://github.com/DescentVTT/spec-guard#readme"
+  "homepage": "https://github.com/DescentVTT/spec-guard#readme",
+  "overrides": {
+    "qs": "^6.16.0"
+  }
 }

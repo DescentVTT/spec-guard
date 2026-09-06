@@ -246,10 +246,11 @@ describe('main', () => {
 });
 
 describe('default IO', () => {
+  // --version resolves before any path work, so this needs no cwd juggling:
+  // process.chdir is unsupported in worker threads and racy under parallelism.
   it('writes to the real stdout when no IO is injected', async () => {
     const written: string[] = [];
     const originalWrite = process.stdout.write.bind(process.stdout);
-    const originalCwd = process.cwd();
 
     process.stdout.write = ((chunk: string) => {
       written.push(String(chunk));
@@ -257,12 +258,9 @@ describe('default IO', () => {
     }) as typeof process.stdout.write;
 
     try {
-      process.chdir(DEMO_REPO);
-      const code = await main(['--version']);
-      expect(code).toBe(EXIT_OK);
+      expect(await main(['--version'])).toBe(EXIT_OK);
     } finally {
       process.stdout.write = originalWrite;
-      process.chdir(originalCwd);
     }
 
     expect(written.join('')).toMatch(/^\d+\.\d+\.\d+/);
