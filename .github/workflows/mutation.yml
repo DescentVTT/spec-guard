@@ -22,7 +22,7 @@ jobs:
   stryker:
     name: stryker
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 150
 
     steps:
       - uses: actions/checkout@v5
@@ -34,10 +34,11 @@ jobs:
 
       - run: npm ci
 
-      # The config is tuned for a developer machine; hosted runners have far
-      # fewer cores, and each Stryker worker spawns a vitest process of its own.
+      # The config's concurrency of 8 is tuned for a developer machine.
+      # Hosted runners have 4 vCPUs, and each Stryker worker drives a vitest
+      # process of its own, so oversubscribing here makes the run slower.
       - name: Mutation test
-        run: npx stryker run --concurrency 2
+        run: npx stryker run --concurrency 4
 
       - uses: actions/upload-artifact@v7
         if: always()
