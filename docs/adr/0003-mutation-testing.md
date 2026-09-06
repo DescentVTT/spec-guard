@@ -116,8 +116,18 @@ means a hang rather than a slowdown, and 88.76% is the number this project
 claims. A metric that improves when you shorten a clock is not measuring test
 strength.
 
-The `break` threshold is 85: below the measured score, so a regression fails the
-build, but not so tight that ordinary refactoring trips it.
+**The score is platform-dependent, for the same reason.** The same commit under
+the same configuration scores 88.76% on Windows and **86.40%** on Linux CI, and
+the gap is entirely timeouts: 127 mutants hang on Windows against 43 on Linux,
+and the 55 extra Linux survivors are those same mutants finishing in time to be
+seen as survivors. Nothing about the tests differs; the machine is just faster.
+
+The number this project quotes is therefore the CI one, 86.40% - the lower
+figure, produced where the gate actually runs. A metric worth trusting should be
+quoted at its least flattering measurement, not its best.
+
+The `break` threshold is 85: below the CI score, so a regression fails the build,
+but not so tight that ordinary refactoring trips it.
 
 ## Consequences
 

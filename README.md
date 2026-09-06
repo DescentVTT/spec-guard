@@ -386,8 +386,8 @@ prebuilt binary and is never a runtime dependency.
 ### Mutation testing
 
 Coverage says a line ran. It does not say an assertion would notice if the line
-behaved differently. This repository measures the difference: **88.76%** of
-2,118 mutants are killed, against 98.98% line coverage.
+behaved differently. This repository measures the difference: **86.40%** of
+2,118 mutants are killed in CI, against 98.98% line coverage.
 
 That gap is the point. The first run scored 77.23%, and the weakest file was the
 reporter at 65.48% - not because it lacked tests, but because its tests were
@@ -397,10 +397,16 @@ test still passed. Exact whole-output comparison took it to 87.30%. The engine
 and the walker were then rewritten for testability rather than papered over with
 more tests, which is what moved them from 75%/78% to 83%/93%.
 
-`npm run test:mutation` runs it locally. CI runs it on **every push**, gated at
-85%. Two cautionary tales are in [ADR-0003](docs/adr/0003-mutation-testing.md):
-a run whose score was fiction because the mutants were never activated, and a
-tuning knob that lifted the score by six points without adding a single test.
+`npm run test:mutation` runs it locally and takes about half an hour; CI runs it
+on **every push** in under seven minutes, gated at 85%. The CI figure is the one
+quoted above, and it is the lower of the two: the same commit scores 88.76% on
+Windows, where three times as many mutants hang and Stryker counts a hang as a
+kill.
+
+Three cautionary tales are in [ADR-0003](docs/adr/0003-mutation-testing.md): a
+run whose score was pure fiction because the mutants were never activated, a
+tuning knob that lifted the score six points without adding a test, and the
+platform gap above.
 
 ## Requirements
 
