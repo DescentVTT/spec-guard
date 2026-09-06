@@ -1,0 +1,9 @@
+# Normalise to LF in the repository and on checkout.
+#
+# bin/spec-guard.js starts with a shebang: a CRLF there makes Linux look for an
+# interpreter literally named "node\r". Windows contributors with
+# core.autocrlf=true would otherwise publish a package that cannot run.
+* text=auto eol=lf
+
+# Binary fixtures must never be touched.
+*.bin binary

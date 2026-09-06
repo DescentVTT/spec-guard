@@ -1,0 +1,6 @@
+{
+  "region": "eu-west-1",
+  "featureFlags": {
+    "newCheckout": true
+  }
+}

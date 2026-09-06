@@ -1,0 +1,59 @@
+{
+  "name": "spec-guard",
+  "version": "0.1.0",
+  "description": "Executable architecture assertions for Markdown specs & ADRs.",
+  "keywords": [
+    "adr",
+    "architecture",
+    "documentation",
+    "drift",
+    "lint",
+    "markdown",
+    "ripgrep",
+    "spec"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "spec-guard": "./bin/spec-guard.js"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "selfcheck": "node ./bin/spec-guard.js \"docs/**/*.md\" \"README.md\" --verbose",
+    "prepublishOnly": "npm run clean && npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.1",
+    "@vitest/coverage-v8": "^5.0.0",
+    "@vscode/ripgrep": "^1.18.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spec-guard/spec-guard.git"
+  }
+}
