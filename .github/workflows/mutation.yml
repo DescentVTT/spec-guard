@@ -1,28 +1,35 @@
 name: Mutation
 
-# Mutation testing runs the whole suite once per mutant, so it is deliberately
-# not on the critical path of every push. It runs weekly, on demand, and on
-# pull requests that actually touch the source or the tests.
+# Mutation testing runs on every push. It was originally held back to a weekly
+# schedule on the assumption that it would be slow, but the first real run took
+# 6m54s on a hosted runner - fast enough to be a normal check rather than an
+# occasional audit, and a mutation score is only useful if it is current.
+#
+# There is no paths filter. A dependency bump can move the score as easily as a
+# source edit can (vitest itself is pinned for exactly that reason - see
+# ADR-0003), and filtering on src/** would miss it.
 on:
-  workflow_dispatch:
+  push:
+  pull_request:
   schedule:
     - cron: '0 4 * * 1'
-  pull_request:
-    paths:
-      - 'src/**'
-      - 'tests/**'
-      - 'stryker.config.mjs'
-      - 'vitest.mutation.config.ts'
+  workflow_dispatch:
 
+# A push to a branch that also has an open pull request triggers both events.
+# Keying the group on the PR number when there is one collapses those into a
+# single run, and cancels superseded runs when commits arrive in quick
+# succession.
 concurrency:
-  group: mutation-${{ github.ref }}
+  group: mutation-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   stryker:
     name: stryker
     runs-on: ubuntu-latest
-    timeout-minutes: 150
+    # Measured at ~7 minutes. This cap is headroom for a bad day, not a budget:
+    # on a per-push workflow a hung job should fail fast, not hold a runner.
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v5

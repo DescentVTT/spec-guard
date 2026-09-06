@@ -94,6 +94,10 @@ Stryker over a small range of a pure function and confirm the killed/survived
 split matches the command runner. When the runner supports vitest 5, delete the
 pin and this ADR's assertion.
 
-Mutation testing does not run on every push - it runs the whole suite per
-mutant group and is far slower than the tests themselves. It runs weekly, on
-demand, and on pull requests that touch `src/` or `tests/`.
+Mutation testing runs on every push, gated at 80%. It was first held back to a
+weekly schedule on the assumption that running the suite once per mutant would
+be too slow for the critical path. That assumption was wrong by an order of
+magnitude: the first hosted run finished in 6m54s - faster than the 20 minutes
+it takes locally at concurrency 8 - and a mutation score is only worth having if
+it describes the code as it stands today. The schedule and the manual trigger
+are kept as a backstop.

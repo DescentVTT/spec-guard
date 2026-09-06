@@ -378,10 +378,10 @@ line to the output, drop a colour, or turn `remaining > 0` into `remaining >= 0`
 and every test still passed. Seventy-five tests later - exact whole-output
 comparison instead of substring matching - the reporter is at 87.30%.
 
-`npm run test:mutation` runs it. CI runs it weekly, on demand, and on pull
-requests that touch `src/` or `tests/`, with the score gated at 80%. The full
-story, including a run whose score turned out to be fiction, is in
-[ADR-0003](docs/adr/0003-mutation-testing.md).
+`npm run test:mutation` runs it locally. CI runs it on **every push**, gated at
+80% - it takes about seven minutes, which is cheap enough that a stale score is
+the worse trade. The full story, including a run whose score turned out to be
+fiction, is in [ADR-0003](docs/adr/0003-mutation-testing.md).
 
 ## Requirements
 
