@@ -53,7 +53,12 @@ function bigRepo(): Promise<string> {
     const root = await makeTempRepo({
       'src/a.ts': filler,
       'src/b.ts': filler,
-      'src/c.ts': `${filler}export class Needle {}\n`,
+      'src/c.ts': filler,
+      // Small enough to sit under the budget on every platform, so a
+      // single-file target is a genuinely different question from the
+      // whole tree. The Linux budget is 64KB: the filler files are ~380KB
+      // each, so any one of them would already be over it.
+      'src/needle.ts': 'export class Needle {}\n',
     });
     return root;
   })();
@@ -146,8 +151,9 @@ describe('engine selection', () => {
     const root = await bigRepo();
     const engine = await resolveEngine('auto');
 
-    // A single file is under budget; the whole of src/ is over it.
-    const single = await engine.search(query(root, 'Needle', { targets: ['src/c.ts'] }));
+    // A single small file is under budget on every platform; the whole of src/
+    // is over it on all of them.
+    const single = await engine.search(query(root, 'Needle', { targets: ['src/needle.ts'] }));
     expect(single.engine).toBe('javascript');
     expect(single.count).toBe(1);
 

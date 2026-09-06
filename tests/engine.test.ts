@@ -52,7 +52,12 @@ function makeBigRepo(): Promise<string> {
     const root = await makeTempRepo({
       'src/a.ts': filler,
       'src/b.ts': filler,
-      'src/c.ts': `${filler}export class Needle {}\n`,
+      'src/c.ts': filler,
+      // Small enough to sit under the budget on every platform, so a
+      // single-file target is a genuinely different question from the
+      // whole tree. The Linux budget is 64KB: the filler files are ~380KB
+      // each, so any one of them would already be over it.
+      'src/needle.ts': 'export class Needle {}\n',
     });
     return root;
   })();

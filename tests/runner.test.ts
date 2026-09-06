@@ -356,9 +356,15 @@ describe('executeAssertion', () => {
   });
 });
 
+/**
+ * Denying yourself read access needs two things to be true: a filesystem where
+ * chmod affects reads (not Windows), and a user that permission bits apply to
+ * (not root, which is what you get in most containers).
+ */
+const canDenyReads = process.platform !== 'win32' && process.getuid?.() !== 0;
+
 describe('unreadable spec files', () => {
-  // chmod is a no-op for reads on Windows, so this runs on POSIX only.
-  it.runIf(process.platform !== 'win32')('reports a spec file that cannot be read', async () => {
+  it.runIf(canDenyReads)('reports a spec file that cannot be read', async () => {
     const { promises: fsp } = await import('node:fs');
     const root = await repo({ 'docs/locked.md': '<!-- @assert-present file="docs/locked.md" -->\n' });
     const locked = path.join(root, 'docs', 'locked.md');
