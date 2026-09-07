@@ -12,13 +12,19 @@
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import { isMissingBinary, javascriptEngine, runSearches, sortLocations } from '../src/engine.js';
+import {
+  isMissingBinary,
+  javascriptEngine,
+  runSearches,
+  sortLocations,
+  type SearchRequest,
+} from '../src/engine.js';
 import { parseDirectives } from '../src/parser.js';
 import { formatReport } from '../src/reporter.js';
 import { resolveDirective, runSpecGuard, type RunResult } from '../src/runner.js';
 import { parseArgs, UsageError } from '../src/cli.js';
 import type { Directive, DirectiveKind } from '../src/types.js';
-import { DEMO_REPO, searchOptions } from './helpers.js';
+import { DEMO_REPO, makeTempRepo, removeTempRepo, searchOptions } from './helpers.js';
 
 const ESC = String.fromCharCode(27);
 const parseContext = { file: 'C:/repo/docs/a.md', relativeFile: 'docs/a.md' };
@@ -283,43 +289,122 @@ describe('sortLocations', () => {
 });
 
 describe('grouping requires every field to agree', () => {
-  const options = searchOptions();
+  /**
+   * Every request here shares one exclude set on purpose. `sharesOnePass`
+   * compares that set by identity and it is the last condition checked, so a
+   * fresh `new Set()` per request makes the group differ for that reason alone
+   * and none of the earlier comparisons ever run. Tests written that way pass
+   * whatever those comparisons do.
+   */
+  const shared = new Set<string>();
+  const options = (overrides = {}) => searchOptions({ excludeFiles: shared, ...overrides });
 
-  it('does not merge requests with different roots', async () => {
-    const results = await runSearches(javascriptEngine, [
-      { root: DEMO_REPO, symbol: 'UserSessionManager', targets: ['src'], options },
-      { root: DEMO_REPO, symbol: 'UserSessionManager', targets: ['src/ui'], options },
-    ]);
+  async function counts(requests: SearchRequest[]): Promise<number[]> {
+    const results = await runSearches(javascriptEngine, requests);
+    return results.map((result) => result.count);
+  }
 
-    expect(results.map((result) => result.count)).toEqual([1, 0]);
+  it('does not merge different roots', async () => {
+    const other = await makeTempRepo({ 'src/a.ts': 'UserSessionManager\n' });
+    try {
+      expect(
+        await counts([
+          { root: DEMO_REPO, symbol: 'UserSessionManager', targets: ['src'], options: options() },
+          { root: other, symbol: 'UserSessionManager', targets: ['src'], options: options() },
+        ]),
+      ).toEqual([1, 1]);
+    } finally {
+      await removeTempRepo(other);
+    }
   });
 
-  it('does not merge requests with different glob filters', async () => {
-    const results = await runSearches(javascriptEngine, [
-      { root: DEMO_REPO, symbol: 'export', targets: ['src'], options: searchOptions({ globs: ['*.tsx'] }) },
-      { root: DEMO_REPO, symbol: 'export', targets: ['src'], options: searchOptions({ globs: ['*.ts'] }) },
-    ]);
-
-    expect(results[0]?.count).toBe(2);
-    expect(results[1]?.count).toBeGreaterThan(2);
+  it('does not merge different targets', async () => {
+    expect(
+      await counts([
+        { root: DEMO_REPO, symbol: 'PrimaryButton', targets: ['src/ui'], options: options() },
+        { root: DEMO_REPO, symbol: 'PrimaryButton', targets: ['src/core'], options: options() },
+      ]),
+    ).toEqual([2, 0]);
   });
 
-  it('does not merge requests with different exclude sets', async () => {
-    const results = await runSearches(javascriptEngine, [
-      { root: DEMO_REPO, symbol: 'UserSessionManager', targets: ['src'], options: searchOptions() },
-      {
-        root: DEMO_REPO,
-        symbol: 'UserSessionManager',
-        targets: ['src'],
-        options: searchOptions({
-          excludeFiles: new Set([path.resolve(DEMO_REPO, 'src/services/UserSessionManager.ts')]),
-        }),
-      },
+  it('does not merge different numbers of targets', async () => {
+    expect(
+      await counts([
+        { root: DEMO_REPO, symbol: 'PrimaryButton', targets: ['src/ui'], options: options() },
+        { root: DEMO_REPO, symbol: 'PrimaryButton', targets: ['src/ui', 'src/core'], options: options() },
+      ]),
+    ).toEqual([2, 2]);
+  });
+
+  it('does not merge different word settings', async () => {
+    expect(
+      await counts([
+        { root: DEMO_REPO, symbol: 'PrimaryButton', targets: ['src/ui'], options: options() },
+        { root: DEMO_REPO, symbol: 'PrimaryButton', targets: ['src/ui'], options: options({ word: true }) },
+      ]),
+    ).toEqual([2, 1]);
+  });
+
+  it('does not merge different case sensitivity', async () => {
+    expect(
+      await counts([
+        { root: DEMO_REPO, symbol: 'primarybutton', targets: ['src/ui'], options: options() },
+        { root: DEMO_REPO, symbol: 'primarybutton', targets: ['src/ui'], options: options({ ignoreCase: true }) },
+      ]),
+    ).toEqual([0, 2]);
+  });
+
+  it('does not merge literal with regex', async () => {
+    expect(
+      await counts([
+        { root: DEMO_REPO, symbol: 'class [A-Z][A-Za-z]+', targets: ['src'], options: options() },
+        { root: DEMO_REPO, symbol: 'class [A-Z][A-Za-z]+', targets: ['src'], options: options({ regex: true }) },
+      ]),
+    ).toEqual([0, 4]);
+  });
+
+  it('does not merge different glob filters', async () => {
+    const [tsx, ts] = await counts([
+      { root: DEMO_REPO, symbol: 'export', targets: ['src'], options: options({ globs: ['*.tsx'] }) },
+      { root: DEMO_REPO, symbol: 'export', targets: ['src'], options: options({ globs: ['*.ts'] }) },
     ]);
 
-    // Asserting both halves: checking only the first would pass even if the two
-    // requests had been wrongly merged.
-    expect(results.map((result) => result.count)).toEqual([1, 0]);
+    expect(tsx).toBe(2);
+    expect(ts).toBeGreaterThan(2);
+  });
+
+  it('does not merge different numbers of glob filters', async () => {
+    const [one, two] = await counts([
+      { root: DEMO_REPO, symbol: 'export', targets: ['src'], options: options({ globs: ['*.tsx'] }) },
+      { root: DEMO_REPO, symbol: 'export', targets: ['src'], options: options({ globs: ['*.tsx', '*.ts'] }) },
+    ]);
+
+    expect(one).toBe(2);
+    expect(two).toBeGreaterThan(2);
+  });
+
+  it('does not merge different exclude sets', async () => {
+    const excluded = new Set([path.resolve(DEMO_REPO, 'src/services/UserSessionManager.ts')]);
+    expect(
+      await counts([
+        { root: DEMO_REPO, symbol: 'UserSessionManager', targets: ['src'], options: options() },
+        {
+          root: DEMO_REPO,
+          symbol: 'UserSessionManager',
+          targets: ['src'],
+          options: searchOptions({ excludeFiles: excluded }),
+        },
+      ]),
+    ).toEqual([1, 0]);
+  });
+
+  it('does merge when every field agrees', async () => {
+    expect(
+      await counts([
+        { root: DEMO_REPO, symbol: 'PrimaryButton', targets: ['src/ui'], options: options() },
+        { root: DEMO_REPO, symbol: 'DeprecatedHelper', targets: ['src/ui'], options: options() },
+      ]),
+    ).toEqual([2, 0]);
   });
 });
 

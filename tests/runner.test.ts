@@ -148,6 +148,8 @@ describe.each(ENGINES)('runSpecGuard [%s engine]', (engine) => {
     expect(report.summary).toEqual({ specs: 1, total: 8, passed: 8, failed: 0, skipped: 0 });
     expect(report.errors).toEqual([]);
     expect(report.warnings).toEqual([]);
+    // With no fallback, the report names the engine that was asked for.
+    expect(report.engine).toBe(engine);
     expect(report.results.every((result) => result.ok)).toBe(true);
   });
 

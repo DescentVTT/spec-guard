@@ -52,8 +52,9 @@ export default {
   // reaching it means a mutant genuinely hangs.
   timeoutMS: 60000,
   concurrency: 8,
-  // `break` is a regression guard, not an aspiration: it sits below the measured
-  // score (88.76%) so that losing ground fails the build, while ordinary
+  // `break` is a regression guard, not an aspiration: it sits below the score CI
+  // measures (88.56%; the local Windows figure is higher because more mutants
+  // hang there) so that losing ground fails the build, while ordinary
   // refactoring does not trip it.
-  thresholds: { high: 90, low: 80, break: 85 },
+  thresholds: { high: 90, low: 80, break: 87 },
 };

@@ -386,8 +386,8 @@ prebuilt binary and is never a runtime dependency.
 ### Mutation testing
 
 Coverage says a line ran. It does not say an assertion would notice if the line
-behaved differently. This repository measures the difference: **86.40%** of
-2,118 mutants are killed in CI, against 98.98% line coverage.
+behaved differently. This repository measures the difference: **88.56%** of
+2,115 mutants are killed in CI, against 98.98% line coverage.
 
 That gap is the point. The first run scored 77.23%, and the weakest file was the
 reporter at 65.48% - not because it lacked tests, but because its tests were

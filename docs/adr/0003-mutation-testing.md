@@ -122,9 +122,24 @@ the gap is entirely timeouts: 127 mutants hang on Windows against 43 on Linux,
 and the 55 extra Linux survivors are those same mutants finishing in time to be
 seen as survivors. Nothing about the tests differs; the machine is just faster.
 
-The number this project quotes is therefore the CI one, 86.40% - the lower
-figure, produced where the gate actually runs. A metric worth trusting should be
-quoted at its least flattering measurement, not its best.
+The number this project quotes is therefore the CI one - the lower figure,
+produced where the gate actually runs. A metric worth trusting should be quoted
+at its least flattering measurement, not its best.
+
+A second pass over the survivors took CI from 86.40% to **88.56%** (217 left,
+down from 260). Two things came out of it that were not more tests. The sort at
+the end of `scanContent` turned out to be dead code - `exec` scans forward and a
+Map keeps insertion order, so its mutants survived because they could not change
+any result, and the honest fix was deleting it. And three of the newly written
+tests were thrown out for passing without proving anything; one of those had
+never reached the validator it claimed to test, which is how the CLI came to
+report "requires a value" for `--max-snippets=-1`.
+
+The same trap caught a test of the batching rule: `sharesOnePass` compares
+exclude sets by identity as its *last* condition, so building a fresh `new Set()`
+per request made every group differ for that reason alone and none of the
+earlier comparisons ever ran. The rewritten tests share one set and vary exactly
+one field each.
 
 The `break` threshold is 85: below the CI score, so a regression fails the build,
 but not so tight that ordinary refactoring trips it.
