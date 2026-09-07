@@ -56,10 +56,11 @@ export default {
   // measures so that losing ground fails the build, while ordinary refactoring
   // does not trip it.
   //
-  // Re-anchored to 84 in 0.3.0 against a CI measurement of 84.63%. The previous
-  // 87 was set on a codebase with no state machine in it; src/imports.ts is one,
-  // and a state machine carries more mutants that no input can distinguish. The
-  // headroom here (0.63) is thinner than the ~1.5 used before, which is
-  // deliberate: it means a marginal regression trips the gate. See ADR-0003.
-  thresholds: { high: 90, low: 80, break: 84 },
+  // Re-anchored to 85 in 0.4.0 against a CI measurement of 85.61%. The scope
+  // rewrite raised the score by deleting more than it added - the ripgrep JSON
+  // path and the batching apparatus went with it - and by closing a hole in the
+  // reporter that had twenty-six mutants no test executed. Leaving the gate at
+  // 84 would have banked that as slack; 0.61 of headroom keeps it tight enough
+  // that a marginal regression still trips it. See ADR-0003.
+  thresholds: { high: 90, low: 80, break: 85 },
 };

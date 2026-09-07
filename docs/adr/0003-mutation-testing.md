@@ -230,6 +230,35 @@ Two things worth recording for whoever grows this suite next:
   16% while the clock rose 27%, and timeouts were only 54 of the 474 new
   mutants.
 
+### 0.4.0: the gate moves up, for once
+
+The scope rewrite (ADR-0007) took CI from 84.86% to **85.61%**, and the floor
+moved with it, to **85**.
+
+Two things paid for that, and only one of them was writing tests:
+
+- **Deleting code.** Making ripgrep a pre-filter removed its JSON parser, the
+  byte-to-character column conversion and the whole safe-batching apparatus.
+  Those existed to make ripgrep's own counting trustworthy, and they carried
+  mutants that were hard to kill precisely because a correct batch and a
+  correct set of separate passes are indistinguishable from outside. Code that
+  does not exist has a perfect score, and this is the honest version of that
+  joke: the behaviour did not disappear, the second implementation of it did.
+- **A hole the score found before a user did.** `reporter.ts` came back at
+  83.19% with twenty-six mutants that no test *executed* - not survivors,
+  unreached code. Every reporter fixture carried an empty ledger, so the prose
+  explaining a skipped file returned on its first line and had never been
+  rendered once. That sentence is the entire user-visible surface of "nothing
+  is skipped quietly"; without it a reader sees a green run and cannot tell a
+  clean tree from an unread one. Eight tests later, `reporter.ts` is at 91.59%
+  with no survivors and nothing uncovered.
+
+The gate is raised rather than left at 84 because banking the difference as
+slack is how a regression guard stops guarding. 0.61 of headroom is the same
+discipline the 0.3.0 entry above argues for: tight enough that losing ground
+fails the build, and if run-to-run variance turns out to trip it instead, the
+honest fix is to lower it again with that evidence recorded.
+
 ## Consequences
 
 Whoever bumps vitest to 5 will fail CI on the assertion above, and land on this
@@ -238,7 +267,7 @@ Stryker over a small range of a pure function and confirm the killed/survived
 split matches the command runner. When the runner supports vitest 5, delete the
 pin and this ADR's assertion.
 
-Mutation testing runs on every push, breaking the build below 84. It was first
+Mutation testing runs on every push, breaking the build below 85. It was first
 held back to a weekly schedule on the assumption that running the suite once per
 mutant would be too slow for the critical path. That assumption was wrong by an
 order of magnitude: the first hosted run finished in 6m54s, and a mutation score

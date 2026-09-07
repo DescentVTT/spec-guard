@@ -622,11 +622,12 @@ test still passed. Exact whole-output comparison took it to 87.30%. The engine
 and the walker were then rewritten for testability rather than papered over with
 more tests, which is what moved them from 75%/78% to 83%/93%.
 
-`npm run test:mutation` runs it locally and takes about an hour; CI runs it on
-**every push**, gated at 84%. The CI figure is the one
-quoted above, and it is the lower of the two: the same commit scores 88.76% on
-Windows, where three times as many mutants hang and Stryker counts a hang as a
-kill.
+CI runs it on **every push**, gated at 85%, and the CI figure is the one quoted
+above. Run it locally with `npm run test:mutation` if you like, but do not
+calibrate anything on the result: on the Windows machine this was developed on
+the same suite takes over two hours against 13 minutes hosted, and it scores
+*higher*, because far more mutants hang there and Stryker counts a hang as a
+kill. Linux CI is the measurement.
 
 Four cautionary tales are in [ADR-0003](docs/adr/0003-mutation-testing.md): a
 run whose score was pure fiction because the mutants were never activated, a
