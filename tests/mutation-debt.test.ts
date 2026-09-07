@@ -148,6 +148,8 @@ describe('every allowed attribute is actually allowed', () => {
     'assert-absence': ['target', 'symbol', 'expected', 'max', 'glob', 'regex', 'word', 'ignore-case', 'reason'],
     'assert-count': ['target', 'symbol', 'expected', 'min', 'max', 'glob', 'regex', 'word', 'ignore-case', 'reason'],
     'assert-present': ['file', 'reason'],
+    'assert-import-absence': ['target', 'module', 'exclude', 'types', 'expected', 'max', 'reason'],
+    'assert-import-count': ['target', 'module', 'exclude', 'types', 'expected', 'min', 'max', 'reason'],
   };
 
   for (const [kind, attributes] of Object.entries(allowed)) {

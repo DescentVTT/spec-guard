@@ -180,6 +180,55 @@ this tool exists to prevent - so say what you mean:
 `min="1"` is often the better rule anyway: it says "this exists" without
 breaking every time someone writes a second test.
 
+### `@assert-import-absence` / `@assert-import-count` - dependencies, not text
+
+The rules architecture documents actually contain are usually about
+dependencies, and a text search answers those badly in both directions - it
+matches a mention in a comment, and it misses `export * from '../db'`.
+
+```md
+<!-- @assert-import-absence target="src/ui" module="src/db" reason="the UI talks to services, not storage" -->
+<!-- @assert-import-count target="src" module="axios" max="1" -->
+```
+
+These read the dependency rather than the text. A JavaScript/TypeScript
+tokenizer - comments, strings, template substitutions and regular expressions,
+no parser and no new dependency - extracts module references and counts the
+**files** that depend on the module. It understands:
+
+| Form | Counted |
+| --- | --- |
+| `import { A } from 'x'`, `import 'x'`, `import * as ns from 'x'` | yes |
+| `import type { A } from 'x'` | yes, unless `types="ignore"` |
+| `export * from 'x'`, `export { A } from 'x'` | yes - a re-export is a dependency, and a barrel file is how layering rules usually get broken |
+| `require('x')` | yes, with a literal argument |
+| `import('x')` | yes, with a literal argument |
+| `import(name)`, `require(expr)` | **no - reported, see below** |
+
+Relative specifiers are resolved by path arithmetic, so `module="src/db"`
+matches `../db/client.js` seen from `src/ui/`. There is deliberately no
+filesystem resolution: tsconfig `paths` aliases and package `exports` maps are
+not followed, so an alias is written out as itself (`module="@app/db"`).
+
+**It tells you what it could not see.** Roughly 1% of module references in real
+code are dynamic, and about 0.09% of files defeat the tokenizer outright. Both
+are reported rather than counted as clean:
+
+```text
+✔ docs/adr.md:1  @assert-import-absence "src/db" (0 matches) in src/core
+⚠ 1 module reference could not be resolved statically
+⚠   src/core/plugin.ts:1 import(name)
+```
+
+The count is still true of everything that could be seen; the warning is what
+stops it being mistaken for a complete answer. `--strict` turns those warnings
+into failures. Files in scope that are not JavaScript or TypeScript are counted
+and reported too, so a rule pointed at the wrong tree says "analysed 1 of 3
+files" rather than quietly passing.
+
+[ADR-0005](docs/adr/0005-import-assertions.md) has the measurements and the
+reasoning behind each boundary.
+
 ### `@assert-present` - this file exists
 
 ```md
@@ -203,6 +252,8 @@ Passes when every listed path exists relative to `--root`. Directories count.
 | `regex` | absence, count | Treat `symbol` as a regular expression |
 | `word` | absence, count | Require word boundaries, so `Primary` does not match `PrimaryButton` |
 | `ignore-case` | absence, count | Case-insensitive matching |
+| `module` | import assertions | Which dependency, matched like `exclude` |
+| `types` | import assertions | `include` (default) or `ignore` for `import type` |
 | `reason` | all | Human-readable justification, printed on failure |
 
 Unknown attributes are an error, not a shrug: `expct="1"` fails the run instead

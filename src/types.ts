@@ -6,7 +6,20 @@
  */
 
 /** The three assertion kinds understood by the parser. */
-export type DirectiveKind = 'assert-absence' | 'assert-count' | 'assert-present';
+export type DirectiveKind =
+  | 'assert-absence'
+  | 'assert-count'
+  | 'assert-present'
+  | 'assert-import-absence'
+  | 'assert-import-count';
+
+/** Extra scope carried by the import assertions. */
+export interface ImportQuery {
+  /** Module patterns, matched with gitignore-style rules. */
+  modules: string[];
+  /** Whether `import type` / `export type` count as dependencies. */
+  includeTypes: boolean;
+}
 
 /** Source location of a directive inside a spec file. */
 export interface SourceLocation {
@@ -107,6 +120,8 @@ export interface Assertion {
   files: string[];
   bounds: Bounds;
   search?: SearchOptions;
+  /** Present on the import assertions. */
+  imports?: ImportQuery;
   /** Targets that do not exist on disk. */
   missingTargets: string[];
 }

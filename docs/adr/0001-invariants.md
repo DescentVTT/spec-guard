@@ -25,16 +25,24 @@ JavaScript fallback be a drop-in replacement.
 
 <!-- @assert-count target="src" symbol="node:child_process" expected="1" reason="only the engine spawns processes" -->
 <!-- @assert-absence target="src" symbol="child_process" exclude="src/engine.ts" reason="everything except the engine" -->
+<!-- @assert-import-absence target="src" module="node:child_process" exclude="src/engine.ts" reason="as a dependency, not as a string: a comment mentioning it is not a violation" -->
 
 That second rule used to be written as an explicit list of the five files that
 must *not* mention `child_process` - a list that silently stopped covering
 anything new. Stated as "everywhere except the engine" it cannot rot, which is
 what `exclude` is for.
 
+Both rules are stated twice on purpose: once as a text search and once as a
+dependency. The text version would fail on a comment that merely names the
+module; the import version reads the actual dependency and ignores prose. Where
+they disagree, the import version is the one that means what the sentence above
+it says. See ADR-0005.
+
 **The parser and the reporter are pure.** Neither touches the filesystem, which
 is why both can be tested on plain strings.
 
 <!-- @assert-absence target="src/parser.ts,src/reporter.ts" symbol="node:fs" reason="parsing and reporting are pure functions" -->
+<!-- @assert-import-absence target="src/parser.ts,src/reporter.ts" module="node:fs" reason="the same rule, checked as a dependency rather than as text" -->
 <!-- @assert-count target="src" symbol="maskCode" min="2" reason="fenced-code masking must stay wired into the parser" -->
 
 **Strict typing, no escape hatches.**

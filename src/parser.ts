@@ -17,7 +17,13 @@
 
 import type { Directive, DirectiveError, DirectiveKind, ParseResult, SourceLocation } from './types.js';
 
-const KINDS = new Set<string>(['assert-absence', 'assert-count', 'assert-present']);
+const KINDS = new Set<string>([
+  'assert-absence',
+  'assert-count',
+  'assert-present',
+  'assert-import-absence',
+  'assert-import-count',
+]);
 
 /** Attributes each directive kind accepts. */
 const ALLOWED_ATTRIBUTES: Record<DirectiveKind, ReadonlySet<string>> = {
@@ -47,6 +53,8 @@ const ALLOWED_ATTRIBUTES: Record<DirectiveKind, ReadonlySet<string>> = {
     'reason',
   ]),
   'assert-present': new Set(['file', 'reason']),
+  'assert-import-absence': new Set(['target', 'module', 'exclude', 'types', 'expected', 'max', 'reason']),
+  'assert-import-count': new Set(['target', 'module', 'exclude', 'types', 'expected', 'min', 'max', 'reason']),
 };
 
 const DIRECTIVE_RE = /<!--\s*@([a-zA-Z][\w-]*)([\s\S]*?)-->/g;

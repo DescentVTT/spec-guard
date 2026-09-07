@@ -2,11 +2,7 @@
 
 ## Status
 
-**Proposed.** Nothing in this document is implemented. It exists to be argued
-with before any code is written.
-
-The two directives it describes are shown in fenced blocks throughout, so
-spec-guard does not try to execute a syntax it does not yet have.
+Accepted (0.3.0).
 
 ## Context
 
@@ -45,52 +41,73 @@ The first two produce false positives, the last three false negatives. A rule
 that is right most of the time is precisely the thing that stops people
 checking by hand.
 
-## Feasibility: measured, not assumed
+## Feasibility: measured, and then re-measured
 
-A throwaway scanner was written to find out how far a state machine gets. It
-tracks whether it is in code, a line comment, a block comment, a string, a
-template literal (with `${}` nesting) or a regular expression, blanks out
-everything that is not code, and then extracts module specifiers from what
-remains. Regex-versus-division is disambiguated by the preceding token, the
-standard heuristic.
+The first version of this ADR quoted numbers from a throwaway prototype. Those
+numbers were wrong, and the corrections are worth keeping because they changed
+one of the arguments.
 
-Run over `node_modules` - 6,975 files, 49.3 MB of real third-party JavaScript
-and TypeScript, including bundled and minified output:
+The real analyser - a state machine over code, comments, strings, templates with
+`${}` nesting and regular expressions, emitting a token stream that the extractor
+reads - was run over `node_modules`: 6,975 files, 49.3 MB of real third-party
+JavaScript and TypeScript, including bundled and minified output.
+`scripts/scan-corpus.mjs` reproduces it.
 
-| | |
-| --- | --- |
-| files scanned | 6,975 |
-| static specifiers found | 7,823 |
-| dynamic sites (`import(expr)`, `require(expr)`) | 1,900 |
-| **files where the scanner lost sync** | **5 (0.072%)** |
-| throughput | 6.2 MB/s |
+| | prototype | real analyser |
+| --- | --- | --- |
+| references found | 7,823 | **17,492** |
+| dynamic sites | 1,900 | **198** |
+| unanalysable | 5 (0.072%) | **6 (0.086%)** |
+| throughput | 6.2 MB/s | **16.9 MB/s** |
 
-Two of those numbers decide the design.
+The prototype was wrong in both directions: it missed more than half the
+references, and over-counted dynamic sites by a factor of ten. It masked string
+contents before extracting, which destroyed the very specifiers it was looking
+for.
 
-**0.072%, and detectable.** The five failures end inside an unterminated
-template or regular expression, and the scanner can see that it ended in a
-non-code state. So the residue is not silent: those files can be reported as
-unanalysable rather than reported as clean. That is what makes the approach
-acceptable at all.
+References break down as 10,474 `import`, 3,890 `require`, 2,790 `export ...
+from`, 338 static `import(...)`, of which 1,265 are type-only.
 
-A first attempt at this measurement said 29% of files failed. That was the
-measurement being wrong, not the scanner: a file ending in a `//` comment with
-no trailing newline ends in comment state, which is entirely benign. The 0.072%
-counts only the states that mean lost sync.
+### What the corpus found that reasoning did not
 
-**1,900 dynamic sites against 7,823 static ones.** Roughly a fifth of module
-references in that corpus cannot be resolved statically at all. `node_modules`
-skews high - bundler output is full of `require(e)` - and this repository's own
-source has 4 dynamic sites in 31 files. But the ratio is large enough that
-"ignore what we cannot see" is not a defensible default. The honest handling of
-dynamic imports is a central feature, not an edge case.
+**An infinite loop.** `@` and `#` were treated as identifier starts but not as
+identifier parts, so a decorator (`@Injectable()`) produced a zero-length token
+and the scanner never advanced. The corpus run died of heap exhaustion; on a
+user's machine it would have been a hang. No amount of unit testing against
+hand-written samples was going to surface that - it needed real code with
+decorators in it.
+
+**JSX.** Every JSX closing tag is `</`, and `<` was in the set of tokens after
+which `/` starts a regular expression. The scanner therefore read `</div>...` as
+a regex and lost the rest of the file. Removing `<` from that set cut
+unanalysable files from 8 to 6 and nearly doubled throughput, because the
+scanner had been consuming enormous phantom regular expressions. The trade is
+that `a < /re/.test(b)` is now misread instead, which is a shape that does not
+occur in practice.
+
+The six files that remain unanalysable are five JSX files and one TypeScript
+file in rxjs. They are **detected**, which is the property that matters: the
+analyser declines to answer for them rather than reporting them as clean.
+
+### What this does to the design
+
+The 0.086% residue is acceptable only because it is self-reported.
+
+The dynamic-import argument changes, though. At 1,900 sites the case was
+"a fifth of module references cannot be resolved, so this is central". The real
+figure is 198 against 17,492 - about **1.1%**. That is not common. It is still
+load-bearing: a layering rule can be defeated by a single `await import(path)`,
+and a rule that silently ignores it gives false confidence about exactly the
+kind of dependency someone took the trouble to hide. Rare and consequential
+argues for reporting it, not for ignoring it - but the honest reason is
+consequence, not frequency.
 
 ## Proposal
 
 Two directives, mirroring the existing pair:
 
 ```md
-<!-- @assert-no-import target="src/ui" module="src/db" reason="ADR-0004: the UI talks to services, not storage" -->
+<!-- @assert-import-absence target="src/ui" module="src/db" reason="ADR-0004: the UI talks to services, not storage" -->
 <!-- @assert-import-count target="src" module="axios" max="1" -->
 ```
 
@@ -115,7 +132,7 @@ These are two different questions and both are legitimate:
   it genuinely does not exist.
 
 The default goes to counting because of which mistake is recoverable. If the
-default ignored type imports, `@assert-no-import target="src/ui" module="src/db"`
+default ignored type imports, `@assert-import-absence target="src/ui" module="src/db"`
 would pass while every file in `src/ui` imported `src/db`'s types - a silent
 pass on the exact rule the user wrote. The opposite mistake is a visible
 failure with an obvious remedy.
@@ -172,7 +189,7 @@ unrelated directory is not this assertion's problem.
 Default behaviour is to report, not to hide and not to fail:
 
 ```text
-✔ docs/adr/0004.md:12  @assert-no-import "src/db" (0 imports) in src/ui
+✔ docs/adr/0004.md:12  @assert-import-absence "src/db" (0 imports) in src/ui
   ⚠ 2 sites could not be resolved statically
       src/ui/lazy.ts:8   await import(componentPath)
       src/ui/plugin.ts:3 require(pluginName)
@@ -248,10 +265,11 @@ the direction that produces false confidence.
 **Only counting `import` statements.** Would have missed re-exports, which is
 where the interesting violations hide.
 
-## Open question for review
+## Naming
 
-The directive names. `@assert-no-import` reads better than the alternative that
-matches the existing pattern more literally (`@assert-import-absence` /
-`@assert-import-count`). Consistency in a syntax this small has real value, and
-readability does too. The proposal picks readability; it is worth a second
-opinion before it becomes permanent.
+`@assert-import-absence` and `@assert-import-count`, not `@assert-no-import`.
+
+The shorter form reads better in isolation, but the grammar of this syntax is
+`@assert-<subject>-<claim>`, and keeping it means a future positive assertion is
+already named: `@assert-import-present`. A syntax this small pays for
+consistency more than it pays for a nicer verb.

@@ -11,13 +11,20 @@ import path from 'node:path';
 
 import {
   createCachedEngine,
+  enumerateCandidates,
   resolveEngine,
   runSearches,
   type Engine,
   type EnginePreference,
   type SearchRequest,
 } from './engine.js';
-import { expandSpecPatterns, toPosix } from './glob.js';
+import { createExcludeMatcher, expandSpecPatterns, toPosix } from './glob.js';
+import {
+  ANALYSABLE_EXTENSIONS,
+  createImportIndex,
+  resolveSpecifier,
+  type ImportIndex,
+} from './imports.js';
 import { parseDirectives } from './parser.js';
 import type {
   Assertion,
@@ -25,6 +32,7 @@ import type {
   Bounds,
   Directive,
   DirectiveError,
+  MatchLocation,
   RunReport,
   SearchOptions,
   SearchResult,
@@ -133,6 +141,19 @@ function describeExpectation(bounds: Bounds): string {
   return max === undefined ? 'may appear any number of times' : `must appear at most ${times(max)}`;
 }
 
+/** Prose for an import claim: "must not import", "must import at least 2 files". */
+function describeImportExpectation(bounds: Bounds): string {
+  const { min, max } = bounds;
+  const files = (value: number): string => `${value} file${value === 1 ? '' : 's'}`;
+  if (max === 0 && min === undefined) return 'must not import';
+  if (min !== undefined && max !== undefined) {
+    return min === max ? `must import from exactly ${files(min)}` : `must import from between ${min} and ${max} files`;
+  }
+  if (min !== undefined) return `must import from at least ${files(min)}`;
+  /* c8 ignore next */
+  return max === undefined ? 'may import' : `must import from at most ${files(max)}`;
+}
+
 function satisfies(count: number, bounds: Bounds): boolean {
   if (bounds.min !== undefined && count < bounds.min) return false;
   if (bounds.max !== undefined && count > bounds.max) return false;
@@ -176,9 +197,11 @@ export function resolveDirective(
       };
     }
 
-    const symbol = attributes['symbol'];
+    const isImportKind = kind === 'assert-import-absence' || kind === 'assert-import-count';
+    const subject = isImportKind ? 'module' : 'symbol';
+    const symbol = attributes[subject];
     if (symbol === undefined || symbol.length === 0) {
-      return fail(`@${kind} requires a non-empty symbol="..." attribute.`);
+      return fail(`@${kind} requires a non-empty ${subject}="..." attribute.`);
     }
 
     const rawTargets = splitList(attributes['target']);
@@ -187,9 +210,9 @@ export function resolveDirective(
     );
 
     const bounds: Bounds = {};
-    if (kind === 'assert-absence') {
+    if (kind === 'assert-absence' || kind === 'assert-import-absence') {
       if (attributes['expected'] !== undefined && attributes['max'] !== undefined) {
-        return fail('@assert-absence accepts either expected="..." or max="...", not both.');
+        return fail(`@${kind} accepts either expected="..." or max="...", not both.`);
       }
       const limit = attributes['expected'] ?? attributes['max'];
       bounds.max = limit === undefined ? 0 : parseCount(limit, attributes['expected'] !== undefined ? 'expected' : 'max');
@@ -197,14 +220,14 @@ export function resolveDirective(
       const expected = attributes['expected'];
       if (expected !== undefined) {
         if (attributes['min'] !== undefined || attributes['max'] !== undefined) {
-          return fail('@assert-count accepts either expected="..." or min/max, not both.');
+          return fail(`@${kind} accepts either expected="..." or min/max, not both.`);
         }
         const value = parseCount(expected, 'expected');
         bounds.min = value;
         bounds.max = value;
       } else {
         if (attributes['min'] === undefined && attributes['max'] === undefined) {
-          return fail('@assert-count requires expected="...", min="..." or max="...".');
+          return fail(`@${kind} requires expected="...", min="..." or max="...".`);
         }
         if (attributes['min'] !== undefined) bounds.min = parseCount(attributes['min'], 'min');
         if (attributes['max'] !== undefined) bounds.max = parseCount(attributes['max'], 'max');
@@ -212,6 +235,38 @@ export function resolveDirective(
           return fail(`min="${bounds.min}" is greater than max="${bounds.max}".`);
         }
       }
+    }
+
+    if (isImportKind) {
+      const scope = targets.join(', ');
+      const excludeGlobs = splitList(attributes['exclude']);
+      const except = excludeGlobs.length > 0 ? ` (excluding ${excludeGlobs.join(', ')})` : '';
+      const includeTypes = (attributes['types'] ?? 'include').trim().toLowerCase() !== 'ignore';
+      if (!['include', 'ignore'].includes((attributes['types'] ?? 'include').trim().toLowerCase())) {
+        return fail(`Attribute "types" must be include or ignore, got "${attributes['types']}".`);
+      }
+      return {
+        assertion: {
+          kind,
+          location,
+          description: `${scope} ${describeImportExpectation(bounds)} "${symbol}"${except}`,
+          reason,
+          symbol,
+          targets,
+          files: [],
+          bounds,
+          search: {
+            regex: false,
+            word: false,
+            ignoreCase: false,
+            globs: [],
+            excludeGlobs,
+            excludeFiles: context.excludeFiles,
+          },
+          imports: { modules: splitList(symbol), includeTypes },
+          missingTargets: [],
+        },
+      };
     }
 
     const search: SearchOptions = {
@@ -261,6 +316,8 @@ export interface ExecuteOptions {
   engine: Engine;
   strictTargets: boolean;
   maxSnippets: number;
+  /** Per-run analysis cache: parse once, query many. */
+  imports: ImportIndex;
 }
 
 /**
@@ -316,6 +373,10 @@ async function prepareAssertion(
     };
   }
 
+  if (assertion.imports) {
+    return executeImportAssertion(assertion, options, base, warnings, startedAt);
+  }
+
   const existingTargets: string[] = [];
   for (const target of assertion.targets) {
     if (await pathExists(path.resolve(options.root, target))) existingTargets.push(target);
@@ -355,6 +416,99 @@ async function prepareAssertion(
       engine: search.engine,
       durationMs: performance.now() - startedAt,
     }),
+  };
+}
+
+/**
+ * Counts the files in scope that depend on the requested module.
+ *
+ * The unit is files, not references: "two files import the database" is the
+ * useful statement, and it does not change when someone splits one import
+ * statement into two.
+ */
+async function executeImportAssertion(
+  assertion: Assertion,
+  options: Omit<ExecuteOptions, 'engine'> & { imports: ImportIndex },
+  base: Omit<AssertionResult, 'ok' | 'actual' | 'message' | 'matches' | 'durationMs'>,
+  warnings: string[],
+  startedAt: number,
+): Promise<AssertionResult> {
+  const query = assertion.imports as NonNullable<Assertion['imports']>;
+  const existingTargets: string[] = [];
+  for (const target of assertion.targets) {
+    if (await pathExists(path.resolve(options.root, target))) existingTargets.push(target);
+    else assertion.missingTargets.push(target);
+  }
+
+  if (assertion.missingTargets.length > 0) {
+    warnings.push(
+      `target path${assertion.missingTargets.length === 1 ? '' : 's'} not found: ${assertion.missingTargets.join(', ')}`,
+    );
+  }
+
+  const enumeration = await enumerateCandidates({
+    root: options.root,
+    symbol: '',
+    targets: existingTargets,
+    options: assertion.search as SearchOptions,
+  });
+
+  const analysable = enumeration.files.filter((file) =>
+    ANALYSABLE_EXTENSIONS.has(path.posix.extname(file.relativePath)),
+  );
+  const skipped = enumeration.files.length - analysable.length;
+  if (skipped > 0) {
+    warnings.push(
+      `analysed ${analysable.length} of ${enumeration.files.length} files; ${skipped} are not JavaScript or TypeScript`,
+    );
+  }
+
+  const matchesModule = createExcludeMatcher(query.modules);
+  const matches: MatchLocation[] = [];
+  const unresolved: string[] = [];
+
+  for (const file of analysable) {
+    const analysis = await options.imports.analyze(file.absolutePath, file.relativePath);
+
+    for (const note of analysis.notes) {
+      unresolved.push(`${note.file}:${note.line} ${note.detail}`);
+    }
+
+    const hit = analysis.references.find((reference) => {
+      if (reference.typeOnly && !query.includeTypes) return false;
+      return matchesModule(resolveSpecifier(reference.specifier, file.relativePath));
+    });
+    if (hit) {
+      matches.push({
+        file: file.relativePath,
+        line: hit.line,
+        column: hit.column,
+        text: `${hit.kind === 'export' ? 'export' : 'import'} ${hit.specifier}`,
+        count: 1,
+      });
+    }
+  }
+
+  if (unresolved.length > 0) {
+    warnings.push(
+      `${unresolved.length} module reference${unresolved.length === 1 ? '' : 's'} could not be resolved statically`,
+      ...unresolved.slice(0, options.maxSnippets).map((entry) => `  ${entry}`),
+    );
+  }
+
+  const strictFailure =
+    options.strictTargets && (unresolved.length > 0 || assertion.missingTargets.length > 0);
+  const ok = satisfies(matches.length, assertion.bounds) && !strictFailure;
+
+  return {
+    ...base,
+    ok,
+    actual: matches.length,
+    message: strictFailure
+      ? `expected ${describeBounds(assertion.bounds)}, found ${matches.length}, and ${unresolved.length} reference(s) could not be resolved`
+      : `expected ${describeBounds(assertion.bounds)}, found ${matches.length}`,
+    matches: matches.slice(0, options.maxSnippets),
+    durationMs: performance.now() - startedAt,
   };
 }
 
@@ -412,7 +566,7 @@ export async function runSpecGuard(options: RunOptions): Promise<RunResult> {
   }
 
   const engine = createCachedEngine(await resolveEngine(options.engine ?? 'auto'));
-  const executeOptions = { root, engine, strictTargets, maxSnippets };
+  const executeOptions = { root, engine, strictTargets, maxSnippets, imports: createImportIndex() };
   const results: AssertionResult[] = new Array(assertions.length);
 
   if (options.failFast) {

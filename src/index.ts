@@ -61,6 +61,16 @@ export {
 } from './glob.js';
 export type { DirectoryReader, WalkedFile, WalkOptions } from './glob.js';
 
+export {
+  analyzeSource,
+  createImportIndex,
+  extractReferences,
+  resolveSpecifier,
+  tokenize,
+  ANALYSABLE_EXTENSIONS,
+} from './imports.js';
+export type { AnalysisNote, FileImports, ImportIndex, ModuleReference, ReferenceKind } from './imports.js';
+
 export { maskCode, parseAttributes, parseDirectives } from './parser.js';
 export type { ParseContext } from './parser.js';
 
@@ -84,6 +94,7 @@ export type {
   DirectiveError,
   DirectiveKind,
   EngineName,
+  ImportQuery,
   MatchLocation,
   ParseResult,
   RunReport,

@@ -2,6 +2,7 @@ import path from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 import { resetRipgrepProbe } from '../src/engine.js';
+import { createImportIndex } from '../src/imports.js';
 import { executeAssertion, resolveDirective, runSpecGuard } from '../src/runner.js';
 import type { Directive, DirectiveKind } from '../src/types.js';
 import { DEMO_REPO, findTestRipgrep, makeTempRepo, removeTempRepo } from './helpers.js';
@@ -337,6 +338,7 @@ describe('executeAssertion', () => {
       engine: { name: 'javascript', search: async () => ({ count: 0, matches: [], engine: 'javascript' }) },
       strictTargets: false,
       maxSnippets: 5,
+      imports: createImportIndex(),
     });
 
     expect(result).toMatchObject({ ok: true, actual: 2, message: 'all 2 referenced paths exist' });
@@ -352,6 +354,7 @@ describe('executeAssertion', () => {
       engine: { name: 'javascript', search: async () => ({ count: 0, matches: [], engine: 'javascript' }) },
       strictTargets: false,
       maxSnippets: 5,
+      imports: createImportIndex(),
     });
 
     expect(result).toMatchObject({ ok: true, message: 'all 1 referenced path exists' });
