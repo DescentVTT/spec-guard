@@ -352,3 +352,258 @@ describe('@assert-import-count', () => {
     expect(report.errors[0]?.message).toContain('requires a non-empty module');
   });
 });
+
+/**
+ * Positions, which the first round of tests ignored entirely.
+ *
+ * Every assertion above checks *which* specifier was found and none check
+ * *where*, so every mutant that only corrupts line tracking survived. Those
+ * numbers are what a failure report points the reader at, so a wrong line is a
+ * real defect, not a cosmetic one.
+ */
+describe('line and column tracking', () => {
+  const firstReference = (source: string) => analyzeSource(source, 'src/a.ts').references[0];
+
+  it('reports the line of a plain import', () => {
+    const source = ['const a = 1;', 'const b = 2;', "import { C } from './c.js';"].join('\n');
+    expect(firstReference(source)).toMatchObject({ line: 3, column: 1 });
+  });
+
+  it('reports the column of an indented import', () => {
+    const source = ['if (x) {', "  import('./c.js');", '}'].join('\n');
+    expect(firstReference(source)).toMatchObject({ line: 2, column: 3 });
+  });
+
+  it('counts the lines a block comment spans', () => {
+    const source = ['/*', ' one', ' two', ' three', '*/', "import { C } from './c.js';"].join('\n');
+    expect(firstReference(source)?.line).toBe(6);
+  });
+
+  it('counts the lines a template literal spans', () => {
+    const source = ['const t = `', 'one', 'two', '`;', "import { C } from './c.js';"].join('\n');
+    expect(firstReference(source)?.line).toBe(5);
+  });
+
+  it('counts the lines a template with substitutions spans', () => {
+    const source = ['const t = `', '${value}', 'tail', '`;', "import { C } from './c.js';"].join('\n');
+    expect(firstReference(source)?.line).toBe(5);
+  });
+
+  it('counts lines through nested template substitutions', () => {
+    const source = ['const t = `a ${`b', '${inner}', 'c`} d`;', "import { C } from './c.js';"].join('\n');
+    expect(firstReference(source)?.line).toBe(4);
+  });
+
+  it('counts lines through line comments', () => {
+    const source = ['// one', '// two', "import { C } from './c.js';"].join('\n');
+    expect(firstReference(source)?.line).toBe(3);
+  });
+
+  it('reports the line of a dynamic note', () => {
+    const source = ['const a = 1;', '', 'const b = await import(name);'].join('\n');
+    const { notes } = analyzeSource(source, 'src/a.ts');
+    expect(notes[0]).toMatchObject({ line: 3, column: 17 });
+  });
+
+  it('keeps positions right after a regular expression', () => {
+    const source = ['const re = /a\/b/g;', "import { C } from './c.js';"].join('\n');
+    expect(firstReference(source)).toMatchObject({ line: 2, column: 1 });
+  });
+
+  it('keeps positions right after an escaped quote in a string', () => {
+    // The analysed source is:  const s = 'it\'s';
+    const source = [String.raw`const s = 'it\'s';`, "import { C } from './c.js';"].join('\n');
+    expect(firstReference(source)).toMatchObject({ line: 2, column: 1 });
+  });
+});
+
+describe('template substitution shapes', () => {
+  it('reads code inside a substitution as code', () => {
+    // The import here is real: it sits inside ${...}, which is code.
+    const source = 'const t = `${await import("./inside.js")}`;';
+    expect(specifiers(source)).toEqual(['./inside.js']);
+  });
+
+  it('does not read the literal part of a template as code', () => {
+    expect(specifiers('const t = `import { A } from "./fake.js"`;')).toEqual([]);
+  });
+
+  it('handles a brace inside a substitution', () => {
+    const source = ['const t = `${ {a: 1}.a }`;', "import { C } from './c.js';"].join('\n');
+    expect(specifiers(source)).toEqual(['./c.js']);
+  });
+
+  it('handles a template immediately followed by another', () => {
+    const source = ['const a = `x`; const b = `y`;', "import { C } from './c.js';"].join('\n');
+    expect(specifiers(source)).toEqual(['./c.js']);
+  });
+
+  it('handles a substitution containing a string with a brace', () => {
+    const source = ['const t = `${ f("}") }`;', "import { C } from './c.js';"].join('\n');
+    expect(specifiers(source)).toEqual(['./c.js']);
+  });
+});
+
+describe('extraction guards', () => {
+  it('keeps scanning after import.meta', () => {
+    const source = ['const u = import.meta.url;', "import { C } from './c.js';"].join('\n');
+    expect(specifiers(source)).toEqual(['./c.js']);
+  });
+
+  it('stops looking for from at a semicolon', () => {
+    // Two statements: the export has no specifier and must not borrow the next.
+    const source = ["export const a = 1; const b = from; const c = './not-mine.js';"].join('\n');
+    expect(specifiers(source)).toEqual([]);
+  });
+
+  it('ignores require that is not a call', () => {
+    expect(specifiers("const r = require;\nconst s = 'x';\n")).toEqual([]);
+  });
+
+  it('accepts a require with a trailing comma argument', () => {
+    expect(specifiers("const r = require('./c.js',);\n")).toEqual(['./c.js']);
+  });
+
+  it('does not treat a word ending in import as an import', () => {
+    expect(specifiers("const reimport = './x.js';\nconst y = 1;\n")).toEqual([]);
+  });
+
+  it('finds an import that follows a class body', () => {
+    const source = ['class A { m() { return 1; } }', "import { C } from './c.js';"].join('\n');
+    expect(specifiers(source)).toEqual(['./c.js']);
+  });
+});
+
+describe('how an import rule reads', () => {
+  async function describeRule(attributes: string): Promise<string> {
+    const root = await repo({
+      'docs/adr.md': `<!-- @assert-import-absence target="src" module="x" ${attributes} -->\n`,
+      'src/a.ts': 'export const a = 1;\n',
+    });
+    const report = await runSpecGuard({ patterns: ['docs/adr.md'], root, engine: 'javascript' });
+    return report.results[0]?.description ?? report.errors[0]?.message ?? '';
+  }
+
+  it.each([
+    ['', 'src must not import "x"'],
+    ['expected="0"', 'src must not import "x"'],
+    // On an absence directive `expected` is an upper bound, exactly as it is on
+    // @assert-absence - it is not an exact count there either.
+    ['expected="1"', 'src must import from at most 1 file "x"'],
+    ['expected="2"', 'src must import from at most 2 files "x"'],
+    ['max="1"', 'src must import from at most 1 file "x"'],
+    ['max="3"', 'src must import from at most 3 files "x"'],
+  ])('%s reads as %s', async (attributes, expected) => {
+    expect(await describeRule(attributes)).toBe(expected);
+  });
+
+  it.each([
+    ['min="1"', 'src must import from at least 1 file "x"'],
+    ['min="2"', 'src must import from at least 2 files "x"'],
+    ['min="1" max="3"', 'src must import from between 1 and 3 files "x"'],
+    ['min="2" max="2"', 'src must import from exactly 2 files "x"'],
+  ])('%s reads as %s on a count assertion', async (attributes, expected) => {
+    const root = await repo({
+      'docs/adr.md': `<!-- @assert-import-count target="src" module="x" ${attributes} -->\n`,
+      'src/a.ts': 'export const a = 1;\n',
+    });
+    const report = await runSpecGuard({ patterns: ['docs/adr.md'], root, engine: 'javascript' });
+    expect(report.results[0]?.description).toBe(expected);
+  });
+});
+
+describe('what a violation shows', () => {
+  it('labels an import and a re-export differently', async () => {
+    const root = await repo({
+      'docs/adr.md': '<!-- @assert-import-absence target="src" module="src/db" -->\n',
+      'src/imports.ts': "import { C } from './db/client.js';\n",
+      'src/reexports.ts': "export * from './db/client.js';\n",
+      'src/db/client.ts': 'export class C {}\n',
+    });
+    const report = await runSpecGuard({ patterns: ['docs/adr.md'], root, engine: 'javascript' });
+    const shown = report.results[0]?.matches.map((match) => `${match.file} ${match.text}`).sort();
+
+    expect(shown).toEqual([
+      'src/imports.ts import ./db/client.js',
+      'src/reexports.ts export ./db/client.js',
+    ]);
+  });
+
+  it('points at the line the dependency is on', async () => {
+    const root = await repo({
+      'docs/adr.md': '<!-- @assert-import-absence target="src" module="src/db" -->\n',
+      'src/a.ts': ['// one', '// two', "import { C } from './db/client.js';"].join('\n'),
+      'src/db/client.ts': 'export class C {}\n',
+    });
+    const report = await runSpecGuard({ patterns: ['docs/adr.md'], root, engine: 'javascript' });
+
+    expect(report.results[0]?.matches[0]).toMatchObject({ file: 'src/a.ts', line: 3, column: 1 });
+  });
+
+  it('counts a file once even when it depends on the module twice', async () => {
+    const root = await repo({
+      'docs/adr.md': '<!-- @assert-import-absence target="src" module="src/db" -->\n',
+      'src/a.ts': ["import { C } from './db/client.js';", "export * from './db/client.js';"].join('\n'),
+      'src/db/client.ts': 'export class C {}\n',
+    });
+    const report = await runSpecGuard({ patterns: ['docs/adr.md'], root, engine: 'javascript' });
+
+    expect(report.results[0]?.actual).toBe(1);
+  });
+});
+
+/**
+ * Cases aimed at specific guards in the extractor, each written after checking
+ * which mutant it would kill. The point of naming them this precisely is that a
+ * guard nobody can construct a failing input for is dead weight, and should be
+ * deleted rather than covered.
+ */
+describe('extractor guards, precisely', () => {
+  it('does not let a plain export borrow the next statement specifier', () => {
+    // Without the semicolon break the export scans on, finds `from`, and claims
+    // ./b.js as a re-export. The count is unchanged; only the kind gives it away.
+    const source = "export const a = 1; import b from './b.js';";
+    const [reference] = analyzeSource(source, 'src/a.ts').references;
+
+    expect(reference?.specifier).toBe('./b.js');
+    expect(reference?.kind).toBe('import');
+  });
+
+  it('treats a default type import as type-only', () => {
+    // `import type A from 'x'` imports a default *type*, unlike
+    // `import type from 'x'` which imports a value binding named type.
+    const [reference] = analyzeSource("import type A from './x.js';", 'src/a.ts').references;
+
+    expect(reference?.typeOnly).toBe(true);
+    expect(reference?.kind).toBe('import');
+  });
+
+  it('does not mistake a statement import for a call', () => {
+    // If the call branch is entered for `import {`, the statement is skipped and
+    // a spurious "cannot resolve" note is produced instead.
+    const { references, notes } = analyzeSource("import { A } from './x.js';", 'src/a.ts');
+
+    expect(references).toHaveLength(1);
+    expect(notes).toEqual([]);
+  });
+
+  it('produces no notes for a file of ordinary imports', () => {
+    const source = [
+      "import a from './a.js';",
+      "import { b } from './b.js';",
+      "export * from './c.js';",
+      "const d = require('./d.js');",
+    ].join('\n');
+    const { references, notes } = analyzeSource(source, 'src/a.ts');
+
+    expect(references).toHaveLength(4);
+    expect(notes).toEqual([]);
+  });
+
+  it('keeps the specifier attached to the right statement kind', () => {
+    const source = ["export { a } from './a.js';", "import { b } from './b.js';"].join('\n');
+    const kinds = analyzeSource(source, 'src/a.ts').references.map((reference) => reference.kind);
+
+    expect(kinds).toEqual(['export', 'import']);
+  });
+});
