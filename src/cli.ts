@@ -97,6 +97,15 @@ const ENGINE_ALIASES: Record<string, EnginePreference> = {
   node: 'javascript',
 };
 
+/**
+ * Takes the next argv element as a value.
+ *
+ * A leading dash means the value was omitted and the next option got swallowed
+ * ("--root --verbose"). That heuristic only applies here: in the `--opt=value`
+ * form there is nothing ambiguous about a leading dash, so "--max-snippets=-1"
+ * should be told it wants a non-negative integer rather than that it is missing
+ * a value.
+ */
 function requireValue(name: string, value: string | undefined): string {
   if (value === undefined || value.startsWith('-')) {
     throw new UsageError(`Option ${name} requires a value.`);
@@ -145,7 +154,7 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
     const name = equals === -1 ? argument : argument.slice(0, equals);
     const inlineValue = equals === -1 ? undefined : argument.slice(equals + 1);
     const nextValue = (): string => {
-      if (inlineValue !== undefined) return requireValue(name, inlineValue);
+      if (inlineValue !== undefined) return inlineValue;
       index += 1;
       return requireValue(name, argv[index]);
     };

@@ -62,7 +62,11 @@ function truncate(value: string): string {
   return trimmed.length > MAX_SNIPPET_LENGTH ? `${trimmed.slice(0, MAX_SNIPPET_LENGTH)}…` : trimmed;
 }
 
-function sortLocations(locations: MatchLocation[]): MatchLocation[] {
+/**
+ * Orders matches by path, then by line. ripgrep searches in parallel and emits
+ * files in no fixed order, so this is what makes snippet output stable.
+ */
+export function sortLocations(locations: MatchLocation[]): MatchLocation[] {
   return locations.sort((a, b) => (a.file === b.file ? a.line - b.line : a.file < b.file ? -1 : 1));
 }
 
@@ -560,7 +564,11 @@ export function scanContent(content: string, relativePath: string, regexp: RegEx
     if (match[0].length === 0) regexp.lastIndex += 1;
   }
 
-  return { count, locations: [...byLine.values()].sort((a, b) => a.line - b.line) };
+  // No sort: exec scans forward, so lines are discovered in increasing order and
+  // a Map preserves insertion order. Sorting here was dead code - mutation
+  // testing found it by reporting that neither reversing nor removing the
+  // comparator changed any result.
+  return { count, locations: [...byLine.values()] };
 }
 
 /* ------------------------------------------------------------------ factory */
@@ -596,7 +604,9 @@ export const SMALL_TREE_BUDGET: EnumerationBudget =
 /** Spawn failures that mean "this binary is not installed", not "search failed". */
 const MISSING_BINARY_CODES = new Set(['ENOENT', 'EACCES', 'EPERM', 'EINVAL', 'UNKNOWN']);
 
-function isMissingBinary(error: unknown): boolean {
+/** Exported so the code list can be asserted; EACCES and friends are not
+ * reproducible on demand from a real spawn. */
+export function isMissingBinary(error: unknown): boolean {
   const code = (error as { code?: string } | null)?.code;
   return typeof code === 'string' && MISSING_BINARY_CODES.has(code);
 }
