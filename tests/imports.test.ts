@@ -607,3 +607,50 @@ describe('extractor guards, precisely', () => {
     expect(kinds).toEqual(['export', 'import']);
   });
 });
+
+describe('import.meta does not swallow the next statement', () => {
+  it('leaves the following re-export as an export on its own line', () => {
+    // Asserting the specifier alone cannot see this: without the import.meta
+    // guard, the `import` on line 1 scans ahead, finds `from`, and claims
+    // ./a.js as an *import* on *line 1*. Same specifier, wrong kind, wrong line.
+    const source = ['const u = import.meta.url;', "export { a } from './a.js';"].join('\n');
+    const [reference] = analyzeSource(source, 'src/a.ts').references;
+
+    expect(reference).toMatchObject({ specifier: './a.js', kind: 'export', line: 2 });
+  });
+
+  it('leaves the following import on its own line', () => {
+    const source = ['const u = import.meta.url;', '', "import { a } from './a.js';"].join('\n');
+    const [reference] = analyzeSource(source, 'src/a.ts').references;
+
+    expect(reference).toMatchObject({ kind: 'import', line: 3 });
+  });
+
+  it('works in source without semicolons', () => {
+    // This is the case that actually needs the guard, and it took a hand-applied
+    // mutant to find it. With semicolons the clause scan stops at the `;` before
+    // it can reach `from`, so the guard looks redundant. Without them, the
+    // `import` of `import.meta` runs on and claims the next statement's
+    // specifier as its own - same specifier, wrong kind, wrong line.
+    const source = ['const u = import.meta.url', "export { a } from './a.js'"].join('\n');
+    const [reference] = analyzeSource(source, 'src/a.ts').references;
+
+    expect(reference).toMatchObject({ specifier: './a.js', kind: 'export', line: 2 });
+  });
+
+  it('reads a whole semicolon-less module correctly', () => {
+    const source = [
+      "import { a } from './a.js'",
+      "import type { B } from './b.js'",
+      "export * from './c.js'",
+      'const d = 1',
+    ].join('\n');
+    const references = analyzeSource(source, 'src/a.ts').references;
+
+    expect(references.map((reference) => [reference.kind, reference.specifier, reference.line])).toEqual([
+      ['import', './a.js', 1],
+      ['import', './b.js', 2],
+      ['export', './c.js', 3],
+    ]);
+  });
+});
