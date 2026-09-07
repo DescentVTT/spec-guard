@@ -5,6 +5,66 @@ All notable changes to this project are documented here. Versions follow
 may change in a minor release — each such change is listed under **Changed**
 with the flag that restores the previous behaviour.
 
+## 0.4.0
+
+An audit found spec-guard reporting a clean pass on a repository that contained
+the forbidden symbol. On a tree with eight copies of one token, the scanner
+found two and ripgrep found four, and neither said anything about the rest.
+
+### Changed
+
+- **Hidden directories are searched.** `.github`, `.husky`, `.claude-rules` and
+  `.agents` hold CI, hooks and agent rules, and both engines skipped them
+  entirely - so an absence assertion passed while the forbidden thing sat in a
+  workflow file.
+- **The skip list is now four names**: `.git`, `.hg`, `.svn`, `node_modules`.
+  `dist`, `build`, `out`, `coverage`, `.next` and eight others are searched,
+  because spec-guard cannot tell build output from a directory of build scripts,
+  and guessing wrong means a rule silently covers nothing. **If a run starts
+  failing on your build output, that is this change, and the fix is to say so:**
+
+  ```md
+  <!-- @assert-absence target="." symbol="TODO" exclude="dist coverage" -->
+  ```
+
+- **`.gitignore` is no longer consulted.** It describes what git should carry,
+  not what a rule covers - and ripgrep applies it only inside a git repository,
+  so the same tree gave different answers depending on whether a `.git`
+  directory existed above it.
+- **Binary files are searched, and a match in one is reported** rather than
+  dropped. It is not counted as a violation, but it is no longer invisible.
+  "Binary" now means "contains a NUL byte" for both engines; the scanner used to
+  look only at the first 8KB, which disagreed with ripgrep on files whose first
+  NUL came later.
+- **`--strict` fails when a file could not be inspected**, which now has a
+  precise meaning: unreadable, or binary and containing the symbol.
+- **The engines are one implementation.** ripgrep now answers only *which files
+  contain this text*; the scanner does all counting, comment classification,
+  binary handling and reporting for both. `--engine` changes how long a run
+  takes, not what it concludes. See [ADR-0007](docs/adr/0007-search-scope.md).
+
+### Added
+
+- **`--no-default-skips`** to search even those four directories.
+- **`skipped`** on each result in `--json`: what was not inspected, and why.
+
+### Removed
+
+- `DEFAULT_IGNORED_DIRECTORIES`, `canBatchLiterals`, `shouldBatchPatterns`,
+  `createRipgrepSink` and `byteColumnToCharacter` from the public API. All of
+  them existed to make ripgrep's own counting trustworthy; as a pre-filter it
+  does not count, so pattern batching no longer has to be proved safe and
+  ripgrep's byte columns no longer need converting.
+
+### Fixed
+
+- ripgrep's per-file errors are no longer discarded. `--no-messages` meant a
+  file that could not be opened produced no match, no error, and no way to tell
+  it apart from one that was read and found clean.
+- `comments="include"` no longer changes whether binary files are searched. An
+  attribute about comments decided that, because it selected a different code
+  path through the engine.
+
 ## 0.3.0
 
 ### Added

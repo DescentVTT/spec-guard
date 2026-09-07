@@ -199,6 +199,53 @@ an unknown extension, an unterminated literal — the text counts as code, and t
 report says which files it could not classify. A match wrongly kept is a visible
 failure you can argue with; a match wrongly dropped is a lie.
 
+## What gets searched
+
+An assertion is worth exactly as much as the set of files behind it, so
+spec-guard is explicit about that set and never quietly narrows it.
+
+**Four directory names are skipped**, and nothing else:
+
+| Skipped | Why |
+| --- | --- |
+| `.git`, `.hg`, `.svn` | version-control stores hold compressed copies of code you deleted on purpose |
+| `node_modules` | code you did not write, which your architecture rules are not about |
+
+Everything else is searched. That includes **hidden directories** - `.github`,
+`.husky`, `.claude-rules`, `.agents` - because that is where CI, hooks and agent
+rules live, and a rule that cannot see your workflow files is not enforcing much.
+It also includes `dist`, `build`, `out` and `coverage`, because spec-guard
+cannot tell build output from a directory of build scripts, and guessing wrong
+means a rule silently stops covering anything.
+
+`.gitignore` is not consulted. It describes what git should carry, not what a
+rule covers - and ripgrep applies it only inside a git repository, so honouring
+it made the same tree answer differently depending on whether a `.git` directory
+happened to exist above it.
+
+To narrow scope, say so in the assertion:
+
+```md
+<!-- @assert-absence target="src" symbol="TODO" exclude="dist coverage" -->
+```
+
+`--no-default-skips` removes even those four, for a run that has to be certain.
+
+### Nothing is skipped quietly
+
+A file spec-guard could not read, or one whose bytes are not text but which
+contained the symbol anyway, is a gap in the answer rather than a detail of it.
+Those are reported, and `--strict` fails on them:
+
+```text
+✖ docs/adr.md:3  @assert-absence
+    "ApiKey" must not appear in .
+    expected no matches, found 0, and 1 file could not be inspected
+    ⚠ 1 match in 1 binary file not counted: build/app.bin
+```
+
+The counts are in `--json` too, as `skipped` on each result.
+
 ### `@assert-count` - this symbol occurs exactly / at least / at most N times
 
 ```md
@@ -318,6 +365,7 @@ spec-guard [patterns...] [options]
 | `--engine <auto\|rg\|js>` | Search engine (default `auto`: scanner for small trees, ripgrep for big ones) |
 | `--strict` | Treat analysis that could not be completed as a failure |
 | `--allow-missing-targets` | Warn instead of failing when a `target` path does not exist |
+| `--no-default-skips` | Search `.git`, `.hg`, `.svn` and `node_modules` too |
 | `--include-specs` | Also count matches inside the spec files themselves |
 | `--max-snippets <n>` | Failure snippets per assertion (default 5) |
 | `--concurrency <n>` | Search passes in flight at once (default 8) |
@@ -392,45 +440,54 @@ parser  ──▶ Directive[] ──▶ runner ──▶ Assertion[] ──▶ e
 
 Scanning a tree costs about the same whether you look for one symbol or twenty,
 so spec-guard groups assertions by target set and flags and answers each group
-in one pass. Measured on Windows 11 / Node 24 / ripgrep 15 against a synthetic
-2,000-file, 5.1 MB tree with 8 assertions:
-
-| | one pass per assertion | batched (current) |
-| --- | --- | --- |
-| ripgrep engine | ~280 ms | **~72 ms** |
-| JavaScript fallback | ~780 ms | **~283 ms** |
+in one pass.
 
 `auto` then picks between the two engines **per search group**, because they
 have different shapes of cost: ripgrep is dominated by process startup and
 barely notices tree size, while the built-in scanner has no startup cost and
 grows linearly. Starting a process to search a handful of files is a bad trade.
+Re-measured for 0.4.0 on Windows 11 / Node 24, median of three, one symbol over
+a synthetic tree:
+
+| files | scanner | ripgrep | |
+| --- | --- | --- | --- |
+| 100 | **17 ms** | 214 ms | scanner, 12.9x |
+| 500 | **70 ms** | 263 ms | scanner, 3.8x |
+| 1,000 | 216 ms | **181 ms** | ripgrep, 1.2x |
+| 3,000 | 735 ms | **222 ms** | ripgrep, 3.3x |
+| 5,000 | 1,046 ms | **241 ms** | ripgrep, 4.3x |
 
 The decision uses a bounded enumeration as its probe: spec-guard walks the
 target set until it either finishes - in which case the file list is already in
 hand and the scanner runs against it, with no process and no second walk - or
-exceeds a budget, in which case ripgrep takes over. Measured end to end:
+exceeds a budget, in which case ripgrep takes over. The crossover above sits
+between 500 and 1,000 files, which is what the Windows budget of 512 encodes;
+on Linux it is far lower, because what is really being measured is process
+spawn cost. `scripts/bench-engines.mjs` reproduces this, and
+[ADR-0004](docs/adr/0004-adaptive-engine.md) has the full tables.
 
-| | this repo's own specs | 2,000 files |
-| --- | --- | --- |
-| `--engine rg` | 793.7 ms | 195.8 ms |
-| `--engine js` | 19.5 ms | 330.6 ms |
-| `--engine auto` | **19.1 ms** | **171.9 ms** |
-
-The crossover is ~575 files on Windows and ~25 on Linux, because what is really
-being measured is process spawn cost. `scripts/bench-engines.mjs` reproduces
-both; [ADR-0004](docs/adr/0004-adaptive-engine.md) has the full tables.
+Treat single measurements from one machine with suspicion. On the development
+machine used here, an absence assertion over 2,000 files measures 303 ms with
+the scanner and 399 ms with ripgrep, but ripgrep's own spread across five runs
+was 379-1039 ms - wide enough that the two are not really distinguishable at
+that size. The order-of-magnitude differences at the ends of the table are the
+part worth trusting.
 
 Two honest caveats:
 
 - **The reported engine is the one that ran, not the one available.** On a small
   repository `--json` reports `"engine": "javascript"` even with ripgrep
   installed. That is the optimisation working, not a failure to find `rg`.
-- **ripgrep is the reference implementation.** The scanner matches it on
-  everything the test suite covers - counts, snippets, word boundaries, globs,
-  binary skipping, file-size limits - but ripgrep also honours `.gitignore`,
-  while the scanner uses a fixed ignore list (`node_modules`, `dist`, `build`,
-  `coverage`, `.git`, dotfiles, and friends). On a repository where those differ
-  materially, pin the engine with `--engine rg`.
+- **The engines are one implementation, not two that agree.** This used to say
+  that ripgrep was the reference and the scanner merely matched it "on
+  everything the test suite covers", with a note that the two treated
+  `.gitignore` and ignored directories differently and that you should pin an
+  engine if it mattered. It did matter: on a tree with eight copies of a symbol
+  the scanner found two and ripgrep found four. Since 0.4.0 ripgrep answers only
+  *which files contain this text*, and the scanner does all the counting,
+  classification and reporting for both. `--engine` now changes how long a run
+  takes and nothing about its verdict, and the suite asserts that on trees built
+  from every case that used to split them.
 
 ## Programmatic API
 
@@ -505,6 +562,14 @@ which meant an assertion pointed at a renamed directory searched nothing, found
 nothing, and reported success — the exact shape of a green check that verified
 nothing. `--allow-missing-targets` restores the old behaviour for repositories
 where a path is legitimately optional.
+
+**Hidden directories are searched, and `.gitignore` is not consulted.** An
+audit of 0.3.0 found the tool reporting a clean pass on a repository whose
+forbidden symbol sat in `.github/workflows/ci.yml`; the scanner and ripgrep also
+disagreed with each other, finding two matches and four on the same tree. Scope
+is now one policy that both engines are driven by, the skip list is four names
+long, and anything spec-guard could not inspect is reported rather than assumed
+clean ([ADR-0007](docs/adr/0007-search-scope.md)).
 
 **Comments are excluded by default, and the exclusion is reported.** Counting
 the note that records a deletion as an occurrence of the thing deleted punishes

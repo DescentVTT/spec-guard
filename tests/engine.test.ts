@@ -4,8 +4,6 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import {
   buildJsRegExp,
   buildRipgrepArgs,
-  byteColumnToCharacter,
-  canBatchLiterals,
   createCachedEngine,
   escapeRegExp,
   findRipgrep,
@@ -148,7 +146,9 @@ describe('buildRipgrepArgs', () => {
   it('uses fixed-strings by default', () => {
     const args = buildRipgrepArgs(request());
     expect(args).toContain('--fixed-strings');
-    expect(args).toContain('--json');
+    // ripgrep is asked which files matched, not for the matches: the scanner
+    // does the counting so that both engines count the same way.
+    expect(args).toContain('--files-with-matches');
     expect(args).toContain('--no-config');
     expect(args.slice(-4)).toEqual(['--regexp', 'UserSessionManager', '--', 'src']);
   });
@@ -160,7 +160,8 @@ describe('buildRipgrepArgs', () => {
     expect(args).not.toContain('--fixed-strings');
     expect(args).toContain('--word-regexp');
     expect(args).toContain('--ignore-case');
-    expect(args.filter((arg) => arg === '--glob')).toHaveLength(2);
+    // Two from the assertion, four from the scope policy it cannot override.
+    expect(args.filter((arg) => arg === '--glob')).toHaveLength(6);
   });
 
   it('falls back to the current directory when no target survives', () => {
@@ -462,26 +463,6 @@ describe('createCachedEngine', () => {
   });
 });
 
-describe('canBatchLiterals', () => {
-  it('accepts patterns that can never overlap', () => {
-    expect(canBatchLiterals(['Alpha', 'Bravo', 'Charlie'])).toBe(true);
-  });
-
-  it('rejects containment', () => {
-    expect(canBatchLiterals(['Primary', 'PrimaryButton'])).toBe(false);
-    expect(canBatchLiterals(['PrimaryButton', 'Primary'])).toBe(false);
-  });
-
-  it('rejects dovetailing patterns', () => {
-    // "abc" and "cd" both match inside "abcd", but one alternation pass would
-    // find only the first.
-    expect(canBatchLiterals(['abc', 'cd'])).toBe(false);
-  });
-
-  it('accepts a single pattern', () => {
-    expect(canBatchLiterals(['Alpha'])).toBe(true);
-  });
-});
 
 describe('batched searches', () => {
   const overlapping = ['Primary', 'PrimaryButton', 'ButtonTest'];
@@ -649,57 +630,3 @@ describe('ripgrep failure handling', () => {
   });
 });
 
-/**
- * ripgrep counts columns in bytes, the scanner counts characters, and every
- * editor a reader pastes the location into counts characters. On ASCII the two
- * agree, which is exactly why this went unnoticed.
- */
-describe('column reporting', () => {
-  it('converts a byte column to a character column', () => {
-    const line = 'const x = "ab"; const y = Needle;';
-    // Pure ASCII: the byte offset is already a character count.
-    expect(byteColumnToCharacter(line, 26)).toBe(27);
-  });
-
-  it('accounts for multi-byte characters before the match', () => {
-    const line = 'const s = "AAA"; const y = Needle;'.replace('AAA', '中文字');
-    const byteOffset = Buffer.byteLength(line.slice(0, line.indexOf('Needle')), 'utf8');
-
-    // Six extra bytes for three three-byte characters, so the byte offset is
-    // ahead of the character offset by exactly that much.
-    expect(byteOffset).toBe(line.indexOf('Needle') + 6);
-    expect(byteColumnToCharacter(line, byteOffset)).toBe(line.indexOf('Needle') + 1);
-  });
-
-  it('reports column 1 at the start of a line, in both branches', () => {
-    expect(byteColumnToCharacter('Needle', 0)).toBe(1);
-    expect(byteColumnToCharacter('中文 Needle', 0)).toBe(1);
-  });
-
-  it('falls back to the offset when ripgrep gave no line text', () => {
-    expect(byteColumnToCharacter('', 12)).toBe(13);
-  });
-
-  it.runIf(rgPath)('agrees between engines on a non-ascii line', async () => {
-    const root = await makeTempRepo({
-      'src/a.ts': 'const 測試 = "中文"; const x = Needle;\n',
-    });
-    temporary.push(root);
-    process.env.SPEC_GUARD_RG = rgPath as string;
-    resetRipgrepProbe();
-
-    // comments="include" is the path where ripgrep still reports the columns
-    // itself; the comment-aware path routes through the scanner either way.
-    const request: SearchRequest = {
-      root,
-      symbol: 'Needle',
-      targets: ['src'],
-      options: searchOptions({ ignoreComments: false }),
-    };
-    const viaRipgrep = await (await resolveEngine('ripgrep')).search(request);
-    const viaScanner = await javascriptEngine.search(request);
-
-    expect(viaRipgrep.matches[0]?.column).toBe(viaScanner.matches[0]?.column);
-    expect(viaScanner.matches[0]?.column).toBe(28);
-  });
-});

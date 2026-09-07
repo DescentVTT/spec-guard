@@ -1,18 +1,22 @@
 /**
  * Search engines.
  *
- * Primary: native `ripgrep`, consumed as newline-delimited JSON. ripgrep is
- * multi-threaded, gitignore-aware and binary-skipping, which is why spec-guard
- * reaches for it before doing anything clever itself.
+ * There is one set of semantics here, not two. The scanner reads files, counts
+ * matches, classifies comments, decides what is binary and keeps the ledger of
+ * what it could not inspect. ripgrep answers one question - which files under
+ * these targets contain this text at all - and everything downstream of that is
+ * the scanner's work, for both engines.
  *
- * Fallback: a pure-JS walker with identical assertion semantics, used when `rg`
- * is not on PATH (or when `--engine js` is passed). Nothing about spec-guard's
- * behaviour depends on ripgrep being installed - only its speed does.
+ * It was not always so, and the reason for the rewrite is worth keeping: the
+ * two used to be independent implementations, and they drifted. On a tree with
+ * eight copies of one symbol the scanner found two and ripgrep found four,
+ * because one honoured .gitignore and the other did not, one skipped a
+ * hardcoded list of directory names and the other did not, and they disagreed
+ * about binary files. Nothing in the output said so. See ADR-0007.
  *
  * Both engines expose a batch API. Scanning a tree costs the same whether you
  * look for one symbol or twenty, so assertions that share a target set and
- * flags are answered by a single pass. Measured on a 2,000 file / 5 MB tree,
- * eight assertions cost ~280ms as eight ripgrep passes and ~90ms as one.
+ * flags are answered by a single pass.
  */
 
 import { spawn } from 'node:child_process';
@@ -21,6 +25,13 @@ import path from 'node:path';
 
 import { createCommentMask, type CommentMask } from './comments.js';
 import { createExcludeMatcher, createGlobMatcher, toPosix, walkFiles } from './glob.js';
+import {
+  isBinary,
+  LedgerBuilder,
+  MAX_LEDGER_ENTRIES,
+  UNCERTAIN_REASONS,
+  type SkippedPath,
+} from './scope.js';
 import type { EngineName, MatchLocation, SearchOptions, SearchResult } from './types.js';
 
 /** Files larger than this are skipped by both engines, keeping them in sync. */
@@ -63,21 +74,6 @@ function truncate(value: string): string {
   return trimmed.length > MAX_SNIPPET_LENGTH ? `${trimmed.slice(0, MAX_SNIPPET_LENGTH)}…` : trimmed;
 }
 
-/**
- * Converts ripgrep's byte column into a character column.
- *
- * ripgrep counts bytes; the scanner counts characters, and so does every editor
- * that a reader will paste the location into. On an ASCII line the two agree,
- * which is why the difference went unnoticed - it only appears once a line
- * holds a non-ASCII character before the match, and then the two engines report
- * different columns for the same match.
- */
-export function byteColumnToCharacter(line: string, byteOffset: number): number {
-  // One byte per character, so the offset is already a character count. This
-  // also covers the case where ripgrep gave us no line text to measure.
-  if (line.length === Buffer.byteLength(line)) return byteOffset + 1;
-  return Buffer.from(line, 'utf8').subarray(0, byteOffset).toString('utf8').length + 1;
-}
 
 /**
  * Orders matches by path, then by line. ripgrep searches in parallel and emits
@@ -99,27 +95,6 @@ function emptyTally(): Tally {
   return { count: 0, locations: [], commentCount: 0 };
 }
 
-/**
- * True when no two of these literals can ever match overlapping text, which is
- * exactly when merging them into one ripgrep alternation is safe.
- *
- * Two ways an alternation loses a match that separate passes would find:
- *   containment - ["Primary", "PrimaryButton"] on "PrimaryButton"; and
- *   dovetailing - ["abc", "cd"] on "abcd", where the scan resumes past "cd".
- * Rejecting both leaves batching indistinguishable from separate passes.
- */
-export function canBatchLiterals(patterns: readonly string[]): boolean {
-  for (const a of patterns) {
-    for (const b of patterns) {
-      if (a === b) continue;
-      if (a.includes(b) || b.includes(a)) return false;
-      for (let offset = 1; offset < a.length; offset++) {
-        if (b.startsWith(a.slice(offset))) return false;
-      }
-    }
-  }
-  return true;
-}
 
 /** Requests that may share one pass: same root, same targets, same options. */
 function sharesOnePass(requests: readonly SearchRequest[]): boolean {
@@ -178,23 +153,44 @@ export function findRipgrep(): Promise<string | null> {
   return ripgrepProbe;
 }
 
-interface RipgrepText {
-  text?: string;
-  bytes?: string;
-}
 
-function decodeText(value: RipgrepText | undefined): string {
-  if (typeof value?.text === 'string') return value.text;
-  // ripgrep base64-encodes paths and lines that are not valid UTF-8.
-  /* c8 ignore next 2 -- needs a non-UTF-8 path on disk to reach */
-  if (typeof value?.bytes === 'string') return Buffer.from(value.bytes, 'base64').toString('utf8');
-  return '';
-}
-
-/** Builds the argv for one ripgrep pass over `patterns`. */
+/**
+ * Builds the argv that makes ripgrep walk exactly what the scanner walks.
+ *
+ * Almost every flag here switches off an opinion. ripgrep's defaults are
+ * excellent for a developer grepping their own checkout and wrong for a rule
+ * about a repository:
+ *
+ *   --hidden      `.github`, `.husky` and `.claude-rules` hold real code, and
+ *                 leaving them out let an absence assertion pass while the
+ *                 forbidden thing sat in a workflow file.
+ *   --no-ignore   .gitignore says what git should carry, not what a rule
+ *                 covers - and it applies only inside a git repository, so the
+ *                 same tree answered differently depending on whether a .git
+ *                 directory happened to exist above it.
+ *
+ * What remains is spec-guard's own scope policy, passed as exclusions so that
+ * both engines skip the same four names for the same reasons. Those come last
+ * because ripgrep lets a later glob override an earlier one, and a policy skip
+ * must not be undone by a user's `glob="*.ts"`.
+ */
 export function buildRipgrepArgs(request: SearchRequest, patterns: readonly string[] = [request.symbol]): string[] {
   const { options } = request;
-  const args = ['--json', '--no-config', '--no-messages', `--max-filesize=${MAX_FILE_SIZE}`];
+  const args = [
+    '--files-with-matches',
+    // The only separator a filename cannot contain.
+    '--null',
+    '--no-config',
+    '--hidden',
+    '--no-ignore',
+    //   --text        ripgrep treats a file named on the command line as text
+    //                 and a file it walked into as binary, so the same bytes
+    //                 were listed or not depending on how they were reached.
+    //                 The scanner decides what is binary, once, for both
+    //                 engines; ripgrep's job is only to say which files matched.
+    '--text',
+    `--max-filesize=${MAX_FILE_SIZE}`,
+  ];
   if (!options.regex) args.push('--fixed-strings');
   if (options.word) args.push('--word-regexp');
   if (options.ignoreCase) args.push('--ignore-case');
@@ -202,81 +198,64 @@ export function buildRipgrepArgs(request: SearchRequest, patterns: readonly stri
   // ripgrep reads a leading "!" as an exclusion, with gitignore semantics that
   // createExcludeMatcher mirrors for the JavaScript engine.
   for (const glob of options.excludeGlobs) args.push('--glob', `!${glob}`);
+  for (const name of options.scope.skippedDirectories.keys()) args.push('--glob', `!${name}/`);
   for (const pattern of patterns) args.push('--regexp', pattern);
   args.push('--');
   args.push(...(request.targets.length > 0 ? request.targets : ['.']));
   return args;
 }
 
-/** Signals that a batched pass could not be attributed and must be re-run. */
-class UnattributableBatch extends Error {}
-
+/**
+ * ripgrep, used as a pre-filter rather than as a counter.
+ *
+ * The two engines used to be two implementations of the same semantics, and
+ * they drifted: ripgrep honoured .gitignore and the scanner did not, the
+ * scanner skipped a hardcoded list of directory names and ripgrep did not, and
+ * a binary file was searched by one and skipped by the other. Same tree, two
+ * answers, no warning.
+ *
+ * So ripgrep no longer decides anything. It answers one question - which files
+ * under these targets contain this text at all - and the scanner does the rest:
+ * counting, comment classification, binary handling, positions, the ledger.
+ * There is one implementation of the semantics, and ripgrep supplies the thing
+ * it is unmatched at, which is getting from thousands of files down to a
+ * handful very quickly.
+ *
+ * That also removes the batching problem. Attributing a match to the right
+ * pattern used to be delicate, because one ripgrep pass over several patterns
+ * cannot always say which one matched; as a pre-filter it does not need to,
+ * since including a file that turns out not to match is free.
+ */
 class RipgrepEngine implements Engine {
   readonly name: EngineName = 'ripgrep';
 
   constructor(private readonly binary: string) {}
 
   async search(request: SearchRequest): Promise<SearchResult> {
-    if (request.options.ignoreComments) {
-      const [result] = await this.commentAware(request, [request.symbol], [request]);
-      return result as SearchResult;
-    }
-    const tallies = await this.run(request, [request.symbol]);
-    return this.toResult(tallies.get(request.symbol));
+    const [result] = await this.searchBatch([request]);
+    return result as SearchResult;
   }
 
   async searchBatch(requests: SearchRequest[]): Promise<SearchResult[]> {
     const [first] = requests;
+    /* c8 ignore next -- runSearches never passes an empty list */
     if (!first) return [];
 
     const patterns = [...new Set(requests.map((request) => request.symbol))];
-
-    // Comment-aware counting needs the file's text, which ripgrep's match
-    // stream does not carry. Rather than re-implement classification twice,
-    // ripgrep is used for what it is unmatched at - telling us which handful of
-    // files out of thousands contain the symbol at all - and those files are
-    // then counted by the scanner, which already knows about comments. Both
-    // engines therefore produce comment-aware counts through one code path.
-    if (first.options.ignoreComments) {
-      return this.commentAware(first, patterns, requests);
-    }
-
-    if (!shouldBatchPatterns(patterns, first.options)) {
-      return Promise.all(requests.map((request) => this.search(request)));
-    }
-
-    try {
-      const tallies = await this.run(first, patterns);
-      return requests.map((request) => this.toResult(tallies.get(request.symbol)));
-    } catch (error) {
-      if (!(error instanceof UnattributableBatch)) throw error;
-      return Promise.all(requests.map((request) => this.search(request)));
-    }
-  }
-
-  /**
-   * Two-phase search, used whenever comments must be classified.
-   *
-   * The result still names ripgrep: it did the searching, and classification is
-   * a post-step both engines share rather than a different engine.
-   */
-  private async commentAware(
-    request: SearchRequest,
-    patterns: string[],
-    requests: SearchRequest[],
-  ): Promise<SearchResult[]> {
-    const files = await this.filesWithMatches(request, patterns);
-    const results = await javascriptEngine.searchFiles(files, requests);
+    const { files, unreadable } = await this.filesWithMatches(first, patterns);
+    const results = await javascriptEngine.searchFiles(files, requests, unreadable);
+    // The result names ripgrep because ripgrep is what searched the tree; the
+    // scanner is a shared post-step, not a different engine.
     return results.map((result) => ({ ...result, engine: this.name }));
   }
 
-  /** Phase one: which files contain any of these patterns at all. */
-  private filesWithMatches(request: SearchRequest, patterns: string[]): Promise<CandidateFile[]> {
-    return new Promise<CandidateFile[]>((resolve, reject) => {
-      const args = buildRipgrepArgs(request, patterns).map((argument) =>
-        argument === '--json' ? '--files-with-matches' : argument,
-      );
-      const child = spawn(this.binary, args, {
+  /** Which files contain any of these patterns, and which could not be read. */
+  private filesWithMatches(
+    request: SearchRequest,
+    patterns: string[],
+  ): Promise<{ files: CandidateFile[]; unreadable: string[] }> {
+    return new Promise((resolve, reject) => {
+      const child = spawn(this.binary, buildRipgrepArgs(request, patterns), {
         cwd: request.root,
         windowsHide: true,
         stdio: ['ignore', 'pipe', 'pipe'],
@@ -297,165 +276,44 @@ class RipgrepEngine implements Engine {
           return;
         }
         const files: CandidateFile[] = [];
-        for (const line of stdout.split('\n')) {
-          const trimmed = line.trim();
-          if (trimmed.length === 0) continue;
-          const absolutePath = path.resolve(request.root, trimmed);
+        // --null separates paths with NUL, which is the only separator a file
+        // name cannot contain. Splitting on newlines loses files whose names
+        // contain one.
+        for (const entry of stdout.split('\0')) {
+          if (entry.length === 0) continue;
+          const absolutePath = path.resolve(request.root, entry);
           if (request.options.excludeFiles.has(absolutePath)) continue;
           files.push({ absolutePath, relativePath: toPosix(path.relative(request.root, absolutePath)) });
         }
         files.sort((a, b) => (a.relativePath < b.relativePath ? -1 : 1));
-        resolve(files);
-      });
-    });
-  }
-
-  private toResult(tally: Tally | undefined): SearchResult {
-    const resolved = tally ?? emptyTally();
-    return {
-      count: resolved.count,
-      commentMatches: resolved.commentCount,
-      unclassifiedFiles: 0,
-      matches: sortLocations(resolved.locations),
-      engine: this.name,
-    };
-  }
-
-  /** One ripgrep pass; returns a tally per pattern. */
-  private run(request: SearchRequest, patterns: string[]): Promise<Map<string, Tally>> {
-    return new Promise<Map<string, Tally>>((resolve, reject) => {
-      const child = spawn(this.binary, buildRipgrepArgs(request, patterns), {
-        cwd: request.root,
-        windowsHide: true,
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
-
-      const sink = createRipgrepSink(request, patterns);
-      let pending = '';
-      let stderr = '';
-
-      child.stdout.setEncoding('utf8');
-      child.stdout.on('data', (chunk: string) => {
-        pending += chunk;
-        let newline = pending.indexOf('\n');
-        while (newline !== -1) {
-          sink.line(pending.slice(0, newline));
-          pending = pending.slice(newline + 1);
-          newline = pending.indexOf('\n');
-        }
-      });
-      child.stderr.setEncoding('utf8');
-      child.stderr.on('data', (chunk: string) => {
-        stderr += chunk;
-      });
-
-      child.once('error', reject);
-      child.once('close', (code) => {
-        sink.line(pending);
-        if (sink.failure) {
-          reject(sink.failure);
-          return;
-        }
-        // 0 = matches, 1 = no matches, 2 = an actual failure.
-        if (code !== 0 && code !== 1) {
-          reject(new Error(`ripgrep exited with code ${code}${stderr ? `: ${stderr.trim()}` : ''}`));
-          return;
-        }
-        resolve(sink.tallies);
+        resolve({ files, unreadable: parseRipgrepErrors(stderr) });
       });
     });
   }
 }
 
 /**
- * Whether a set of patterns may share one ripgrep pass.
+ * Pulls the paths out of ripgrep's stderr.
  *
- * Kept separate from the engine so the decision can be asserted directly: from
- * the outside a correct batch and a correct set of separate passes are
- * indistinguishable by design, which makes this the only place the rule is
- * observable.
- */
-export function shouldBatchPatterns(patterns: readonly string[], options: SearchOptions): boolean {
-  if (patterns.length <= 1) return false;
-  if (options.regex || options.ignoreCase) return false;
-  return canBatchLiterals(patterns);
-}
-
-export interface RipgrepSink {
-  /** Feeds one line of ripgrep --json output. */
-  line(text: string): void;
-  readonly tallies: Map<string, Tally>;
-  readonly failure: Error | null;
-}
-
-/**
- * Parses ripgrep's newline-delimited JSON into per-pattern tallies.
+ * `--no-messages` used to be passed, which threw these away: a file ripgrep
+ * could not open produced no match, no error and no difference from a file that
+ * was searched and found clean. ripgrep writes one line per failure, as
+ * `path: reason`, and the path is what the report needs.
  *
- * This is deliberately pure and separate from the subprocess: every interesting
- * case here - a base64 path, a match with no submatches, an excluded file, an
- * unattributable match - is trivial to exercise as data and nearly impossible
- * to provoke from a real ripgrep on demand.
+ * Anything that does not parse is returned as-is rather than dropped, on the
+ * principle that an unexplained line from a subprocess is still information.
  */
-export function createRipgrepSink(request: SearchRequest, patterns: readonly string[]): RipgrepSink {
-  const single = patterns.length === 1 ? (patterns[0] as string) : null;
-  const tallies = new Map<string, Tally>(patterns.map((pattern) => [pattern, emptyTally()]));
-  const sink = {
-    tallies,
-    failure: null as Error | null,
-    line(text: string): void {
-      if (text.length === 0 || sink.failure) return;
-      let event: { type?: string; data?: unknown };
-      try {
-        event = JSON.parse(text) as { type?: string; data?: unknown };
-      } catch {
-        return;
-      }
-      if (event.type !== 'match' || !event.data) return;
-
-      const data = event.data as {
-        path?: RipgrepText;
-        lines?: RipgrepText;
-        line_number?: number;
-        submatches?: Array<{ start?: number; match?: RipgrepText }>;
-      };
-      const submatches = data.submatches ?? [];
-      if (submatches.length === 0) return;
-
-      // ripgrep echoes the path as given ("./src/a.ts" when the target is
-      // "."); normalise so both engines report the same relative path.
-      const absolute = path.resolve(request.root, decodeText(data.path));
-      if (request.options.excludeFiles.has(absolute)) return;
-      const file = toPosix(path.relative(request.root, absolute));
-      const lineNumber = data.line_number ?? 0;
-      const lineText = decodeText(data.lines);
-      const text_ = truncate(lineText);
-
-      for (const submatch of submatches) {
-        // With --fixed-strings and no --ignore-case the matched text is the
-        // pattern verbatim, which is what makes attribution exact.
-        const pattern = single ?? decodeText(submatch.match);
-        const tally = tallies.get(pattern);
-        if (!tally) {
-          sink.failure = new UnattributableBatch(`ripgrep reported an unexpected match: ${pattern}`);
-          return;
-        }
-        tally.count += 1;
-        const last = tally.locations.at(-1);
-        if (last && last.file === file && last.line === lineNumber) {
-          last.count += 1;
-        } else if (tally.locations.length < MAX_COLLECTED_MATCHES) {
-          tally.locations.push({
-            file,
-            line: lineNumber,
-            column: byteColumnToCharacter(lineText, submatch.start ?? 0),
-            text: text_,
-            count: 1,
-          });
-        }
-      }
-    },
-  };
-  return sink;
+export function parseRipgrepErrors(stderr: string): string[] {
+  const paths: string[] = [];
+  for (const raw of stderr.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (line.length === 0) continue;
+    // "rg: " prefixes ripgrep's own diagnostics rather than a file's.
+    const body = line.startsWith('rg: ') ? line.slice(4) : line;
+    const separator = body.indexOf(': ');
+    paths.push(separator === -1 ? body : body.slice(0, separator));
+  }
+  return paths;
 }
 
 /* --------------------------------------------------------------- javascript */
@@ -472,13 +330,6 @@ export function buildJsRegExp(symbol: string, options: SearchOptions): RegExp {
   return new RegExp(source, `${flags}u`);
 }
 
-function isProbablyBinary(buffer: Buffer): boolean {
-  const limit = Math.min(buffer.length, 8192);
-  for (let index = 0; index < limit; index++) {
-    if (buffer[index] === 0) return true;
-  }
-  return false;
-}
 
 interface CandidateFile {
   absolutePath: string;
@@ -502,14 +353,28 @@ class JavaScriptEngine implements Engine {
     const [first] = requests;
     if (!first) return [];
 
-    const files = await this.collectFiles(first);
-    return this.searchFiles(files, requests);
+    const enumeration = await enumerateCandidates(first);
+    return this.searchFiles(enumeration.files, requests, [], enumeration.skipped);
   }
 
-  /** Scans an already-enumerated file list. */
-  async searchFiles(files: readonly CandidateFile[], requests: SearchRequest[]): Promise<SearchResult[]> {
+  /**
+   * Scans an already-enumerated file list.
+   *
+   * `unreadable` carries paths a caller already knows it could not open -
+   * ripgrep reports those on stderr, and they belong in the same ledger as the
+   * ones this scanner discovers for itself.
+   */
+  async searchFiles(
+    files: readonly CandidateFile[],
+    requests: SearchRequest[],
+    unreadable: readonly string[] = [],
+    skipped: readonly SkippedPath[] = [],
+  ): Promise<SearchResult[]> {
     const [first] = requests;
     if (!first) return [];
+    const ledger = new LedgerBuilder();
+    for (const entry of skipped) ledger.add(entry.path, entry.reason, entry.matches);
+    for (const entry of unreadable) ledger.add(entry, 'unreadable');
     const patterns = [...new Set(requests.map((request) => request.symbol))];
     const regexps = new Map(patterns.map((pattern) => [pattern, buildJsRegExp(pattern, first.options)]));
     const tallies = new Map<string, Tally>(patterns.map((pattern) => [pattern, emptyTally()]));
@@ -525,7 +390,12 @@ class JavaScriptEngine implements Engine {
         /* c8 ignore next -- cursor is bounded by files.length */
         if (!file) return;
         const buffer = await fs.readFile(file.absolutePath).catch(() => null);
-        if (!buffer || isProbablyBinary(buffer)) continue;
+        if (!buffer) {
+          // A file we cannot open might hold anything, so it is recorded rather
+          // than passed over as though it had been read and found clean.
+          ledger.add(file.relativePath, 'unreadable');
+          continue;
+        }
         const content = buffer.toString('utf8');
         let mask: CommentMask | undefined;
         const getMask = first.options.ignoreComments
@@ -535,6 +405,21 @@ class JavaScriptEngine implements Engine {
         const scanned = new Map<string, Tally>();
         for (const [pattern, regexp] of regexps) {
           scanned.set(pattern, scanContent(content, file.relativePath, regexp, getMask));
+        }
+
+        if (isBinary(buffer)) {
+          // Searched, but not counted. Skipping binary files silently was a way
+          // to pass an assertion by never looking; searching them and saying
+          // what was found leaves the decision with the reader.
+          //
+          // Only a binary file that *did* contain the symbol goes in the
+          // ledger. One that did not is not a gap - it was read, searched and
+          // found clean - and leaving it out is also what keeps the two engines
+          // reporting the same thing, since ripgrep only ever hands the scanner
+          // files that matched.
+          const found = [...scanned.values()].reduce((total, tally) => total + tally.count, 0);
+          if (found > 0) ledger.add(file.relativePath, 'binary', found);
+          continue;
         }
         // A mask exists only if some pattern matched, since that is the only
         // thing that calls getMask - so reaching here already means this file
@@ -560,6 +445,7 @@ class JavaScriptEngine implements Engine {
       }
     }
 
+    const scope = ledger.build();
     return requests.map((request) => {
       const tally = tallies.get(request.symbol) ?? emptyTally();
       return {
@@ -567,15 +453,13 @@ class JavaScriptEngine implements Engine {
         commentMatches: tally.commentCount,
         unclassifiedFiles,
         matches: tally.locations,
+        scope,
         engine: this.name,
       };
     });
   }
 
   /** Every file a request should look at, sorted by relative path. */
-  private async collectFiles(request: SearchRequest): Promise<CandidateFile[]> {
-    return (await enumerateCandidates(request)).files;
-  }
 }
 
 export interface Enumeration {
@@ -583,6 +467,8 @@ export interface Enumeration {
   /** True when the walk stopped early because the budget was reached. */
   exceeded: boolean;
   bytes: number;
+  /** Paths the walk declined to inspect, with the reason for each. */
+  skipped: SkippedPath[];
 }
 
 export interface EnumerationBudget {
@@ -606,6 +492,16 @@ export async function enumerateCandidates(
   const excluded = createExcludeMatcher(request.options.excludeGlobs);
   const admits = (relativePath: string): boolean => matcher(relativePath) && !excluded(relativePath);
   const found = new Map<string, CandidateFile>();
+  const skipped: SkippedPath[] = [];
+  const note = (relativePath: string, reason: SkippedPath['reason']): void => {
+    // Only gaps go in the ledger. `.git` and `node_modules` are configuration,
+    // not news: they are the same on every run, they are documented, and
+    // reporting them each time would bury the entries that do mean something.
+    // It also keeps the two engines' ledgers identical, since ripgrep is only
+    // ever asked about files it did not skip.
+    if (!UNCERTAIN_REASONS.has(reason)) return;
+    if (skipped.length < MAX_LEDGER_ENTRIES) skipped.push({ path: relativePath, reason });
+  };
   let bytes = 0;
   let exceeded = false;
 
@@ -632,7 +528,14 @@ export async function enumerateCandidates(
       continue;
     }
 
-    for await (const file of walkFiles(absoluteTarget)) {
+    const prefix = toPosix(path.relative(request.root, absoluteTarget));
+    const walkOptions = {
+      scope: request.options.scope,
+      onSkip: (relativePath: string, reason: SkippedPath['reason']): void =>
+        note(prefix ? `${prefix}/${relativePath}` : relativePath, reason),
+    };
+
+    for await (const file of walkFiles(absoluteTarget, walkOptions)) {
       if (file.size > MAX_FILE_SIZE) continue;
       const relativePath = toPosix(path.relative(request.root, file.absolutePath));
       if (!admits(relativePath)) continue;
@@ -642,7 +545,7 @@ export async function enumerateCandidates(
 
   for (const excluded of request.options.excludeFiles) found.delete(excluded);
   const files = [...found.values()].sort((a, b) => (a.relativePath < b.relativePath ? -1 : 1));
-  return { files, exceeded, bytes };
+  return { files, exceeded, bytes, skipped };
 }
 
 /** Counts matches in one file and records per-line snippets. */
@@ -721,7 +624,12 @@ export function scanContent(
 export type BatchEngine = Engine &
   Required<Pick<Engine, 'searchBatch'>> & {
     /** Scans a file list that the caller already enumerated. */
-    searchFiles(files: readonly CandidateFile[], requests: SearchRequest[]): Promise<SearchResult[]>;
+    searchFiles(
+      files: readonly CandidateFile[],
+      requests: SearchRequest[],
+      unreadable?: readonly string[],
+      skipped?: readonly SkippedPath[],
+    ): Promise<SearchResult[]>;
   };
 
 export const javascriptEngine: BatchEngine = new JavaScriptEngine();

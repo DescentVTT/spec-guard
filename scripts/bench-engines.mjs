@@ -15,6 +15,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { javascriptEngine, resolveEngine } from '../dist/engine.js';
+import { DEFAULT_SCOPE } from '../dist/scope.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SCRATCH = path.join(ROOT, 'tests', 'fixtures', '.tmp', 'bench-engines');
@@ -57,7 +58,16 @@ async function timeSearch(engine, root, runs) {
     root,
     symbol: 'Sentinel0',
     targets: ['src'],
-    options: { regex: false, word: true, ignoreCase: false, globs: [], excludeFiles: new Set() },
+    options: {
+      regex: false,
+      word: true,
+      ignoreCase: false,
+      globs: [],
+      excludeGlobs: [],
+      ignoreComments: false,
+      scope: DEFAULT_SCOPE,
+      excludeFiles: new Set(),
+    },
   };
   await engine.search(request); // warm the filesystem cache
   const samples = [];

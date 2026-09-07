@@ -18,12 +18,11 @@ export type { CliIO, CliOptions } from './cli.js';
 export {
   buildJsRegExp,
   buildRipgrepArgs,
-  canBatchLiterals,
   createCachedEngine,
-  createRipgrepSink,
   enumerateCandidates,
   escapeRegExp,
   findRipgrep,
+  parseRipgrepErrors,
   isMissingBinary,
   javascriptEngine,
   resetRipgrepProbe,
@@ -31,7 +30,6 @@ export {
   runSearches,
   scanContent,
   sortLocations,
-  shouldBatchPatterns,
   MAX_FILE_SIZE,
   SMALL_TREE_BUDGET,
 } from './engine.js';
@@ -42,7 +40,6 @@ export type {
   EnginePreference,
   Enumeration,
   EnumerationBudget,
-  RipgrepSink,
   SearchRequest,
 } from './engine.js';
 
@@ -57,9 +54,22 @@ export {
   isGlob,
   toPosix,
   walkFiles,
-  DEFAULT_IGNORED_DIRECTORIES,
 } from './glob.js';
 export type { DirectoryReader, WalkedFile, WalkOptions } from './glob.js';
+
+export {
+  createScope,
+  isBinary,
+  mergeLedgers,
+  tallyLedger,
+  LedgerBuilder,
+  DEFAULT_SCOPE,
+  DEFAULT_SKIPPED_DIRECTORIES,
+  MAX_LEDGER_ENTRIES,
+  SCAN_EVERYTHING,
+  UNCERTAIN_REASONS,
+} from './scope.js';
+export type { ScopeLedger, ScopePolicy, SkippedPath, SkipReason } from './scope.js';
 
 export {
   analyzeSource,

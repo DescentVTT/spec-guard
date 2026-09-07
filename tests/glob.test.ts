@@ -1,6 +1,7 @@
-import { promises as fsp } from 'node:fs';
-import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { SCAN_EVERYTHING } from "../src/scope.js";
+import { promises as fsp } from "node:fs";
+import path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   createGlobMatcher,
@@ -10,8 +11,8 @@ import {
   isGlob,
   toPosix,
   walkFiles,
-} from '../src/glob.js';
-import { DEMO_REPO, makeTempRepo, removeTempRepo } from './helpers.js';
+} from "../src/glob.js";
+import { DEMO_REPO, makeTempRepo, removeTempRepo } from "./helpers.js";
 
 const temporary: string[] = [];
 
@@ -25,194 +26,258 @@ async function repo(files: Record<string, string>): Promise<string> {
   return root;
 }
 
-describe('globToRegExp', () => {
+describe("globToRegExp", () => {
   const cases: Array<[string, string, boolean]> = [
-    ['*.ts', 'a.ts', true],
-    ['*.ts', 'a.tsx', false],
-    ['*.ts', 'src/a.ts', false],
-    ['**/*.ts', 'src/deep/a.ts', true],
-    ['**/*.ts', 'a.ts', true],
-    ['src/**', 'src/a/b.ts', true],
-    ['src/**', 'lib/a.ts', false],
-    ['a?c.ts', 'abc.ts', true],
-    ['a?c.ts', 'ac.ts', false],
-    ['{a,b}.ts', 'b.ts', true],
-    ['{a,b}.ts', 'c.ts', false],
-    ['[ab].ts', 'a.ts', true],
-    ['[!ab].ts', 'c.ts', true],
-    ['[!ab].ts', 'a.ts', false],
-    ['a.b+c.ts', 'a.b+c.ts', true],
-    ['a.b+c.ts', 'aXbYc.ts', false],
+    ["*.ts", "a.ts", true],
+    ["*.ts", "a.tsx", false],
+    ["*.ts", "src/a.ts", false],
+    ["**/*.ts", "src/deep/a.ts", true],
+    ["**/*.ts", "a.ts", true],
+    ["src/**", "src/a/b.ts", true],
+    ["src/**", "lib/a.ts", false],
+    ["a?c.ts", "abc.ts", true],
+    ["a?c.ts", "ac.ts", false],
+    ["{a,b}.ts", "b.ts", true],
+    ["{a,b}.ts", "c.ts", false],
+    ["[ab].ts", "a.ts", true],
+    ["[!ab].ts", "c.ts", true],
+    ["[!ab].ts", "a.ts", false],
+    ["a.b+c.ts", "a.b+c.ts", true],
+    ["a.b+c.ts", "aXbYc.ts", false],
   ];
 
-  it.each(cases)('matches %s against %s -> %s', (pattern, candidate, expected) => {
-    expect(globToRegExp(pattern).test(candidate)).toBe(expected);
+  it.each(cases)(
+    "matches %s against %s -> %s",
+    (pattern, candidate, expected) => {
+      expect(globToRegExp(pattern).test(candidate)).toBe(expected);
+    },
+  );
+
+  it("supports case-insensitive matching", () => {
+    expect(globToRegExp("*.TS", { ignoreCase: true }).test("a.ts")).toBe(true);
+    expect(globToRegExp("*.TS").test("a.ts")).toBe(false);
   });
 
-  it('supports case-insensitive matching', () => {
-    expect(globToRegExp('*.TS', { ignoreCase: true }).test('a.ts')).toBe(true);
-    expect(globToRegExp('*.TS').test('a.ts')).toBe(false);
+  it("treats unterminated bracket and brace groups literally", () => {
+    expect(globToRegExp("a[bc.ts").test("a[bc.ts")).toBe(true);
+    expect(globToRegExp("a{b.ts").test("a{b.ts")).toBe(true);
   });
 
-  it('treats unterminated bracket and brace groups literally', () => {
-    expect(globToRegExp('a[bc.ts').test('a[bc.ts')).toBe(true);
-    expect(globToRegExp('a{b.ts').test('a{b.ts')).toBe(true);
-  });
-
-  it('normalises windows separators', () => {
-    expect(globToRegExp('src\\**\\*.ts').test('src/a/b.ts')).toBe(true);
-  });
-});
-
-describe('createGlobMatcher', () => {
-  it('matches bare patterns against the basename, like ripgrep -g', () => {
-    const matcher = createGlobMatcher(['*.ts']);
-    expect(matcher('src/deep/a.ts')).toBe(true);
-    expect(matcher('src/deep/a.js')).toBe(false);
-  });
-
-  it('matches patterns containing a slash against the whole path', () => {
-    const matcher = createGlobMatcher(['src/**/*.ts']);
-    expect(matcher('src/deep/a.ts')).toBe(true);
-    expect(matcher('lib/deep/a.ts')).toBe(false);
-  });
-
-  it('expands a trailing slash to a directory match', () => {
-    const matcher = createGlobMatcher(['src/']);
-    expect(matcher('src/a.ts')).toBe(true);
-    expect(matcher('lib/a.ts')).toBe(false);
-  });
-
-  it('accepts any file when no pattern is given', () => {
-    expect(createGlobMatcher([])('anything.bin')).toBe(true);
-  });
-
-  it('accepts a file matching any of several patterns', () => {
-    const matcher = createGlobMatcher(['*.ts', '*.tsx']);
-    expect(matcher('a.tsx')).toBe(true);
-    expect(matcher('a.md')).toBe(false);
-  });
-
-  it('ignores a leading ./', () => {
-    expect(createGlobMatcher(['./src/*.ts'])('src/a.ts')).toBe(true);
+  it("normalises windows separators", () => {
+    expect(globToRegExp("src\\**\\*.ts").test("src/a/b.ts")).toBe(true);
   });
 });
 
-describe('walkFiles', () => {
-  it('yields files depth-first in sorted order', async () => {
-    const root = await repo({ 'b.ts': '', 'a.ts': '', 'nested/c.ts': '' });
+describe("createGlobMatcher", () => {
+  it("matches bare patterns against the basename, like ripgrep -g", () => {
+    const matcher = createGlobMatcher(["*.ts"]);
+    expect(matcher("src/deep/a.ts")).toBe(true);
+    expect(matcher("src/deep/a.js")).toBe(false);
+  });
+
+  it("matches patterns containing a slash against the whole path", () => {
+    const matcher = createGlobMatcher(["src/**/*.ts"]);
+    expect(matcher("src/deep/a.ts")).toBe(true);
+    expect(matcher("lib/deep/a.ts")).toBe(false);
+  });
+
+  it("expands a trailing slash to a directory match", () => {
+    const matcher = createGlobMatcher(["src/"]);
+    expect(matcher("src/a.ts")).toBe(true);
+    expect(matcher("lib/a.ts")).toBe(false);
+  });
+
+  it("accepts any file when no pattern is given", () => {
+    expect(createGlobMatcher([])("anything.bin")).toBe(true);
+  });
+
+  it("accepts a file matching any of several patterns", () => {
+    const matcher = createGlobMatcher(["*.ts", "*.tsx"]);
+    expect(matcher("a.tsx")).toBe(true);
+    expect(matcher("a.md")).toBe(false);
+  });
+
+  it("ignores a leading ./", () => {
+    expect(createGlobMatcher(["./src/*.ts"])("src/a.ts")).toBe(true);
+  });
+});
+
+describe("walkFiles", () => {
+  it("yields files depth-first in sorted order", async () => {
+    const root = await repo({ "b.ts": "", "a.ts": "", "nested/c.ts": "" });
     const found = [];
     for await (const file of walkFiles(root)) found.push(file.relativePath);
-    expect(found).toEqual(['a.ts', 'b.ts', 'nested/c.ts']);
+    expect(found).toEqual(["a.ts", "b.ts", "nested/c.ts"]);
   });
 
-  it('skips ignored directories and hidden entries', async () => {
+  it("walks hidden entries, and skips only what the scope policy names", async () => {
+    // This test used to require the opposite, and that requirement was the
+    // defect: `.github`, `.husky` and `.env` hold real code and configuration,
+    // and leaving them out let an absence assertion pass while the forbidden
+    // thing sat in a workflow file. `dist` is walked too - spec-guard cannot
+    // tell build output from a directory of build scripts, and guessing wrong
+    // is how a rule silently stops covering anything.
     const root = await repo({
-      'a.ts': '',
-      'node_modules/pkg/index.js': '',
-      'dist/out.js': '',
-      '.hidden/secret.ts': '',
-      '.env': '',
+      "a.ts": "",
+      "node_modules/pkg/index.js": "",
+      "dist/out.js": "",
+      ".hidden/secret.ts": "",
+      ".env": "",
     });
     const found = [];
     for await (const file of walkFiles(root)) found.push(file.relativePath);
-    expect(found).toEqual(['a.ts']);
+    expect(found).toEqual([".env", ".hidden/secret.ts", "a.ts", "dist/out.js"]);
   });
 
-  it('can include hidden entries on request', async () => {
-    const root = await repo({ 'a.ts': '', '.github/workflows/ci.yml': '' });
+  it("reports the directories it skipped rather than dropping them", async () => {
+    const root = await repo({
+      "a.ts": "",
+      "node_modules/pkg/index.js": "",
+      ".git/objects/ab": "",
+    });
+    const skipped: Array<[string, string]> = [];
+
     const found = [];
-    for await (const file of walkFiles(root, { includeHidden: true })) found.push(file.relativePath);
-    expect(found).toEqual(['.github/workflows/ci.yml', 'a.ts']);
+    for await (const file of walkFiles(root, {
+      onSkip: (p, reason) => skipped.push([p, reason]),
+    })) {
+      found.push(file.relativePath);
+    }
+
+    expect(found).toEqual(["a.ts"]);
+    expect(skipped).toEqual([
+      [".git", "vcs"],
+      ["node_modules", "dependencies"],
+    ]);
   });
 
-  it('reports file sizes and absolute paths', async () => {
-    const root = await repo({ 'a.ts': 'hello' });
+  it("walks everything under a policy that skips nothing", async () => {
+    const root = await repo({ "a.ts": "", "node_modules/pkg/index.js": "" });
+    const found = [];
+    for await (const file of walkFiles(root, { scope: SCAN_EVERYTHING }))
+      found.push(file.relativePath);
+    expect(found).toEqual(["a.ts", "node_modules/pkg/index.js"]);
+  });
+
+  it("reaches code inside a hidden directory", async () => {
+    // The case from the audit: a forbidden symbol in .github/workflows.
+    const root = await repo({ "a.ts": "", ".github/workflows/ci.yml": "" });
+    const found = [];
+    for await (const file of walkFiles(root)) found.push(file.relativePath);
+    expect(found).toEqual([".github/workflows/ci.yml", "a.ts"]);
+  });
+
+  it("reports file sizes and absolute paths", async () => {
+    const root = await repo({ "a.ts": "hello" });
     const files = [];
     for await (const entry of walkFiles(root)) files.push(entry);
     expect(files).toHaveLength(1);
     expect(files[0]?.size).toBe(5);
-    expect(files[0]?.absolutePath).toBe(path.join(root, 'a.ts'));
+    expect(files[0]?.absolutePath).toBe(path.join(root, "a.ts"));
   });
 
-  it('yields nothing for a missing root or a file root', async () => {
-    const root = await repo({ 'a.ts': '' });
+  it("yields nothing for a missing root or a file root", async () => {
+    const root = await repo({ "a.ts": "" });
     const missing = [];
-    for await (const file of walkFiles(path.join(root, 'nope'))) missing.push(file);
-    for await (const file of walkFiles(path.join(root, 'a.ts'))) missing.push(file);
+    for await (const file of walkFiles(path.join(root, "nope")))
+      missing.push(file);
+    for await (const file of walkFiles(path.join(root, "a.ts")))
+      missing.push(file);
     expect(missing).toEqual([]);
   });
 });
 
-describe('globBase', () => {
-  it('splits the static prefix from the pattern', () => {
-    expect(globBase('docs/adr/*.md')).toEqual({ base: 'docs/adr', rest: '*.md' });
-    expect(globBase('docs/**/*.md')).toEqual({ base: 'docs', rest: '**/*.md' });
-    expect(globBase('*.md')).toEqual({ base: '', rest: '*.md' });
+describe("globBase", () => {
+  it("splits the static prefix from the pattern", () => {
+    expect(globBase("docs/adr/*.md")).toEqual({
+      base: "docs/adr",
+      rest: "*.md",
+    });
+    expect(globBase("docs/**/*.md")).toEqual({ base: "docs", rest: "**/*.md" });
+    expect(globBase("*.md")).toEqual({ base: "", rest: "*.md" });
   });
 });
 
-describe('expandSpecPatterns', () => {
-  it('expands globs relative to the root', async () => {
-    const files = await expandSpecPatterns(['docs/**/*.md'], DEMO_REPO);
-    expect(files.map((file) => toPosix(path.relative(DEMO_REPO, file)))).toEqual([
-      'docs/adr/0001-passing.md',
-      'docs/adr/0002-failing.md',
-      'docs/adr/0003-invalid.md',
-      'docs/adr/0004-search-options.md',
-      'docs/adr/0005-missing-target.md',
+describe("expandSpecPatterns", () => {
+  it("expands globs relative to the root", async () => {
+    const files = await expandSpecPatterns(["docs/**/*.md"], DEMO_REPO);
+    expect(
+      files.map((file) => toPosix(path.relative(DEMO_REPO, file))),
+    ).toEqual([
+      "docs/adr/0001-passing.md",
+      "docs/adr/0002-failing.md",
+      "docs/adr/0003-invalid.md",
+      "docs/adr/0004-search-options.md",
+      "docs/adr/0005-missing-target.md",
     ]);
   });
 
-  it('accepts a literal file path', async () => {
-    const files = await expandSpecPatterns(['docs/adr/0001-passing.md'], DEMO_REPO);
+  it("accepts a literal file path", async () => {
+    const files = await expandSpecPatterns(
+      ["docs/adr/0001-passing.md"],
+      DEMO_REPO,
+    );
     expect(files).toHaveLength(1);
   });
 
-  it('expands a directory to the markdown files it contains', async () => {
-    const root = await repo({ 'docs/a.md': '', 'docs/b.markdown': '', 'docs/c.txt': '', 'docs/nested/d.mdx': '' });
-    const files = await expandSpecPatterns(['docs'], root);
+  it("expands a directory to the markdown files it contains", async () => {
+    const root = await repo({
+      "docs/a.md": "",
+      "docs/b.markdown": "",
+      "docs/c.txt": "",
+      "docs/nested/d.mdx": "",
+    });
+    const files = await expandSpecPatterns(["docs"], root);
     expect(files.map((file) => toPosix(path.relative(root, file)))).toEqual([
-      'docs/a.md',
-      'docs/b.markdown',
-      'docs/nested/d.mdx',
+      "docs/a.md",
+      "docs/b.markdown",
+      "docs/nested/d.mdx",
     ]);
   });
 
-  it('de-duplicates overlapping patterns', async () => {
+  it("de-duplicates overlapping patterns", async () => {
     const files = await expandSpecPatterns(
-      ['docs/adr/0001-passing.md', 'docs/**/*.md', 'docs/adr/0001-passing.md'],
+      ["docs/adr/0001-passing.md", "docs/**/*.md", "docs/adr/0001-passing.md"],
       DEMO_REPO,
     );
     expect(new Set(files).size).toBe(files.length);
   });
 
-  it('returns nothing when a pattern matches nothing', async () => {
-    expect(await expandSpecPatterns(['does/not/exist/**/*.md'], DEMO_REPO)).toEqual([]);
-    expect(await expandSpecPatterns(['nope.md'], DEMO_REPO)).toEqual([]);
+  it("returns nothing when a pattern matches nothing", async () => {
+    expect(
+      await expandSpecPatterns(["does/not/exist/**/*.md"], DEMO_REPO),
+    ).toEqual([]);
+    expect(await expandSpecPatterns(["nope.md"], DEMO_REPO)).toEqual([]);
   });
 
-  it('finds specs inside dot-directories when the pattern asks for them', async () => {
-    const root = await repo({ '.github/notes.md': '', 'plain.md': '' });
-    const files = await expandSpecPatterns(['.github/*.md'], root);
-    expect(files.map((file) => toPosix(path.relative(root, file)))).toEqual(['.github/notes.md']);
+  it("finds specs inside dot-directories when the pattern asks for them", async () => {
+    const root = await repo({ ".github/notes.md": "", "plain.md": "" });
+    const files = await expandSpecPatterns([".github/*.md"], root);
+    expect(files.map((file) => toPosix(path.relative(root, file)))).toEqual([
+      ".github/notes.md",
+    ]);
   });
 
-  it('supports absolute glob patterns', async () => {
-    const root = await repo({ 'docs/a.md': '' });
-    const files = await expandSpecPatterns([`${toPosix(root)}/docs/*.md`], process.cwd());
-    expect(files.map((file) => toPosix(path.relative(root, file)))).toEqual(['docs/a.md']);
+  it("supports absolute glob patterns", async () => {
+    const root = await repo({ "docs/a.md": "" });
+    const files = await expandSpecPatterns(
+      [`${toPosix(root)}/docs/*.md`],
+      process.cwd(),
+    );
+    expect(files.map((file) => toPosix(path.relative(root, file)))).toEqual([
+      "docs/a.md",
+    ]);
   });
 });
 
-describe('helpers', () => {
-  it('detects glob metacharacters', () => {
-    expect(isGlob('src/**/*.ts')).toBe(true);
-    expect(isGlob('src/index.ts')).toBe(false);
+describe("helpers", () => {
+  it("detects glob metacharacters", () => {
+    expect(isGlob("src/**/*.ts")).toBe(true);
+    expect(isGlob("src/index.ts")).toBe(false);
   });
 
-  it('converts windows separators', () => {
-    expect(toPosix('src\\a\\b.ts')).toBe('src/a/b.ts');
+  it("converts windows separators", () => {
+    expect(toPosix("src\\a\\b.ts")).toBe("src/a/b.ts");
   });
 });
 
@@ -223,9 +288,13 @@ describe('helpers', () => {
  * silently passing.
  */
 const fileSymlinksWork = await (async (): Promise<boolean> => {
-  const probe = await makeTempRepo({ 'target.txt': 'x' });
+  const probe = await makeTempRepo({ "target.txt": "x" });
   try {
-    await fsp.symlink(path.join(probe, 'target.txt'), path.join(probe, 'link.txt'), 'file');
+    await fsp.symlink(
+      path.join(probe, "target.txt"),
+      path.join(probe, "link.txt"),
+      "file",
+    );
     return true;
   } catch {
     return false;
@@ -234,48 +303,70 @@ const fileSymlinksWork = await (async (): Promise<boolean> => {
   }
 })();
 
-describe('walkFiles with symlinks', () => {
-  it('skips linked directories by default and follows them on request', async () => {
-    const root = await repo({ 'real/a.ts': 'const a = 1;', 'plain.ts': '' });
-    await fsp.symlink(path.join(root, 'real'), path.join(root, 'linked'), 'junction');
+describe("walkFiles with symlinks", () => {
+  it("skips linked directories by default and follows them on request", async () => {
+    const root = await repo({ "real/a.ts": "const a = 1;", "plain.ts": "" });
+    await fsp.symlink(
+      path.join(root, "real"),
+      path.join(root, "linked"),
+      "junction",
+    );
 
     const skipped = [];
     for await (const file of walkFiles(root)) skipped.push(file.relativePath);
-    expect(skipped).toEqual(['plain.ts', 'real/a.ts']);
+    expect(skipped).toEqual(["plain.ts", "real/a.ts"]);
 
     // "linked" and "real" are the same physical directory, so it is walked
     // once - under whichever name is reached first - and never double-counted.
     const followed = [];
-    for await (const file of walkFiles(root, { followSymlinks: true })) followed.push(file.relativePath);
-    expect(followed).toEqual(['linked/a.ts', 'plain.ts']);
+    for await (const file of walkFiles(root, { followSymlinks: true }))
+      followed.push(file.relativePath);
+    expect(followed).toEqual(["linked/a.ts", "plain.ts"]);
   });
 
-  it('does not loop forever on a link cycle', async () => {
-    const root = await repo({ 'nested/a.ts': 'const a = 1;' });
-    await fsp.symlink(root, path.join(root, 'nested', 'loop'), 'junction');
+  it("does not loop forever on a link cycle", async () => {
+    const root = await repo({ "nested/a.ts": "const a = 1;" });
+    await fsp.symlink(root, path.join(root, "nested", "loop"), "junction");
 
     const found = [];
-    for await (const file of walkFiles(root, { followSymlinks: true })) found.push(file.relativePath);
+    for await (const file of walkFiles(root, { followSymlinks: true }))
+      found.push(file.relativePath);
 
-    expect(found).toContain('nested/a.ts');
+    expect(found).toContain("nested/a.ts");
     expect(found.length).toBeLessThan(20);
   });
 
-  it.runIf(fileSymlinksWork)('follows a link that points at a file', async () => {
-    const root = await repo({ 'real.ts': 'const a = 1;' });
-    await fsp.symlink(path.join(root, 'real.ts'), path.join(root, 'alias.ts'), 'file');
+  it.runIf(fileSymlinksWork)(
+    "follows a link that points at a file",
+    async () => {
+      const root = await repo({ "real.ts": "const a = 1;" });
+      await fsp.symlink(
+        path.join(root, "real.ts"),
+        path.join(root, "alias.ts"),
+        "file",
+      );
 
-    const found = [];
-    for await (const file of walkFiles(root, { followSymlinks: true })) found.push(file.relativePath);
-    expect(found).toEqual(['alias.ts', 'real.ts']);
-  });
+      const found = [];
+      for await (const file of walkFiles(root, { followSymlinks: true }))
+        found.push(file.relativePath);
+      expect(found).toEqual(["alias.ts", "real.ts"]);
+    },
+  );
 
-  it.runIf(fileSymlinksWork)('ignores a broken link even when following', async () => {
-    const root = await repo({ 'real.ts': '' });
-    await fsp.symlink(path.join(root, 'missing.ts'), path.join(root, 'broken.ts'), 'file');
+  it.runIf(fileSymlinksWork)(
+    "ignores a broken link even when following",
+    async () => {
+      const root = await repo({ "real.ts": "" });
+      await fsp.symlink(
+        path.join(root, "missing.ts"),
+        path.join(root, "broken.ts"),
+        "file",
+      );
 
-    const found = [];
-    for await (const file of walkFiles(root, { followSymlinks: true })) found.push(file.relativePath);
-    expect(found).toEqual(['real.ts']);
-  });
+      const found = [];
+      for await (const file of walkFiles(root, { followSymlinks: true }))
+        found.push(file.relativePath);
+      expect(found).toEqual(["real.ts"]);
+    },
+  );
 });

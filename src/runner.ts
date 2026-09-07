@@ -6,8 +6,8 @@
  * silently-passing assertion. A spec that lies is worse than no spec at all.
  */
 
-import { promises as fs } from 'node:fs';
-import path from 'node:path';
+import { promises as fs } from "node:fs";
+import path from "node:path";
 
 import {
   createCachedEngine,
@@ -17,15 +17,22 @@ import {
   type Engine,
   type EnginePreference,
   type SearchRequest,
-} from './engine.js';
-import { createExcludeMatcher, expandSpecPatterns, toPosix } from './glob.js';
+} from "./engine.js";
+import { createExcludeMatcher, expandSpecPatterns, toPosix } from "./glob.js";
 import {
   ANALYSABLE_EXTENSIONS,
   createImportIndex,
   resolveSpecifier,
   type ImportIndex,
-} from './imports.js';
-import { parseDirectives } from './parser.js';
+} from "./imports.js";
+import { parseDirectives } from "./parser.js";
+import {
+  createScope,
+  DEFAULT_SCOPE,
+  EMPTY_LEDGER,
+  UNCERTAIN_REASONS,
+  type ScopePolicy,
+} from "./scope.js";
 import type {
   Assertion,
   AssertionResult,
@@ -36,7 +43,7 @@ import type {
   RunReport,
   SearchOptions,
   SearchResult,
-} from './types.js';
+} from "./types.js";
 
 export const DEFAULT_MAX_SNIPPETS = 5;
 export const DEFAULT_CONCURRENCY = 8;
@@ -65,6 +72,12 @@ export interface RunOptions {
   concurrency?: number;
   /** Max snippets kept per failing assertion. */
   maxSnippets?: number;
+  /**
+   * Skip the four directories spec-guard skips by default (`.git`, `.hg`,
+   * `.svn`, `node_modules`). On by default; turn it off for a run that must
+   * look at literally everything.
+   */
+  defaultSkips?: boolean;
 }
 
 export interface RunResult extends RunReport {
@@ -72,21 +85,25 @@ export interface RunResult extends RunReport {
   specFiles: string[];
 }
 
-const TRUE_VALUES = new Set(['true', '1', 'yes', 'on']);
-const FALSE_VALUES = new Set(['false', '0', 'no', 'off']);
+const TRUE_VALUES = new Set(["true", "1", "yes", "on"]);
+const FALSE_VALUES = new Set(["false", "0", "no", "off"]);
 
 function parseBoolean(value: string | undefined, attribute: string): boolean {
   if (value === undefined) return false;
   const normalized = value.trim().toLowerCase();
   if (TRUE_VALUES.has(normalized)) return true;
   if (FALSE_VALUES.has(normalized)) return false;
-  throw new Error(`Attribute "${attribute}" must be true or false, got "${value}".`);
+  throw new Error(
+    `Attribute "${attribute}" must be true or false, got "${value}".`,
+  );
 }
 
 function parseCount(value: string, attribute: string): number {
   const normalized = value.trim();
   if (!/^\d+$/.test(normalized)) {
-    throw new Error(`Attribute "${attribute}" must be a non-negative integer, got "${value}".`);
+    throw new Error(
+      `Attribute "${attribute}" must be a non-negative integer, got "${value}".`,
+    );
   }
   return Number.parseInt(normalized, 10);
 }
@@ -108,57 +125,78 @@ function splitList(value: string | undefined): string[] {
 }
 
 /** Rejects absolute paths and any `..` escape out of the root. */
-function normalizeTarget(target: string, root: string, attribute: string): string {
+function normalizeTarget(
+  target: string,
+  root: string,
+  attribute: string,
+): string {
   if (path.isAbsolute(target) || /^[a-zA-Z]:[\\/]/.test(target)) {
-    throw new Error(`Attribute "${attribute}" must be relative to --root, got "${target}".`);
+    throw new Error(
+      `Attribute "${attribute}" must be relative to --root, got "${target}".`,
+    );
   }
   const absolute = path.resolve(root, target);
   const relative = path.relative(root, absolute);
-  if (relative.startsWith('..')) {
-    throw new Error(`Attribute "${attribute}" escapes the root directory: "${target}".`);
+  if (relative.startsWith("..")) {
+    throw new Error(
+      `Attribute "${attribute}" escapes the root directory: "${target}".`,
+    );
   }
-  return toPosix(relative) || '.';
+  return toPosix(relative) || ".";
 }
 
 function plural(count: number): string {
-  return count === 1 ? '' : 'es';
+  return count === 1 ? "" : "es";
 }
 
 function describeBounds(bounds: Bounds): string {
   const { min, max } = bounds;
   if (min !== undefined && max !== undefined) {
-    return min === max ? `exactly ${min} match${plural(min)}` : `between ${min} and ${max} matches`;
+    return min === max
+      ? `exactly ${min} match${plural(min)}`
+      : `between ${min} and ${max} matches`;
   }
   if (min !== undefined) return `at least ${min} match${plural(min)}`;
-  if (max !== undefined) return max === 0 ? 'no matches' : `at most ${max} match${plural(max)}`;
+  if (max !== undefined)
+    return max === 0 ? "no matches" : `at most ${max} match${plural(max)}`;
   /* c8 ignore next */
-  return 'any number of matches';
+  return "any number of matches";
 }
 
 /** Prose form used in the assertion description ("must appear at most 3 times"). */
 function describeExpectation(bounds: Bounds): string {
   const { min, max } = bounds;
-  const times = (value: number): string => `${value} time${value === 1 ? '' : 's'}`;
+  const times = (value: number): string =>
+    `${value} time${value === 1 ? "" : "s"}`;
   if (min !== undefined && max !== undefined) {
-    return min === max ? `must appear exactly ${times(min)}` : `must appear between ${min} and ${max} times`;
+    return min === max
+      ? `must appear exactly ${times(min)}`
+      : `must appear between ${min} and ${max} times`;
   }
   if (min !== undefined) return `must appear at least ${times(min)}`;
-  if (max === 0) return 'must not appear';
+  if (max === 0) return "must not appear";
   /* c8 ignore next */
-  return max === undefined ? 'may appear any number of times' : `must appear at most ${times(max)}`;
+  return max === undefined
+    ? "may appear any number of times"
+    : `must appear at most ${times(max)}`;
 }
 
 /** Prose for an import claim: "must not import", "must import at least 2 files". */
 function describeImportExpectation(bounds: Bounds): string {
   const { min, max } = bounds;
-  const files = (value: number): string => `${value} file${value === 1 ? '' : 's'}`;
-  if (max === 0 && min === undefined) return 'must not import';
+  const files = (value: number): string =>
+    `${value} file${value === 1 ? "" : "s"}`;
+  if (max === 0 && min === undefined) return "must not import";
   if (min !== undefined && max !== undefined) {
-    return min === max ? `must import from exactly ${files(min)}` : `must import from between ${min} and ${max} files`;
+    return min === max
+      ? `must import from exactly ${files(min)}`
+      : `must import from between ${min} and ${max} files`;
   }
   if (min !== undefined) return `must import from at least ${files(min)}`;
   /* c8 ignore next */
-  return max === undefined ? 'may import' : `must import from at most ${files(max)}`;
+  return max === undefined
+    ? "may import"
+    : `must import from at most ${files(max)}`;
 }
 
 function satisfies(count: number, bounds: Bounds): boolean {
@@ -170,6 +208,8 @@ function satisfies(count: number, bounds: Bounds): boolean {
 export interface ResolveContext {
   root: string;
   excludeFiles: ReadonlySet<string>;
+  /** Run-level scope policy. Defaults to DEFAULT_SCOPE when unset. */
+  scope?: ScopePolicy;
 }
 
 /** Turns one directive into an executable assertion, or an error. */
@@ -183,10 +223,12 @@ export function resolveDirective(
   });
 
   try {
-    const reason = attributes['reason'];
+    const reason = attributes["reason"];
 
-    if (kind === 'assert-present') {
-      const files = splitList(attributes['file']).map((file) => normalizeTarget(file, context.root, 'file'));
+    if (kind === "assert-present") {
+      const files = splitList(attributes["file"]).map((file) =>
+        normalizeTarget(file, context.root, "file"),
+      );
       if (files.length === 0) {
         return fail('@assert-present requires a file="..." attribute.');
       }
@@ -194,7 +236,7 @@ export function resolveDirective(
         assertion: {
           kind,
           location,
-          description: `${files.join(', ')} must exist`,
+          description: `${files.join(", ")} must exist`,
           reason,
           targets: [],
           files,
@@ -204,58 +246,100 @@ export function resolveDirective(
       };
     }
 
-    const isImportKind = kind === 'assert-import-absence' || kind === 'assert-import-count';
-    const subject = isImportKind ? 'module' : 'symbol';
+    const isImportKind =
+      kind === "assert-import-absence" || kind === "assert-import-count";
+    const subject = isImportKind ? "module" : "symbol";
     const symbol = attributes[subject];
     if (symbol === undefined || symbol.length === 0) {
       return fail(`@${kind} requires a non-empty ${subject}="..." attribute.`);
     }
 
-    const comments = (attributes['comments'] ?? 'ignore').trim().toLowerCase();
-    if (comments !== 'ignore' && comments !== 'include') {
-      return fail(`Attribute "comments" must be ignore or include, got "${attributes['comments']}".`);
+    const comments = (attributes["comments"] ?? "ignore").trim().toLowerCase();
+    if (comments !== "ignore" && comments !== "include") {
+      return fail(
+        `Attribute "comments" must be ignore or include, got "${attributes["comments"]}".`,
+      );
     }
 
-    const rawTargets = splitList(attributes['target']);
-    const targets = (rawTargets.length > 0 ? rawTargets : ['.']).map((target) =>
-      normalizeTarget(target, context.root, 'target'),
+    const rawTargets = splitList(attributes["target"]);
+    const targets = (rawTargets.length > 0 ? rawTargets : ["."]).map((target) =>
+      normalizeTarget(target, context.root, "target"),
     );
 
     const bounds: Bounds = {};
-    if (kind === 'assert-absence' || kind === 'assert-import-absence') {
-      if (attributes['expected'] !== undefined && attributes['max'] !== undefined) {
-        return fail(`@${kind} accepts either expected="..." or max="...", not both.`);
+    if (kind === "assert-absence" || kind === "assert-import-absence") {
+      if (
+        attributes["expected"] !== undefined &&
+        attributes["max"] !== undefined
+      ) {
+        return fail(
+          `@${kind} accepts either expected="..." or max="...", not both.`,
+        );
       }
-      const limit = attributes['expected'] ?? attributes['max'];
-      bounds.max = limit === undefined ? 0 : parseCount(limit, attributes['expected'] !== undefined ? 'expected' : 'max');
+      const limit = attributes["expected"] ?? attributes["max"];
+      bounds.max =
+        limit === undefined
+          ? 0
+          : parseCount(
+              limit,
+              attributes["expected"] !== undefined ? "expected" : "max",
+            );
     } else {
-      const expected = attributes['expected'];
+      const expected = attributes["expected"];
       if (expected !== undefined) {
-        if (attributes['min'] !== undefined || attributes['max'] !== undefined) {
-          return fail(`@${kind} accepts either expected="..." or min/max, not both.`);
+        if (
+          attributes["min"] !== undefined ||
+          attributes["max"] !== undefined
+        ) {
+          return fail(
+            `@${kind} accepts either expected="..." or min/max, not both.`,
+          );
         }
-        const value = parseCount(expected, 'expected');
+        const value = parseCount(expected, "expected");
         bounds.min = value;
         bounds.max = value;
       } else {
-        if (attributes['min'] === undefined && attributes['max'] === undefined) {
-          return fail(`@${kind} requires expected="...", min="..." or max="...".`);
+        if (
+          attributes["min"] === undefined &&
+          attributes["max"] === undefined
+        ) {
+          return fail(
+            `@${kind} requires expected="...", min="..." or max="...".`,
+          );
         }
-        if (attributes['min'] !== undefined) bounds.min = parseCount(attributes['min'], 'min');
-        if (attributes['max'] !== undefined) bounds.max = parseCount(attributes['max'], 'max');
-        if (bounds.min !== undefined && bounds.max !== undefined && bounds.min > bounds.max) {
-          return fail(`min="${bounds.min}" is greater than max="${bounds.max}".`);
+        if (attributes["min"] !== undefined)
+          bounds.min = parseCount(attributes["min"], "min");
+        if (attributes["max"] !== undefined)
+          bounds.max = parseCount(attributes["max"], "max");
+        if (
+          bounds.min !== undefined &&
+          bounds.max !== undefined &&
+          bounds.min > bounds.max
+        ) {
+          return fail(
+            `min="${bounds.min}" is greater than max="${bounds.max}".`,
+          );
         }
       }
     }
 
     if (isImportKind) {
-      const scope = targets.join(', ');
-      const excludeGlobs = splitList(attributes['exclude']);
-      const except = excludeGlobs.length > 0 ? ` (excluding ${excludeGlobs.join(', ')})` : '';
-      const includeTypes = (attributes['types'] ?? 'include').trim().toLowerCase() !== 'ignore';
-      if (!['include', 'ignore'].includes((attributes['types'] ?? 'include').trim().toLowerCase())) {
-        return fail(`Attribute "types" must be include or ignore, got "${attributes['types']}".`);
+      const scope = targets.join(", ");
+      const excludeGlobs = splitList(attributes["exclude"]);
+      const except =
+        excludeGlobs.length > 0
+          ? ` (excluding ${excludeGlobs.join(", ")})`
+          : "";
+      const includeTypes =
+        (attributes["types"] ?? "include").trim().toLowerCase() !== "ignore";
+      if (
+        !["include", "ignore"].includes(
+          (attributes["types"] ?? "include").trim().toLowerCase(),
+        )
+      ) {
+        return fail(
+          `Attribute "types" must be include or ignore, got "${attributes["types"]}".`,
+        );
       }
       return {
         assertion: {
@@ -277,6 +361,7 @@ export function resolveDirective(
             // text search. It is set true because it is true: the tokenizer
             // reads imports, so a module named in a comment was never a match.
             ignoreComments: true,
+            scope: context.scope ?? DEFAULT_SCOPE,
             excludeFiles: context.excludeFiles,
           },
           imports: { modules: splitList(symbol), includeTypes },
@@ -286,12 +371,13 @@ export function resolveDirective(
     }
 
     const search: SearchOptions = {
-      regex: parseBoolean(attributes['regex'], 'regex'),
-      word: parseBoolean(attributes['word'], 'word'),
-      ignoreCase: parseBoolean(attributes['ignore-case'], 'ignore-case'),
-      globs: splitList(attributes['glob']),
-      excludeGlobs: splitList(attributes['exclude']),
-      ignoreComments: comments !== 'include',
+      regex: parseBoolean(attributes["regex"], "regex"),
+      word: parseBoolean(attributes["word"], "word"),
+      ignoreCase: parseBoolean(attributes["ignore-case"], "ignore-case"),
+      globs: splitList(attributes["glob"]),
+      excludeGlobs: splitList(attributes["exclude"]),
+      ignoreComments: comments !== "include",
+      scope: context.scope ?? DEFAULT_SCOPE,
       excludeFiles: context.excludeFiles,
     };
 
@@ -299,12 +385,17 @@ export function resolveDirective(
       try {
         new RegExp(symbol);
       } catch (error) {
-        return fail(`Invalid regular expression: ${error instanceof Error ? error.message : String(error)}`);
+        return fail(
+          `Invalid regular expression: ${error instanceof Error ? error.message : String(error)}`,
+        );
       }
     }
 
-    const scope = targets.join(', ');
-    const except = search.excludeGlobs.length > 0 ? ` (excluding ${search.excludeGlobs.join(', ')})` : '';
+    const scope = targets.join(", ");
+    const except =
+      search.excludeGlobs.length > 0
+        ? ` (excluding ${search.excludeGlobs.join(", ")})`
+        : "";
     return {
       assertion: {
         kind,
@@ -355,12 +446,15 @@ interface PendingAssertion {
  */
 async function prepareAssertion(
   assertion: Assertion,
-  options: Omit<ExecuteOptions, 'engine'>,
+  options: Omit<ExecuteOptions, "engine">,
 ): Promise<AssertionResult | PendingAssertion> {
   const startedAt = performance.now();
   const warnings: string[] = [];
 
-  const base: Omit<AssertionResult, 'ok' | 'actual' | 'message' | 'matches' | 'durationMs'> = {
+  const base: Omit<
+    AssertionResult,
+    "ok" | "actual" | "message" | "matches" | "durationMs"
+  > = {
     kind: assertion.kind,
     location: assertion.location,
     description: assertion.description,
@@ -372,12 +466,14 @@ async function prepareAssertion(
     warnings,
     commentMatches: 0,
     unclassifiedFiles: 0,
+    scope: EMPTY_LEDGER,
   };
 
-  if (assertion.kind === 'assert-present') {
+  if (assertion.kind === "assert-present") {
     const missing: string[] = [];
     for (const file of assertion.files) {
-      if (!(await pathExists(path.resolve(options.root, file)))) missing.push(file);
+      if (!(await pathExists(path.resolve(options.root, file))))
+        missing.push(file);
     }
     const actual = assertion.files.length - missing.length;
     return {
@@ -386,26 +482,33 @@ async function prepareAssertion(
       actual,
       message:
         missing.length === 0
-          ? `all ${assertion.files.length} referenced ${assertion.files.length === 1 ? 'path exists' : 'paths exist'}`
-          : `missing: ${missing.join(', ')}`,
+          ? `all ${assertion.files.length} referenced ${assertion.files.length === 1 ? "path exists" : "paths exist"}`
+          : `missing: ${missing.join(", ")}`,
       matches: [],
       durationMs: performance.now() - startedAt,
     };
   }
 
   if (assertion.imports) {
-    return executeImportAssertion(assertion, options, base, warnings, startedAt);
+    return executeImportAssertion(
+      assertion,
+      options,
+      base,
+      warnings,
+      startedAt,
+    );
   }
 
   const existingTargets: string[] = [];
   for (const target of assertion.targets) {
-    if (await pathExists(path.resolve(options.root, target))) existingTargets.push(target);
+    if (await pathExists(path.resolve(options.root, target)))
+      existingTargets.push(target);
     else assertion.missingTargets.push(target);
   }
 
   if (assertion.missingTargets.length > 0) {
     warnings.push(
-      `target path${assertion.missingTargets.length === 1 ? '' : 's'} not found: ${assertion.missingTargets.join(', ')}`,
+      `target path${assertion.missingTargets.length === 1 ? "" : "s"} not found: ${assertion.missingTargets.join(", ")}`,
     );
   }
 
@@ -414,7 +517,7 @@ async function prepareAssertion(
       ...base,
       ok: false,
       actual: 0,
-      message: `target path${assertion.missingTargets.length === 1 ? ' does' : 's do'} not exist: ${assertion.missingTargets.join(', ')}`,
+      message: `target path${assertion.missingTargets.length === 1 ? " does" : "s do"} not exist: ${assertion.missingTargets.join(", ")}`,
       matches: [],
       durationMs: performance.now() - startedAt,
     };
@@ -427,19 +530,35 @@ async function prepareAssertion(
       targets: existingTargets,
       options: assertion.search as SearchOptions,
     },
-    finish: (search: SearchResult): AssertionResult => ({
-      ...base,
-      ok: satisfies(search.count, assertion.bounds),
-      actual: search.count,
-      message: `expected ${describeBounds(assertion.bounds)}, found ${search.count}`,
-      matches: search.matches.slice(0, options.maxSnippets),
-      // Carried as numbers, not prose, so the reporter can total them across a
-      // run and JSON consumers can act on them.
-      commentMatches: search.commentMatches,
-      unclassifiedFiles: search.unclassifiedFiles,
-      engine: search.engine,
-      durationMs: performance.now() - startedAt,
-    }),
+    finish: (search: SearchResult): AssertionResult => {
+      // A file that could not be read, or whose bytes are not text but did
+      // contain the symbol, is a hole in the answer rather than a detail of it.
+      // The count is still reported, because it is still true of everything
+      // that was read; --strict is for runs where "true of what we read" is not
+      // good enough.
+      const gaps = search.scope.skipped.filter((entry) =>
+        UNCERTAIN_REASONS.has(entry.reason),
+      );
+      const strictFailure = options.strictTargets && gaps.length > 0;
+      return {
+        ...base,
+        ok: satisfies(search.count, assertion.bounds) && !strictFailure,
+        actual: search.count,
+        message: strictFailure
+          ? `expected ${describeBounds(assertion.bounds)}, found ${search.count}, and ${gaps.length} file${
+              gaps.length === 1 ? "" : "s"
+            } could not be inspected`
+          : `expected ${describeBounds(assertion.bounds)}, found ${search.count}`,
+        matches: search.matches.slice(0, options.maxSnippets),
+        // Carried as numbers, not prose, so the reporter can total them across a
+        // run and JSON consumers can act on them.
+        commentMatches: search.commentMatches,
+        unclassifiedFiles: search.unclassifiedFiles,
+        scope: search.scope,
+        engine: search.engine,
+        durationMs: performance.now() - startedAt,
+      };
+    },
   };
 }
 
@@ -452,27 +571,31 @@ async function prepareAssertion(
  */
 async function executeImportAssertion(
   assertion: Assertion,
-  options: Omit<ExecuteOptions, 'engine'> & { imports: ImportIndex },
-  base: Omit<AssertionResult, 'ok' | 'actual' | 'message' | 'matches' | 'durationMs'>,
+  options: Omit<ExecuteOptions, "engine"> & { imports: ImportIndex },
+  base: Omit<
+    AssertionResult,
+    "ok" | "actual" | "message" | "matches" | "durationMs"
+  >,
   warnings: string[],
   startedAt: number,
 ): Promise<AssertionResult> {
-  const query = assertion.imports as NonNullable<Assertion['imports']>;
+  const query = assertion.imports as NonNullable<Assertion["imports"]>;
   const existingTargets: string[] = [];
   for (const target of assertion.targets) {
-    if (await pathExists(path.resolve(options.root, target))) existingTargets.push(target);
+    if (await pathExists(path.resolve(options.root, target)))
+      existingTargets.push(target);
     else assertion.missingTargets.push(target);
   }
 
   if (assertion.missingTargets.length > 0) {
     warnings.push(
-      `target path${assertion.missingTargets.length === 1 ? '' : 's'} not found: ${assertion.missingTargets.join(', ')}`,
+      `target path${assertion.missingTargets.length === 1 ? "" : "s"} not found: ${assertion.missingTargets.join(", ")}`,
     );
   }
 
   const enumeration = await enumerateCandidates({
     root: options.root,
-    symbol: '',
+    symbol: "",
     targets: existingTargets,
     options: assertion.search as SearchOptions,
   });
@@ -492,7 +615,10 @@ async function executeImportAssertion(
   const unresolved: string[] = [];
 
   for (const file of analysable) {
-    const analysis = await options.imports.analyze(file.absolutePath, file.relativePath);
+    const analysis = await options.imports.analyze(
+      file.absolutePath,
+      file.relativePath,
+    );
 
     for (const note of analysis.notes) {
       unresolved.push(`${note.file}:${note.line} ${note.detail}`);
@@ -500,14 +626,16 @@ async function executeImportAssertion(
 
     const hit = analysis.references.find((reference) => {
       if (reference.typeOnly && !query.includeTypes) return false;
-      return matchesModule(resolveSpecifier(reference.specifier, file.relativePath));
+      return matchesModule(
+        resolveSpecifier(reference.specifier, file.relativePath),
+      );
     });
     if (hit) {
       matches.push({
         file: file.relativePath,
         line: hit.line,
         column: hit.column,
-        text: `${hit.kind === 'export' ? 'export' : 'import'} ${hit.specifier}`,
+        text: `${hit.kind === "export" ? "export" : "import"} ${hit.specifier}`,
         count: 1,
       });
     }
@@ -515,13 +643,15 @@ async function executeImportAssertion(
 
   if (unresolved.length > 0) {
     warnings.push(
-      `${unresolved.length} module reference${unresolved.length === 1 ? '' : 's'} could not be resolved statically`,
+      `${unresolved.length} module reference${unresolved.length === 1 ? "" : "s"} could not be resolved statically`,
       ...unresolved.slice(0, options.maxSnippets).map((entry) => `  ${entry}`),
     );
   }
 
-  const missingFailure = !options.allowMissingTargets && assertion.missingTargets.length > 0;
-  const strictFailure = missingFailure || (options.strictTargets && unresolved.length > 0);
+  const missingFailure =
+    !options.allowMissingTargets && assertion.missingTargets.length > 0;
+  const strictFailure =
+    missingFailure || (options.strictTargets && unresolved.length > 0);
   const ok = satisfies(matches.length, assertion.bounds) && !strictFailure;
 
   return {
@@ -529,7 +659,7 @@ async function executeImportAssertion(
     ok,
     actual: matches.length,
     message: missingFailure
-      ? `target path${assertion.missingTargets.length === 1 ? ' does' : 's do'} not exist: ${assertion.missingTargets.join(', ')}`
+      ? `target path${assertion.missingTargets.length === 1 ? " does" : "s do"} not exist: ${assertion.missingTargets.join(", ")}`
       : strictFailure
         ? `expected ${describeBounds(assertion.bounds)}, found ${matches.length}, and ${unresolved.length} reference(s) could not be resolved`
         : `expected ${describeBounds(assertion.bounds)}, found ${matches.length}`,
@@ -539,9 +669,12 @@ async function executeImportAssertion(
 }
 
 /** Executes a single resolved assertion. */
-export async function executeAssertion(assertion: Assertion, options: ExecuteOptions): Promise<AssertionResult> {
+export async function executeAssertion(
+  assertion: Assertion,
+  options: ExecuteOptions,
+): Promise<AssertionResult> {
   const prepared = await prepareAssertion(assertion, options);
-  if (!('request' in prepared)) return prepared;
+  if (!("request" in prepared)) return prepared;
   return prepared.finish(await options.engine.search(prepared.request));
 }
 
@@ -552,7 +685,13 @@ export async function executeAssertion(assertion: Assertion, options: ExecuteOpt
  */
 function groupKey(request: SearchRequest): string {
   const { options } = request;
-  return JSON.stringify([request.targets, options.regex, options.word, options.ignoreCase, options.globs]);
+  return JSON.stringify([
+    request.targets,
+    options.regex,
+    options.word,
+    options.ignoreCase,
+    options.globs,
+  ]);
 }
 
 /** Reads, parses and executes every directive found in the given spec files. */
@@ -562,19 +701,22 @@ export async function runSpecGuard(options: RunOptions): Promise<RunResult> {
   const maxSnippets = options.maxSnippets ?? DEFAULT_MAX_SNIPPETS;
   const strictTargets = options.strictTargets ?? false;
   const allowMissingTargets = options.allowMissingTargets ?? false;
+  const scope = createScope(options.defaultSkips ?? true);
 
   const specFiles = await expandSpecPatterns(options.patterns, root);
-  const excludeFiles = new Set(options.includeSpecs ? [] : specFiles.map((file) => path.resolve(file)));
+  const excludeFiles = new Set(
+    options.includeSpecs ? [] : specFiles.map((file) => path.resolve(file)),
+  );
 
   const directives: Directive[] = [];
   const errors: DirectiveError[] = [];
 
   for (const file of specFiles) {
     const relativeFile = toPosix(path.relative(root, file)) || toPosix(file);
-    const source = await fs.readFile(file, 'utf8').catch((error: unknown) => {
+    const source = await fs.readFile(file, "utf8").catch((error: unknown) => {
       errors.push({
         location: { file, relativeFile, line: 1, column: 1 },
-        raw: '',
+        raw: "",
         message: `Unable to read spec file: ${error instanceof Error ? error.message : String(error)}`,
       });
       return null;
@@ -587,12 +729,14 @@ export async function runSpecGuard(options: RunOptions): Promise<RunResult> {
 
   const assertions: Assertion[] = [];
   for (const directive of directives) {
-    const resolved = resolveDirective(directive, { root, excludeFiles });
-    if ('error' in resolved) errors.push(resolved.error);
+    const resolved = resolveDirective(directive, { root, excludeFiles, scope });
+    if ("error" in resolved) errors.push(resolved.error);
     else assertions.push(resolved.assertion);
   }
 
-  const engine = createCachedEngine(await resolveEngine(options.engine ?? 'auto'));
+  const engine = createCachedEngine(
+    await resolveEngine(options.engine ?? "auto"),
+  );
   const executeOptions = {
     root,
     engine,
@@ -606,7 +750,10 @@ export async function runSpecGuard(options: RunOptions): Promise<RunResult> {
   if (options.failFast) {
     // Fail-fast trades throughput for an early exit, so it runs unbatched.
     for (let index = 0; index < assertions.length; index++) {
-      const result = await executeAssertion(assertions[index] as Assertion, executeOptions);
+      const result = await executeAssertion(
+        assertions[index] as Assertion,
+        executeOptions,
+      );
       results[index] = result;
       if (!result.ok) {
         results.length = index + 1;
@@ -615,12 +762,17 @@ export async function runSpecGuard(options: RunOptions): Promise<RunResult> {
     }
   } else {
     const prepared = await Promise.all(
-      assertions.map((assertion) => prepareAssertion(assertion, executeOptions)),
+      assertions.map((assertion) =>
+        prepareAssertion(assertion, executeOptions),
+      ),
     );
 
-    const groups = new Map<string, Array<{ index: number; pending: PendingAssertion }>>();
+    const groups = new Map<
+      string,
+      Array<{ index: number; pending: PendingAssertion }>
+    >();
     prepared.forEach((entry, index) => {
-      if (!('request' in entry)) {
+      if (!("request" in entry)) {
         results[index] = entry;
         return;
       }
@@ -631,7 +783,10 @@ export async function runSpecGuard(options: RunOptions): Promise<RunResult> {
     });
 
     const batches = [...groups.values()];
-    const concurrency = Math.max(1, Math.min(options.concurrency ?? DEFAULT_CONCURRENCY, batches.length || 1));
+    const concurrency = Math.max(
+      1,
+      Math.min(options.concurrency ?? DEFAULT_CONCURRENCY, batches.length || 1),
+    );
     let cursor = 0;
     const worker = async (): Promise<void> => {
       while (cursor < batches.length) {
@@ -643,7 +798,9 @@ export async function runSpecGuard(options: RunOptions): Promise<RunResult> {
           batch.map((entry) => entry.pending.request),
         );
         batch.forEach((entry, position) => {
-          results[entry.index] = entry.pending.finish(searches[position] as SearchResult);
+          results[entry.index] = entry.pending.finish(
+            searches[position] as SearchResult,
+          );
         });
       }
     };
@@ -651,7 +808,8 @@ export async function runSpecGuard(options: RunOptions): Promise<RunResult> {
   }
 
   const warnings = engine.fallbacks.map(
-    (message) => `ripgrep failed, fell back to the JavaScript engine (${message})`,
+    (message) =>
+      `ripgrep failed, fell back to the JavaScript engine (${message})`,
   );
 
   // Errors arrive in two waves (parse, then resolve); readers expect file order.
@@ -667,7 +825,7 @@ export async function runSpecGuard(options: RunOptions): Promise<RunResult> {
   return {
     ok: failed === 0 && errors.length === 0,
     root,
-    engine: warnings.length > 0 ? 'javascript' : engine.name,
+    engine: warnings.length > 0 ? "javascript" : engine.name,
     durationMs: performance.now() - startedAt,
     summary: {
       specs: specFiles.length,
@@ -679,6 +837,8 @@ export async function runSpecGuard(options: RunOptions): Promise<RunResult> {
     results,
     errors,
     warnings,
-    specFiles: specFiles.map((file) => toPosix(path.relative(root, file)) || toPosix(file)),
+    specFiles: specFiles.map(
+      (file) => toPosix(path.relative(root, file)) || toPosix(file),
+    ),
   };
 }

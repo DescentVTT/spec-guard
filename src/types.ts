@@ -1,3 +1,5 @@
+import type { ScopeLedger, ScopePolicy } from './scope.js';
+
 /**
  * Shared types for spec-guard.
  *
@@ -76,6 +78,14 @@ export interface SearchOptions {
    * be what proves the symbol is still there.
    */
   ignoreComments: boolean;
+  /**
+   * What the walk is allowed to look at.
+   *
+   * Lives on the options, not on the engine, because both engines read it: the
+   * scanner consults it while walking and the ripgrep arguments are derived
+   * from it. One policy, so the two cannot drift.
+   */
+  scope: ScopePolicy;
   /** Absolute file paths to exclude from results (the spec files themselves). */
   excludeFiles: ReadonlySet<string>;
 }
@@ -107,6 +117,8 @@ export interface SearchResult {
   commentMatches: number;
   /** Files whose language has no known comment syntax, so nothing was excluded. */
   unclassifiedFiles: number;
+  /** What was not inspected, and why. Never empty for a reason nobody stated. */
+  scope: ScopeLedger;
   /** Up to `maxSnippets` match locations, in file order. */
   matches: MatchLocation[];
   /** Engine that produced this result. */
@@ -161,6 +173,8 @@ export interface AssertionResult {
   commentMatches: number;
   /** Matching files whose language is unknown, so their comments counted as code. */
   unclassifiedFiles: number;
+  /** What this assertion did not inspect, and why. */
+  scope: ScopeLedger;
   engine?: EngineName;
   durationMs: number;
 }

@@ -10,6 +10,8 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { DEFAULT_SCOPE } from '../src/scope.js';
+
 export const TESTS_DIR = path.dirname(fileURLToPath(import.meta.url));
 export const PROJECT_ROOT = path.resolve(TESTS_DIR, '..');
 export const FIXTURES_DIR = path.join(TESTS_DIR, 'fixtures');
@@ -59,6 +61,7 @@ export function searchOptions(overrides: Partial<import('../src/types.js').Searc
     globs: [],
     excludeGlobs: [],
     ignoreComments: false,
+    scope: DEFAULT_SCOPE,
     excludeFiles: new Set<string>(),
     ...overrides,
   };

@@ -9,26 +9,7 @@
 import { promises as fs, type Dirent } from 'node:fs';
 import path from 'node:path';
 
-/** Directories never worth searching. Mirrors ripgrep's practical defaults. */
-export const DEFAULT_IGNORED_DIRECTORIES: ReadonlySet<string> = new Set([
-  '.git',
-  '.hg',
-  '.svn',
-  '.cache',
-  '.next',
-  '.nuxt',
-  '.svelte-kit',
-  '.turbo',
-  '.venv',
-  '__pycache__',
-  'bower_components',
-  'build',
-  'coverage',
-  'dist',
-  'node_modules',
-  'out',
-  'venv',
-]);
+import { DEFAULT_SCOPE, type ScopePolicy, type SkipReason } from './scope.js';
 
 const MAGIC_RE = /[*?[\]{}]/;
 
@@ -182,12 +163,26 @@ export function createExcludeMatcher(patterns: readonly string[]): (relativePath
 }
 
 export interface WalkOptions {
-  /** Directory names to skip entirely. */
-  ignoredDirectories?: ReadonlySet<string>;
-  /** Include dotfiles and dot-directories. */
-  includeHidden?: boolean;
+  /**
+   * What may be walked. Defaults to DEFAULT_SCOPE.
+   *
+   * Note what is *not* here any more: a flag for hidden files. `.github`,
+   * `.husky` and `.claude-rules` hold real code and configuration, and skipping
+   * them by default meant an absence assertion could pass while the forbidden
+   * thing sat in a workflow file. Dot-prefixed names are now ordinary names;
+   * the only paths left out are the ones the scope policy names.
+   */
+  scope?: ScopePolicy;
   /** Follow symbolic links (off by default - cycles are not worth the risk). */
   followSymlinks?: boolean;
+  /**
+   * Called for every path the walk declined to inspect.
+   *
+   * A walk that quietly returns fewer files than the tree contains is the
+   * defect this whole module was rewritten to remove, so the caller is told
+   * rather than left to assume.
+   */
+  onSkip?: (relativePath: string, reason: SkipReason) => void;
   /**
    * Directory reader, defaulting to `fs.readdir`.
    *
@@ -216,10 +211,10 @@ export function compareDirents(a: { name: string }, b: { name: string }): number
  * Emits nothing when `root` is missing or is not a directory.
  */
 export async function* walkFiles(root: string, options: WalkOptions = {}): AsyncGenerator<WalkedFile> {
-  const ignored = options.ignoredDirectories ?? DEFAULT_IGNORED_DIRECTORIES;
-  const includeHidden = options.includeHidden ?? false;
+  const scope = options.scope ?? DEFAULT_SCOPE;
   const followSymlinks = options.followSymlinks ?? false;
   const readDirectory = options.readDirectory ?? defaultDirectoryReader;
+  const onSkip = options.onSkip;
   const seen = new Set<string>();
 
   async function* visit(directory: string, prefix: string): AsyncGenerator<WalkedFile> {
@@ -227,6 +222,9 @@ export async function* walkFiles(root: string, options: WalkOptions = {}): Async
     try {
       entries = await readDirectory(directory);
     } catch {
+      // A directory we cannot list may hold anything, so it is reported rather
+      // than treated as empty.
+      onSkip?.(prefix || '.', 'unreadable');
       return;
     }
     // Sorted explicitly: readdir order is filesystem-defined (NTFS happens to
@@ -236,7 +234,6 @@ export async function* walkFiles(root: string, options: WalkOptions = {}): Async
 
     for (const entry of entries) {
       const name = entry.name;
-      if (!includeHidden && name.startsWith('.')) continue;
       const absolutePath = path.join(directory, name);
       const relativePath = prefix ? `${prefix}/${name}` : name;
 
@@ -251,7 +248,11 @@ export async function* walkFiles(root: string, options: WalkOptions = {}): Async
       }
 
       if (isDirectory) {
-        if (ignored.has(name)) continue;
+        const reason = scope.skippedDirectories.get(name);
+        if (reason !== undefined) {
+          onSkip?.(relativePath, reason);
+          continue;
+        }
         // Each physical directory is visited at most once. That stops symlink
         // cycles, and - more importantly for a search tool - stops a linked
         // tree from counting the same match twice.
@@ -264,7 +265,10 @@ export async function* walkFiles(root: string, options: WalkOptions = {}): Async
 
       if (!isFile) continue;
       const stats = await fs.stat(absolutePath).catch(() => null);
-      if (!stats) continue;
+      if (!stats) {
+        onSkip?.(relativePath, 'unreadable');
+        continue;
+      }
       yield { absolutePath, relativePath, size: stats.size };
     }
   }
@@ -321,9 +325,8 @@ export async function expandSpecPatterns(
     const { base } = globBase(pattern);
     const walkRoot = isAbsolutePattern ? base || path.parse(pattern).root : path.resolve(root, base);
     const matcher = createGlobMatcher([pattern]);
-    const includeHidden = pattern.split('/').some((segment) => segment.startsWith('.'));
 
-    for await (const file of walkFiles(walkRoot, { includeHidden })) {
+    for await (const file of walkFiles(walkRoot)) {
       const candidate = isAbsolutePattern
         ? toPosix(file.absolutePath)
         : toPosix(path.relative(root, file.absolutePath));

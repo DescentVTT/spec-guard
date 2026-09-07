@@ -3,6 +3,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 import { resetRipgrepProbe } from '../src/engine.js';
 import { createImportIndex } from '../src/imports.js';
+import { EMPTY_LEDGER } from '../src/scope.js';
 import { executeAssertion, resolveDirective, runSpecGuard } from '../src/runner.js';
 import type { Directive, DirectiveKind } from '../src/types.js';
 import { DEMO_REPO, findTestRipgrep, makeTempRepo, removeTempRepo } from './helpers.js';
@@ -400,7 +401,7 @@ describe('executeAssertion', () => {
 
     const result = await executeAssertion(resolved.assertion, {
       root: DEMO_REPO,
-      engine: { name: 'javascript', search: async () => ({ count: 0, commentMatches: 0, unclassifiedFiles: 0, matches: [], engine: 'javascript' }) },
+      engine: { name: 'javascript', search: async () => ({ count: 0, commentMatches: 0, unclassifiedFiles: 0, scope: EMPTY_LEDGER, matches: [], engine: 'javascript' }) },
       allowMissingTargets: false,
       strictTargets: false,
       maxSnippets: 5,
@@ -417,7 +418,7 @@ describe('executeAssertion', () => {
 
     const result = await executeAssertion(resolved.assertion, {
       root: DEMO_REPO,
-      engine: { name: 'javascript', search: async () => ({ count: 0, commentMatches: 0, unclassifiedFiles: 0, matches: [], engine: 'javascript' }) },
+      engine: { name: 'javascript', search: async () => ({ count: 0, commentMatches: 0, unclassifiedFiles: 0, scope: EMPTY_LEDGER, matches: [], engine: 'javascript' }) },
       allowMissingTargets: false,
       strictTargets: false,
       maxSnippets: 5,

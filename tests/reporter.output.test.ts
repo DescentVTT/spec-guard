@@ -12,6 +12,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { formatJson, formatReport } from '../src/reporter.js';
+import { EMPTY_LEDGER } from '../src/scope.js';
 import { runSpecGuard, type RunResult } from '../src/runner.js';
 import { DEMO_REPO } from './helpers.js';
 
@@ -41,6 +42,7 @@ const passingResult: Result = {
   warnings: [],
   commentMatches: 0,
   unclassifiedFiles: 0,
+  scope: EMPTY_LEDGER,
   engine: 'ripgrep',
   durationMs: 1,
 };
@@ -60,6 +62,7 @@ const failingResult: Result = {
   warnings: [],
   commentMatches: 0,
   unclassifiedFiles: 0,
+  scope: EMPTY_LEDGER,
   engine: 'ripgrep',
   durationMs: 2,
 };

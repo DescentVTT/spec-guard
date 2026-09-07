@@ -34,6 +34,7 @@ export interface CliOptions {
   json: boolean;
   engine: EnginePreference;
   allowMissingTargets: boolean;
+  defaultSkips: boolean;
   strictTargets: boolean;
   includeSpecs: boolean;
   allowEmpty: boolean;
@@ -75,6 +76,7 @@ Options
       --strict            Treat analysis that could not be completed as a failure
       --allow-missing-targets
                           Tolerate target paths that do not exist (they fail by default)
+      --no-default-skips  Search .git, .hg, .svn and node_modules too
       --include-specs     Also count matches inside the spec files themselves
       --max-snippets <n>  Failure snippets per assertion (default: ${DEFAULT_MAX_SNIPPETS})
       --concurrency <n>   Assertions executed in parallel (default: ${DEFAULT_CONCURRENCY})
@@ -133,6 +135,7 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
     json: false,
     engine: 'auto',
     allowMissingTargets: false,
+    defaultSkips: true,
     strictTargets: false,
     includeSpecs: false,
     allowEmpty: false,
@@ -188,6 +191,9 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
         break;
       case '--allow-missing-targets':
         options.allowMissingTargets = true;
+        break;
+      case '--no-default-skips':
+        options.defaultSkips = false;
         break;
       case '--include-specs':
         options.includeSpecs = true;
@@ -268,6 +274,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2), io: 
       engine: options.engine,
       failFast: options.failFast,
       allowMissingTargets: options.allowMissingTargets,
+      defaultSkips: options.defaultSkips,
       strictTargets: options.strictTargets,
       includeSpecs: options.includeSpecs,
       concurrency: options.concurrency,

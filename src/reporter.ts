@@ -7,6 +7,7 @@
  * snippets from the offending code.
  */
 
+import { mergeLedgers, tallyLedger, type ScopeLedger } from './scope.js';
 import type { AssertionResult, DirectiveError } from './types.js';
 import type { RunResult } from './runner.js';
 
@@ -112,6 +113,40 @@ function commentNotes(result: {
   return notes;
 }
 
+/**
+ * Prose for the files an assertion did not inspect.
+ *
+ * This is the line that decides whether a green run can be trusted. A guard
+ * that skips a directory and says nothing is indistinguishable from one that
+ * searched it and found nothing, and only one of those is a reason to relax.
+ */
+function scopeNotes(ledger: ScopeLedger): string[] {
+  const notes: string[] = [];
+  const totals = tallyLedger(ledger);
+
+  const unreadable = totals.get('unreadable') ?? 0;
+  if (unreadable > 0) {
+    const sample = ledger.skipped
+      .filter((entry) => entry.reason === 'unreadable')
+      .slice(0, 3)
+      .map((entry) => entry.path);
+    notes.push(`${countLabel(unreadable, 'path')} could not be read: ${sample.join(', ')}`);
+  }
+
+  const binary = ledger.skipped.filter((entry) => entry.reason === 'binary');
+  if (binary.length > 0) {
+    const matches = binary.reduce((total, entry) => total + (entry.matches ?? 0), 0);
+    notes.push(
+      `${countLabel(matches, 'match')} in ${countLabel(binary.length, 'binary file')} not counted: ${binary
+        .slice(0, 3)
+        .map((entry) => entry.path)
+        .join(', ')}`,
+    );
+  }
+
+  return notes;
+}
+
 function formatFailure(
   result: AssertionResult,
   paint: ReturnType<typeof createPainter>,
@@ -126,7 +161,7 @@ function formatFailure(
   lines.push(`    ${paint(result.message, 'red')}`);
   if (result.reason) lines.push(`    ${paint(`reason: ${result.reason}`, 'dim')}`);
 
-  for (const note of commentNotes(result)) {
+  for (const note of [...commentNotes(result), ...scopeNotes(result.scope)]) {
     lines.push(`    ${paint(`${glyphs.warn} ${note}`, 'yellow')}`);
   }
 
@@ -204,7 +239,7 @@ export function formatReport(report: RunResult, options: ReporterOptions, maxSni
 
   if (options.verbose) {
     for (const result of passes) {
-      for (const note of [...commentNotes(result), ...result.warnings]) {
+      for (const note of [...commentNotes(result), ...scopeNotes(result.scope), ...result.warnings]) {
         lines.push(`${paint(glyphs.warn, 'yellow')} ${paint(`${formatLocation(result)}  ${note}`, 'yellow')}`);
       }
     }
@@ -230,7 +265,7 @@ export function formatReport(report: RunResult, options: ReporterOptions, maxSni
     }),
     { commentMatches: 0, unclassifiedFiles: 0 },
   );
-  const summaryNotes = commentNotes(totals);
+  const summaryNotes = [...commentNotes(totals), ...scopeNotes(mergeLedgers(passes.map((result) => result.scope)))];
   if (summaryNotes.length > 0) {
     for (const note of summaryNotes) lines.push(`${paint(glyphs.warn, 'yellow')} ${paint(note, 'yellow')}`);
     lines.push('');
@@ -283,6 +318,7 @@ export function formatJson(report: RunResult): string {
         warnings: result.warnings,
         commentMatches: result.commentMatches,
         unclassifiedFiles: result.unclassifiedFiles,
+        skipped: result.scope.skipped,
         engine: result.engine,
         durationMs: Math.round(result.durationMs * 1000) / 1000,
       })),

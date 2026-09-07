@@ -228,8 +228,10 @@ describe('ripgrep arguments', () => {
 
     expect(args).not.toContain('--ignore-case');
     expect(args).not.toContain('--word-regexp');
-    expect(args).not.toContain('--glob');
     expect(args).toContain('--fixed-strings');
+    // The scope policy is not optional: those four exclusions are on every
+    // command line, which is what keeps ripgrep walking what the scanner walks.
+    expect(args.filter((argument) => argument === '--glob')).toHaveLength(4);
   });
 
   it('adds --ignore-case only when asked', () => {
@@ -285,8 +287,10 @@ describe('scanning details', () => {
     expect(result.locations.map((location) => location.line)).toEqual([1, 3, 5]);
   });
 
-  it('only inspects the first 8KB when deciding a file is binary', async () => {
-    // A NUL byte this far in is past the sniff window, so the file is text.
+  it('treats a NUL anywhere as binary, however far into the file it is', async () => {
+    // This used to sniff only the first 8KB, so a file with a late NUL was text
+    // to the scanner and binary to ripgrep - the same bytes, two answers. Both
+    // now mean the same thing by "binary": it contains a NUL.
     const late = Buffer.concat([
       Buffer.from(`${'a'.repeat(9000)}\nLateSymbol\n`, 'utf8'),
       Buffer.from([0]),
@@ -301,7 +305,9 @@ describe('scanning details', () => {
       options: searchOptions(),
     });
 
-    expect(result.count).toBe(1);
+    // Not counted - but found, and said out loud, rather than dropped.
+    expect(result.count).toBe(0);
+    expect(result.scope.skipped).toEqual([{ path: 'src/late.bin', reason: 'binary', matches: 1 }]);
   });
 });
 

@@ -139,8 +139,8 @@ describe('glob metacharacter escaping', () => {
   });
 });
 
-describe('hidden-segment detection', () => {
-  it('walks hidden directories only when a pattern segment starts with a dot', async () => {
+describe('hidden paths in spec discovery', () => {
+  it('finds specs in hidden directories, whatever the pattern looks like', async () => {
     const root = await repo({
       '.github/workflows/ci.yml': '',
       '.github/notes.md': '',
@@ -154,9 +154,11 @@ describe('hidden-segment detection', () => {
     const hiddenFile = await expandSpecPatterns(['docs/.*.md'], root);
     expect(hiddenFile.map((file) => toPosix(path.relative(root, file)))).toEqual(['docs/.secret.md']);
 
-    // No dot segment: hidden entries stay invisible.
-    const visibleOnly = await expandSpecPatterns(['docs/*.md'], root);
-    expect(visibleOnly.map((file) => toPosix(path.relative(root, file)))).toEqual(['docs/plain.md']);
+    // A hidden file is an ordinary file now. `docs/*.md` matches `docs/.secret.md`
+    // because it is a .md file in docs, which is what the pattern says; the walk
+    // no longer decides on the reader's behalf that a leading dot means private.
+    const both = await expandSpecPatterns(['docs/*.md'], root);
+    expect(both.map((file) => toPosix(path.relative(root, file)))).toEqual(['docs/.secret.md', 'docs/plain.md']);
   });
 
   it('checks every segment, not just the first', async () => {
@@ -166,10 +168,18 @@ describe('hidden-segment detection', () => {
     expect(nested.map((file) => toPosix(path.relative(root, file)))).toEqual(['docs/.drafts/a.md']);
   });
 
-  it('is not triggered by a dot that is not the start of a segment', async () => {
+  it('still honours the directory the pattern names', async () => {
+    // Hidden directories are walked, but `docs/*.md` still means docs.
     const root = await repo({ 'docs/a.md': '', '.hidden/b.md': '' });
 
     const dotted = await expandSpecPatterns(['docs/*.md'], root);
     expect(dotted.map((file) => toPosix(path.relative(root, file)))).toEqual(['docs/a.md']);
+  });
+
+  it('reaches a spec that only exists in a hidden directory', async () => {
+    const root = await repo({ '.github/rules.md': '', 'docs/a.md': '' });
+
+    const all = await expandSpecPatterns(['**/*.md'], root);
+    expect(all.map((file) => toPosix(path.relative(root, file)))).toEqual(['.github/rules.md', 'docs/a.md']);
   });
 });

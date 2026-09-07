@@ -1,21 +1,25 @@
 /**
- * Tests for the parts of the engine that a real ripgrep cannot be made to
- * exercise on demand.
+ * The ripgrep command line, asserted as data.
  *
- * The first mutation run left 117 survivors in engine.ts, almost all of them in
- * two places: the ripgrep JSON handling, which lived inside a spawn callback,
- * and the batching decision, which is invisible from the outside by design -
- * a correct batch and a correct set of separate passes return the same answer.
+ * These flags are load-bearing. spec-guard once reported a clean pass on a
+ * repository whose forbidden symbol sat in `.github/workflows/ci.yml`, because
+ * ripgrep skips hidden directories by default and nobody had said otherwise;
+ * it also gave different answers for the same tree depending on whether a
+ * `.git` directory happened to exist above it, because .gitignore applies only
+ * inside a repository. Each flag below switches off one of those opinions, and
+ * a flag that quietly goes missing is a silent false green - so the argv is
+ * pinned exactly rather than sampled.
  *
- * Both were extracted into pure functions (`createRipgrepSink`,
- * `shouldBatchPatterns`) so the behaviour can be asserted as data rather than
- * provoked out of a subprocess.
+ * The stderr parser is here for the same reason: ripgrep reports a file it
+ * could not open on stderr and nowhere else, and `--no-messages` used to throw
+ * that away, which made an unreadable file indistinguishable from a clean one.
  */
 
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-import { createRipgrepSink, shouldBatchPatterns, type SearchRequest } from '../src/engine.js';
+import { buildRipgrepArgs, parseRipgrepErrors, type SearchRequest } from '../src/engine.js';
+import { SCAN_EVERYTHING } from '../src/scope.js';
 import { searchOptions } from './helpers.js';
 
 const ROOT = path.resolve('C:/repo');
@@ -24,263 +28,113 @@ function request(overrides: Partial<SearchRequest> = {}): SearchRequest {
   return { root: ROOT, symbol: 'Alpha', targets: ['src'], options: searchOptions(), ...overrides };
 }
 
-/** Builds one ripgrep `match` event as it appears on stdout. */
-function matchEvent(options: {
-  file?: string;
-  line?: number | undefined;
-  text?: string;
-  submatches?: Array<{ text: string; start: number }>;
-  pathBytes?: string;
-  textBytes?: string;
-}): string {
-  const data: Record<string, unknown> = {};
-  data['path'] = options.pathBytes ? { bytes: options.pathBytes } : { text: options.file ?? 'src/a.ts' };
-  data['lines'] = options.textBytes ? { bytes: options.textBytes } : { text: `${options.text ?? 'const Alpha = 1;'}\n` };
-  if (options.line !== undefined) data['line_number'] = options.line;
-  data['submatches'] = (options.submatches ?? [{ text: 'Alpha', start: 6 }]).map((submatch) => ({
-    match: { text: submatch.text },
-    start: submatch.start,
-  }));
-  return JSON.stringify({ type: 'match', data });
-}
+describe('buildRipgrepArgs', () => {
+  it('turns off every ripgrep default that would hide a file', () => {
+    const args = buildRipgrepArgs(request());
 
-function feed(lines: string[], patterns: string[] = ['Alpha'], overrides: Partial<SearchRequest> = {}) {
-  const sink = createRipgrepSink(request(overrides), patterns);
-  for (const line of lines) sink.line(line);
-  return sink;
-}
-
-describe('createRipgrepSink', () => {
-  it('counts a single match and records its location', () => {
-    const sink = feed([matchEvent({ line: 3 })]);
-    const tally = sink.tallies.get('Alpha');
-
-    expect(sink.failure).toBeNull();
-    expect(tally?.count).toBe(1);
-    expect(tally?.locations).toEqual([
-      { file: 'src/a.ts', line: 3, column: 7, text: 'const Alpha = 1;', count: 1 },
-    ]);
+    // --hidden: .github, .husky and .claude-rules hold real code.
+    expect(args).toContain('--hidden');
+    // --no-ignore: .gitignore describes what git carries, not what a rule covers.
+    expect(args).toContain('--no-ignore');
+    // --text: ripgrep otherwise treats a walked binary differently from a named
+    // one, so the same bytes were reported or not depending on how they were
+    // reached. The scanner decides what is binary, for both engines.
+    expect(args).toContain('--text');
+    // Never re-introduce this: it discards the per-file errors that are the
+    // only evidence a file could not be read.
+    expect(args).not.toContain('--no-messages');
   });
 
-  it('reports column as a one-based offset', () => {
-    const sink = feed([matchEvent({ line: 1, submatches: [{ text: 'Alpha', start: 0 }] })]);
-    expect(sink.tallies.get('Alpha')?.locations[0]?.column).toBe(1);
+  it('asks only which files matched, not for the matches themselves', () => {
+    const args = buildRipgrepArgs(request());
+    expect(args).toContain('--files-with-matches');
+    // NUL is the one separator a filename cannot contain.
+    expect(args).toContain('--null');
+    expect(args).not.toContain('--json');
   });
 
-  it('defaults a missing line number to zero rather than dropping the match', () => {
-    const sink = feed([matchEvent({ line: undefined })]);
-    expect(sink.tallies.get('Alpha')?.count).toBe(1);
-    expect(sink.tallies.get('Alpha')?.locations[0]?.line).toBe(0);
+  it('excludes the scope policy directories by name', () => {
+    const args = buildRipgrepArgs(request()).join(' ');
+    expect(args).toContain('--glob !.git/');
+    expect(args).toContain('--glob !.hg/');
+    expect(args).toContain('--glob !.svn/');
+    expect(args).toContain('--glob !node_modules/');
   });
 
-  it('collapses several matches on one line into a single location', () => {
-    const sink = feed([
-      matchEvent({
-        line: 4,
-        text: 'Alpha Alpha Alpha',
-        submatches: [
-          { text: 'Alpha', start: 0 },
-          { text: 'Alpha', start: 6 },
-          { text: 'Alpha', start: 12 },
-        ],
-      }),
-    ]);
-    const tally = sink.tallies.get('Alpha');
-
-    expect(tally?.count).toBe(3);
-    expect(tally?.locations).toHaveLength(1);
-    expect(tally?.locations[0]?.count).toBe(3);
+  it('excludes nothing when the policy skips nothing', () => {
+    const options = searchOptions({ scope: SCAN_EVERYTHING });
+    const args = buildRipgrepArgs(request({ options })).join(' ');
+    expect(args).not.toContain('!node_modules/');
+    expect(args).not.toContain('!.git/');
   });
 
-  it('keeps separate locations for the same file on different lines', () => {
-    const sink = feed([matchEvent({ line: 2 }), matchEvent({ line: 9 })]);
-    expect(sink.tallies.get('Alpha')?.locations.map((location) => location.line)).toEqual([2, 9]);
+  it('puts the policy exclusions after the user globs, so they cannot be undone', () => {
+    // ripgrep lets a later glob override an earlier one. A user asking for
+    // "*.ts" must not thereby pull node_modules back into scope.
+    const options = searchOptions({ globs: ['*.ts'] });
+    const args = buildRipgrepArgs(request({ options }));
+    expect(args.indexOf('*.ts')).toBeLessThan(args.indexOf('!node_modules/'));
   });
 
-  it('keeps separate locations for the same line number in different files', () => {
-    const sink = feed([matchEvent({ file: 'src/a.ts', line: 2 }), matchEvent({ file: 'src/b.ts', line: 2 })]);
-    expect(sink.tallies.get('Alpha')?.locations.map((location) => location.file)).toEqual([
-      'src/a.ts',
-      'src/b.ts',
-    ]);
+  it('passes the search flags an assertion asked for', () => {
+    const options = searchOptions({ regex: true, word: true, ignoreCase: true });
+    const args = buildRipgrepArgs(request({ options }));
+
+    expect(args).toContain('--word-regexp');
+    expect(args).toContain('--ignore-case');
+    // A regex pattern must not be forced into literal matching.
+    expect(args).not.toContain('--fixed-strings');
   });
 
-  it('ignores blank lines and anything that is not a match event', () => {
-    const sink = feed([
-      '',
-      JSON.stringify({ type: 'begin', data: { path: { text: 'src/a.ts' } } }),
-      JSON.stringify({ type: 'end', data: {} }),
-      JSON.stringify({ type: 'summary' }),
-      JSON.stringify({ type: 'match' }),
-      matchEvent({ line: 1 }),
-    ]);
-
-    expect(sink.tallies.get('Alpha')?.count).toBe(1);
-    expect(sink.failure).toBeNull();
+  it('treats a plain symbol as a literal', () => {
+    expect(buildRipgrepArgs(request())).toContain('--fixed-strings');
   });
 
-  it('ignores a match event carrying no submatches', () => {
-    const sink = feed([matchEvent({ line: 1, submatches: [] })]);
-    expect(sink.tallies.get('Alpha')?.count).toBe(0);
+  it('passes every pattern and ends with the targets after a separator', () => {
+    const args = buildRipgrepArgs(request({ targets: ['src', 'lib'] }), ['Alpha', 'Beta']);
+    const separator = args.indexOf('--');
+
+    expect(args.slice(separator + 1)).toEqual(['src', 'lib']);
+    expect(args.filter((argument) => argument === '--regexp')).toHaveLength(2);
+    expect(args).toContain('Alpha');
+    expect(args).toContain('Beta');
   });
 
-  it('survives malformed JSON without losing later matches', () => {
-    const sink = feed(['{not json', matchEvent({ line: 1 })]);
-    expect(sink.tallies.get('Alpha')?.count).toBe(1);
-    expect(sink.failure).toBeNull();
+  it('searches the root when an assertion names no target', () => {
+    expect(buildRipgrepArgs(request({ targets: [] })).at(-1)).toBe('.');
   });
 
-  it('decodes base64 paths and lines for non-UTF-8 output', () => {
-    const sink = feed([
-      matchEvent({
-        line: 5,
-        pathBytes: Buffer.from('src/wéird.ts', 'utf8').toString('base64'),
-        textBytes: Buffer.from('const Alpha = "é";\n', 'utf8').toString('base64'),
-      }),
-    ]);
-    const location = sink.tallies.get('Alpha')?.locations[0];
-
-    expect(location?.file).toBe('src/wéird.ts');
-    expect(location?.text).toBe('const Alpha = "é";');
-  });
-
-  it('treats a path with neither text nor bytes as the root itself', () => {
-    const line = JSON.stringify({
-      type: 'match',
-      data: { path: {}, lines: {}, line_number: 1, submatches: [{ match: { text: 'Alpha' }, start: 0 }] },
-    });
-    const sink = feed([line]);
-
-    expect(sink.tallies.get('Alpha')?.count).toBe(1);
-    expect(sink.tallies.get('Alpha')?.locations[0]?.text).toBe('');
-  });
-
-  it('drops matches from excluded files without counting them', () => {
-    const excluded = path.resolve(ROOT, 'docs/adr.md');
-    const sink = feed([matchEvent({ file: 'docs/adr.md', line: 1 }), matchEvent({ file: 'src/a.ts', line: 1 })], ['Alpha'], {
-      options: searchOptions({ excludeFiles: new Set([excluded]) }),
-    });
-
-    expect(sink.tallies.get('Alpha')?.count).toBe(1);
-    expect(sink.tallies.get('Alpha')?.locations.map((location) => location.file)).toEqual(['src/a.ts']);
-  });
-
-  it('normalises a path that ripgrep echoed with a ./ prefix', () => {
-    const sink = feed([matchEvent({ file: './src/a.ts', line: 1 })]);
-    expect(sink.tallies.get('Alpha')?.locations[0]?.file).toBe('src/a.ts');
-  });
-
-  it('strips only a trailing newline from the snippet', () => {
-    expect(feed([matchEvent({ line: 1, text: 'a' })]).tallies.get('Alpha')?.locations[0]?.text).toBe('a');
-
-    const crlf = JSON.stringify({
-      type: 'match',
-      data: {
-        path: { text: 'src/a.ts' },
-        lines: { text: 'const Alpha = 1;\r\n' },
-        line_number: 1,
-        submatches: [{ match: { text: 'Alpha' }, start: 6 }],
-      },
-    });
-    expect(feed([crlf]).tallies.get('Alpha')?.locations[0]?.text).toBe('const Alpha = 1;');
-
-    const inner = JSON.stringify({
-      type: 'match',
-      data: {
-        path: { text: 'src/a.ts' },
-        lines: { text: 'a\nb' },
-        line_number: 1,
-        submatches: [{ match: { text: 'Alpha' }, start: 0 }],
-      },
-    });
-    expect(feed([inner]).tallies.get('Alpha')?.locations[0]?.text).toBe('a\nb');
-  });
-
-  it('truncates a very long line at the snippet limit', () => {
-    const long = 'x'.repeat(400);
-    const sink = feed([matchEvent({ line: 1, text: long })]);
-    const text = sink.tallies.get('Alpha')?.locations[0]?.text as string;
-
-    expect(text).toHaveLength(201);
-    expect(text.endsWith('…')).toBe(true);
-  });
-
-  it('attributes each submatch to its own pattern when batched', () => {
-    const sink = feed(
-      [
-        matchEvent({
-          line: 1,
-          text: 'Alpha and Bravo',
-          submatches: [
-            { text: 'Alpha', start: 0 },
-            { text: 'Bravo', start: 10 },
-          ],
-        }),
-      ],
-      ['Alpha', 'Bravo'],
-    );
-
-    expect(sink.tallies.get('Alpha')?.count).toBe(1);
-    expect(sink.tallies.get('Bravo')?.count).toBe(1);
-    expect(sink.tallies.get('Alpha')?.locations[0]?.column).toBe(1);
-    expect(sink.tallies.get('Bravo')?.locations[0]?.column).toBe(11);
-  });
-
-  it('ignores the reported match text when only one pattern was requested', () => {
-    // A single-pattern pass attributes by position, so a surprising match text
-    // (case-insensitive or regex mode) still counts.
-    const sink = feed([matchEvent({ line: 1, submatches: [{ text: 'ALPHA', start: 0 }] })], ['Alpha']);
-    expect(sink.tallies.get('Alpha')?.count).toBe(1);
-  });
-
-  it('fails the batch when a match cannot be attributed to any pattern', () => {
-    const sink = feed(
-      [matchEvent({ line: 1, submatches: [{ text: 'Charlie', start: 0 }] })],
-      ['Alpha', 'Bravo'],
-    );
-
-    expect(sink.failure).toBeInstanceOf(Error);
-    expect(sink.failure?.message).toContain('Charlie');
-  });
-
-  it('stops consuming input once the batch has failed', () => {
-    const sink = feed(
-      [
-        matchEvent({ line: 1, submatches: [{ text: 'Charlie', start: 0 }] }),
-        matchEvent({ line: 2, submatches: [{ text: 'Alpha', start: 0 }] }),
-      ],
-      ['Alpha', 'Bravo'],
-    );
-
-    expect(sink.failure).not.toBeNull();
-    expect(sink.tallies.get('Alpha')?.count).toBe(0);
+  it('carries the shared file size limit', () => {
+    expect(buildRipgrepArgs(request()).some((argument) => argument.startsWith('--max-filesize='))).toBe(true);
   });
 });
 
-describe('shouldBatchPatterns', () => {
-  it.each([
-    [['Alpha', 'Bravo'], {}, true],
-    [['Alpha'], {}, false],
-    [[], {}, false],
-    [['Alpha', 'Bravo'], { regex: true }, false],
-    [['Alpha', 'Bravo'], { ignoreCase: true }, false],
-    [['Alpha', 'Bravo'], { word: true }, true],
-    [['Alpha', 'Bravo'], { globs: ['*.ts'] }, true],
-    // Containment: an alternation would report the shorter match only.
-    [['Primary', 'PrimaryButton'], {}, false],
-    // Dovetailing: "abc" and "cd" both match inside "abcd".
-    [['abc', 'cd'], {}, false],
-    [['abc', 'def'], {}, true],
-  ] as Array<[string[], Record<string, unknown>, boolean]>)(
-    'patterns %o with %o -> %s',
-    (patterns, overrides, expected) => {
-      expect(shouldBatchPatterns(patterns, searchOptions(overrides))).toBe(expected);
-    },
-  );
+describe('parseRipgrepErrors', () => {
+  it('takes the path out of a per-file failure', () => {
+    expect(parseRipgrepErrors('src/secret.txt: Permission denied (os error 13)')).toEqual(['src/secret.txt']);
+  });
 
-  it('is not fooled by word mode into thinking overlaps are safe', () => {
-    // Word boundaries would in fact make these safe, but the rule stays
-    // conservative: correctness first, speed second.
-    expect(shouldBatchPatterns(['Primary', 'PrimaryButton'], searchOptions({ word: true }))).toBe(false);
+  it('strips ripgrep\'s own prefix', () => {
+    expect(parseRipgrepErrors('rg: src/gone.txt: No such file or directory')).toEqual(['src/gone.txt']);
+  });
+
+  it('reads several lines, and ignores blank ones', () => {
+    const stderr = 'a.txt: Permission denied\n\nb.txt: Permission denied\n';
+    expect(parseRipgrepErrors(stderr)).toEqual(['a.txt', 'b.txt']);
+  });
+
+  it('handles CRLF, because Windows', () => {
+    expect(parseRipgrepErrors('a.txt: denied\r\nb.txt: denied\r\n')).toEqual(['a.txt', 'b.txt']);
+  });
+
+  it('keeps a line it cannot parse rather than dropping it', () => {
+    // An unexplained line from a subprocess is still evidence that something
+    // went wrong, and silence is the failure mode being designed out.
+    expect(parseRipgrepErrors('something unexpected')).toEqual(['something unexpected']);
+  });
+
+  it('reports nothing when ripgrep said nothing', () => {
+    expect(parseRipgrepErrors('')).toEqual([]);
+    expect(parseRipgrepErrors('\n\n')).toEqual([]);
   });
 });
