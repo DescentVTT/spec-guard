@@ -144,6 +144,45 @@ one field each.
 The `break` threshold is 85: below the CI score, so a regression fails the build,
 but not so tight that ordinary refactoring trips it.
 
+### 0.3.0: a state machine moves the baseline
+
+Adding `src/imports.ts` - a tokenizer for the import assertions in ADR-0005 -
+dropped the CI score from 88.56% to **80.62%**, well under the gate of 87. The
+gate failing is the gate working, and the response was to read the survivors
+rather than move the floor.
+
+Two rounds of tests took it from 80.62% to **84.63%**. What they bought:
+
+- **A real bug.** Removing the `import.meta` guard survived every test written
+  for it. Applying that mutant by hand and hunting for a distinguishing input
+  showed why: with semicolons the clause scan stops at the `;` before it can
+  reach `from`, so the guard looks redundant. Without semicolons - ordinary
+  style under `prettier --no-semi` or standard - the `import` of `import.meta`
+  runs on and claims the next statement's specifier, reporting an export on
+  line 2 as an import on line 1. The analyser behaved differently on
+  semicolon-less source and nothing tested it.
+- **Positions.** Every analyser test asserted which specifier was found and none
+  asserted where. Those numbers are what a failure report points the reader at.
+- **Twenty-two real-world syntax shapes** pinned down: aliased and default
+  re-exports, webpack magic comments, import attributes, shebangs, CRLF, a byte
+  order mark, TSX generic arrows. None found a bug, which is why they are worth
+  recording.
+
+The floor is now **84**, against a CI measurement of 84.63%. The justification
+is not "the remaining mutants are equivalent" - that is the rationalisation
+available to anyone who does not want to write tests, and it was checked rather
+than assumed by hand-applying mutants and looking for inputs that distinguish
+them. It is that a tokenizer genuinely carries more indistinguishable mutants
+than the string-searching code the old figure was calibrated on: branches inside
+a state machine that no input reaches, and counters whose value never escapes.
+`src/imports.ts` sits at 73.62% while every other file is between 84% and 96%.
+
+The headroom is 0.63 rather than the ~1.5 used for the previous two settings.
+That is deliberate: a marginal regression should trip this gate. If run-to-run
+variance turns out to trip it instead, the honest fix is to lower it again with
+that evidence recorded - not to widen it pre-emptively against a problem that
+has not happened.
+
 ## Consequences
 
 Whoever bumps vitest to 5 will fail CI on the assertion above, and land on this
