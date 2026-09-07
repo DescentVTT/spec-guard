@@ -184,6 +184,65 @@ const CASES: Case[] = [
     source: '// NEEDLE\nNEEDLE\n',
     expected: [false, false],
   },
+
+  // The cases below exist because mutation testing showed the ones above did
+  // not pin them: each one is the smallest input where a specific rule in the
+  // language table changes the answer.
+
+  {
+    // A string must END, not run to the end of the file. Skip the check for
+    // the closing quote and everything after it is swallowed, comments
+    // included - which is the silent-pass direction.
+    name: 'a string ends, and the comment after it is still a comment',
+    file: 'a.ts',
+    source: 'const s = "ab";\n// NEEDLE\n',
+    expected: [true],
+  },
+  {
+    name: 'single-quoted strings hide comment markers too',
+    file: 'a.ts',
+    source: "const s = '// NEEDLE';\n",
+    expected: [false],
+  },
+  {
+    // Without escape handling on single quotes the literal ends early, and the
+    // rest of the line stops being a string.
+    name: 'an escaped quote does not end a single-quoted string',
+    file: 'a.ts',
+    source: "const s = 'a\\'b';\n// NEEDLE\n",
+    expected: [true],
+  },
+  {
+    // C is not Rust: its block comments do not nest, so the first */ ends the
+    // comment and what follows is code.
+    name: 'c block comments do not nest',
+    file: 'a.c',
+    source: '/* outer /* inner */ NEEDLE */\n',
+    expected: [false],
+  },
+  {
+    // A backslash escapes the backtick, so the template literal keeps going.
+    name: 'template literals honour escapes',
+    file: 'a.ts',
+    source: 'const s = `\\`;\n// NEEDLE\n',
+    expected: [false],
+  },
+  {
+    // The opposite for a Rust raw string: a backslash is just a character, so
+    // "# really does close it.
+    name: 'a rust raw string is not ended by a backslash',
+    file: 'a.rs',
+    source: 'let s = r#"C:\\"#;\n// NEEDLE\n',
+    expected: [true],
+  },
+  {
+    // Python has no block comments at all. If it had, an ordinary capital
+    // letter would open one and swallow the rest of the file.
+    name: 'hash languages have no block comments',
+    file: 'a.py',
+    source: 'class Session:\n    pass\n# NEEDLE\nx = NEEDLE\n',
+    expected: [true, false],
+  },
 ];
 
 describe('comment classification', () => {

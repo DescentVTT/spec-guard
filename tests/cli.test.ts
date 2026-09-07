@@ -29,6 +29,8 @@ describe('parseArgs', () => {
       json: false,
       engine: 'auto',
       strictTargets: false,
+      // A target that does not exist fails the run; tolerating one is opt-in.
+      allowMissingTargets: false,
       includeSpecs: false,
       allowEmpty: false,
       maxSnippets: 5,
@@ -42,7 +44,15 @@ describe('parseArgs', () => {
 
   it('parses every boolean flag', () => {
     const options = parseArgs(
-      ['--verbose', '--fail-fast', '--json', '--strict', '--include-specs', '--allow-empty'],
+      [
+        '--verbose',
+        '--fail-fast',
+        '--json',
+        '--strict',
+        '--allow-missing-targets',
+        '--include-specs',
+        '--allow-empty',
+      ],
       DEMO_REPO,
     );
     expect(options).toMatchObject({
@@ -50,6 +60,7 @@ describe('parseArgs', () => {
       failFast: true,
       json: true,
       strictTargets: true,
+      allowMissingTargets: true,
       includeSpecs: true,
       allowEmpty: true,
     });

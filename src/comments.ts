@@ -230,21 +230,24 @@ export function commentRanges(source: string, syntax: CommentSyntax): CommentRan
     const startsWith = (token: string): boolean => source.startsWith(token, start);
 
     // First match wins, in this order: a literal hides comment markers inside
-    // it, and a line comment hides a block opener on the same line.
+    // it, and a line comment hides a block opener on the same line. Each lookup
+    // sits in the branch that needs it, so none of them runs speculatively.
     const stringRule = syntax.strings.find((rule) => startsWith(rule.open));
-    const lineToken = stringRule ? undefined : syntax.line.find((token) => startsWith(token));
-    const blockPair =
-      stringRule || lineToken !== undefined ? undefined : syntax.block.find(([open]) => startsWith(open));
-
     if (stringRule) {
       index = endOfString(source, start, stringRule);
-    } else if (lineToken !== undefined) {
-      const newline = source.indexOf('\n', start);
-      index = newline === -1 ? source.length : newline;
-      ranges.push([start, index]);
-    } else if (blockPair) {
-      index = endOfBlock(source, start, blockPair, syntax.nested);
-      ranges.push([start, index]);
+    } else {
+      const lineToken = syntax.line.find((token) => startsWith(token));
+      if (lineToken !== undefined) {
+        const newline = source.indexOf('\n', start);
+        index = newline === -1 ? source.length : newline;
+        ranges.push([start, index]);
+      } else {
+        const blockPair = syntax.block.find(([open]) => startsWith(open));
+        if (blockPair) {
+          index = endOfBlock(source, start, blockPair, syntax.nested);
+          ranges.push([start, index]);
+        }
+      }
     }
 
     // The single advance point, and the only place termination depends on.

@@ -379,6 +379,56 @@ describe('comment exclusion notes', () => {
     expect(report).not.toContain('9 matches');
   });
 
+  it('names a single unreadable file in the singular', () => {
+    const report = formatReport(passedByExclusion(0, 1), { color: false, verbose: false });
+    expect(report).toContain('comment syntax unknown for 1 matching file; comments in it counted as code');
+  });
+
+  it('lists the notes per assertion under --verbose, location and all', () => {
+    // The verbose branch had no test at all: every mutant that emptied it
+    // survived, which means the whole block could have been deleted unnoticed.
+    const report = fixture({
+      ok: true,
+      summary: { specs: 1, total: 1, passed: 1, failed: 0, skipped: 0 },
+      results: [{ ...passingResult, commentMatches: 2, warnings: ['target path not found: src/gone'] }],
+    });
+
+    expect(formatReport(report, { color: false, verbose: true })).toBe(
+      [
+        'spec-guard 1 spec · 1 assertion · ripgrep',
+        '',
+        '✔ docs/a.md:3  @assert-count "Kept" (2 matches) in src',
+        '',
+        '⚠ docs/a.md:3  2 matches inside comments were not counted; add comments="include" to count them',
+        '⚠ docs/a.md:3  target path not found: src/gone',
+        '⚠ 2 matches inside comments were not counted; add comments="include" to count them',
+        '',
+        '1 passed · 12ms',
+        '✔ every spec assertion holds',
+      ].join('\n'),
+    );
+  });
+
+  it('separates run-level warnings from what follows', () => {
+    const report = fixture({
+      ok: true,
+      summary: { specs: 1, total: 1, passed: 1, failed: 0, skipped: 0 },
+      results: [passingResult],
+      warnings: ['ripgrep failed, falling back to the scanner'],
+    });
+
+    expect(formatReport(report, { color: false, verbose: false })).toBe(
+      [
+        'spec-guard 1 spec · 1 assertion · ripgrep',
+        '',
+        '⚠ ripgrep failed, falling back to the scanner',
+        '',
+        '1 passed · 12ms',
+        '✔ every spec assertion holds',
+      ].join('\n'),
+    );
+  });
+
   it('carries the counts into JSON', () => {
     const parsed = JSON.parse(formatJson(passedByExclusion(4, 1)));
 
