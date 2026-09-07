@@ -654,3 +654,67 @@ describe('import.meta does not swallow the next statement', () => {
     ]);
   });
 });
+
+/**
+ * Shapes that occur in real projects.
+ *
+ * None of these found a bug, which is the useful part of recording them: they
+ * pin down behaviour that would otherwise only be verified by someone hitting
+ * it in their own codebase. The list is deliberately about syntax people
+ * actually write, not about reaching mutants inside the state machine.
+ */
+describe('real-world syntax', () => {
+  it.each([
+    ['aliased re-export', "export { a as b } from './x.js';"],
+    ['default re-export', "export { default as Foo } from './x.js';"],
+    ['bare default re-export', "export { default } from './x.js';"],
+    ['several aliases', "export { a as b, c as d } from './x.js';"],
+    ['namespace re-export with alias', "export * as def from './x.js';"],
+    ['import alias', "import { a as b } from './x.js';"],
+    ['default and named together', "import d, { a } from './x.js';"],
+    ['default and namespace together', "import d, * as ns from './x.js';"],
+    ['trailing comma in the clause', "import { a, b, } from './x.js';"],
+    ['clause spread over lines', 'import {\n  a,\n  b,\n} from "./x.js";'],
+    ['a newline before from', 'import { a }\nfrom "./x.js";'],
+    ['a comment between keyword and clause', "import /* c */ { a } from './x.js';"],
+    ['whitespace inside require', "const r = require( './x.js' );"],
+    ['a comment inside require', "const r = require(/* c */ './x.js');"],
+    ['a webpack magic comment', 'const p = import(/* webpackChunkName: "x" */ "./x.js");'],
+  ])('handles %s', (_name, source) => {
+    expect(specifiers(source)).toEqual(['./x.js']);
+  });
+
+  it.each([
+    ['import attributes', "import data from './x.json' with { type: 'json' };"],
+    ['the older assert syntax', "import data from './x.json' assert { type: 'json' };"],
+  ])('handles %s', (_name, source) => {
+    expect(specifiers(source)).toEqual(['./x.json']);
+  });
+
+  it('handles a shebang line', () => {
+    // bin/spec-guard.js starts with one, so this is not hypothetical.
+    const source = ['#!/usr/bin/env node', "import { a } from './x.js';"].join('\n');
+    const [reference] = analyzeSource(source, 'src/a.ts').references;
+
+    expect(reference).toMatchObject({ specifier: './x.js', line: 2 });
+  });
+
+  it('counts CRLF lines the same as LF lines', () => {
+    const lines = ['// one', '// two', "import { a } from './x.js';"];
+    const lf = analyzeSource(lines.join('\n'), 'src/a.ts').references[0];
+    const crlf = analyzeSource(lines.join('\r\n'), 'src/a.ts').references[0];
+
+    expect(lf?.line).toBe(3);
+    expect(crlf?.line).toBe(3);
+  });
+
+  it('is not derailed by a byte order mark', () => {
+    const source = `﻿import { a } from './x.js';`;
+    expect(analyzeSource(source, 'src/a.ts').references[0]).toMatchObject({ specifier: './x.js', line: 1 });
+  });
+
+  it('is not derailed by a TSX generic arrow function', () => {
+    const source = ['const f = <T,>(x: T) => x;', "import { a } from './x.js';"].join('\n');
+    expect(analyzeSource(source, 'src/a.ts').references[0]).toMatchObject({ line: 2 });
+  });
+});
