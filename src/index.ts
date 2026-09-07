@@ -48,6 +48,7 @@ export type {
 
 export {
   compareDirents,
+  createExcludeMatcher,
   createGlobMatcher,
   defaultDirectoryReader,
   expandSpecPatterns,

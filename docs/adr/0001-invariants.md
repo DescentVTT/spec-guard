@@ -24,7 +24,12 @@ is allowed to know that ripgrep is a subprocess; that is what lets the
 JavaScript fallback be a drop-in replacement.
 
 <!-- @assert-count target="src" symbol="node:child_process" expected="1" reason="only the engine spawns processes" -->
-<!-- @assert-absence target="src/cli.ts,src/parser.ts,src/reporter.ts,src/runner.ts,src/glob.ts" symbol="child_process" -->
+<!-- @assert-absence target="src" symbol="child_process" exclude="src/engine.ts" reason="everything except the engine" -->
+
+That second rule used to be written as an explicit list of the five files that
+must *not* mention `child_process` - a list that silently stopped covering
+anything new. Stated as "everywhere except the engine" it cannot rot, which is
+what `exclude` is for.
 
 **The parser and the reporter are pure.** Neither touches the filesystem, which
 is why both can be tested on plain strings.

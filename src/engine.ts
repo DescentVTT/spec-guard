@@ -19,7 +19,7 @@ import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
-import { createGlobMatcher, toPosix, walkFiles } from './glob.js';
+import { createExcludeMatcher, createGlobMatcher, toPosix, walkFiles } from './glob.js';
 import type { EngineName, MatchLocation, SearchOptions, SearchResult } from './types.js';
 
 /** Files larger than this are skipped by both engines, keeping them in sync. */
@@ -117,6 +117,8 @@ function sharesOnePass(requests: readonly SearchRequest[]): boolean {
       request.options.ignoreCase === first.options.ignoreCase &&
       request.options.globs.length === first.options.globs.length &&
       request.options.globs.every((glob, index) => glob === first.options.globs[index]) &&
+      request.options.excludeGlobs.length === first.options.excludeGlobs.length &&
+      request.options.excludeGlobs.every((glob, index) => glob === first.options.excludeGlobs[index]) &&
       request.options.excludeFiles === first.options.excludeFiles,
   );
 }
@@ -178,6 +180,9 @@ export function buildRipgrepArgs(request: SearchRequest, patterns: readonly stri
   if (options.word) args.push('--word-regexp');
   if (options.ignoreCase) args.push('--ignore-case');
   for (const glob of options.globs) args.push('--glob', glob);
+  // ripgrep reads a leading "!" as an exclusion, with gitignore semantics that
+  // createExcludeMatcher mirrors for the JavaScript engine.
+  for (const glob of options.excludeGlobs) args.push('--glob', `!${glob}`);
   for (const pattern of patterns) args.push('--regexp', pattern);
   args.push('--');
   args.push(...(request.targets.length > 0 ? request.targets : ['.']));
@@ -478,6 +483,8 @@ export async function enumerateCandidates(
   budget?: EnumerationBudget,
 ): Promise<Enumeration> {
   const matcher = createGlobMatcher(request.options.globs);
+  const excluded = createExcludeMatcher(request.options.excludeGlobs);
+  const admits = (relativePath: string): boolean => matcher(relativePath) && !excluded(relativePath);
   const found = new Map<string, CandidateFile>();
   let bytes = 0;
   let exceeded = false;
@@ -499,7 +506,7 @@ export async function enumerateCandidates(
 
     if (stats.isFile()) {
       const relativePath = toPosix(path.relative(request.root, absoluteTarget));
-      if (stats.size <= MAX_FILE_SIZE && matcher(relativePath)) {
+      if (stats.size <= MAX_FILE_SIZE && admits(relativePath)) {
         if (!admit(absoluteTarget, relativePath, stats.size)) break outer;
       }
       continue;
@@ -508,7 +515,7 @@ export async function enumerateCandidates(
     for await (const file of walkFiles(absoluteTarget)) {
       if (file.size > MAX_FILE_SIZE) continue;
       const relativePath = toPosix(path.relative(request.root, file.absolutePath));
-      if (!matcher(relativePath)) continue;
+      if (!admits(relativePath)) continue;
       if (!admit(file.absolutePath, relativePath, file.size)) break outer;
     }
   }
@@ -637,6 +644,7 @@ function enumerationKey(request: SearchRequest): string {
     request.root,
     request.targets,
     request.options.globs,
+    request.options.excludeGlobs,
     excludeSetId(request.options.excludeFiles),
   ]);
 }
@@ -733,6 +741,7 @@ export function createCachedEngine(engine: Engine): CachedEngine {
       request.options.word,
       request.options.ignoreCase,
       request.options.globs,
+      request.options.excludeGlobs,
       [...request.options.excludeFiles].sort(),
     ]);
 

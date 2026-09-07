@@ -51,6 +51,11 @@ export interface SearchOptions {
   ignoreCase: boolean;
   /** Include-only glob filters, e.g. `*.ts`. Empty means "every file". */
   globs: string[];
+  /**
+   * Paths to leave out, gitignore-style: a bare name matches any segment, so
+   * `tests` excludes that directory wherever it appears.
+   */
+  excludeGlobs: string[];
   /** Absolute file paths to exclude from results (the spec files themselves). */
   excludeFiles: ReadonlySet<string>;
 }

@@ -145,6 +145,42 @@ export type DirectoryReader = (directory: string) => Promise<Dirent[]>;
 export const defaultDirectoryReader: DirectoryReader = (directory) =>
   fs.readdir(directory, { withFileTypes: true });
 
+/**
+ * Builds a predicate for `exclude` patterns, following gitignore/ripgrep rules
+ * rather than the include-filter rules above.
+ *
+ * The two are deliberately different, because users mean different things by
+ * them. `glob="*.ts"` filters files. `exclude="tests"` means the tests
+ * directory - everything under it - and `exclude="src/config"` means that
+ * directory, not a file of that name. ripgrep's `-g !pattern` already behaves
+ * this way; matching it here is what keeps the two engines from disagreeing.
+ *
+ * The rule is one line: a pattern without a slash is tested against every path
+ * segment; a pattern with a slash is tested against the path and each of its
+ * ancestor directories.
+ */
+export function createExcludeMatcher(patterns: readonly string[]): (relativePath: string) => boolean {
+  if (patterns.length === 0) return () => false;
+
+  const matchers = patterns.map((pattern) => {
+    const normalized = toPosix(pattern)
+      .replace(/^\.\//, '')
+      .replace(/\/+$/, '');
+    return { regexp: globToRegExp(normalized), anchored: normalized.includes('/') };
+  });
+
+  return (relativePath: string): boolean => {
+    const segments = relativePath.split('/');
+    return matchers.some(({ regexp, anchored }) => {
+      if (!anchored) return segments.some((segment) => regexp.test(segment));
+      for (let depth = segments.length; depth > 0; depth--) {
+        if (regexp.test(segments.slice(0, depth).join('/'))) return true;
+      }
+      return false;
+    });
+  };
+}
+
 export interface WalkOptions {
   /** Directory names to skip entirely. */
   ignoredDirectories?: ReadonlySet<string>;

@@ -76,10 +76,18 @@ function parseCount(value: string, attribute: string): number {
   return Number.parseInt(normalized, 10);
 }
 
+/**
+ * Splits a list attribute on commas or whitespace.
+ *
+ * Both because both read naturally for different lists:
+ * `target="src, lib"` and `exclude="src/config/** tests/**"`. The cost is that
+ * a path containing a space cannot be expressed; that is documented, and no
+ * separator choice avoids it without quoting rules this syntax does not have.
+ */
 function splitList(value: string | undefined): string[] {
   if (value === undefined) return [];
   return value
-    .split(',')
+    .split(/[,\s]+/)
     .map((item) => item.trim())
     .filter((item) => item.length > 0);
 }
@@ -211,6 +219,7 @@ export function resolveDirective(
       word: parseBoolean(attributes['word'], 'word'),
       ignoreCase: parseBoolean(attributes['ignore-case'], 'ignore-case'),
       globs: splitList(attributes['glob']),
+      excludeGlobs: splitList(attributes['exclude']),
       excludeFiles: context.excludeFiles,
     };
 
@@ -223,11 +232,12 @@ export function resolveDirective(
     }
 
     const scope = targets.join(', ');
+    const except = search.excludeGlobs.length > 0 ? ` (excluding ${search.excludeGlobs.join(', ')})` : '';
     return {
       assertion: {
         kind,
         location,
-        description: `"${symbol}" ${describeExpectation(bounds)} in ${scope}`,
+        description: `"${symbol}" ${describeExpectation(bounds)} in ${scope}${except}`,
         reason,
         symbol,
         targets,

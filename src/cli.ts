@@ -81,7 +81,7 @@ Options
       --version           Print the version
 
 Directives
-  <!-- @assert-absence target="src/" symbol="LegacyGateway" -->
+  <!-- @assert-absence target="src/" symbol="LegacyGateway" exclude="src/legacy/**" -->
   <!-- @assert-count   target="src/" symbol="SessionManager" expected="1" -->
   <!-- @assert-present file="SECURITY.md" -->
 

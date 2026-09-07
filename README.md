@@ -120,6 +120,42 @@ may use double or single quotes, and a bare attribute means `="true"`.
 Fails when the symbol occurs more than `expected` times (default `0`).
 `max="..."` is accepted as a synonym for `expected`.
 
+### `exclude` - everywhere except
+
+Most real rules are "nowhere except one place", not "not here":
+
+```md
+<!-- @assert-absence target="src" symbol="process.env" exclude="src/config/**" -->
+```
+
+That is the rule this README opens with - *no secret is ever read from
+`process.env` outside `src/config`* - written as one assertion instead of a
+hand-maintained list of every directory that is not `src/config`.
+
+`exclude` follows gitignore rules, which are **not** the same as `glob`'s:
+
+| Pattern | Excludes |
+| --- | --- |
+| `tests` | any directory or file named `tests`, at any depth, and everything under it |
+| `src/config` | that directory and everything under it |
+| `src/config/**` | the same, written explicitly |
+| `*.test.ts` | any file with that name shape, at any depth |
+
+The difference is deliberate. `glob="*.ts"` filters files, so basename matching
+is what you want; `exclude="tests"` means the directory, because that is what
+people mean when they write it - and it is what `rg -g '!tests'` does. Both
+engines implement the same rule, and a parity matrix asserts they agree on it.
+
+List attributes accept commas or whitespace, so both of these work:
+
+```md
+<!-- @assert-absence target="src" symbol="TODO" exclude="src/legacy/** tests" -->
+<!-- @assert-absence target="src" symbol="TODO" exclude="src/legacy/**,tests" -->
+```
+
+(A path containing a space therefore cannot be written; there is no quoting
+inside an attribute value.)
+
 ### `@assert-count` - this symbol occurs exactly / at least / at most N times
 
 ```md
@@ -131,6 +167,18 @@ Fails when the symbol occurs more than `expected` times (default `0`).
 
 Requires `expected`, or `min` and/or `max`. `expected` cannot be combined with
 `min`/`max`.
+
+An exact count is the most brittle assertion in the set: a test that merely
+mentions the symbol will break it. spec-guard does not silently skip test files
+for you - an assertion that quietly ignores part of the tree is the failure mode
+this tool exists to prevent - so say what you mean:
+
+```md
+<!-- @assert-count target="src" symbol="UserSessionManager" expected="1" exclude="*.test.ts *.spec.ts" -->
+```
+
+`min="1"` is often the better rule anyway: it says "this exists" without
+breaking every time someone writes a second test.
 
 ### `@assert-present` - this file exists
 
@@ -150,7 +198,8 @@ Passes when every listed path exists relative to `--root`. Directories count.
 | `file` | present | Comma-separated paths that must exist |
 | `expected` | absence, count | Upper bound for absence; exact count for count |
 | `min` / `max` | count (`max` also on absence) | Inclusive bounds |
-| `glob` | absence, count | Comma-separated file filters, e.g. `*.ts,*.tsx` (ripgrep `-g` semantics) |
+| `glob` | absence, count | Include-only file filters, e.g. `*.ts,*.tsx` (ripgrep `-g` semantics) |
+| `exclude` | absence, count | Paths to leave out, gitignore-style: `src/config/**`, `tests`, `*.test.ts` |
 | `regex` | absence, count | Treat `symbol` as a regular expression |
 | `word` | absence, count | Require word boundaries, so `Primary` does not match `PrimaryButton` |
 | `ignore-case` | absence, count | Case-insensitive matching |

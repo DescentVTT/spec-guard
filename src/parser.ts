@@ -21,7 +21,18 @@ const KINDS = new Set<string>(['assert-absence', 'assert-count', 'assert-present
 
 /** Attributes each directive kind accepts. */
 const ALLOWED_ATTRIBUTES: Record<DirectiveKind, ReadonlySet<string>> = {
-  'assert-absence': new Set(['target', 'symbol', 'expected', 'max', 'glob', 'regex', 'word', 'ignore-case', 'reason']),
+  'assert-absence': new Set([
+    'target',
+    'symbol',
+    'expected',
+    'max',
+    'glob',
+    'exclude',
+    'regex',
+    'word',
+    'ignore-case',
+    'reason',
+  ]),
   'assert-count': new Set([
     'target',
     'symbol',
@@ -29,6 +40,7 @@ const ALLOWED_ATTRIBUTES: Record<DirectiveKind, ReadonlySet<string>> = {
     'min',
     'max',
     'glob',
+    'exclude',
     'regex',
     'word',
     'ignore-case',
