@@ -532,7 +532,7 @@ npm install
 npm run build      # tsc -> dist/
 npm test           # vitest
 npm run test:coverage
-npm run test:mutation  # stryker (~20 minutes)
+npm run test:mutation  # stryker (~16 min in CI; much slower locally)
 npm run lint       # tsc --noEmit
 npm run selfcheck  # run spec-guard on its own docs
 ```

@@ -5,6 +5,12 @@ name: Mutation
 # 6m54s on a hosted runner - fast enough to be a normal check rather than an
 # occasional audit, and a mutation score is only useful if it is current.
 #
+# That 6m54s covered 2,118 mutants. The suite is now 3,493 and the job takes
+# ~16m: 12m29s at 3,019 mutants before 0.3.0, 15m51s after. Still a normal
+# check, but the headroom under the cap below is now minutes rather than the
+# comfortable margin it once was, so the next thing that grows the suite should
+# check this number rather than assume it.
+#
 # There is no paths filter. A dependency bump can move the score as easily as a
 # source edit can (vitest itself is pinned for exactly that reason - see
 # ADR-0003), and filtering on src/** would miss it.
@@ -27,10 +33,10 @@ jobs:
   stryker:
     name: stryker
     runs-on: ubuntu-latest
-    # Measured at 6m52s with 2,118 mutants. An earlier cap of 45 minutes came
-    # from arithmetic about timeout budgets that turned out to be wrong by a
-    # factor of five; this one comes from the clock. Headroom for a bad day, not
-    # a budget: on a per-push workflow a hung job should fail fast.
+    # An earlier cap of 45 minutes came from arithmetic about timeout budgets
+    # that turned out to be wrong by a factor of five; this one comes from the
+    # clock. Headroom for a bad day, not a budget: on a per-push workflow a hung
+    # job should fail fast. Last measured at 15m51s (3,493 mutants).
     timeout-minutes: 30
 
     steps:

@@ -183,6 +183,53 @@ variance turns out to trip it instead, the honest fix is to lower it again with
 that evidence recorded - not to widen it pre-emptively against a problem that
 has not happened.
 
+### 0.3.0: comment classification, and a first run that only just passed
+
+`src/comments.ts` landed after the gate was re-anchored, and the first CI run
+with it scored **84.10%** - over the floor of 84 by 0.10, where the setting had
+been chosen with 0.63. Passing by that margin is not passing; it is the gate
+telling you the next commit will fail for no reason of its own.
+
+The drop was concentrated in the new code, so the survivor list was worked
+through rather than explained away. Sixteen died to one focused round:
+
+- **Nine in the language table.** No test distinguished the single-quote rule
+  from no rule at all, an escape flag from its opposite, or C's block comments
+  from Rust's nesting ones. The instructive one is the escape check inside
+  `endOfString`: mutating it to "everything is an escape" makes a string run to
+  the end of the file and swallow every comment after it - the silent-pass
+  direction this feature exists to prevent - and all six existing string tests
+  passed anyway, because each asserted on text *inside* a literal and none on a
+  comment *after* one.
+- **Five in the reporter**, one of which was a hole rather than a weak test: the
+  `--verbose` per-assertion branch had no coverage at all, so every mutant that
+  emptied it survived and the block could have been deleted unnoticed.
+- **Two on the new CLI flag**, which `parseArgs` had never been asked about.
+
+Three more were genuinely equivalent and were deleted rather than tested: a
+short-circuit deciding whether a `find()` ran, when the branch ordering already
+decided whether its result was used. Removing redundant code removes its
+mutants honestly; asserting on it would not have.
+
+That took CI to **84.86%** - above the 84.63 the floor was set against, so the
+gate stays at 84 and the headroom returns to 0.86.
+
+Two things worth recording for whoever grows this suite next:
+
+- **A hang costs a minute.** Some mutants make a scanner loop forever, and each
+  one burns the full `timeoutMS`. One of them found a real defect first: the
+  scan loop could stand still while appending to an array, so it would not spin
+  but exhaust memory - the same fault already fixed in `src/imports.ts`. The
+  loop now has a single advance point. That is worth doing for the product; it
+  does not make the mutants disappear, and chasing that would be optimising the
+  metric instead of the code.
+- **The job is no longer cheap.** 2,118 mutants at 6m54s became 3,019 at
+  12m29s, and 3,493 at 15m51s, against a 30-minute cap. Measure it rather than
+  assume it; the arithmetic that first set that cap was wrong by a factor of
+  five, and the estimate for this growth was wrong too - the mutant count rose
+  16% while the clock rose 27%, and timeouts were only 54 of the 474 new
+  mutants.
+
 ## Consequences
 
 Whoever bumps vitest to 5 will fail CI on the assertion above, and land on this
@@ -191,10 +238,14 @@ Stryker over a small range of a pure function and confirm the killed/survived
 split matches the command runner. When the runner supports vitest 5, delete the
 pin and this ADR's assertion.
 
-Mutation testing runs on every push, gated at 80%. It was first held back to a
-weekly schedule on the assumption that running the suite once per mutant would
-be too slow for the critical path. That assumption was wrong by an order of
-magnitude: the first hosted run finished in 6m54s - faster than the 20 minutes
-it takes locally at concurrency 8 - and a mutation score is only worth having if
-it describes the code as it stands today. The schedule and the manual trigger
-are kept as a backstop.
+Mutation testing runs on every push, breaking the build below 84. It was first
+held back to a weekly schedule on the assumption that running the suite once per
+mutant would be too slow for the critical path. That assumption was wrong by an
+order of magnitude: the first hosted run finished in 6m54s, and a mutation score
+is only worth having if it describes the code as it stands today. The schedule
+and the manual trigger are kept as a backstop.
+
+CI is the measurement, not a convenience. A local run of the same suite takes
+over two hours on the Windows machine this was developed on, against 15m51s
+hosted - the same 24x gap the ordinary test suite shows (3.2s hosted, 77s
+local), and enough that local timings say nothing useful about the budget.
