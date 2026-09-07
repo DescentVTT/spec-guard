@@ -439,3 +439,97 @@ describe('comment exclusion notes', () => {
     expect(parsed.results[0].unclassifiedFiles).toBe(1);
   });
 });
+
+/**
+ * The skipped-file notes.
+ *
+ * This is the output that decides whether a green run can be trusted, and the
+ * first mutation run after it was written found twenty-six mutants in it that
+ * no test executed at all: every reporter fixture carried an empty ledger, so
+ * the prose that explains a skip had never been rendered once.
+ */
+describe('what was not inspected', () => {
+  const withLedger = (skipped: RunResult['results'][number]['scope']['skipped'], ok = true): RunResult =>
+    fixture({
+      ok,
+      summary: { specs: 1, total: 1, passed: ok ? 1 : 0, failed: ok ? 0 : 1, skipped: 0 },
+      results: [{ ...(ok ? passingResult : failingResult), scope: { skipped } }],
+    });
+
+  it('names a file it could not read', () => {
+    const report = formatReport(withLedger([{ path: 'src/locked.ts', reason: 'unreadable' }]), {
+      color: false,
+      verbose: false,
+    });
+
+    expect(report).toContain('⚠ 1 path could not be read: src/locked.ts');
+  });
+
+  it('pluralises, and lists only the first few', () => {
+    const report = formatReport(
+      withLedger([
+        { path: 'a.ts', reason: 'unreadable' },
+        { path: 'b.ts', reason: 'unreadable' },
+        { path: 'c.ts', reason: 'unreadable' },
+        { path: 'd.ts', reason: 'unreadable' },
+      ]),
+      { color: false, verbose: false },
+    );
+
+    // The count is the whole truth; the sample is three, so one line stays one line.
+    expect(report).toContain('⚠ 4 paths could not be read: a.ts, b.ts, c.ts');
+    expect(report).not.toContain('d.ts');
+  });
+
+  it('reports the matches hiding in a binary file, not just the file', () => {
+    const report = formatReport(withLedger([{ path: 'build/app.bin', reason: 'binary', matches: 3 }]), {
+      color: false,
+      verbose: false,
+    });
+
+    expect(report).toContain('⚠ 3 matches in 1 binary file not counted: build/app.bin');
+  });
+
+  it('totals the matches across several binary files', () => {
+    const report = formatReport(
+      withLedger([
+        { path: 'a.bin', reason: 'binary', matches: 2 },
+        { path: 'b.bin', reason: 'binary', matches: 1 },
+      ]),
+      { color: false, verbose: false },
+    );
+
+    expect(report).toContain('⚠ 3 matches in 2 binary files not counted: a.bin, b.bin');
+  });
+
+  it('says both things when both happened', () => {
+    const report = formatReport(
+      withLedger([
+        { path: 'locked.ts', reason: 'unreadable' },
+        { path: 'app.bin', reason: 'binary', matches: 1 },
+      ]),
+      { color: false, verbose: false },
+    );
+
+    expect(report).toContain('could not be read: locked.ts');
+    expect(report).toContain('1 match in 1 binary file not counted: app.bin');
+  });
+
+  it('stays quiet when nothing was skipped', () => {
+    expect(formatReport(withLedger([]), { color: false, verbose: false })).not.toContain('⚠');
+  });
+
+  it('attaches the note to the failure it belongs to', () => {
+    const report = formatReport(withLedger([{ path: 'app.bin', reason: 'binary', matches: 1 }], false), {
+      color: false,
+      verbose: false,
+    });
+
+    expect(report).toContain('    ⚠ 1 match in 1 binary file not counted: app.bin');
+  });
+
+  it('carries the ledger into JSON', () => {
+    const parsed = JSON.parse(formatJson(withLedger([{ path: 'a.bin', reason: 'binary', matches: 2 }])));
+    expect(parsed.results[0].skipped).toEqual([{ path: 'a.bin', reason: 'binary', matches: 2 }]);
+  });
+});

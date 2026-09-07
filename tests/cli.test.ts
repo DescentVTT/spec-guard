@@ -1,8 +1,14 @@
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import { EXIT_ERROR, EXIT_FAILED, EXIT_OK, HELP, main, parseArgs, UsageError, type CliIO } from '../src/cli.js';
-import { DEMO_REPO, PROJECT_ROOT } from './helpers.js';
+import { DEMO_REPO, makeTempRepo, PROJECT_ROOT, removeTempRepo } from './helpers.js';
+
+const temporary: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(temporary.splice(0).map(removeTempRepo));
+});
 
 function createIO(overrides: Partial<CliIO> = {}): { io: CliIO; out: string[]; err: string[] } {
   const out: string[] = [];
@@ -141,6 +147,26 @@ describe('main', () => {
 
     expect(code).toBe(EXIT_OK);
     expect(out.join('\n')).toContain('8 passed');
+  });
+
+  it('carries --no-default-skips through to the run', async () => {
+    // The flag is only worth having if it reaches the engine, so this asserts
+    // the effect rather than the parsed option: node_modules is invisible by
+    // default and searchable on request.
+    const root = await makeTempRepo({
+      'node_modules/pkg/index.js': "const x = 'VendoredSymbol';\n",
+      'docs/a.md': '<!-- @assert-absence target="." symbol="VendoredSymbol" -->\n',
+    });
+    temporary.push(root);
+
+    const clean = createIO();
+    expect(await main(['docs/a.md', '--root', root, '--engine', 'js'], clean.io)).toBe(EXIT_OK);
+
+    const thorough = createIO();
+    const code = await main(['docs/a.md', '--root', root, '--engine', 'js', '--no-default-skips'], thorough.io);
+
+    expect(code).toBe(EXIT_FAILED);
+    expect(thorough.out.join('\n')).toContain('node_modules/pkg/index.js');
   });
 
   it('exits 1 when an assertion fails', async () => {
