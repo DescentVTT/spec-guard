@@ -84,7 +84,37 @@ describe.skipIf(!built)('spec-guard executable', () => {
 
     expect(result.code).toBe(1);
     const parsed = JSON.parse(result.stdout);
-    expect(parsed.summary).toMatchObject({ specs: 5, total: 19, failed: 4 });
+    expect(parsed.summary).toMatchObject({ specs: 5, total: 19, failed: 5 });
+  });
+
+  it('passes the comment paradox, and says why it passed', async () => {
+    // The whole feature, through the real binary: a symbol that exists only in
+    // the comment recording its removal.
+    const root = await makeTempRepo({
+      'src/note.ts': '// LegacyThing was removed in ADR-398; do not reintroduce it.\nexport const ok = 1;\n',
+      'docs/adr.md': '<!-- @assert-absence target="src" symbol="LegacyThing" -->\n',
+    });
+    temporary.push(root);
+
+    const result = await run(['docs/adr.md', '--root', root]);
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain('1 match inside comments was not counted');
+    expect(result.stdout).toContain('every spec assertion holds');
+  });
+
+  it('fails on a real use of the same symbol', async () => {
+    const root = await makeTempRepo({
+      'src/note.ts': '// LegacyThing was removed in ADR-398\nexport const value = LegacyThing;\n',
+      'docs/adr.md': '<!-- @assert-absence target="src" symbol="LegacyThing" -->\n',
+    });
+    temporary.push(root);
+
+    const result = await run(['docs/adr.md', '--root', root]);
+
+    expect(result.code).toBe(1);
+    expect(result.stdout).toContain('expected no matches, found 1');
+    expect(result.stdout).toContain('src/note.ts:2:22');
   });
 
   it.runIf(rgPath)('produces the same report with ripgrep as with the fallback', async () => {

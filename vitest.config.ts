@@ -3,6 +3,10 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   test: {
     include: ['tests/**/*.test.ts'],
+    // Scratch repositories live under tests/fixtures/.tmp and can contain files
+    // named *.test.ts. Vitest would collect them and fail with "no test suite
+    // found" - a broken run caused by leftovers from a previous one.
+    exclude: ['tests/fixtures/**', '**/node_modules/**'],
     environment: 'node',
     testTimeout: 30_000,
     hookTimeout: 30_000,

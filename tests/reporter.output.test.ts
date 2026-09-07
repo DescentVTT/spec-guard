@@ -39,6 +39,8 @@ const passingResult: Result = {
   message: 'expected exactly 2 matches, found 2',
   matches: [],
   warnings: [],
+  commentMatches: 0,
+  unclassifiedFiles: 0,
   engine: 'ripgrep',
   durationMs: 1,
 };
@@ -56,6 +58,8 @@ const failingResult: Result = {
   message: 'expected no matches, found 3',
   matches: [{ file: 'src/a.ts', line: 7, column: 5, text: '    const Gone = 1;', count: 1 }],
   warnings: [],
+  commentMatches: 0,
+  unclassifiedFiles: 0,
   engine: 'ripgrep',
   durationMs: 2,
 };
@@ -306,5 +310,79 @@ describe('formatJson rounding', () => {
     expect(parsed.durationMs).toBe(12.346);
     expect(parsed.results[0].durationMs).toBeLessThan(1000);
     expect(parsed.results[0].durationMs).toBeGreaterThanOrEqual(0);
+  });
+});
+
+/**
+ * Comment exclusion is the one thing that can turn a red run green without a
+ * line of code changing, so the report has to say it happened - and say it in
+ * the default output, not behind --verbose, which nobody passes on a green run.
+ */
+describe('comment exclusion notes', () => {
+  const passedByExclusion = (commentMatches: number, unclassifiedFiles = 0): RunResult =>
+    fixture({
+      ok: true,
+      summary: { specs: 1, total: 1, passed: 1, failed: 0, skipped: 0 },
+      results: [{ ...passingResult, commentMatches, unclassifiedFiles }],
+    });
+
+  it('states on a passing run that comment matches were dropped', () => {
+    expect(formatReport(passedByExclusion(1), { color: false, verbose: false })).toBe(
+      [
+        'spec-guard 1 spec · 1 assertion · ripgrep',
+        '',
+        '⚠ 1 match inside comments was not counted; add comments="include" to count it',
+        '',
+        '1 passed · 12ms',
+        '✔ every spec assertion holds',
+      ].join('\n'),
+    );
+  });
+
+  it('pluralises the note', () => {
+    expect(formatReport(passedByExclusion(3), { color: false, verbose: false })).toContain(
+      '⚠ 3 matches inside comments were not counted; add comments="include" to count them',
+    );
+  });
+
+  it('says when a language could not be read, which pushes the other way', () => {
+    const report = formatReport(passedByExclusion(0, 2), { color: false, verbose: false });
+    expect(report).toContain('⚠ comment syntax unknown for 2 matching files; comments in them counted as code');
+    expect(report).not.toContain('inside comments');
+  });
+
+  it('stays quiet when nothing was excluded', () => {
+    expect(formatReport(passedByExclusion(0), { color: false, verbose: false })).not.toContain('⚠');
+  });
+
+  it('attaches the note to a failure instead of repeating it at the end', () => {
+    const report = formatReport(onlyFailure({ commentMatches: 2 }), { color: false, verbose: false });
+
+    // Indented under the failure it belongs to...
+    expect(report).toContain('    ⚠ 2 matches inside comments were not counted');
+    // ...and not again as a run-level line, which covers passes only.
+    expect(report.split('\n').filter((line) => line.startsWith('⚠'))).toEqual([]);
+  });
+
+  it('totals the note across passing assertions only', () => {
+    const report = formatReport(
+      fixture({
+        results: [
+          { ...passingResult, commentMatches: 2 },
+          { ...failingResult, commentMatches: 7 },
+        ],
+      }),
+      { color: false, verbose: false },
+    );
+
+    expect(report).toContain('⚠ 2 matches inside comments were not counted');
+    expect(report).not.toContain('9 matches');
+  });
+
+  it('carries the counts into JSON', () => {
+    const parsed = JSON.parse(formatJson(passedByExclusion(4, 1)));
+
+    expect(parsed.results[0].commentMatches).toBe(4);
+    expect(parsed.results[0].unclassifiedFiles).toBe(1);
   });
 });

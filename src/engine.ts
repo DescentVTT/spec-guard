@@ -19,6 +19,7 @@ import { spawn } from 'node:child_process';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
+import { createCommentMask, type CommentMask } from './comments.js';
 import { createExcludeMatcher, createGlobMatcher, toPosix, walkFiles } from './glob.js';
 import type { EngineName, MatchLocation, SearchOptions, SearchResult } from './types.js';
 
@@ -63,6 +64,22 @@ function truncate(value: string): string {
 }
 
 /**
+ * Converts ripgrep's byte column into a character column.
+ *
+ * ripgrep counts bytes; the scanner counts characters, and so does every editor
+ * that a reader will paste the location into. On an ASCII line the two agree,
+ * which is why the difference went unnoticed - it only appears once a line
+ * holds a non-ASCII character before the match, and then the two engines report
+ * different columns for the same match.
+ */
+export function byteColumnToCharacter(line: string, byteOffset: number): number {
+  // One byte per character, so the offset is already a character count. This
+  // also covers the case where ripgrep gave us no line text to measure.
+  if (line.length === Buffer.byteLength(line)) return byteOffset + 1;
+  return Buffer.from(line, 'utf8').subarray(0, byteOffset).toString('utf8').length + 1;
+}
+
+/**
  * Orders matches by path, then by line. ripgrep searches in parallel and emits
  * files in no fixed order, so this is what makes snippet output stable.
  */
@@ -74,10 +91,12 @@ export function sortLocations(locations: MatchLocation[]): MatchLocation[] {
 interface Tally {
   count: number;
   locations: MatchLocation[];
+  /** Matches skipped because they were inside a comment. */
+  commentCount: number;
 }
 
 function emptyTally(): Tally {
-  return { count: 0, locations: [] };
+  return { count: 0, locations: [], commentCount: 0 };
 }
 
 /**
@@ -198,6 +217,10 @@ class RipgrepEngine implements Engine {
   constructor(private readonly binary: string) {}
 
   async search(request: SearchRequest): Promise<SearchResult> {
+    if (request.options.ignoreComments) {
+      const [result] = await this.commentAware(request, [request.symbol], [request]);
+      return result as SearchResult;
+    }
     const tallies = await this.run(request, [request.symbol]);
     return this.toResult(tallies.get(request.symbol));
   }
@@ -207,6 +230,17 @@ class RipgrepEngine implements Engine {
     if (!first) return [];
 
     const patterns = [...new Set(requests.map((request) => request.symbol))];
+
+    // Comment-aware counting needs the file's text, which ripgrep's match
+    // stream does not carry. Rather than re-implement classification twice,
+    // ripgrep is used for what it is unmatched at - telling us which handful of
+    // files out of thousands contain the symbol at all - and those files are
+    // then counted by the scanner, which already knows about comments. Both
+    // engines therefore produce comment-aware counts through one code path.
+    if (first.options.ignoreComments) {
+      return this.commentAware(first, patterns, requests);
+    }
+
     if (!shouldBatchPatterns(patterns, first.options)) {
       return Promise.all(requests.map((request) => this.search(request)));
     }
@@ -220,9 +254,71 @@ class RipgrepEngine implements Engine {
     }
   }
 
+  /**
+   * Two-phase search, used whenever comments must be classified.
+   *
+   * The result still names ripgrep: it did the searching, and classification is
+   * a post-step both engines share rather than a different engine.
+   */
+  private async commentAware(
+    request: SearchRequest,
+    patterns: string[],
+    requests: SearchRequest[],
+  ): Promise<SearchResult[]> {
+    const files = await this.filesWithMatches(request, patterns);
+    const results = await javascriptEngine.searchFiles(files, requests);
+    return results.map((result) => ({ ...result, engine: this.name }));
+  }
+
+  /** Phase one: which files contain any of these patterns at all. */
+  private filesWithMatches(request: SearchRequest, patterns: string[]): Promise<CandidateFile[]> {
+    return new Promise<CandidateFile[]>((resolve, reject) => {
+      const args = buildRipgrepArgs(request, patterns).map((argument) =>
+        argument === '--json' ? '--files-with-matches' : argument,
+      );
+      const child = spawn(this.binary, args, {
+        cwd: request.root,
+        windowsHide: true,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
+
+      let stdout = '';
+      let stderr = '';
+      child.stdout.setEncoding('utf8');
+      child.stdout.on('data', (chunk: string) => (stdout += chunk));
+      child.stderr.setEncoding('utf8');
+      child.stderr.on('data', (chunk: string) => (stderr += chunk));
+
+      child.once('error', reject);
+      child.once('close', (code) => {
+        // 0 = matches, 1 = none, anything else is a real failure.
+        if (code !== 0 && code !== 1) {
+          reject(new Error(`ripgrep exited with code ${code}${stderr ? `: ${stderr.trim()}` : ''}`));
+          return;
+        }
+        const files: CandidateFile[] = [];
+        for (const line of stdout.split('\n')) {
+          const trimmed = line.trim();
+          if (trimmed.length === 0) continue;
+          const absolutePath = path.resolve(request.root, trimmed);
+          if (request.options.excludeFiles.has(absolutePath)) continue;
+          files.push({ absolutePath, relativePath: toPosix(path.relative(request.root, absolutePath)) });
+        }
+        files.sort((a, b) => (a.relativePath < b.relativePath ? -1 : 1));
+        resolve(files);
+      });
+    });
+  }
+
   private toResult(tally: Tally | undefined): SearchResult {
     const resolved = tally ?? emptyTally();
-    return { count: resolved.count, matches: sortLocations(resolved.locations), engine: this.name };
+    return {
+      count: resolved.count,
+      commentMatches: resolved.commentCount,
+      unclassifiedFiles: 0,
+      matches: sortLocations(resolved.locations),
+      engine: this.name,
+    };
   }
 
   /** One ripgrep pass; returns a tally per pattern. */
@@ -331,7 +427,8 @@ export function createRipgrepSink(request: SearchRequest, patterns: readonly str
       if (request.options.excludeFiles.has(absolute)) return;
       const file = toPosix(path.relative(request.root, absolute));
       const lineNumber = data.line_number ?? 0;
-      const text_ = truncate(decodeText(data.lines));
+      const lineText = decodeText(data.lines);
+      const text_ = truncate(lineText);
 
       for (const submatch of submatches) {
         // With --fixed-strings and no --ignore-case the matched text is the
@@ -347,7 +444,13 @@ export function createRipgrepSink(request: SearchRequest, patterns: readonly str
         if (last && last.file === file && last.line === lineNumber) {
           last.count += 1;
         } else if (tally.locations.length < MAX_COLLECTED_MATCHES) {
-          tally.locations.push({ file, line: lineNumber, column: (submatch.start ?? 0) + 1, text: text_, count: 1 });
+          tally.locations.push({
+            file,
+            line: lineNumber,
+            column: byteColumnToCharacter(lineText, submatch.start ?? 0),
+            text: text_,
+            count: 1,
+          });
         }
       }
     },
@@ -414,6 +517,7 @@ class JavaScriptEngine implements Engine {
     const concurrency = Math.min(16, Math.max(1, files.length));
     let cursor = 0;
     const perFile = new Map<string, Map<string, Tally>>();
+    let unclassifiedFiles = 0;
 
     const worker = async (): Promise<void> => {
       while (cursor < files.length) {
@@ -423,10 +527,19 @@ class JavaScriptEngine implements Engine {
         const buffer = await fs.readFile(file.absolutePath).catch(() => null);
         if (!buffer || isProbablyBinary(buffer)) continue;
         const content = buffer.toString('utf8');
+        let mask: CommentMask | undefined;
+        const getMask = first.options.ignoreComments
+          ? (): CommentMask => (mask ??= createCommentMask(content, file.relativePath))
+          : undefined;
+
         const scanned = new Map<string, Tally>();
         for (const [pattern, regexp] of regexps) {
-          scanned.set(pattern, scanContent(content, file.relativePath, regexp));
+          scanned.set(pattern, scanContent(content, file.relativePath, regexp, getMask));
         }
+        // A mask exists only if some pattern matched, since that is the only
+        // thing that calls getMask - so reaching here already means this file
+        // matched and its language was not understood.
+        if (mask && !mask.classified) unclassifiedFiles += 1;
         perFile.set(file.relativePath, scanned);
       }
     };
@@ -440,6 +553,7 @@ class JavaScriptEngine implements Engine {
       for (const [pattern, tally] of scanned) {
         const total = tallies.get(pattern) as Tally;
         total.count += tally.count;
+        total.commentCount += tally.commentCount;
         for (const location of tally.locations) {
           if (total.locations.length < MAX_COLLECTED_MATCHES) total.locations.push(location);
         }
@@ -448,7 +562,13 @@ class JavaScriptEngine implements Engine {
 
     return requests.map((request) => {
       const tally = tallies.get(request.symbol) ?? emptyTally();
-      return { count: tally.count, matches: tally.locations, engine: this.name };
+      return {
+        count: tally.count,
+        commentMatches: tally.commentCount,
+        unclassifiedFiles,
+        matches: tally.locations,
+        engine: this.name,
+      };
     });
   }
 
@@ -526,9 +646,21 @@ export async function enumerateCandidates(
 }
 
 /** Counts matches in one file and records per-line snippets. */
-export function scanContent(content: string, relativePath: string, regexp: RegExp): Tally {
+export function scanContent(
+  content: string,
+  relativePath: string,
+  regexp: RegExp,
+  /**
+   * Resolved lazily, and only once the file has produced a match. Classifying
+   * every file in scope would mean a comment scan of the whole tree; this way
+   * the cost is proportional to matches, which for an architecture assertion is
+   * usually zero.
+   */
+  getMask?: () => CommentMask,
+): Tally {
   regexp.lastIndex = 0;
   let count = 0;
+  let commentCount = 0;
   const byLine = new Map<number, MatchLocation>();
 
   // Lazily built line index: only paid for when the file actually matches.
@@ -552,6 +684,11 @@ export function scanContent(content: string, relativePath: string, regexp: RegEx
 
   let match: RegExpExecArray | null;
   while ((match = regexp.exec(content)) !== null) {
+    if (getMask?.().isComment(match.index)) {
+      commentCount += 1;
+      if (match[0].length === 0) regexp.lastIndex += 1;
+      continue;
+    }
     count += 1;
     const { line, column } = lineOf(match.index);
     const existing = byLine.get(line);
@@ -575,7 +712,7 @@ export function scanContent(content: string, relativePath: string, regexp: RegEx
   // a Map preserves insertion order. Sorting here was dead code - mutation
   // testing found it by reporting that neither reversing nor removing the
   // comparator changed any result.
-  return { count, locations: [...byLine.values()] };
+  return { count, locations: [...byLine.values()], commentCount };
 }
 
 /* ------------------------------------------------------------------ factory */

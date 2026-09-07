@@ -184,30 +184,34 @@ describe.each(ENGINES)('runSpecGuard [%s engine]', (engine) => {
     expect(report.ok).toBe(true);
   });
 
-  it('warns about a missing target but still passes', async () => {
+  it('fails on a missing target', async () => {
+    // Fail-closed: a check that cannot tell "the code is clean" from "the
+    // directory moved" would report success while verifying nothing.
     const report = await runSpecGuard({ patterns: ['docs/adr/0005-missing-target.md'], root: DEMO_REPO, engine });
 
-    expect(report.ok).toBe(true);
+    expect(report.ok).toBe(false);
+    expect(report.results[0]?.message).toBe('target path does not exist: src/does-not-exist');
     expect(report.results[0]?.warnings).toEqual(['target path not found: src/does-not-exist']);
   });
 
-  it('fails on a missing target under --strict', async () => {
+  it('tolerates a missing target only when asked', async () => {
     const report = await runSpecGuard({
       patterns: ['docs/adr/0005-missing-target.md'],
       root: DEMO_REPO,
       engine,
-      strictTargets: true,
+      allowMissingTargets: true,
     });
 
-    expect(report.ok).toBe(false);
-    expect(report.results[0]?.message).toContain('does not exist');
+    expect(report.ok).toBe(true);
+    expect(report.results[0]?.warnings).toEqual(['target path not found: src/does-not-exist']);
   });
 
   it('runs every spec matched by a glob', async () => {
     const report = await runSpecGuard({ patterns: ['docs/**/*.md'], root: DEMO_REPO, engine });
     expect(report.summary.specs).toBe(5);
     expect(report.summary.total).toBe(19);
-    expect(report.summary.failed).toBe(4);
+    // Four broken invariants plus the missing target, which now fails closed.
+    expect(report.summary.failed).toBe(5);
   });
 
   it('stops at the first failure with fail-fast', async () => {
@@ -246,7 +250,22 @@ describe.each(ENGINES)('runSpecGuard [%s engine]', (engine) => {
 
   it('counts matches inside spec files when asked', async () => {
     const root = await repo({
-      'docs/adr.md': '<!-- @assert-absence target="." symbol="ForbiddenSymbol" -->\n',
+      'docs/adr.md': '<!-- @assert-absence target="." symbol="ForbiddenSymbol" -->\nForbiddenSymbol is discussed here.\n',
+      'src/clean.ts': 'export const ok = 1;\n',
+    });
+
+    const report = await runSpecGuard({ patterns: ['docs/adr.md'], root, engine, includeSpecs: true });
+    expect(report.ok).toBe(false);
+    // The prose counts. The directive above it does not: a directive is an HTML
+    // comment, and a rule whose own text triggers it can never be satisfied.
+    expect(report.results[0]?.actual).toBe(1);
+    expect(report.results[0]?.commentMatches).toBe(1);
+  });
+
+  it('counts the directive itself only when comments are included', async () => {
+    const root = await repo({
+      'docs/adr.md':
+        '<!-- @assert-absence target="." symbol="ForbiddenSymbol" comments="include" -->\n',
       'src/clean.ts': 'export const ok = 1;\n',
     });
 
@@ -325,6 +344,52 @@ describe('runSpecGuard error handling', () => {
   });
 });
 
+describe('the comments attribute', () => {
+  const resolve = (value?: string) =>
+    resolveDirective(
+      directive('assert-absence', { target: 'src', symbol: 'X', ...(value === undefined ? {} : { comments: value }) }),
+      context,
+    );
+
+  it('defaults to ignoring comments', () => {
+    const resolved = resolve();
+    if (!('assertion' in resolved)) throw new Error('expected an assertion');
+    expect(resolved.assertion.search?.ignoreComments).toBe(true);
+  });
+
+  it('accepts include, and only then counts them', () => {
+    const resolved = resolve('include');
+    if (!('assertion' in resolved)) throw new Error('expected an assertion');
+    expect(resolved.assertion.search?.ignoreComments).toBe(false);
+  });
+
+  it('accepts an explicit ignore', () => {
+    const resolved = resolve('ignore');
+    if (!('assertion' in resolved)) throw new Error('expected an assertion');
+    expect(resolved.assertion.search?.ignoreComments).toBe(true);
+  });
+
+  it('is case- and space-insensitive', () => {
+    const resolved = resolve('  INCLUDE  ');
+    if (!('assertion' in resolved)) throw new Error('expected an assertion');
+    expect(resolved.assertion.search?.ignoreComments).toBe(false);
+  });
+
+  it('rejects anything else rather than guessing', () => {
+    // A typo must not quietly pick a behaviour: "comments=none" reads like it
+    // means include, and guessing either way would be a silent wrong answer.
+    const resolved = resolve('none');
+    if ('assertion' in resolved) throw new Error('expected an error');
+    expect(resolved.error.message).toBe('Attribute "comments" must be ignore or include, got "none".');
+  });
+
+  it('rejects an empty value', () => {
+    const resolved = resolve('');
+    if ('assertion' in resolved) throw new Error('expected an error');
+    expect(resolved.error.message).toContain('must be ignore or include');
+  });
+});
+
 describe('executeAssertion', () => {
   it('passes when every referenced file exists', async () => {
     const resolved = resolveDirective(
@@ -335,7 +400,8 @@ describe('executeAssertion', () => {
 
     const result = await executeAssertion(resolved.assertion, {
       root: DEMO_REPO,
-      engine: { name: 'javascript', search: async () => ({ count: 0, matches: [], engine: 'javascript' }) },
+      engine: { name: 'javascript', search: async () => ({ count: 0, commentMatches: 0, unclassifiedFiles: 0, matches: [], engine: 'javascript' }) },
+      allowMissingTargets: false,
       strictTargets: false,
       maxSnippets: 5,
       imports: createImportIndex(),
@@ -351,7 +417,8 @@ describe('executeAssertion', () => {
 
     const result = await executeAssertion(resolved.assertion, {
       root: DEMO_REPO,
-      engine: { name: 'javascript', search: async () => ({ count: 0, matches: [], engine: 'javascript' }) },
+      engine: { name: 'javascript', search: async () => ({ count: 0, commentMatches: 0, unclassifiedFiles: 0, matches: [], engine: 'javascript' }) },
+      allowMissingTargets: false,
       strictTargets: false,
       maxSnippets: 5,
       imports: createImportIndex(),

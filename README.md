@@ -156,6 +156,49 @@ List attributes accept commas or whitespace, so both of these work:
 (A path containing a space therefore cannot be written; there is no quoting
 inside an attribute value.)
 
+### `comments` - the note about a deletion is not the deletion
+
+You delete a symbol and leave the explanation where the next person will look:
+
+```ts
+// LegacyThing was removed in ADR-398; do not reintroduce it.
+```
+
+A plain text search reads that comment as an occurrence, so the assertion that
+keeps the symbol deleted fails on the sentence proving it was deleted. Both
+fixes are bad: delete the note and lose the reason, or delete the rule.
+
+So matches inside comments do not count:
+
+```md
+<!-- comments are ignored by default -->
+<!-- @assert-absence target="src" symbol="LegacyThing" -->
+
+<!-- ...unless you ask for them -->
+<!-- @assert-absence target="src" symbol="Copyright" comments="include" -->
+```
+
+`comments="include"` is right for assertions that really are about text — a
+licence header, or a name that must appear nowhere in the repository at all.
+
+Because this is the one thing that can turn a failing run green without anyone
+touching code, a run that passed this way says so:
+
+```
+⚠ 1 match inside comments was not counted; add comments="include" to count it
+
+1 passed · 7ms
+✔ every spec assertion holds
+```
+
+Comment syntax is known for around 59 extensions across 9 families (JS/TS, C,
+C#, Rust, Go, Python-style `#`, SQL-style `--`, markup, and formats with no
+comments at all). Strings are tracked too, because `//` inside a URL is not a
+comment and reading it as one would hide real code. Where spec-guard is unsure —
+an unknown extension, an unterminated literal — the text counts as code, and the
+report says which files it could not classify. A match wrongly kept is a visible
+failure you can argue with; a match wrongly dropped is a lie.
+
 ### `@assert-count` - this symbol occurs exactly / at least / at most N times
 
 ```md
@@ -252,6 +295,7 @@ Passes when every listed path exists relative to `--root`. Directories count.
 | `regex` | absence, count | Treat `symbol` as a regular expression |
 | `word` | absence, count | Require word boundaries, so `Primary` does not match `PrimaryButton` |
 | `ignore-case` | absence, count | Case-insensitive matching |
+| `comments` | absence, count | `ignore` (default) or `include` for matches inside comments |
 | `module` | import assertions | Which dependency, matched like `exclude` |
 | `types` | import assertions | `include` (default) or `ignore` for `import type` |
 | `reason` | all | Human-readable justification, printed on failure |
@@ -272,7 +316,8 @@ spec-guard [patterns...] [options]
 | `--fail-fast` | Stop at the first failing assertion |
 | `--json` | Machine-readable report on stdout |
 | `--engine <auto\|rg\|js>` | Search engine (default `auto`: scanner for small trees, ripgrep for big ones) |
-| `--strict` | Treat a `target` that does not exist as a failure, not a warning |
+| `--strict` | Treat analysis that could not be completed as a failure |
+| `--allow-missing-targets` | Warn instead of failing when a `target` path does not exist |
 | `--include-specs` | Also count matches inside the spec files themselves |
 | `--max-snippets <n>` | Failure snippets per assertion (default 5) |
 | `--concurrency <n>` | Search passes in flight at once (default 8) |
@@ -417,7 +462,10 @@ implementation departs from the obvious reading of the brief, here is why.
 "`LegacyGateway` must not appear" contains the string `LegacyGateway`. Without
 this rule, absence assertions would fail on the document asserting them - the
 single most confusing possible first-run experience. `--include-specs` restores
-the naive behaviour.
+the naive behaviour, and counts the prose of your specs; the directives
+themselves stay uncounted, because a directive is an HTML comment and a rule
+whose own text trips it can never be satisfied. `comments="include"` counts even
+those.
 
 **Fenced code and inline code are masked before parsing.** A README documenting
 the syntax must not execute it. Masking preserves byte offsets, so reported line
@@ -452,6 +500,18 @@ count.
 **Exit code 2 exists.** "Your specs failed" and "spec-guard could not run" are
 different facts, and CI should be able to tell them apart.
 
+**A missing `target` fails the run.** It used to warn and search what was left,
+which meant an assertion pointed at a renamed directory searched nothing, found
+nothing, and reported success — the exact shape of a green check that verified
+nothing. `--allow-missing-targets` restores the old behaviour for repositories
+where a path is legitimately optional.
+
+**Comments are excluded by default, and the exclusion is reported.** Counting
+the note that records a deletion as an occurrence of the thing deleted punishes
+the documentation this tool exists to keep honest ([ADR-0006](docs/adr/0006-comment-classification.md)).
+The reverse risk — a rule that quietly stops checking anything because every
+match now sits in a comment — is why every run says how many matches it dropped.
+
 ## spec-guard checks itself
 
 The invariants in [`docs/adr/0001-invariants.md`](docs/adr/0001-invariants.md)
@@ -463,7 +523,7 @@ build fails if they stop being true.
 
 This README is executable too:
 
-<!-- @assert-present file="src/parser.ts,src/engine.ts,src/reporter.ts,src/runner.ts,src/cli.ts" -->
+<!-- @assert-present file="src/parser.ts,src/engine.ts,src/reporter.ts,src/runner.ts,src/cli.ts,src/comments.ts" -->
 
 ## Development
 

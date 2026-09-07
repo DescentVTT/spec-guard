@@ -69,6 +69,13 @@ export interface SearchOptions {
    * `tests` excludes that directory wherever it appears.
    */
   excludeGlobs: string[];
+  /**
+   * Skip matches that sit inside comments.
+   *
+   * On by default: the comment recording that a symbol was removed should not
+   * be what proves the symbol is still there.
+   */
+  ignoreComments: boolean;
   /** Absolute file paths to exclude from results (the spec files themselves). */
   excludeFiles: ReadonlySet<string>;
 }
@@ -96,6 +103,10 @@ export interface MatchLocation {
 export interface SearchResult {
   /** Total number of matched occurrences (not lines). */
   count: number;
+  /** Matches excluded because they were inside comments. */
+  commentMatches: number;
+  /** Files whose language has no known comment syntax, so nothing was excluded. */
+  unclassifiedFiles: number;
   /** Up to `maxSnippets` match locations, in file order. */
   matches: MatchLocation[];
   /** Engine that produced this result. */
@@ -142,6 +153,14 @@ export interface AssertionResult {
   message: string;
   matches: MatchLocation[];
   warnings: string[];
+  /**
+   * Matches that were found but not counted because they sat inside comments.
+   * Reported rather than discarded: comment exclusion is the only thing that
+   * can turn a failure into a pass without anyone touching code.
+   */
+  commentMatches: number;
+  /** Matching files whose language is unknown, so their comments counted as code. */
+  unclassifiedFiles: number;
   engine?: EngineName;
   durationMs: number;
 }

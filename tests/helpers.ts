@@ -58,6 +58,7 @@ export function searchOptions(overrides: Partial<import('../src/types.js').Searc
     ignoreCase: false,
     globs: [],
     excludeGlobs: [],
+    ignoreComments: false,
     excludeFiles: new Set<string>(),
     ...overrides,
   };

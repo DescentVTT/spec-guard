@@ -33,6 +33,7 @@ export interface CliOptions {
   failFast: boolean;
   json: boolean;
   engine: EnginePreference;
+  allowMissingTargets: boolean;
   strictTargets: boolean;
   includeSpecs: boolean;
   allowEmpty: boolean;
@@ -71,7 +72,9 @@ Options
       --fail-fast         Stop at the first failing assertion
       --json              Emit a machine-readable JSON report
       --engine <name>     auto | rg | js  (default: auto - scanner for small trees, ripgrep for big ones)
-      --strict            Treat a target path that does not exist as a failure
+      --strict            Treat analysis that could not be completed as a failure
+      --allow-missing-targets
+                          Tolerate target paths that do not exist (they fail by default)
       --include-specs     Also count matches inside the spec files themselves
       --max-snippets <n>  Failure snippets per assertion (default: ${DEFAULT_MAX_SNIPPETS})
       --concurrency <n>   Assertions executed in parallel (default: ${DEFAULT_CONCURRENCY})
@@ -84,6 +87,8 @@ Directives
   <!-- @assert-absence target="src/" symbol="LegacyGateway" exclude="src/legacy/**" -->
   <!-- @assert-count   target="src/" symbol="SessionManager" expected="1" -->
   <!-- @assert-present file="SECURITY.md" -->
+
+  Matches inside comments do not count; add comments="include" to count them.
 
 Exit codes
   0 all assertions passed   1 an assertion failed   2 spec-guard could not run`;
@@ -127,6 +132,7 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
     failFast: false,
     json: false,
     engine: 'auto',
+    allowMissingTargets: false,
     strictTargets: false,
     includeSpecs: false,
     allowEmpty: false,
@@ -179,6 +185,9 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
         break;
       case '--strict':
         options.strictTargets = true;
+        break;
+      case '--allow-missing-targets':
+        options.allowMissingTargets = true;
         break;
       case '--include-specs':
         options.includeSpecs = true;
@@ -258,6 +267,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2), io: 
       root: options.root,
       engine: options.engine,
       failFast: options.failFast,
+      allowMissingTargets: options.allowMissingTargets,
       strictTargets: options.strictTargets,
       includeSpecs: options.includeSpecs,
       concurrency: options.concurrency,

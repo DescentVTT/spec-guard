@@ -50,7 +50,14 @@ export interface RunOptions {
   engine?: EnginePreference;
   /** Stop at the first failing assertion. */
   failFast?: boolean;
-  /** Treat a target path that does not exist as a failure instead of a warning. */
+  /**
+   * Tolerate target paths that do not exist.
+   *
+   * Off by default, and deliberately so: a check that cannot tell "the code is
+   * clean" from "the directory moved" reports success while verifying nothing.
+   */
+  allowMissingTargets?: boolean;
+  /** Treat analysis that could not be completed as a failure. */
   strictTargets?: boolean;
   /** Count matches inside the spec files themselves (off by default). */
   includeSpecs?: boolean;
@@ -204,6 +211,11 @@ export function resolveDirective(
       return fail(`@${kind} requires a non-empty ${subject}="..." attribute.`);
     }
 
+    const comments = (attributes['comments'] ?? 'ignore').trim().toLowerCase();
+    if (comments !== 'ignore' && comments !== 'include') {
+      return fail(`Attribute "comments" must be ignore or include, got "${attributes['comments']}".`);
+    }
+
     const rawTargets = splitList(attributes['target']);
     const targets = (rawTargets.length > 0 ? rawTargets : ['.']).map((target) =>
       normalizeTarget(target, context.root, 'target'),
@@ -261,6 +273,10 @@ export function resolveDirective(
             ignoreCase: false,
             globs: [],
             excludeGlobs,
+            // Inert here - these options only reach enumerateCandidates, never a
+            // text search. It is set true because it is true: the tokenizer
+            // reads imports, so a module named in a comment was never a match.
+            ignoreComments: true,
             excludeFiles: context.excludeFiles,
           },
           imports: { modules: splitList(symbol), includeTypes },
@@ -275,6 +291,7 @@ export function resolveDirective(
       ignoreCase: parseBoolean(attributes['ignore-case'], 'ignore-case'),
       globs: splitList(attributes['glob']),
       excludeGlobs: splitList(attributes['exclude']),
+      ignoreComments: comments !== 'include',
       excludeFiles: context.excludeFiles,
     };
 
@@ -314,6 +331,7 @@ async function pathExists(candidate: string): Promise<boolean> {
 export interface ExecuteOptions {
   root: string;
   engine: Engine;
+  allowMissingTargets: boolean;
   strictTargets: boolean;
   maxSnippets: number;
   /** Per-run analysis cache: parse once, query many. */
@@ -352,6 +370,8 @@ async function prepareAssertion(
     files: assertion.files,
     bounds: assertion.bounds,
     warnings,
+    commentMatches: 0,
+    unclassifiedFiles: 0,
   };
 
   if (assertion.kind === 'assert-present') {
@@ -389,7 +409,7 @@ async function prepareAssertion(
     );
   }
 
-  if (options.strictTargets && assertion.missingTargets.length > 0) {
+  if (!options.allowMissingTargets && assertion.missingTargets.length > 0) {
     return {
       ...base,
       ok: false,
@@ -413,6 +433,10 @@ async function prepareAssertion(
       actual: search.count,
       message: `expected ${describeBounds(assertion.bounds)}, found ${search.count}`,
       matches: search.matches.slice(0, options.maxSnippets),
+      // Carried as numbers, not prose, so the reporter can total them across a
+      // run and JSON consumers can act on them.
+      commentMatches: search.commentMatches,
+      unclassifiedFiles: search.unclassifiedFiles,
       engine: search.engine,
       durationMs: performance.now() - startedAt,
     }),
@@ -496,17 +520,19 @@ async function executeImportAssertion(
     );
   }
 
-  const strictFailure =
-    options.strictTargets && (unresolved.length > 0 || assertion.missingTargets.length > 0);
+  const missingFailure = !options.allowMissingTargets && assertion.missingTargets.length > 0;
+  const strictFailure = missingFailure || (options.strictTargets && unresolved.length > 0);
   const ok = satisfies(matches.length, assertion.bounds) && !strictFailure;
 
   return {
     ...base,
     ok,
     actual: matches.length,
-    message: strictFailure
-      ? `expected ${describeBounds(assertion.bounds)}, found ${matches.length}, and ${unresolved.length} reference(s) could not be resolved`
-      : `expected ${describeBounds(assertion.bounds)}, found ${matches.length}`,
+    message: missingFailure
+      ? `target path${assertion.missingTargets.length === 1 ? ' does' : 's do'} not exist: ${assertion.missingTargets.join(', ')}`
+      : strictFailure
+        ? `expected ${describeBounds(assertion.bounds)}, found ${matches.length}, and ${unresolved.length} reference(s) could not be resolved`
+        : `expected ${describeBounds(assertion.bounds)}, found ${matches.length}`,
     matches: matches.slice(0, options.maxSnippets),
     durationMs: performance.now() - startedAt,
   };
@@ -535,6 +561,7 @@ export async function runSpecGuard(options: RunOptions): Promise<RunResult> {
   const root = path.resolve(options.root ?? process.cwd());
   const maxSnippets = options.maxSnippets ?? DEFAULT_MAX_SNIPPETS;
   const strictTargets = options.strictTargets ?? false;
+  const allowMissingTargets = options.allowMissingTargets ?? false;
 
   const specFiles = await expandSpecPatterns(options.patterns, root);
   const excludeFiles = new Set(options.includeSpecs ? [] : specFiles.map((file) => path.resolve(file)));
@@ -566,7 +593,14 @@ export async function runSpecGuard(options: RunOptions): Promise<RunResult> {
   }
 
   const engine = createCachedEngine(await resolveEngine(options.engine ?? 'auto'));
-  const executeOptions = { root, engine, strictTargets, maxSnippets, imports: createImportIndex() };
+  const executeOptions = {
+    root,
+    engine,
+    allowMissingTargets,
+    strictTargets,
+    maxSnippets,
+    imports: createImportIndex(),
+  };
   const results: AssertionResult[] = new Array(assertions.length);
 
   if (options.failFast) {

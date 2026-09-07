@@ -83,6 +83,35 @@ function formatLocation(result: { location: { relativeFile: string; line: number
   return `${result.location.relativeFile}:${result.location.line}`;
 }
 
+/**
+ * Prose for the two ways comment classification changed a count.
+ *
+ * Kept next to each other because they pull in opposite directions: excluded
+ * matches make an assertion easier to satisfy, unclassified files make it
+ * harder. Both are worth saying out loud.
+ */
+function commentNotes(result: {
+  commentMatches: number;
+  unclassifiedFiles: number;
+}): string[] {
+  const notes: string[] = [];
+  if (result.commentMatches > 0) {
+    notes.push(
+      `${countLabel(result.commentMatches, 'match')} inside comments ${
+        result.commentMatches === 1 ? 'was' : 'were'
+      } not counted; add comments="include" to count ${result.commentMatches === 1 ? 'it' : 'them'}`,
+    );
+  }
+  if (result.unclassifiedFiles > 0) {
+    notes.push(
+      `comment syntax unknown for ${countLabel(result.unclassifiedFiles, 'matching file')}; comments in ${
+        result.unclassifiedFiles === 1 ? 'it' : 'them'
+      } counted as code`,
+    );
+  }
+  return notes;
+}
+
 function formatFailure(
   result: AssertionResult,
   paint: ReturnType<typeof createPainter>,
@@ -96,6 +125,10 @@ function formatFailure(
   lines.push(`    ${result.description}`);
   lines.push(`    ${paint(result.message, 'red')}`);
   if (result.reason) lines.push(`    ${paint(`reason: ${result.reason}`, 'dim')}`);
+
+  for (const note of commentNotes(result)) {
+    lines.push(`    ${paint(`${glyphs.warn} ${note}`, 'yellow')}`);
+  }
 
   for (const warning of result.warnings) {
     lines.push(`    ${paint(`${glyphs.warn} ${warning}`, 'yellow')}`);
@@ -171,8 +204,8 @@ export function formatReport(report: RunResult, options: ReporterOptions, maxSni
 
   if (options.verbose) {
     for (const result of passes) {
-      for (const warning of result.warnings) {
-        lines.push(`${paint(glyphs.warn, 'yellow')} ${paint(`${formatLocation(result)}  ${warning}`, 'yellow')}`);
+      for (const note of [...commentNotes(result), ...result.warnings]) {
+        lines.push(`${paint(glyphs.warn, 'yellow')} ${paint(`${formatLocation(result)}  ${note}`, 'yellow')}`);
       }
     }
   }
@@ -184,6 +217,22 @@ export function formatReport(report: RunResult, options: ReporterOptions, maxSni
 
   for (const failure of failures) {
     lines.push(...formatFailure(failure, paint, glyphs, maxSnippets));
+    lines.push('');
+  }
+
+  // Passing assertions only. A failure prints its own notes above; a pass prints
+  // nothing at all, and a pass that owes itself to comment exclusion is exactly
+  // the thing that must not stay quiet.
+  const totals = passes.reduce(
+    (sum, result) => ({
+      commentMatches: sum.commentMatches + result.commentMatches,
+      unclassifiedFiles: sum.unclassifiedFiles + result.unclassifiedFiles,
+    }),
+    { commentMatches: 0, unclassifiedFiles: 0 },
+  );
+  const summaryNotes = commentNotes(totals);
+  if (summaryNotes.length > 0) {
+    for (const note of summaryNotes) lines.push(`${paint(glyphs.warn, 'yellow')} ${paint(note, 'yellow')}`);
     lines.push('');
   }
 
@@ -232,6 +281,8 @@ export function formatJson(report: RunResult): string {
         actual: result.actual,
         matches: result.matches,
         warnings: result.warnings,
+        commentMatches: result.commentMatches,
+        unclassifiedFiles: result.unclassifiedFiles,
         engine: result.engine,
         durationMs: Math.round(result.durationMs * 1000) / 1000,
       })),

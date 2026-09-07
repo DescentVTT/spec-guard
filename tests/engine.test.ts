@@ -4,6 +4,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import {
   buildJsRegExp,
   buildRipgrepArgs,
+  byteColumnToCharacter,
   canBatchLiterals,
   createCachedEngine,
   escapeRegExp,
@@ -645,5 +646,60 @@ describe('ripgrep failure handling', () => {
     resetRipgrepProbe();
     const engine = await resolveEngine('ripgrep');
     expect(await (engine.searchBatch as NonNullable<Engine['searchBatch']>)([])).toEqual([]);
+  });
+});
+
+/**
+ * ripgrep counts columns in bytes, the scanner counts characters, and every
+ * editor a reader pastes the location into counts characters. On ASCII the two
+ * agree, which is exactly why this went unnoticed.
+ */
+describe('column reporting', () => {
+  it('converts a byte column to a character column', () => {
+    const line = 'const x = "ab"; const y = Needle;';
+    // Pure ASCII: the byte offset is already a character count.
+    expect(byteColumnToCharacter(line, 26)).toBe(27);
+  });
+
+  it('accounts for multi-byte characters before the match', () => {
+    const line = 'const s = "AAA"; const y = Needle;'.replace('AAA', '中文字');
+    const byteOffset = Buffer.byteLength(line.slice(0, line.indexOf('Needle')), 'utf8');
+
+    // Six extra bytes for three three-byte characters, so the byte offset is
+    // ahead of the character offset by exactly that much.
+    expect(byteOffset).toBe(line.indexOf('Needle') + 6);
+    expect(byteColumnToCharacter(line, byteOffset)).toBe(line.indexOf('Needle') + 1);
+  });
+
+  it('reports column 1 at the start of a line, in both branches', () => {
+    expect(byteColumnToCharacter('Needle', 0)).toBe(1);
+    expect(byteColumnToCharacter('中文 Needle', 0)).toBe(1);
+  });
+
+  it('falls back to the offset when ripgrep gave no line text', () => {
+    expect(byteColumnToCharacter('', 12)).toBe(13);
+  });
+
+  it.runIf(rgPath)('agrees between engines on a non-ascii line', async () => {
+    const root = await makeTempRepo({
+      'src/a.ts': 'const 測試 = "中文"; const x = Needle;\n',
+    });
+    temporary.push(root);
+    process.env.SPEC_GUARD_RG = rgPath as string;
+    resetRipgrepProbe();
+
+    // comments="include" is the path where ripgrep still reports the columns
+    // itself; the comment-aware path routes through the scanner either way.
+    const request: SearchRequest = {
+      root,
+      symbol: 'Needle',
+      targets: ['src'],
+      options: searchOptions({ ignoreComments: false }),
+    };
+    const viaRipgrep = await (await resolveEngine('ripgrep')).search(request);
+    const viaScanner = await javascriptEngine.search(request);
+
+    expect(viaRipgrep.matches[0]?.column).toBe(viaScanner.matches[0]?.column);
+    expect(viaScanner.matches[0]?.column).toBe(28);
   });
 });
