@@ -290,6 +290,13 @@ The job name carries the tier - `stryker (full)` or `stryker (incremental)` - so
 a green tick in the checks list cannot be mistaken for an authority it does not
 have.
 
+**The full sweep is now 24m42s** at 4,515 mutants, against 15m51s at 3,493 and
+6m54s at 2,118. The job cap moved from 30 minutes to 45 on that measurement:
+five minutes of headroom is not headroom, and a cap that a normal run brushes
+against fails builds for reasons that have nothing to do with the code. This is
+the third time this number has been measured and the second time it has been
+wrong to assume.
+
 **What incremental mode does not save.** Measured locally over a single file
 (52 mutants): 51 s cold, 23 s with a cache and nothing changed. It skips mutant
 *execution*, not the sandbox setup or the initial coverage run, so there is a

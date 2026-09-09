@@ -51,8 +51,13 @@ jobs:
     name: ${{ (github.ref == 'refs/heads/main' || github.event_name == 'schedule' || inputs.full) && 'stryker (full)' || 'stryker (incremental)' }}
     runs-on: ubuntu-latest
     # Headroom for a bad day, not a budget: on a per-push workflow a hung job
-    # should fail fast. The full sweep was last measured at 15m51s.
-    timeout-minutes: 30
+    # should fail fast. Raised from 30 after the 0.5.0 sweep took 24m42s at
+    # 4,515 mutants - 15m51s at 3,493 was the previous measurement, and 5
+    # minutes of headroom is not headroom. The tiering above is what stops this
+    # number needing to be raised again every release; if a *full* sweep ever
+    # approaches 45, the answer is to look at what the suite is doing, not to
+    # raise it a third time.
+    timeout-minutes: 45
 
     env:
       FULL: ${{ github.ref == 'refs/heads/main' || github.event_name == 'schedule' || inputs.full }}
