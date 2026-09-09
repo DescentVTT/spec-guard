@@ -290,6 +290,14 @@ The job name carries the tier - `stryker (full)` or `stryker (incremental)` - so
 a green tick in the checks list cannot be mistaken for an authority it does not
 have.
 
+**What incremental mode does not save.** Measured locally over a single file
+(52 mutants): 51 s cold, 23 s with a cache and nothing changed. It skips mutant
+*execution*, not the sandbox setup or the initial coverage run, so there is a
+floor that no amount of caching gets under. On a one-file scope that floor is
+most of the run; on the full suite, where mutant execution dominates, the saving
+is proportionally larger. Both numbers are worth knowing before anyone expects
+incremental mode to make the check free.
+
 What this trades away is honest to state: a mutant killed only by a test that
 was changed in a way Stryker's hashing does not catch would go unnoticed until
 the next `main` run. That is a post-merge detection rather than a pre-merge one.
