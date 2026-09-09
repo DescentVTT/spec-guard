@@ -53,7 +53,7 @@ scope holds no files at all.
 - **An import assertion fails when nothing in scope is in a language it can
   read**, rather than reporting "analysed 0 of 12 files" in a warning and
   passing.
-- **`.py`, `.go`, `.rs`, `.cs` and `.csx` files are now analysed** by import
+- **`.py`, `.pyi`, `.go`, `.rs`, `.cs` and `.csx` files are now analysed** by import
   assertions rather than counted as skipped, so a rule over a polyglot tree
   starts finding dependencies it previously reported as unanalysable.
 - **Mutation testing in CI runs in two tiers**: incremental on branches,
