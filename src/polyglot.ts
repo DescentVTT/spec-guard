@@ -473,12 +473,7 @@ function readCsharp(collector: Collector): void {
     reader.index = match.index + match[0].length;
     reader.skipSpace();
 
-    // `using (var stream = ...)` is a statement, not a directive.
-    if (reader.peek() === '(') continue;
-
-    const before = reader.index;
     if (reader.eat('static')) reader.skipSpace();
-    else if (code.startsWith('var', before) && !/[A-Za-z0-9_]/.test(code[before + 3] ?? '')) continue;
 
     let target = reader.dotted();
     reader.skipSpace();
@@ -492,9 +487,15 @@ function readCsharp(collector: Collector): void {
       reader.skipSpace();
     }
 
-    // Anything but a terminator here means this was `using var x = ...`, a
-    // declaration whose shape only resembles a directive.
-    if (reader.peek() !== ';' || !target) continue;
+    // The whole of what separates a directive from a resource statement, and
+    // it is one condition on purpose. `using (var s = ...)` reads no name at
+    // all and stops on `(`; `using var s = ...` reads `var` and then finds `s`
+    // where a terminator has to be. Earlier versions guarded those two shapes
+    // explicitly, and a third time against an empty name - none of the three
+    // changed an outcome, which mutation testing established by leaving the
+    // tests green with each of them defeated. `emit` refuses an empty
+    // specifier, so this line is the only check that has to be right.
+    if (reader.peek() !== ';') continue;
     emit(collector, target, 'using', match.index);
   }
 }

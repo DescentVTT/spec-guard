@@ -42,13 +42,19 @@ export function maskRanges(source: string, ranges: Iterable<readonly [number, nu
   // source.split(''), blank in place, join('') - allocates one string object
   // per character in the file, and measured at roughly half the throughput of
   // this on a 1 MB source. Both are O(n); only one of them is fast.
-  const sorted = [...ranges].filter(([start, end]) => end > start).sort((a, b) => a[0] - b[0]);
+  // Sorted because the cursor only moves forward: an out-of-order range would
+  // be clamped away by the guard below and silently never masked.
+  const sorted = [...ranges].sort((a, b) => a[0] - b[0]);
   const parts: string[] = [];
   let cursor = 0;
 
   for (const [start, end] of sorted) {
     const from = Math.max(start, cursor);
     const to = Math.min(end, source.length);
+    // Covers three things at once, which is why there is no separate filter:
+    // an empty range, an inverted one, and a range already inside one that has
+    // been masked. Letting the third through would move the cursor backwards
+    // and duplicate the text between.
     if (to <= from) continue;
     if (from > cursor) parts.push(source.slice(cursor, from));
     // No `u` flag: the replacement walks UTF-16 code units, so a surrogate pair
