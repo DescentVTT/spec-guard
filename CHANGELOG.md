@@ -5,6 +5,71 @@ All notable changes to this project are documented here. Versions follow
 may change in a minor release — each such change is listed under **Changed**
 with the flag that restores the previous behaviour.
 
+## 0.5.0
+
+Import assertions covered one language, so a dependency rule pointed at a
+directory of Go files did not fail - it passed, having analysed nothing. That is
+the same defect 0.4.0 was written to remove, and this release closes the two
+remaining shapes of it: a rule that cannot read the language, and a rule whose
+scope holds no files at all.
+
+### Added
+
+- **Import assertions read Python, Go, Rust and C#**, alongside JavaScript and
+  TypeScript. `import a.b` / `from .rel import x`, `import ( ... )` groups,
+  `use a::{b, c}` with nested expansion, `using static` and `global using`, and
+  the dynamic forms (`importlib.import_module`) that can only be reported.
+  Not four new tokenizers: the comment and string lexer from ADR-0006 masks the
+  source and the readers work on what is left. Tree-sitter measured 94 MB
+  unpacked against this package's 0.33 MB. See
+  [ADR-0008](docs/adr/0008-polyglot-imports.md).
+- **`baseline` and `ratchet`** on the absence assertions, for adopting a strict
+  rule on a codebase that already breaks it. `baseline="src/legacy/a.ts:2"`
+  names the debt by file and count. The ratchet is two-sided: new violations
+  fail, and so does an entry the code no longer supports, because a baseline
+  that only grows is an `exclude` with extra steps. `ratchet="one-way"` relaxes
+  the second half. See [ADR-0009](docs/adr/0009-debt-baselines.md).
+- **`--print-baseline`** prints the attribute that would exempt today's
+  violations, for a human to paste. It prints; it does not edit. That is the
+  whole answer to `--fix`, and ADR-0009 argues it.
+- **`--format sarif`** writes SARIF 2.1.0, which GitHub turns into an annotation
+  on the offending line. One alert per broken rule, anchored on the code, with
+  the directive as a related location and a fingerprint that survives the code
+  moving. `--json` is unchanged and is now also `--format json`.
+- **`allow-empty` and `--allow-empty-scope`**, for the rules where covering
+  nothing is the honest state of the world.
+- **`baselinedMatches`, `staleBaseline` and `fileMatches`** on each result in
+  `--json`.
+
+### Changed
+
+- **An assertion that inspected no files now fails.** A rule whose scope holds
+  nothing passes every time and reads in the report exactly like a rule that
+  inspected a thousand files and found nothing. The usual causes are a `glob`
+  matching no extension in the tree, an `exclude` that swallowed the target, or
+  an emptied directory. **If a run starts failing this way, the rule was
+  covering nothing before it started failing;** `allow-empty="true"` on the
+  directive, or `--allow-empty-scope` for the run, restores the old behaviour.
+- **An import assertion fails when nothing in scope is in a language it can
+  read**, rather than reporting "analysed 0 of 12 files" in a warning and
+  passing.
+- **`.py`, `.go`, `.rs`, `.cs` and `.csx` files are now analysed** by import
+  assertions rather than counted as skipped, so a rule over a polyglot tree
+  starts finding dependencies it previously reported as unanalysable.
+- **Mutation testing in CI runs in two tiers**: incremental on branches,
+  a full authoritative sweep on `main` and nightly. The gate stays at 85 in
+  both. See [ADR-0003](docs/adr/0003-mutation-testing.md).
+
+### Fixed
+
+- `excludeFiles` was applied after enumeration rather than during it, so an
+  excluded spec file counted towards a budgeted walk. Only reachable through the
+  adaptive engine's probe, where it could make a tree look larger than the file
+  set actually being searched.
+- The README described the safe-batching apparatus - containment and
+  dovetailing checks before merging literals into a ripgrep alternation - as
+  current behaviour. It was deleted in 0.4.0 when ripgrep became a pre-filter.
+
 ## 0.4.0
 
 An audit found spec-guard reporting a clean pass on a repository that contained

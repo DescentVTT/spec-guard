@@ -281,10 +281,33 @@ matches a mention in a comment, and it misses `export * from '../db'`.
 <!-- @assert-import-count target="src" module="axios" max="1" -->
 ```
 
-These read the dependency rather than the text. A JavaScript/TypeScript
-tokenizer - comments, strings, template substitutions and regular expressions,
-no parser and no new dependency - extracts module references and counts the
-**files** that depend on the module. It understands:
+These read the dependency rather than the text, in **five languages**:
+
+| Language | Extensions | Reads |
+| --- | --- | --- |
+| JavaScript / TypeScript | `.js .mjs .cjs .jsx .ts .mts .cts .tsx` | `import`, `export ... from`, `require()`, `import()` |
+| Python | `.py .pyi` | `import a.b`, `from .rel import x`, `importlib.import_module("x")` |
+| Go | `.go` | `import "x"` and grouped `import ( ... )`, including aliases and `_` |
+| Rust | `.rs` | `use a::{b, c}` with nested groups, `pub use`, `extern crate` |
+| C# | `.cs .csx` | `using`, `using static`, `global using`, `using X = A.B` |
+
+No parser and no new dependency. JavaScript gets a full tokenizer because a
+module reference can appear anywhere in an expression; the other four are read
+by masking comments and string literals with the classifier from
+[ADR-0006](docs/adr/0006-comment-classification.md) and then reading statements
+off what is left. Tree-sitter would have cost 94 MB unpacked against this
+package's 0.33 MB - [ADR-0008](docs/adr/0008-polyglot-imports.md) has the
+measurements, and the list of things a real parser would genuinely see that
+this does not.
+
+Module patterns are matched against the resolved `/`-separated path *and*
+against the specifier as written, so `module="System.Text.Json"` and
+`module="System/Text/Json"` both work. Matching is case-sensitive, so a rule
+spanning C# and Go needs both conventions:
+`module="app/db/** App/Db/**"`.
+
+The unit counted is **files** that depend on the module. For JavaScript and
+TypeScript it understands:
 
 | Form | Counted |
 | --- | --- |
@@ -296,7 +319,8 @@ no parser and no new dependency - extracts module references and counts the
 | `import(name)`, `require(expr)` | **no - reported, see below** |
 
 Relative specifiers are resolved by path arithmetic, so `module="src/db"`
-matches `../db/client.js` seen from `src/ui/`. There is deliberately no
+matches `../db/client.js` seen from `src/ui/`, and Python's `from ..core import
+x` resolves against the importing file the same way. There is deliberately no
 filesystem resolution: tsconfig `paths` aliases and package `exports` maps are
 not followed, so an alias is written out as itself (`module="@app/db"`).
 
@@ -313,8 +337,9 @@ are reported rather than counted as clean:
 The count is still true of everything that could be seen; the warning is what
 stops it being mistaken for a complete answer. `--strict` turns those warnings
 into failures. Files in scope that are not JavaScript or TypeScript are counted
-and reported too, so a rule pointed at the wrong tree says "analysed 1 of 3
-files" rather than quietly passing.
+and reported too, so a rule pointed at the wrong tree says "analysed 2 of 3
+files" rather than quietly passing - and if *none* of them can be read, the
+assertion fails rather than passing on an empty analysis.
 
 [ADR-0005](docs/adr/0005-import-assertions.md) has the measurements and the
 reasoning behind each boundary.
@@ -345,10 +370,76 @@ Passes when every listed path exists relative to `--root`. Directories count.
 | `comments` | absence, count | `ignore` (default) or `include` for matches inside comments |
 | `module` | import assertions | Which dependency, matched like `exclude` |
 | `types` | import assertions | `include` (default) or `ignore` for `import type` |
+| `allow-empty` | absence, count, import assertions | Tolerate a scope that holds no files. Off by default - see below |
+| `baseline` | absence, import-absence | Known violations that do not count: `path` or `path:count` |
+| `ratchet` | absence, import-absence | `two-sided` (default) or `one-way` - see below |
 | `reason` | all | Human-readable justification, printed on failure |
 
 Unknown attributes are an error, not a shrug: `expct="1"` fails the run instead
 of silently asserting nothing.
+
+### `allow-empty` - an assertion that covers nothing is a failure
+
+```md
+<!-- @assert-absence target="services" symbol="Legacy" glob="*.ts" -->
+```
+
+If `services/` holds no `.ts` file, that rule passes every time, forever,
+without inspecting anything - and in the report it is indistinguishable from a
+rule that inspected a thousand files and found nothing. So it fails instead:
+
+```text
+✖ docs/adr.md:3  @assert-absence
+    "Legacy" must not appear in services
+    no files were inspected, so this assertion verified nothing
+    (add allow-empty="true" if that is expected)
+```
+
+The usual causes are a `glob` matching no extension in the tree, an `exclude`
+that swallowed the target, or a directory somebody emptied. Where covering
+nothing yet is the honest state of the world - a rule written before the code
+it guards - `allow-empty="true"` says so, and `--allow-empty-scope` says it for
+a whole run.
+
+### `baseline` - adopting a rule the codebase already breaks
+
+A strict rule introduced into a mature codebase lands on violations that already
+exist. `exclude` turns those into a permanent blind spot, and `expected="5"`
+cannot tell "one fixed, one added" from "nothing happened". A baseline names
+them:
+
+```md
+<!-- @assert-absence target="src" symbol="LegacyGateway"
+     baseline="src/legacy/gateway.ts:2
+               src/legacy/adapter.ts" -->
+```
+
+The rule now holds when no file outside the list matches and no file inside it
+matches more than it declares. A bare path means one match.
+
+**It ratchets in both directions.** New debt fails, obviously. So does debt that
+has been *paid* and left on the list, because an entry the code no longer
+supports is a spec asserting something untrue:
+
+```text
+    expected no matches, found 0; the baseline is out of date and must be
+    pruned: src/legacy/adapter.ts (no longer matches)
+```
+
+The fix is deleting the line the message names. `ratchet="one-way"` relaxes that
+half to a report-only note. Every run says how many matches the baseline
+excluded, because a pass bought by an exemption is never silent.
+
+To adopt a rule on a codebase that already violates it:
+
+```bash
+spec-guard docs/adr.md --print-baseline
+```
+
+prints the attribute that would exempt exactly today's violations, for you to
+paste in. It prints; it does not edit. [ADR-0009](docs/adr/0009-debt-baselines.md)
+explains why that distinction is the whole design, and why there is no `--fix`
+for architecture rules.
 
 ## CLI
 
@@ -361,15 +452,18 @@ spec-guard [patterns...] [options]
 | `-r, --root <path>` | Codebase root that assertions resolve against (default: cwd) |
 | `-v, --verbose` | Print passing assertions too |
 | `--fail-fast` | Stop at the first failing assertion |
-| `--json` | Machine-readable report on stdout |
+| `--json` | Machine-readable report on stdout (same as `--format json`) |
+| `--format <human\|json\|sarif>` | Output format. `sarif` uploads to GitHub code scanning |
 | `--engine <auto\|rg\|js>` | Search engine (default `auto`: scanner for small trees, ripgrep for big ones) |
 | `--strict` | Treat analysis that could not be completed as a failure |
 | `--allow-missing-targets` | Warn instead of failing when a `target` path does not exist |
+| `--allow-empty-scope` | Warn instead of failing when an assertion inspects no files |
+| `--print-baseline` | Print the `baseline="..."` that would exempt today's violations, and exit |
 | `--no-default-skips` | Search `.git`, `.hg`, `.svn` and `node_modules` too |
 | `--include-specs` | Also count matches inside the spec files themselves |
 | `--max-snippets <n>` | Failure snippets per assertion (default 5) |
 | `--concurrency <n>` | Search passes in flight at once (default 8) |
-| `--allow-empty` | Exit 0 when no spec file matched the patterns |
+| `--allow-empty` | Exit 0 when no spec file matched the patterns (about the run, not an assertion) |
 | `--color` / `--no-color` | Force colour on or off (`NO_COLOR` honoured) |
 
 Patterns are expanded by spec-guard itself, so quoted globs behave identically
@@ -417,6 +511,35 @@ As a pre-commit hook (assuming a local install, so the bare command resolves):
 ```bash
 npx spec-guard "docs/**/*.md" --fail-fast
 ```
+
+### Annotations on the pull request
+
+`--format sarif` writes a SARIF 2.1.0 document, which GitHub turns into a
+comment on the offending line:
+
+```yaml
+      - run: npx @descent-vtt/spec-guard "docs/**/*.md" --format sarif > spec-guard.sarif || true
+      - uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: spec-guard.sarif
+          category: spec-guard
+```
+
+That job needs `permissions: security-events: write`. One alert per broken rule
+rather than per match - the thing that broke is the rule - anchored on the first
+offending line, with the directive as a related location because that is often
+where the fix goes. Alerts carry a fingerprint derived from what the assertion
+is about rather than where its matches landed, so inserting a line above a
+violation does not close the alert and open a new one.
+
+**There is no language server, and that is a decision rather than a gap.**
+spec-guard's claims are about a whole repository - "this symbol appears nowhere
+in `src`" - and a language server is handed one buffer at a time. Answering a
+repository-wide question on every keystroke means rescanning the tree on every
+keystroke; the alternative is answering a smaller question and calling it the
+same one. The CLI does a full run of this repository in about 130 ms, so a
+pre-commit hook or a watch loop already closes the feedback gap without a
+daemon, an extension per editor, or a protocol version matrix.
 
 ## How it works
 
@@ -547,12 +670,14 @@ process spawn (~27 ms on Windows) on the critical path of every run, including
 runs where ripgrep is missing. Discovering its absence from the first real
 search is free.
 
-**Assertions are batched, but only when provably safe.** Merging literals into
-one ripgrep alternation can lose matches two ways: containment (`Primary` /
-`PrimaryButton`) and dovetailing (`abc` / `cd` in `abcd`). spec-guard checks for
-both and falls back to separate passes when either is possible, and never
-batches regexes or case-insensitive searches. Speed is never traded for a wrong
-count.
+**Assertions that share a target list share one pass over the tree.** This used
+to need a proof: merging literals into a ripgrep alternation can lose matches
+through containment (`Primary` / `PrimaryButton`) and dovetailing (`abc` / `cd`
+in `abcd`), so spec-guard checked for both and fell back to separate passes.
+Since 0.4.0 it does not need the proof, because ripgrep no longer counts
+anything - it answers only *which files contain this text*, and the scanner
+counts each pattern separately over the shared file contents. The batching
+checks were deleted along with the risk they guarded.
 
 **Exit code 2 exists.** "Your specs failed" and "spec-guard could not run" are
 different facts, and CI should be able to tell them apart.
@@ -577,6 +702,28 @@ the documentation this tool exists to keep honest ([ADR-0006](docs/adr/0006-comm
 The reverse risk — a rule that quietly stops checking anything because every
 match now sits in a comment — is why every run says how many matches it dropped.
 
+**An assertion that inspected no files fails.** It is the same defect as a
+missing `target` seen from a different angle: a rule whose scope is empty passes
+forever and reads exactly like a rule that found nothing. Turning this on found
+a vacuous assertion inside this repository's own test suite on the first run.
+`allow-empty="true"` covers the honest case of a rule written before the code it
+guards.
+
+**Four more languages, and no parser.** Import assertions read Python, Go, Rust
+and C# as well as JavaScript. Not by adding four tokenizers - by reusing the
+comment and string lexer that already existed, masking the source with it, and
+reading statements off what is left. Tree-sitter would have been the modern
+answer and costs 94 MB unpacked against this package's 0.33 MB; the four things
+a real parser would genuinely see that this cannot are listed in
+[ADR-0008](docs/adr/0008-polyglot-imports.md) rather than glossed over.
+
+**There is no `--fix`.** Every edit a machine can make to a failing boundary
+assertion is an edit that records the rule no longer holding: widen the bound,
+add an exclusion, append to the baseline, insert an ignore comment. A one-flag
+path from red to green is a bad button for a person and a much worse one for an
+agent whose loop terminates on a green build. `--print-baseline` prints what you
+could paste; it does not paste it ([ADR-0009](docs/adr/0009-debt-baselines.md)).
+
 ## spec-guard checks itself
 
 The invariants in [`docs/adr/0001-invariants.md`](docs/adr/0001-invariants.md)
@@ -597,7 +744,7 @@ npm install
 npm run build      # tsc -> dist/
 npm test           # vitest
 npm run test:coverage
-npm run test:mutation  # stryker (~16 min in CI; much slower locally)
+npm run test:mutation  # stryker (~16 min in CI; over two hours locally)
 npm run lint       # tsc --noEmit
 npm run selfcheck  # run spec-guard on its own docs
 ```
@@ -611,8 +758,8 @@ prebuilt binary and is never a runtime dependency.
 ### Mutation testing
 
 Coverage says a line ran. It does not say an assertion would notice if the line
-behaved differently. This repository measures the difference: **84.63%** of
-2,949 mutants are killed in CI, against high line coverage.
+behaved differently. This repository measures the difference: **85.61%** of
+3,493 mutants are killed in CI, against high line coverage.
 
 That gap is the point. The first run scored 77.23%, and the weakest file was the
 reporter at 65.48% - not because it lacked tests, but because its tests were
@@ -622,18 +769,31 @@ test still passed. Exact whole-output comparison took it to 87.30%. The engine
 and the walker were then rewritten for testability rather than papered over with
 more tests, which is what moved them from 75%/78% to 83%/93%.
 
-CI runs it on **every push**, gated at 85%, and the CI figure is the one quoted
-above. Run it locally with `npm run test:mutation` if you like, but do not
-calibrate anything on the result: on the Windows machine this was developed on
-the same suite takes over two hours against 13 minutes hosted, and it scores
-*higher*, because far more mutants hang there and Stryker counts a hang as a
-kill. Linux CI is the measurement.
+CI runs it in **two tiers**, both gated at 85%. Branches and pull requests run
+Stryker incrementally, reusing the verdict for any mutant whose source and
+covering tests are both unchanged. Pushes to `main`, the weekly schedule and
+manual runs do the full sweep, which is the authoritative number and the one
+quoted above; a full sweep is also what publishes the cache the branches start
+from, so an incremental verdict can never be built on another incremental
+verdict.
 
-Four cautionary tales are in [ADR-0003](docs/adr/0003-mutation-testing.md): a
+The full sweep was 6m54s at 2,118 mutants and is 15m51s at 3,493. That growth is
+why the tiers exist: a check that gets quietly more expensive every release is a
+check somebody eventually proposes lowering.
+
+Run it locally with `npm run test:mutation` if you like, but do not calibrate
+anything on the result: on the Windows machine this was developed on the same
+suite takes over two hours against 16 minutes hosted, and it scores *higher*,
+because far more mutants hang there and Stryker counts a hang as a kill. Linux
+CI is the measurement.
+
+Five cautionary tales are in [ADR-0003](docs/adr/0003-mutation-testing.md): a
 run whose score was pure fiction because the mutants were never activated, a
 tuning knob that lifted the score six points without adding a test, the platform
-gap above, and the baseline being re-anchored when a tokenizer arrived - along
-with the real bug that chasing the gate uncovered.
+gap above, the baseline being re-anchored when a tokenizer arrived, and a score
+that rose partly because code carrying hard-to-kill mutants was deleted rather
+than because tests improved - along with the real bug that chasing the gate
+uncovered.
 
 ## Requirements
 

@@ -12,8 +12,8 @@
  * ```
  */
 
-export { main, parseArgs, HELP, UsageError, EXIT_OK, EXIT_FAILED, EXIT_ERROR } from './cli.js';
-export type { CliIO, CliOptions } from './cli.js';
+export { main, parseArgs, version, HELP, UsageError, EXIT_OK, EXIT_FAILED, EXIT_ERROR } from './cli.js';
+export type { CliIO, CliOptions, OutputFormat } from './cli.js';
 
 export {
   buildJsRegExp,
@@ -112,7 +112,7 @@ export {
 } from './runner.js';
 export type { ResolveContext, RunOptions, RunResult } from './runner.js';
 
-export { createPainter, formatBaselines, formatJson, formatReport, shouldUseAscii, shouldUseColor } from './reporter.js';
+export { createPainter, formatBaselines, formatJson, formatReport, formatSarif, shouldUseAscii, shouldUseColor } from './reporter.js';
 export type { ReporterOptions } from './reporter.js';
 
 export type {

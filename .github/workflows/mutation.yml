@@ -1,15 +1,25 @@
 name: Mutation
 
-# Mutation testing runs on every push. It was originally held back to a weekly
-# schedule on the assumption that it would be slow, but the first real run took
-# 6m54s on a hosted runner - fast enough to be a normal check rather than an
-# occasional audit, and a mutation score is only useful if it is current.
+# Mutation testing in two tiers.
 #
-# That 6m54s covered 2,118 mutants. The suite is now 3,493 and the job takes
-# ~16m: 12m29s at 3,019 mutants before 0.3.0, 15m51s after. Still a normal
-# check, but the headroom under the cap below is now minutes rather than the
-# comfortable margin it once was, so the next thing that grows the suite should
-# check this number rather than assume it.
+# The full sweep is the number that counts, and it is not cheap: 15m51s at
+# 3,493 mutants before 0.5.0, growing with every module. Running it on every
+# push to every branch was affordable when the suite was 2,118 mutants and
+# 6m54s; it is the kind of cost that stops being affordable quietly, and by then
+# the usual response is to lower the gate.
+#
+# So: branches and pull requests run Stryker in incremental mode, which reuses
+# the verdicts for mutants whose source and covering tests are both unchanged.
+# main, the nightly schedule and any manual run do the full sweep and publish
+# the incremental file the branches start from.
+#
+# The honest caveat, which belongs in the file rather than in a footnote: an
+# incremental result is only as trustworthy as its cache. Stryker invalidates on
+# file hashes, so it is sound as far as it goes, but "as far as it goes" is a
+# heuristic and the full run is not. The gate is enforced in both tiers, so a
+# branch cannot get worse unnoticed - and every push to main re-derives the
+# score from scratch, so nothing stays merged on a cached verdict for longer
+# than one run.
 #
 # There is no paths filter. A dependency bump can move the score as easily as a
 # source edit can (vitest itself is pinned for exactly that reason - see
@@ -20,6 +30,11 @@ on:
   schedule:
     - cron: '0 4 * * 1'
   workflow_dispatch:
+    inputs:
+      full:
+        description: 'Run the full sweep even on a branch'
+        type: boolean
+        default: true
 
 # A push to a branch that also has an open pull request triggers both events.
 # Keying the group on the PR number when there is one collapses those into a
@@ -31,13 +46,16 @@ concurrency:
 
 jobs:
   stryker:
-    name: stryker
+    # The name says which tier ran, so a green tick in the checks list cannot be
+    # mistaken for an authority it does not have.
+    name: ${{ (github.ref == 'refs/heads/main' || github.event_name == 'schedule' || inputs.full) && 'stryker (full)' || 'stryker (incremental)' }}
     runs-on: ubuntu-latest
-    # An earlier cap of 45 minutes came from arithmetic about timeout budgets
-    # that turned out to be wrong by a factor of five; this one comes from the
-    # clock. Headroom for a bad day, not a budget: on a per-push workflow a hung
-    # job should fail fast. Last measured at 15m51s (3,493 mutants).
+    # Headroom for a bad day, not a budget: on a per-push workflow a hung job
+    # should fail fast. The full sweep was last measured at 15m51s.
     timeout-minutes: 30
+
+    env:
+      FULL: ${{ github.ref == 'refs/heads/main' || github.event_name == 'schedule' || inputs.full }}
 
     steps:
       - uses: actions/checkout@v5
@@ -49,11 +67,47 @@ jobs:
 
       - run: npm ci
 
+      # A branch starts from whatever main last published. The restore-keys
+      # fallback matters more than the exact key: a branch that finds nothing
+      # simply does a full run and is correct, only slower.
+      - name: Restore the incremental file
+        uses: actions/cache/restore@v4
+        with:
+          path: reports/stryker-incremental.json
+          key: stryker-incremental-${{ github.sha }}
+          restore-keys: |
+            stryker-incremental-
+
       # The config's concurrency of 8 is tuned for a developer machine.
       # Hosted runners have 4 vCPUs, and each Stryker worker drives a vitest
       # process of its own, so oversubscribing here makes the run slower.
       - name: Mutation test
-        run: npx stryker run --concurrency 4
+        run: |
+          if [ "$FULL" = "true" ]; then
+            npx stryker run --concurrency 4 --incremental --force
+          else
+            npx stryker run --concurrency 4 --incremental
+          fi
+
+      # Only a full sweep publishes a cache. An incremental run's file is
+      # derived from a cache rather than from the code, and feeding that back in
+      # is how a stale verdict would survive indefinitely.
+      - name: Publish the incremental file
+        if: env.FULL == 'true' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v4
+        with:
+          path: reports/stryker-incremental.json
+          key: stryker-incremental-${{ github.sha }}
+
+      - name: Say which tier ran
+        if: always()
+        run: |
+          if [ "$FULL" = "true" ]; then
+            echo "Full sweep: every mutant was re-run. This score is authoritative." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Incremental: mutants whose source and covering tests were both unchanged kept their previous verdict." >> "$GITHUB_STEP_SUMMARY"
+            echo "The authoritative score is the full sweep on main." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - uses: actions/upload-artifact@v7
         if: always()

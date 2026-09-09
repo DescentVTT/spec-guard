@@ -10,7 +10,7 @@
 import { createRequire } from 'node:module';
 import path from 'node:path';
 
-import { formatBaselines, formatJson, formatReport, shouldUseAscii, shouldUseColor } from './reporter.js';
+import { formatBaselines, formatJson, formatReport, formatSarif, shouldUseAscii, shouldUseColor } from './reporter.js';
 import { DEFAULT_CONCURRENCY, DEFAULT_MAX_SNIPPETS, runSpecGuard } from './runner.js';
 import type { EnginePreference } from './engine.js';
 
@@ -26,11 +26,16 @@ export interface CliIO {
   isTTY: boolean;
 }
 
+/** How a finished run is written out. */
+export type OutputFormat = 'human' | 'json' | 'sarif';
+
 export interface CliOptions {
   patterns: string[];
   root: string;
   verbose: boolean;
   failFast: boolean;
+  format: OutputFormat;
+  /** Kept as its own field so `--json` remains exactly what it always was. */
   json: boolean;
   engine: EnginePreference;
   allowMissingTargets: boolean;
@@ -49,7 +54,7 @@ export interface CliOptions {
 
 export class UsageError extends Error {}
 
-function version(): string {
+export function version(): string {
   try {
     const require = createRequire(import.meta.url);
     const pkg = require('../package.json') as { version?: string };
@@ -73,7 +78,8 @@ Options
   -r, --root <path>       Codebase root that assertions are resolved against (default: cwd)
   -v, --verbose           Print passing assertions too
       --fail-fast         Stop at the first failing assertion
-      --json              Emit a machine-readable JSON report
+      --json              Emit a machine-readable JSON report (same as --format json)
+      --format <name>     human | json | sarif  (sarif uploads to GitHub code scanning)
       --engine <name>     auto | rg | js  (default: auto - scanner for small trees, ripgrep for big ones)
       --strict            Treat analysis that could not be completed as a failure
       --allow-missing-targets
@@ -137,6 +143,7 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
     root: cwd,
     verbose: false,
     failFast: false,
+    format: 'human',
     json: false,
     engine: 'auto',
     allowMissingTargets: false,
@@ -192,7 +199,17 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
         break;
       case '--json':
         options.json = true;
+        options.format = 'json';
         break;
+      case '--format': {
+        const value = nextValue().toLowerCase();
+        if (value !== 'human' && value !== 'json' && value !== 'sarif') {
+          throw new UsageError(`Unknown format "${value}". Expected human, json or sarif.`);
+        }
+        options.format = value;
+        options.json = value === 'json';
+        break;
+      }
       case '--strict':
         options.strictTargets = true;
         break;
@@ -300,8 +317,8 @@ export async function main(argv: readonly string[] = process.argv.slice(2), io: 
   }
 
   if (report.summary.specs === 0) {
-    if (options.json) {
-      io.stdout(formatJson(report));
+    if (options.format !== 'human') {
+      io.stdout(options.format === 'sarif' ? formatSarif(report, { version: version() }) : formatJson(report));
     } else {
       io.stderr(`spec-guard: no spec files matched ${options.patterns.map((p) => `"${p}"`).join(', ')}`);
     }
@@ -315,7 +332,9 @@ export async function main(argv: readonly string[] = process.argv.slice(2), io: 
     return report.ok ? EXIT_OK : EXIT_FAILED;
   }
 
-  if (options.json) {
+  if (options.format === 'sarif') {
+    io.stdout(formatSarif(report, { version: version() }));
+  } else if (options.format === 'json') {
     io.stdout(formatJson(report));
   } else {
     io.stdout(

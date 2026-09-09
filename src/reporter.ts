@@ -7,6 +7,8 @@
  * snippets from the offending code.
  */
 
+import { createHash } from 'node:crypto';
+
 import { mergeLedgers, tallyLedger, type ScopeLedger } from './scope.js';
 import type { AssertionResult, DirectiveError } from './types.js';
 import type { RunResult } from './runner.js';
@@ -379,6 +381,142 @@ export function formatJson(report: RunResult): string {
         raw: error.raw,
       })),
       warnings: report.warnings,
+    },
+    null,
+    2,
+  );
+}
+
+/* --------------------------------------------------------------------- sarif */
+
+/**
+ * A stable identity for one assertion, so a code-scanning service can tell
+ * "the same alert, still open" from "a new alert". Derived from what the
+ * assertion is about rather than where its matches landed, so moving the
+ * offending code does not close and reopen the alert.
+ */
+function fingerprint(parts: readonly string[]): string {
+  return createHash('sha256').update(parts.join('\u0000')).digest('hex').slice(0, 32);
+}
+
+/** SARIF severity for anything spec-guard reports. */
+const SARIF_LEVEL = 'error';
+
+/** One rule per directive kind, plus the one for a directive that will not parse. */
+const SARIF_RULES: ReadonlyArray<{ id: string; text: string }> = [
+  { id: 'assert-absence', text: 'A symbol that must not appear in a part of the codebase.' },
+  { id: 'assert-count', text: 'A symbol that must appear an exact number of times.' },
+  { id: 'assert-present', text: 'A file or directory the specification says must exist.' },
+  { id: 'assert-import-absence', text: 'A dependency one part of the codebase must not have.' },
+  { id: 'assert-import-count', text: 'A dependency count one part of the codebase must hold to.' },
+  { id: 'invalid-directive', text: 'A directive that could not be parsed, so nothing was checked.' },
+];
+
+interface SarifLocation {
+  physicalLocation: {
+    artifactLocation: { uri: string };
+    region: { startLine: number; startColumn: number };
+  };
+  message?: { text: string };
+}
+
+function sarifLocation(uri: string, line: number, column: number, text?: string): SarifLocation {
+  const location: SarifLocation = {
+    physicalLocation: { artifactLocation: { uri }, region: { startLine: line, startColumn: column } },
+  };
+  if (text) location.message = { text };
+  return location;
+}
+
+/**
+ * The static analysis interchange format, which is how a failure becomes a
+ * line-level annotation on a pull request.
+ *
+ * Chosen over an editor language server for the fast-feedback problem, and the
+ * reason is what spec-guard checks rather than how fast it is. Its claims are
+ * about a whole repository - "this symbol appears nowhere in src" - and a
+ * language server is handed one buffer at a time. Answering a repository-wide
+ * question on every keystroke means rescanning the tree on every keystroke; the
+ * alternative is answering a different, smaller question and calling it the
+ * same one. SARIF needs no daemon, no editor extension per editor and no
+ * protocol version matrix, and it puts the failure on the offending line for
+ * every reviewer rather than only for the author who has the plugin installed.
+ *
+ * One result per failing assertion, not per match: the thing that broke is the
+ * rule. The primary location is the first offending line so the annotation
+ * lands on the code; the directive that was violated is always a related
+ * location, because that is where the fix usually goes.
+ */
+export function formatSarif(report: RunResult, options: { version?: string } = {}): string {
+  const results = [];
+
+  for (const result of report.results) {
+    if (result.ok) continue;
+    const spec = sarifLocation(
+      result.location.relativeFile,
+      result.location.line,
+      result.location.column,
+      'the assertion that failed',
+    );
+    const matches = result.matches.map((match) =>
+      sarifLocation(match.file, match.line, match.column, match.text.trim()),
+    );
+
+    results.push({
+      ruleId: result.kind,
+      level: SARIF_LEVEL,
+      message: { text: `${result.description}: ${result.message}` },
+      // A failure with no match - a missing target, an empty scope, a stale
+      // baseline - is anchored on the directive, which is where its fix goes.
+      locations: [matches[0] ?? spec],
+      relatedLocations: matches[0] ? [...matches.slice(1), spec] : [],
+      partialFingerprints: {
+        specGuardAssertion: fingerprint([
+          result.location.relativeFile,
+          result.kind,
+          result.symbol ?? result.files.join(','),
+          result.targets.join(','),
+        ]),
+      },
+    });
+  }
+
+  for (const error of report.errors) {
+    results.push({
+      ruleId: 'invalid-directive',
+      level: SARIF_LEVEL,
+      message: { text: error.message },
+      locations: [
+        sarifLocation(error.location.relativeFile, error.location.line, error.location.column),
+      ],
+      relatedLocations: [],
+      partialFingerprints: {
+        specGuardAssertion: fingerprint([error.location.relativeFile, 'invalid', error.message]),
+      },
+    });
+  }
+
+  return JSON.stringify(
+    {
+      $schema: 'https://json.schemastore.org/sarif-2.1.0.json',
+      version: '2.1.0',
+      runs: [
+        {
+          tool: {
+            driver: {
+              name: 'spec-guard',
+              informationUri: 'https://github.com/DescentVTT/spec-guard',
+              version: options.version ?? '0.0.0',
+              rules: SARIF_RULES.map((rule) => ({
+                id: rule.id,
+                name: rule.id,
+                shortDescription: { text: rule.text },
+              })),
+            },
+          },
+          results,
+        },
+      ],
     },
     null,
     2,

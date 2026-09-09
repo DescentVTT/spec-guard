@@ -259,6 +259,43 @@ discipline the 0.3.0 entry above argues for: tight enough that losing ground
 fails the build, and if run-to-run variance turns out to trip it instead, the
 honest fix is to lower it again with that evidence recorded.
 
+### 0.5.0: two tiers, because the full sweep stopped being cheap
+
+The full sweep was 6m54s at 2,118 mutants, 12m29s at 3,019, and 15m51s at 3,493.
+Extrapolating that is not a plan. A check that gets quietly more expensive every
+release is a check somebody eventually proposes lowering, and the argument for
+lowering it always sounds like budgeting rather than like giving up.
+
+So the trigger is split rather than the gate:
+
+| when | mode | authority |
+| --- | --- | --- |
+| push to a branch, pull request | `--incremental` | provisional |
+| push to `main`, weekly schedule, manual | full sweep (`--incremental --force`) | authoritative |
+
+Stryker's incremental mode reuses the verdict for any mutant whose source *and*
+covering tests are both unchanged, invalidating on file hashes. That is sound as
+far as it goes, and "as far as it goes" is the important half: it is a
+heuristic, and the full run is not. Three things keep that from becoming a lie:
+
+1. **The gate applies in both tiers.** A branch cannot get worse unnoticed.
+2. **Every push to `main` re-derives the score from scratch**, so nothing stays
+   merged on a cached verdict for longer than one run.
+3. **Only a full sweep publishes the cache.** An incremental run's file is
+   derived from a cache rather than from the code; feeding it back in is how a
+   stale verdict would survive indefinitely. A branch that finds no cache at all
+   simply does a full run and is correct, only slower.
+
+The job name carries the tier - `stryker (full)` or `stryker (incremental)` - so
+a green tick in the checks list cannot be mistaken for an authority it does not
+have.
+
+What this trades away is honest to state: a mutant killed only by a test that
+was changed in a way Stryker's hashing does not catch would go unnoticed until
+the next `main` run. That is a post-merge detection rather than a pre-merge one.
+The alternative - a full sweep on every branch push - was the status quo, and it
+is the thing that stops being affordable.
+
 ## Consequences
 
 Whoever bumps vitest to 5 will fail CI on the assertion above, and land on this
@@ -267,12 +304,14 @@ Stryker over a small range of a pure function and confirm the killed/survived
 split matches the command runner. When the runner supports vitest 5, delete the
 pin and this ADR's assertion.
 
-Mutation testing runs on every push, breaking the build below 85. It was first
-held back to a weekly schedule on the assumption that running the suite once per
-mutant would be too slow for the critical path. That assumption was wrong by an
-order of magnitude: the first hosted run finished in 6m54s, and a mutation score
-is only worth having if it describes the code as it stands today. The schedule
-and the manual trigger are kept as a backstop.
+Mutation testing runs on every push, breaking the build below 85 - incrementally
+on a branch, in full on `main`. It was first held back to a weekly schedule on
+the assumption that running the suite once per mutant would be too slow for the
+critical path. That assumption was wrong by an order of magnitude: the first
+hosted run finished in 6m54s, and a mutation score is only worth having if it
+describes the code as it stands today. It has since become expensive enough that
+the tiering above exists; the schedule and the manual trigger are kept as a
+backstop for both.
 
 CI is the measurement, not a convenience. A local run of the same suite takes
 over two hours on the Windows machine this was developed on, against 15m51s

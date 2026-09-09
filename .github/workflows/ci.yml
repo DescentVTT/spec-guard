@@ -44,6 +44,42 @@ jobs:
       - name: Execute this repository's own specs
         run: node ./bin/spec-guard.js "docs/**/*.md" "README.md" --verbose
 
+  # Dogfooding the SARIF output: this is the surface that puts a broken
+  # architecture rule on the offending line of a pull request, so it should be
+  # exercised by the project that ships it rather than only by its tests.
+  scan:
+    name: code scanning
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build
+
+      # `|| true` because the point of this job is the upload. A failing
+      # assertion is already a red tick on the test job above; here it is input.
+      - name: Produce a SARIF report
+        run: node ./bin/spec-guard.js "docs/**/*.md" "README.md" --format sarif > spec-guard.sarif || true
+
+      - name: Upload to code scanning
+        uses: github/codeql-action/upload-sarif@v3
+        # A pull request from a fork gets a read-only token, so the upload would
+        # fail for a reason that has nothing to do with the code.
+        if: ${{ !github.event.pull_request.head.repo.fork }}
+        continue-on-error: true
+        with:
+          sarif_file: spec-guard.sarif
+          category: spec-guard
+
   coverage:
     name: coverage
     runs-on: ubuntu-latest
