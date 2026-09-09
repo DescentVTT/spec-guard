@@ -38,13 +38,16 @@ import {
 import type {
   Assertion,
   AssertionResult,
+  BaselineEntry,
   Bounds,
   Directive,
   DirectiveError,
   MatchLocation,
+  RatchetMode,
   RunReport,
   SearchOptions,
   SearchResult,
+  StaleBaselineEntry,
 } from "./types.js";
 
 export const DEFAULT_MAX_SNIPPETS = 5;
@@ -226,6 +229,117 @@ function describeImportExpectation(bounds: Bounds): string {
 const EMPTY_SCOPE_HINT = 'add allow-empty="true" if that is expected';
 
 /**
+ * The one-line explanation under a result.
+ *
+ * Built from parts rather than written per branch so that a run with a
+ * baseline, an unreadable file and a stale entry says all three things instead
+ * of whichever one the branch order happened to reach first.
+ */
+function describeOutcome(
+  bounds: Bounds,
+  actual: number,
+  extras: { excluded: number; stale: readonly StaleBaselineEntry[]; gaps: number },
+): string {
+  const parts = [`expected ${describeBounds(bounds)}, found ${actual}`];
+
+  if (extras.excluded > 0) {
+    parts.push(
+      `${extras.excluded} more ${extras.excluded === 1 ? "is" : "are"} on the baseline`,
+    );
+  }
+  if (extras.gaps > 0) {
+    parts.push(
+      `${extras.gaps} file${extras.gaps === 1 ? "" : "s"} could not be inspected`,
+    );
+  }
+  if (extras.stale.length > 0) {
+    // Naming the entries matters more than counting them: the fix is to delete
+    // exactly these lines from the spec, and a reader should not have to work
+    // out which.
+    const listed = extras.stale
+      .map((entry) =>
+        entry.found === 0
+          ? `${entry.path} (no longer matches)`
+          : `${entry.path} (declares ${entry.declared}, found ${entry.found})`,
+      )
+      .join(", ");
+    parts.push(`the baseline is out of date and must be pruned: ${listed}`);
+  }
+
+  return parts.join("; ");
+}
+
+/**
+ * Reads a `baseline="..."` attribute into entries.
+ *
+ * Each item is a path, optionally `path:count`; a bare path means one match.
+ * The separator is a colon because a path here is always relative and
+ * POSIX-shaped, so it cannot contain one - the same reasoning that lets
+ * `target` split on whitespace.
+ */
+function parseBaseline(value: string | undefined, root: string): BaselineEntry[] {
+  const entries: BaselineEntry[] = [];
+  const seen = new Set<string>();
+
+  for (const item of splitList(value)) {
+    const separator = item.lastIndexOf(":");
+    const rawPath = separator === -1 ? item : item.slice(0, separator);
+    const rawCount = separator === -1 ? "1" : item.slice(separator + 1);
+    const declared = parseCount(rawCount, "baseline");
+    if (declared === 0) {
+      throw new Error(
+        `Baseline entry "${item}" declares 0 matches. Remove the entry instead; a baseline lists violations that exist.`,
+      );
+    }
+    const normalized = normalizeTarget(rawPath, root, "baseline");
+    if (seen.has(normalized)) {
+      throw new Error(`Baseline lists "${normalized}" twice.`);
+    }
+    seen.add(normalized);
+    entries.push({ path: normalized, declared });
+  }
+
+  return entries;
+}
+
+/**
+ * Subtracts the declared debt from what was found.
+ *
+ * Two questions, and the ratchet needs both. Matches inside a baselined file
+ * stop counting *up to the declared number* - so a file allowed two violations
+ * that grows a third reports one, not three, and the failure points at the
+ * change rather than at the history. And a file that no longer has as many as
+ * it declares is a stale entry: the debt was paid and the ledger still claims
+ * it, which is a spec asserting something untrue about the code.
+ */
+export function applyBaseline(
+  entries: readonly BaselineEntry[],
+  fileCounts: ReadonlyMap<string, number>,
+): { excluded: number; stale: StaleBaselineEntry[]; shows: (file: string) => boolean } {
+  let excluded = 0;
+  const stale: StaleBaselineEntry[] = [];
+  const declaredBy = new Map(entries.map((entry) => [entry.path, entry.declared]));
+
+  for (const entry of entries) {
+    const found = fileCounts.get(entry.path) ?? 0;
+    excluded += Math.min(found, entry.declared);
+    if (found < entry.declared) stale.push({ path: entry.path, declared: entry.declared, found });
+  }
+
+  return {
+    excluded,
+    stale,
+    // Which files a failure should show. A file inside its allowance is not
+    // what went wrong, and printing it points the reader at the history
+    // instead of at the change - the first version of this did exactly that,
+    // and reported a new violation by quoting a twelve-year-old one. A file
+    // *over* its allowance still shows, because the excess is a real
+    // violation living in it.
+    shows: (file: string): boolean => (fileCounts.get(file) ?? 0) > (declaredBy.get(file) ?? 0),
+  };
+}
+
+/**
  * Per-run cache for "does this scope contain anything at all".
  *
  * The same shape as the import index, and for the same reason: a document with
@@ -300,6 +414,7 @@ export function resolveDirective(
           missingTargets: [],
           // A file list is never empty here: resolution rejects that above.
           allowEmpty: true,
+          ratchet: "two-sided",
         },
       };
     }
@@ -313,6 +428,21 @@ export function resolveDirective(
     }
 
     const allowEmpty = parseBoolean(attributes["allow-empty"], "allow-empty");
+
+    // `baseline` and `ratchet` reach here only on the absence kinds: the parser
+    // rejects them elsewhere, because "these known files may violate" means
+    // nothing for an assertion that is not forbidding anything.
+    const baseline = parseBaseline(attributes["baseline"], context.root);
+    const rawRatchet = (attributes["ratchet"] ?? "two-sided").trim().toLowerCase();
+    if (rawRatchet !== "two-sided" && rawRatchet !== "one-way") {
+      return fail(
+        `Attribute "ratchet" must be two-sided or one-way, got "${attributes["ratchet"]}".`,
+      );
+    }
+    if (baseline.length === 0 && attributes["ratchet"] !== undefined) {
+      return fail(`Attribute "ratchet" needs a baseline="..." to ratchet.`);
+    }
+    const ratchet: RatchetMode = rawRatchet;
     const comments = (attributes["comments"] ?? "ignore").trim().toLowerCase();
     if (comments !== "ignore" && comments !== "include") {
       return fail(
@@ -426,6 +556,8 @@ export function resolveDirective(
           imports: { modules: splitList(symbol), includeTypes },
           missingTargets: [],
           allowEmpty,
+          baseline,
+          ratchet,
         },
       };
     }
@@ -469,6 +601,8 @@ export function resolveDirective(
         search,
         missingTargets: [],
         allowEmpty,
+        baseline,
+        ratchet,
       },
     };
   } catch (error) {
@@ -531,6 +665,9 @@ async function prepareAssertion(
     commentMatches: 0,
     unclassifiedFiles: 0,
     scope: EMPTY_LEDGER,
+    baselinedMatches: 0,
+    staleBaseline: [],
+    fileMatches: [],
   };
 
   if (assertion.kind === "assert-present") {
@@ -619,16 +756,25 @@ async function prepareAssertion(
         UNCERTAIN_REASONS.has(entry.reason),
       );
       const strictFailure = options.strictTargets && gaps.length > 0;
+      const { excluded, stale, shows } = applyBaseline(
+        assertion.baseline ?? [],
+        search.fileCounts,
+      );
+      const staleFailure = assertion.ratchet === "two-sided" && stale.length > 0;
+      const actual = search.count - excluded;
       return {
         ...base,
-        ok: satisfies(search.count, assertion.bounds) && !strictFailure,
-        actual: search.count,
-        message: strictFailure
-          ? `expected ${describeBounds(assertion.bounds)}, found ${search.count}, and ${gaps.length} file${
-              gaps.length === 1 ? "" : "s"
-            } could not be inspected`
-          : `expected ${describeBounds(assertion.bounds)}, found ${search.count}`,
-        matches: search.matches.slice(0, options.maxSnippets),
+        ok: satisfies(actual, assertion.bounds) && !strictFailure && !staleFailure,
+        actual,
+        message: describeOutcome(assertion.bounds, actual, {
+          excluded,
+          stale: staleFailure ? stale : [],
+          gaps: strictFailure ? gaps.length : 0,
+        }),
+        baselinedMatches: excluded,
+        staleBaseline: stale,
+        fileMatches: [...search.fileCounts].map(([file, count]) => ({ file, count })),
+        matches: search.matches.filter((match) => shows(match.file)).slice(0, options.maxSnippets),
         // Carried as numbers, not prose, so the reporter can total them across a
         // run and JSON consumers can act on them.
         commentMatches: search.commentMatches,
@@ -761,20 +907,35 @@ async function executeImportAssertion(
 
   const missingFailure =
     !options.allowMissingTargets && assertion.missingTargets.length > 0;
+
+  // One reference per file, so the file counts are the matches themselves.
+  const fileCounts = new Map(matches.map((match) => [match.file, 1]));
+  const { excluded, stale, shows } = applyBaseline(assertion.baseline ?? [], fileCounts);
+  const staleFailure = assertion.ratchet === "two-sided" && stale.length > 0;
+  const actual = matches.length - excluded;
+
   const strictFailure =
     missingFailure || (options.strictTargets && unresolved.length > 0);
-  const ok = satisfies(matches.length, assertion.bounds) && !strictFailure;
+  const ok = satisfies(actual, assertion.bounds) && !strictFailure && !staleFailure;
 
   return {
     ...base,
     ok,
-    actual: matches.length,
+    actual,
     message: missingFailure
       ? `target path${assertion.missingTargets.length === 1 ? " does" : "s do"} not exist: ${assertion.missingTargets.join(", ")}`
-      : strictFailure
-        ? `expected ${describeBounds(assertion.bounds)}, found ${matches.length}, and ${unresolved.length} reference(s) could not be resolved`
-        : `expected ${describeBounds(assertion.bounds)}, found ${matches.length}`,
-    matches: matches.slice(0, options.maxSnippets),
+      : describeOutcome(assertion.bounds, actual, {
+          excluded,
+          stale: staleFailure ? stale : [],
+          gaps: 0,
+        }) +
+        (options.strictTargets && unresolved.length > 0
+          ? `; ${unresolved.length} reference${unresolved.length === 1 ? "" : "s"} could not be resolved`
+          : ""),
+    baselinedMatches: excluded,
+    staleBaseline: stale,
+    fileMatches: [...fileCounts].map(([file, count]) => ({ file, count })),
+    matches: matches.filter((match) => shows(match.file)).slice(0, options.maxSnippets),
     durationMs: performance.now() - startedAt,
   };
 }

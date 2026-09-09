@@ -40,6 +40,8 @@ const ALLOWED_ATTRIBUTES: Record<DirectiveKind, ReadonlySet<string>> = {
     'word',
     'ignore-case',
     'allow-empty',
+    'baseline',
+    'ratchet',
     'reason',
   ]),
   'assert-count': new Set([
@@ -66,6 +68,8 @@ const ALLOWED_ATTRIBUTES: Record<DirectiveKind, ReadonlySet<string>> = {
     'expected',
     'max',
     'allow-empty',
+    'baseline',
+    'ratchet',
     'reason',
   ]),
   'assert-import-count': new Set([

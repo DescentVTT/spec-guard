@@ -94,6 +94,7 @@ function formatLocation(result: { location: { relativeFile: string; line: number
 function commentNotes(result: {
   commentMatches: number;
   unclassifiedFiles: number;
+  baselinedMatches: number;
 }): string[] {
   const notes: string[] = [];
   if (result.commentMatches > 0) {
@@ -108,6 +109,13 @@ function commentNotes(result: {
       `comment syntax unknown for ${countLabel(result.unclassifiedFiles, 'matching file')}; comments in ${
         result.unclassifiedFiles === 1 ? 'it' : 'them'
       } counted as code`,
+    );
+  }
+  if (result.baselinedMatches > 0) {
+    // The third way a green can be bought rather than earned, after comment
+    // exclusion and an unreadable file. Same treatment: say it every time.
+    notes.push(
+      `${countLabel(result.baselinedMatches, 'match')} excluded by the baseline`,
     );
   }
   return notes;
@@ -262,8 +270,9 @@ export function formatReport(report: RunResult, options: ReporterOptions, maxSni
     (sum, result) => ({
       commentMatches: sum.commentMatches + result.commentMatches,
       unclassifiedFiles: sum.unclassifiedFiles + result.unclassifiedFiles,
+      baselinedMatches: sum.baselinedMatches + result.baselinedMatches,
     }),
-    { commentMatches: 0, unclassifiedFiles: 0 },
+    { commentMatches: 0, unclassifiedFiles: 0, baselinedMatches: 0 },
   );
   const summaryNotes = [...commentNotes(totals), ...scopeNotes(mergeLedgers(passes.map((result) => result.scope)))];
   if (summaryNotes.length > 0) {
@@ -286,6 +295,41 @@ export function formatReport(report: RunResult, options: ReporterOptions, maxSni
   }
 
   return lines.join('\n');
+}
+
+/**
+ * The `baseline="..."` attribute that would exempt today's violations.
+ *
+ * The one machine-written edit spec-guard offers, and it is offered rather than
+ * applied. `--fix` is refused for architecture rules on purpose (ADR-0009): the
+ * only edits a machine can make to a failing boundary assertion are edits that
+ * record the rule no longer holding, and a tool that ships a button turning red
+ * into green without changing any code has shipped the wrong button - most of
+ * all to an agent in a loop, for which that button is the shortest path to a
+ * passing build.
+ *
+ * Printing is different from applying in the way that matters. The author
+ * pastes it into the spec, and the diff shows every exempted file by name, to a
+ * reviewer, in the commit that grants the exemption. Adopting a strict rule on
+ * a codebase that already violates it is otherwise a hand-transcription job,
+ * and the realistic alternative to that is not a clean codebase - it is no
+ * rule at all.
+ */
+export function formatBaselines(report: RunResult): string {
+  const lines: string[] = [];
+
+  for (const result of report.results) {
+    if (result.ok || result.fileMatches.length === 0) continue;
+    const entries = result.fileMatches
+      .map(({ file, count }) => (count === 1 ? file : `${file}:${count}`))
+      .sort();
+    lines.push(`# ${result.location.relativeFile}:${result.location.line}  ${result.description}`);
+    lines.push(`baseline="${entries.join('\n          ')}"`);
+    lines.push('');
+  }
+
+  if (lines.length === 0) return '# nothing to baseline: no failing assertion had a match to exempt';
+  return lines.join('\n').trimEnd();
 }
 
 /** Machine-readable output for CI consumers. */
@@ -318,6 +362,9 @@ export function formatJson(report: RunResult): string {
         warnings: result.warnings,
         commentMatches: result.commentMatches,
         unclassifiedFiles: result.unclassifiedFiles,
+        baselinedMatches: result.baselinedMatches,
+        staleBaseline: result.staleBaseline,
+        fileMatches: result.fileMatches,
         skipped: result.scope.skipped,
         engine: result.engine,
         durationMs: Math.round(result.durationMs * 1000) / 1000,

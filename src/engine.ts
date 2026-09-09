@@ -382,6 +382,10 @@ class JavaScriptEngine implements Engine {
     const concurrency = Math.min(16, Math.max(1, files.length));
     let cursor = 0;
     const perFile = new Map<string, Map<string, Tally>>();
+    // Per pattern, how many matches each file holds. Only files that matched
+    // appear, so this is smaller than perFile, which already holds an entry for
+    // every file scanned - there is no new memory shape here.
+    const byFile = new Map<string, Map<string, number>>(patterns.map((pattern) => [pattern, new Map()]));
     let unclassifiedFiles = 0;
 
     const worker = async (): Promise<void> => {
@@ -439,6 +443,7 @@ class JavaScriptEngine implements Engine {
         const total = tallies.get(pattern) as Tally;
         total.count += tally.count;
         total.commentCount += tally.commentCount;
+        if (tally.count > 0) (byFile.get(pattern) as Map<string, number>).set(file.relativePath, tally.count);
         for (const location of tally.locations) {
           if (total.locations.length < MAX_COLLECTED_MATCHES) total.locations.push(location);
         }
@@ -453,6 +458,7 @@ class JavaScriptEngine implements Engine {
         commentMatches: tally.commentCount,
         unclassifiedFiles,
         matches: tally.locations,
+        fileCounts: byFile.get(request.symbol) ?? new Map<string, number>(),
         scope,
         engine: this.name,
       };

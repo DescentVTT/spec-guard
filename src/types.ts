@@ -90,6 +90,34 @@ export interface SearchOptions {
   excludeFiles: ReadonlySet<string>;
 }
 
+/**
+ * One line of a debt baseline: a file that is allowed to violate, and by how
+ * much.
+ *
+ * Counts, not line numbers. A line number is invalidated by every edit above
+ * it, which would turn the baseline into a file nobody can keep current; a
+ * per-file count survives refactoring and still catches the two cases that
+ * matter - a new file starting to violate, and an existing one violating more.
+ * What it does not catch is a violation moving within a file it already
+ * covers, and ADR-0009 says so rather than implying otherwise.
+ */
+export interface BaselineEntry {
+  /** Path relative to the root, forward slashes. */
+  path: string;
+  /** How many matches this file is allowed to contribute. */
+  declared: number;
+}
+
+/** How strictly the baseline has to match reality. */
+export type RatchetMode = 'two-sided' | 'one-way';
+
+/** A baseline entry that claims more violations than the code has. */
+export interface StaleBaselineEntry {
+  path: string;
+  declared: number;
+  found: number;
+}
+
 /** Inclusive bounds an actual count must satisfy. */
 export interface Bounds {
   min?: number;
@@ -117,10 +145,18 @@ export interface SearchResult {
   commentMatches: number;
   /** Files whose language has no known comment syntax, so nothing was excluded. */
   unclassifiedFiles: number;
-  /** What was not inspected, and why. Never empty for a reason nobody stated. */
-  scope: ScopeLedger;
   /** Up to `maxSnippets` match locations, in file order. */
   matches: MatchLocation[];
+  /**
+   * How many matches each matching file holds.
+   *
+   * Uncapped, unlike `matches`, because a baseline has to be evaluated against
+   * every file that matched rather than the first few - a ratchet that only saw
+   * the first five violations would let the sixth through.
+   */
+  fileCounts: ReadonlyMap<string, number>;
+  /** What was not inspected, and why. Never empty for a reason nobody stated. */
+  scope: ScopeLedger;
   /** Engine that produced this result. */
   engine: EngineName;
 }
@@ -145,6 +181,10 @@ export interface Assertion {
   search?: SearchOptions;
   /** Present on the import assertions. */
   imports?: ImportQuery;
+  /** Known violations that do not count, if the directive declared any. */
+  baseline?: readonly BaselineEntry[];
+  /** Whether a baseline entry that no longer matches fails the run. */
+  ratchet: RatchetMode;
   /** Targets that do not exist on disk. */
   missingTargets: string[];
   /**
@@ -185,6 +225,23 @@ export interface AssertionResult {
   unclassifiedFiles: number;
   /** What this assertion did not inspect, and why. */
   scope: ScopeLedger;
+  /**
+   * Matches excluded because a baseline entry accounted for them.
+   *
+   * Reported for the same reason `commentMatches` is: this is the other way an
+   * assertion can pass without the code being clean, and a reader is entitled
+   * to know it happened.
+   */
+  baselinedMatches: number;
+  /** Baseline entries that claim more violations than the code has. */
+  staleBaseline: StaleBaselineEntry[];
+  /**
+   * How many matches each matching file holds, in file order.
+   *
+   * The raw material for writing a baseline, which is why it is not capped the
+   * way `matches` is.
+   */
+  fileMatches: Array<{ file: string; count: number }>;
   engine?: EngineName;
   durationMs: number;
 }

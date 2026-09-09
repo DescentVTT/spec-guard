@@ -43,6 +43,9 @@ const passingResult: Result = {
   commentMatches: 0,
   unclassifiedFiles: 0,
   scope: EMPTY_LEDGER,
+  baselinedMatches: 0,
+  staleBaseline: [],
+  fileMatches: [],
   engine: 'ripgrep',
   durationMs: 1,
 };
@@ -63,6 +66,9 @@ const failingResult: Result = {
   commentMatches: 0,
   unclassifiedFiles: 0,
   scope: EMPTY_LEDGER,
+  baselinedMatches: 0,
+  staleBaseline: [],
+  fileMatches: [],
   engine: 'ripgrep',
   durationMs: 2,
 };

@@ -10,7 +10,7 @@
 import { createRequire } from 'node:module';
 import path from 'node:path';
 
-import { formatJson, formatReport, shouldUseAscii, shouldUseColor } from './reporter.js';
+import { formatBaselines, formatJson, formatReport, shouldUseAscii, shouldUseColor } from './reporter.js';
 import { DEFAULT_CONCURRENCY, DEFAULT_MAX_SNIPPETS, runSpecGuard } from './runner.js';
 import type { EnginePreference } from './engine.js';
 
@@ -37,6 +37,7 @@ export interface CliOptions {
   defaultSkips: boolean;
   strictTargets: boolean;
   allowEmptyScope: boolean;
+  printBaseline: boolean;
   includeSpecs: boolean;
   allowEmpty: boolean;
   maxSnippets: number;
@@ -78,6 +79,7 @@ Options
       --allow-missing-targets
                           Tolerate target paths that do not exist (they fail by default)
       --allow-empty-scope Tolerate assertions whose scope holds no files (they fail by default)
+      --print-baseline    Print the baseline="..." that would exempt today's violations, and exit
       --no-default-skips  Search .git, .hg, .svn and node_modules too
       --include-specs     Also count matches inside the spec files themselves
       --max-snippets <n>  Failure snippets per assertion (default: ${DEFAULT_MAX_SNIPPETS})
@@ -141,6 +143,7 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
     defaultSkips: true,
     strictTargets: false,
     allowEmptyScope: false,
+    printBaseline: false,
     includeSpecs: false,
     allowEmpty: false,
     maxSnippets: DEFAULT_MAX_SNIPPETS,
@@ -198,6 +201,9 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
         break;
       case '--allow-empty-scope':
         options.allowEmptyScope = true;
+        break;
+      case '--print-baseline':
+        options.printBaseline = true;
         break;
       case '--no-default-skips':
         options.defaultSkips = false;
@@ -300,6 +306,13 @@ export async function main(argv: readonly string[] = process.argv.slice(2), io: 
       io.stderr(`spec-guard: no spec files matched ${options.patterns.map((p) => `"${p}"`).join(', ')}`);
     }
     return options.allowEmpty ? EXIT_OK : EXIT_ERROR;
+  }
+
+  if (options.printBaseline) {
+    // Printed, never written. See formatBaselines for why that distinction is
+    // the whole design and not a missing feature.
+    io.stdout(formatBaselines(report));
+    return report.ok ? EXIT_OK : EXIT_FAILED;
   }
 
   if (options.json) {

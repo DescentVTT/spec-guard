@@ -102,6 +102,7 @@ export { maskCode, parseAttributes, parseDirectives } from './parser.js';
 export type { ParseContext } from './parser.js';
 
 export {
+  applyBaseline,
   createScopeProbe,
   executeAssertion,
   resolveDirective,
@@ -111,12 +112,13 @@ export {
 } from './runner.js';
 export type { ResolveContext, RunOptions, RunResult } from './runner.js';
 
-export { createPainter, formatJson, formatReport, shouldUseAscii, shouldUseColor } from './reporter.js';
+export { createPainter, formatBaselines, formatJson, formatReport, shouldUseAscii, shouldUseColor } from './reporter.js';
 export type { ReporterOptions } from './reporter.js';
 
 export type {
   Assertion,
   AssertionResult,
+  BaselineEntry,
   Bounds,
   Directive,
   DirectiveError,
@@ -125,9 +127,11 @@ export type {
   ImportQuery,
   MatchLocation,
   ParseResult,
+  RatchetMode,
   RunReport,
   RunSummary,
   SearchOptions,
   SearchResult,
   SourceLocation,
+  StaleBaselineEntry,
 } from './types.js';

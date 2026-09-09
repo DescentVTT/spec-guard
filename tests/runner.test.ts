@@ -401,7 +401,7 @@ describe('executeAssertion', () => {
 
     const result = await executeAssertion(resolved.assertion, {
       root: DEMO_REPO,
-      engine: { name: 'javascript', search: async () => ({ count: 0, commentMatches: 0, unclassifiedFiles: 0, scope: EMPTY_LEDGER, matches: [], engine: 'javascript' }) },
+      engine: { name: 'javascript', search: async () => ({ count: 0, commentMatches: 0, unclassifiedFiles: 0, scope: EMPTY_LEDGER, matches: [], fileCounts: new Map(), engine: 'javascript' }) },
       allowMissingTargets: false,
       strictTargets: false,
       allowEmptyScope: false,
@@ -420,7 +420,7 @@ describe('executeAssertion', () => {
 
     const result = await executeAssertion(resolved.assertion, {
       root: DEMO_REPO,
-      engine: { name: 'javascript', search: async () => ({ count: 0, commentMatches: 0, unclassifiedFiles: 0, scope: EMPTY_LEDGER, matches: [], engine: 'javascript' }) },
+      engine: { name: 'javascript', search: async () => ({ count: 0, commentMatches: 0, unclassifiedFiles: 0, scope: EMPTY_LEDGER, matches: [], fileCounts: new Map(), engine: 'javascript' }) },
       allowMissingTargets: false,
       strictTargets: false,
       allowEmptyScope: false,
