@@ -85,9 +85,18 @@ source ──▶ lexRanges ──▶ mask comments + string interiors ──▶ 
 
 Everything the four readers see is code. Nothing in a comment, a docstring, a
 verbatim string or a raw string can reach them. And because these languages put
-imports in statements rather than expressions, what is left is small: the Go
-reader is 25 lines, C# is 30, Python is 45, Rust is 40 including brace
-expansion.
+imports in statements rather than expressions, what is left is small - counting
+lines that are not blank or comment:
+
+| reader | lines |
+| --- | --- |
+| Go | 23 |
+| C# | 22 |
+| Rust | 31, plus 36 for brace expansion |
+| Python | 40 |
+
+against 282 for the JavaScript tokenizer and its extractor, which is the
+comparison that matters: one language needed a tokenizer, four did not.
 
 ### The one structural rule this design depends on
 
