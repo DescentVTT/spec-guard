@@ -89,6 +89,23 @@ imports in statements rather than expressions, what is left is small: the Go
 reader is 25 lines, C# is 30, Python is 45, Rust is 40 including brace
 expansion.
 
+### The one structural rule this design depends on
+
+`polyglot.ts` must import `imports.ts` for **types only**. The dispatcher lives
+in `imports.ts` and calls into `polyglot.ts`, so a value import back the other
+way is a runtime cycle; `import type` is erased at compile time, so it is not.
+That is exactly the kind of invariant that holds until somebody deletes the word
+`type` while fixing something else, so it is asserted here rather than left in a
+comment:
+
+<!-- @assert-import-absence target="src/polyglot.ts" module="src/imports.js" types="ignore" reason="a value import back into the dispatcher would be a runtime cycle; import type is erased" -->
+<!-- @assert-import-count target="src/polyglot.ts" module="src/imports.js" expected="1" reason="the type-only import is expected to exist; this fails if it is removed as well as if it becomes a value import" -->
+
+Two assertions, not one. The first fails if the import becomes a value import.
+The second fails if it disappears altogether — because an assertion that
+something is absent from a file that no longer imports anything is a rule
+covering nothing, which is the failure mode this release exists to remove.
+
 ## Consequences
 
 ### What it costs
