@@ -414,6 +414,7 @@ export function resolveDirective(
           missingTargets: [],
           // A file list is never empty here: resolution rejects that above.
           allowEmpty: true,
+          baseline: [],
           ratchet: "two-sided",
         },
       };
@@ -756,10 +757,7 @@ async function prepareAssertion(
         UNCERTAIN_REASONS.has(entry.reason),
       );
       const strictFailure = options.strictTargets && gaps.length > 0;
-      const { excluded, stale, shows } = applyBaseline(
-        assertion.baseline ?? [],
-        search.fileCounts,
-      );
+      const { excluded, stale, shows } = applyBaseline(assertion.baseline, search.fileCounts);
       const staleFailure = assertion.ratchet === "two-sided" && stale.length > 0;
       const actual = search.count - excluded;
       return {
@@ -910,7 +908,7 @@ async function executeImportAssertion(
 
   // One reference per file, so the file counts are the matches themselves.
   const fileCounts = new Map(matches.map((match) => [match.file, 1]));
-  const { excluded, stale, shows } = applyBaseline(assertion.baseline ?? [], fileCounts);
+  const { excluded, stale, shows } = applyBaseline(assertion.baseline, fileCounts);
   const staleFailure = assertion.ratchet === "two-sided" && stale.length > 0;
   const actual = matches.length - excluded;
 

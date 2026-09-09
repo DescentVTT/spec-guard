@@ -181,8 +181,15 @@ export interface Assertion {
   search?: SearchOptions;
   /** Present on the import assertions. */
   imports?: ImportQuery;
-  /** Known violations that do not count, if the directive declared any. */
-  baseline?: readonly BaselineEntry[];
+  /**
+   * Known violations that do not count. Empty when the directive declared none.
+   *
+   * Always present rather than optional: `baseline ?? []` at the two places
+   * that read it was a branch nothing could reach, because resolution always
+   * fills this in. An unreachable fallback is indistinguishable from a
+   * reachable one when you are reading the code.
+   */
+  baseline: readonly BaselineEntry[];
   /** Whether a baseline entry that no longer matches fails the run. */
   ratchet: RatchetMode;
   /** Targets that do not exist on disk. */

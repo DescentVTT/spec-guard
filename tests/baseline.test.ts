@@ -321,3 +321,211 @@ describe('--print-baseline', () => {
     expect(formatBaselines(await run(root))).toContain('nothing to baseline');
   });
 });
+
+describe('what the report says about an exclusion', () => {
+  it('uses the singular for one excluded match', async () => {
+    const root = await repo({
+      'src/legacy/adapter.ts': 'const c = LegacyGateway;\n',
+      'src/app.ts': 'const d = LegacyGateway;\n',
+      'docs/a.md': SPEC('src/legacy/adapter.ts'),
+    });
+
+    expect((await run(root)).results[0]?.message).toBe(
+      'expected no matches, found 1; 1 more is on the baseline',
+    );
+  });
+
+  it('uses the plural for more than one', async () => {
+    const root = await repo({
+      ...LEGACY,
+      'src/app.ts': 'const d = LegacyGateway;\n',
+      'docs/a.md': SPEC('src/legacy/gateway.ts:2 src/legacy/adapter.ts'),
+    });
+
+    expect((await run(root)).results[0]?.message).toBe(
+      'expected no matches, found 1; 3 more are on the baseline',
+    );
+  });
+
+  it('says nothing about the baseline when it excluded nothing', async () => {
+    const root = await repo({
+      'src/app.ts': 'const d = LegacyGateway;\n',
+      'src/legacy/adapter.ts': 'export const adapter = 1;\n',
+      'docs/a.md': SPEC('src/legacy/adapter.ts', 'ratchet="one-way"'),
+    });
+
+    expect((await run(root)).results[0]?.message).toBe('expected no matches, found 1');
+  });
+});
+
+describe('import assertions and targets that are not there', () => {
+  it('fails when the target does not exist', async () => {
+    const root = await repo({
+      'docs/a.md': '<!-- @assert-import-absence target="services" module="app/db/**" -->\n',
+      'ui/view.py': 'import os\n',
+    });
+
+    const report = await run(root);
+
+    expect(report.ok).toBe(false);
+    expect(report.results[0]?.message).toBe('target path does not exist: services');
+  });
+
+  it('pluralises two missing targets', async () => {
+    const root = await repo({
+      'docs/a.md': '<!-- @assert-import-absence target="services,workers" module="app/db/**" -->\n',
+      'ui/view.py': 'import os\n',
+    });
+
+    expect((await run(root)).results[0]?.message).toBe(
+      'target paths do not exist: services, workers',
+    );
+  });
+
+  it('warns about one missing target and carries on with --allow-missing-targets', async () => {
+    const root = await repo({
+      'docs/a.md': '<!-- @assert-import-absence target="services,ui" module="app/db/**" -->\n',
+      'ui/view.py': 'from app.db.client import Client\n',
+    });
+
+    const report = await runSpecGuard({
+      patterns: ['docs/a.md'],
+      root,
+      engine: 'javascript',
+      allowMissingTargets: true,
+    });
+
+    expect(report.results[0]?.warnings).toContain('target path not found: services');
+    expect(report.results[0]?.actual).toBe(1);
+  });
+
+  it('pluralises the warning for two missing targets', async () => {
+    const root = await repo({
+      'docs/a.md': '<!-- @assert-import-absence target="services,workers,ui" module="app/db/**" -->\n',
+      'ui/view.py': 'import os\n',
+    });
+
+    const report = await runSpecGuard({
+      patterns: ['docs/a.md'],
+      root,
+      engine: 'javascript',
+      allowMissingTargets: true,
+    });
+
+    expect(report.results[0]?.warnings).toContain('target paths not found: services, workers');
+  });
+});
+
+describe('import assertions and references that cannot be resolved', () => {
+  const DYNAMIC = {
+    'docs/a.md': '<!-- @assert-import-absence target="svc" module="app/db/**" -->\n',
+    'svc/loader.py': 'import importlib\nmod = importlib.import_module(name)\n',
+  };
+
+  it('says how many could not be resolved, in the singular', async () => {
+    const root = await repo(DYNAMIC);
+
+    const report = await runSpecGuard({
+      patterns: ['docs/a.md'],
+      root,
+      engine: 'javascript',
+      strictTargets: true,
+    });
+
+    expect(report.results[0]?.message).toBe(
+      'expected no matches, found 0; 1 reference could not be resolved',
+    );
+  });
+
+  it('and in the plural', async () => {
+    const root = await repo({
+      ...DYNAMIC,
+      'svc/loader.py': 'import importlib\nx = importlib.import_module(a)\ny = __import__(b)\n',
+    });
+
+    const report = await runSpecGuard({
+      patterns: ['docs/a.md'],
+      root,
+      engine: 'javascript',
+      strictTargets: true,
+    });
+
+    expect(report.results[0]?.message).toBe(
+      'expected no matches, found 0; 2 references could not be resolved',
+    );
+  });
+
+  it('warns without failing when --strict is off', async () => {
+    const report = await run(await repo(DYNAMIC));
+
+    expect(report.ok).toBe(true);
+    expect(report.results[0]?.warnings[0]).toBe(
+      '1 module reference could not be resolved statically',
+    );
+  });
+
+  it('pluralises that warning too', async () => {
+    const root = await repo({
+      ...DYNAMIC,
+      'svc/loader.py': 'import importlib\nx = importlib.import_module(a)\ny = __import__(b)\n',
+    });
+
+    expect((await run(root)).results[0]?.warnings[0]).toBe(
+      '2 module references could not be resolved statically',
+    );
+  });
+});
+
+describe('exactly what --print-baseline writes', () => {
+  it('is one block per failing assertion, headed by where it lives', async () => {
+    const root = await repo({
+      ...LEGACY,
+      'docs/a.md':
+        '<!-- @assert-absence target="src" symbol="LegacyGateway" -->\n<!-- @assert-absence target="src" symbol="app" -->\n',
+    });
+
+    expect(formatBaselines(await run(root))).toBe(
+      [
+        '# docs/a.md:1  "LegacyGateway" must not appear in src',
+        'baseline="src/legacy/adapter.ts',
+        '          src/legacy/gateway.ts:2"',
+        '',
+        '# docs/a.md:2  "app" must not appear in src',
+        'baseline="src/app.ts"',
+      ].join('\n'),
+    );
+  });
+
+  it('skips a failing assertion that has no match to exempt', async () => {
+    // A missing target fails without matching anything; there is nothing a
+    // baseline could do about it, so it must not appear as an empty block.
+    const root = await repo({
+      ...LEGACY,
+      'docs/a.md':
+        '<!-- @assert-absence target="gone" symbol="X" -->\n<!-- @assert-absence target="src" symbol="LegacyGateway" -->\n',
+    });
+
+    const printed = formatBaselines(await run(root));
+
+    expect(printed).not.toContain('docs/a.md:1');
+    expect(printed).toContain('docs/a.md:2');
+  });
+
+  it('sorts the entries so the output does not depend on walk order', async () => {
+    const root = await repo({
+      'docs/a.md': '<!-- @assert-absence target="src" symbol="X" -->\n',
+      'src/zebra.ts': 'const a = X;\n',
+      'src/apple.ts': 'const b = X;\n',
+      'src/mango.ts': 'const c = X;\n',
+    });
+
+    expect(formatBaselines(await run(root))).toBe(
+      [
+        '# docs/a.md:1  "X" must not appear in src',
+        'baseline="src/apple.ts',
+        '          src/mango.ts',
+        '          src/zebra.ts"',
+      ].join('\n'),
+    );
+  });
+});

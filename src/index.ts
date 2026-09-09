@@ -90,7 +90,10 @@ export {
   expandUsePath,
   languageFor,
   literalValue,
+  logicalLines,
+  matchingClose,
   normalizeModule,
+  Reader,
   MAX_EXPANSION,
   POLYGLOT_EXTENSIONS,
 } from './polyglot.js';

@@ -327,3 +327,43 @@ describe('default IO', () => {
     expect(written.join('')).toContain('Unknown option');
   });
 });
+
+describe('--print-baseline', () => {
+  it('is parsed', () => {
+    expect(parseArgs([], DEMO_REPO).printBaseline).toBe(false);
+    expect(parseArgs(['--print-baseline'], DEMO_REPO).printBaseline).toBe(true);
+  });
+
+  it('prints the entries instead of the report, and still exits 1', async () => {
+    const root = await makeTempRepo({
+      'docs/a.md': '<!-- @assert-absence target="src" symbol="LegacyGateway" -->\n',
+      'src/a.ts': 'const a = LegacyGateway;\nconst b = LegacyGateway;\n',
+      'src/b.ts': 'const c = LegacyGateway;\n',
+    });
+    temporary.push(root);
+
+    const { io, out } = createIO();
+    const code = await main(['docs/a.md', '--root', root, '--engine', 'js', '--print-baseline'], io);
+
+    expect(code).toBe(EXIT_FAILED);
+    const printed = out.join('\n');
+    expect(printed).toContain('baseline="src/a.ts:2');
+    expect(printed).toContain('src/b.ts"');
+    // The ordinary failure block is replaced, not appended to.
+    expect(printed).not.toContain('expected no matches');
+  });
+
+  it('exits 0 and says so when there is nothing to baseline', async () => {
+    const root = await makeTempRepo({
+      'docs/a.md': '<!-- @assert-absence target="src" symbol="LegacyGateway" -->\n',
+      'src/a.ts': 'export const a = 1;\n',
+    });
+    temporary.push(root);
+
+    const { io, out } = createIO();
+    const code = await main(['docs/a.md', '--root', root, '--engine', 'js', '--print-baseline'], io);
+
+    expect(code).toBe(EXIT_OK);
+    expect(out.join('\n')).toContain('nothing to baseline');
+  });
+});

@@ -222,3 +222,74 @@ describe('--format', () => {
     expect(JSON.parse(out.join('\n')).runs[0].results).toEqual([]);
   });
 });
+
+describe('exactly what a sarif result carries', () => {
+  it('names the assertion and the observed outcome in one message', async () => {
+    const root = await repo({
+      'docs/a.md': '<!-- @assert-absence target="src" symbol="LegacyGateway" -->\n',
+      'src/app.ts': 'const y = LegacyGateway;\n',
+    });
+
+    const [result] = sarif(await runSpecGuard({ patterns: ['docs/a.md'], root, engine: 'javascript' })).runs[0]
+      ?.results as Sarif['runs'][0]['results'];
+
+    expect(result?.message.text).toBe(
+      '"LegacyGateway" must not appear in src: expected no matches, found 1',
+    );
+  });
+
+  it('labels the related locations so a reader knows which is which', async () => {
+    const root = await repo({
+      'docs/a.md': '<!-- @assert-absence target="src" symbol="LegacyGateway" -->\n',
+      'src/a.ts': 'const a = LegacyGateway;\n',
+      'src/b.ts': 'const b = LegacyGateway;\n',
+    });
+
+    const document = JSON.parse(
+      formatSarif(await runSpecGuard({ patterns: ['docs/a.md'], root, engine: 'javascript' })),
+    ) as {
+      runs: Array<{
+        results: Array<{
+          locations: Array<{ message?: { text: string } }>;
+          relatedLocations: Array<{ message?: { text: string } }>;
+        }>;
+      }>;
+    };
+    const result = document.runs[0]?.results[0];
+
+    expect(result?.locations[0]?.message?.text).toBe('const a = LegacyGateway;');
+    expect(result?.relatedLocations.map((location) => location.message?.text)).toEqual([
+      'const b = LegacyGateway;',
+      'the assertion that failed',
+    ]);
+  });
+
+  it('gives a directive-anchored location no snippet message', async () => {
+    const root = await repo({
+      'docs/a.md': '<!-- @assert-present file="MISSING.md" -->\n',
+      'src/app.ts': 'const x = 1;\n',
+    });
+
+    const document = JSON.parse(
+      formatSarif(await runSpecGuard({ patterns: ['docs/a.md'], root, engine: 'javascript' })),
+    ) as { runs: Array<{ results: Array<{ locations: Array<{ message?: { text: string } }> }> }> };
+
+    expect(document.runs[0]?.results[0]?.locations[0]?.message?.text).toBe('the assertion that failed');
+  });
+
+  it('gives an invalid directive its own fingerprint, not the assertion one', async () => {
+    const root = await repo({
+      'docs/a.md': '<!-- @assert-absence target="src" -->\n<!-- @assert-count target="src" -->\n',
+      'src/app.ts': 'const x = 1;\n',
+    });
+
+    const results = sarif(await runSpecGuard({ patterns: ['docs/a.md'], root, engine: 'javascript' })).runs[0]
+      ?.results as Sarif['runs'][0]['results'];
+
+    expect(results.map((result) => result.ruleId)).toEqual(['invalid-directive', 'invalid-directive']);
+    expect(results[0]?.partialFingerprints.specGuardAssertion).not.toBe(
+      results[1]?.partialFingerprints.specGuardAssertion,
+    );
+    expect(results[0]?.partialFingerprints.specGuardAssertion).toMatch(/^[0-9a-f]{32}$/);
+  });
+});

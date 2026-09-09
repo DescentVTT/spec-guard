@@ -149,8 +149,14 @@ export function literalValue(raw: string): string {
 
 const IDENTIFIER = /[A-Za-z_][A-Za-z0-9_]*/y;
 
-/** Whitespace-skipping cursor over masked code. */
-class Reader {
+/**
+ * Whitespace-skipping cursor over masked code.
+ *
+ * Exported so its edges can be pinned directly. Reaching "what does peek() do
+ * at the end of the file" through a C# source string is possible but says
+ * nothing about C#.
+ */
+export class Reader {
   index = 0;
 
   constructor(readonly text: string) {}
@@ -228,7 +234,7 @@ class Reader {
 }
 
 /** Offset of the matching close, given the depth-tracking characters. */
-function matchingClose(text: string, open: number, opener: string, closer: string): number {
+export function matchingClose(text: string, open: number, opener: string, closer: string): number {
   let depth = 0;
   for (let index = open; index < text.length; index++) {
     const char = text[index] as string;
@@ -271,7 +277,7 @@ function note(collector: Collector, kind: AnalysisNote['kind'], offset: number, 
  * backslash, and `from x import (\n  a,\n  b,\n)` is the shape that matters
  * here. Lines are joined with a space so two tokens cannot fuse into one.
  */
-function logicalLines(code: string): Array<{ text: string; offset: number }> {
+export function logicalLines(code: string): Array<{ text: string; offset: number }> {
   const lines: Array<{ text: string; offset: number }> = [];
   let text = '';
   let offset = 0;
