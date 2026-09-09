@@ -297,6 +297,24 @@ against fails builds for reasons that have nothing to do with the code. This is
 the third time this number has been measured and the second time it has been
 wrong to assume.
 
+**Measured, on this repository.** A branch push whose commit touched only
+documentation restored main's cache and finished in **13 seconds**, reporting
+**87.21%** - the identical score, to the decimal and per file, that the 22m11s
+full sweep produced. It executed no mutants at all.
+
+That number is the argument for the design and the warning about it in the same
+breath. A green `stryker (incremental)` tick can mean "every mutant was
+re-verified" or "no mutant was verified and last week's answer was reprinted",
+and nothing in the score distinguishes them. Which is why the tier is in the job
+name, why the step summary says the verdicts were reused, why only a full sweep
+publishes the cache, and why `main` re-derives the number from scratch on every
+push. The saving is real; the authority is not transferable.
+
+13 seconds is the floor - nothing changed, so nothing was re-run. A branch that
+edits one source file re-runs that file's mutants: `polyglot.ts` is 603 of 4,512,
+so roughly 3 minutes plus the floor. That last figure is arithmetic, not a
+measurement, and is marked as such rather than quoted as one.
+
 **What incremental mode does not save.** Measured locally over a single file
 (52 mutants): 51 s cold, 23 s with a cache and nothing changed. It skips mutant
 *execution*, not the sandbox setup or the initial coverage run, so there is a
