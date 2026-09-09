@@ -155,6 +155,12 @@ describe('main', () => {
     // default and searchable on request.
     const root = await makeTempRepo({
       'node_modules/pkg/index.js': "const x = 'VendoredSymbol';\n",
+      // Without this the tree holds nothing but a skipped directory and the
+      // spec file itself, so the default-skips run would inspect no files at
+      // all - and pass for that reason rather than the one under test. The
+      // empty-scope check turned that into a failure, which is how this file
+      // came to be here.
+      'src/app.js': "export const ordinary = 1;\n",
       'docs/a.md': '<!-- @assert-absence target="." symbol="VendoredSymbol" -->\n',
     });
     temporary.push(root);

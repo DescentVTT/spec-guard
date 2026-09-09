@@ -36,6 +36,7 @@ export interface CliOptions {
   allowMissingTargets: boolean;
   defaultSkips: boolean;
   strictTargets: boolean;
+  allowEmptyScope: boolean;
   includeSpecs: boolean;
   allowEmpty: boolean;
   maxSnippets: number;
@@ -76,11 +77,12 @@ Options
       --strict            Treat analysis that could not be completed as a failure
       --allow-missing-targets
                           Tolerate target paths that do not exist (they fail by default)
+      --allow-empty-scope Tolerate assertions whose scope holds no files (they fail by default)
       --no-default-skips  Search .git, .hg, .svn and node_modules too
       --include-specs     Also count matches inside the spec files themselves
       --max-snippets <n>  Failure snippets per assertion (default: ${DEFAULT_MAX_SNIPPETS})
       --concurrency <n>   Assertions executed in parallel (default: ${DEFAULT_CONCURRENCY})
-      --allow-empty       Exit 0 when no spec files matched
+      --allow-empty       Exit 0 when no spec files matched (about the run, not an assertion)
       --color/--no-color  Force colour on or off (NO_COLOR is honoured)
   -h, --help              Show this help
       --version           Print the version
@@ -91,6 +93,7 @@ Directives
   <!-- @assert-present file="SECURITY.md" -->
 
   Matches inside comments do not count; add comments="include" to count them.
+  An assertion whose scope holds no files fails; add allow-empty="true" to allow it.
 
 Exit codes
   0 all assertions passed   1 an assertion failed   2 spec-guard could not run`;
@@ -137,6 +140,7 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
     allowMissingTargets: false,
     defaultSkips: true,
     strictTargets: false,
+    allowEmptyScope: false,
     includeSpecs: false,
     allowEmpty: false,
     maxSnippets: DEFAULT_MAX_SNIPPETS,
@@ -191,6 +195,9 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
         break;
       case '--allow-missing-targets':
         options.allowMissingTargets = true;
+        break;
+      case '--allow-empty-scope':
+        options.allowEmptyScope = true;
         break;
       case '--no-default-skips':
         options.defaultSkips = false;
@@ -274,6 +281,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2), io: 
       engine: options.engine,
       failFast: options.failFast,
       allowMissingTargets: options.allowMissingTargets,
+      allowEmptyScope: options.allowEmptyScope,
       defaultSkips: options.defaultSkips,
       strictTargets: options.strictTargets,
       includeSpecs: options.includeSpecs,

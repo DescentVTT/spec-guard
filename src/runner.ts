@@ -14,6 +14,7 @@ import {
   enumerateCandidates,
   resolveEngine,
   runSearches,
+  ANY_FILE_PROBE,
   type Engine,
   type EnginePreference,
   type SearchRequest,
@@ -67,6 +68,14 @@ export interface RunOptions {
   allowMissingTargets?: boolean;
   /** Treat analysis that could not be completed as a failure. */
   strictTargets?: boolean;
+  /**
+   * Tolerate assertions whose scope contains no files.
+   *
+   * The run-level counterpart of `allow-empty` on a directive. Off by default:
+   * an assertion that inspected nothing passes, and a passing assertion that
+   * verified nothing is the failure mode this tool exists to prevent.
+   */
+  allowEmptyScope?: boolean;
   /** Count matches inside the spec files themselves (off by default). */
   includeSpecs?: boolean;
   /** Max concurrent assertions. */
@@ -200,6 +209,52 @@ function describeImportExpectation(bounds: Bounds): string {
     : `must import from at most ${files(max)}`;
 }
 
+/**
+ * What a report says when an assertion covered nothing.
+ *
+ * The fourth silent false green, after the three ADR-0007 closed. A rule whose
+ * scope holds no files passes every time, forever, and reads in the report
+ * exactly like a rule that inspected a thousand files and found nothing. The
+ * usual causes are a `glob` that matches no extension in the tree, an `exclude`
+ * that swallowed the target, or a directory that has since been emptied.
+ *
+ * Deliberately no file count alongside it: under ripgrep spec-guard never
+ * enumerates the tree, so "inspected 412 files" would be a number only one of
+ * the two engines could produce. "Nothing at all" is the same answer in both,
+ * and it is the only part that changes an outcome.
+ */
+const EMPTY_SCOPE_HINT = 'add allow-empty="true" if that is expected';
+
+/**
+ * Per-run cache for "does this scope contain anything at all".
+ *
+ * The same shape as the import index, and for the same reason: a document with
+ * twenty assertions over `src/` asks this question twenty times and it has one
+ * answer. Without the cache the probe measured about 0.9 ms per assertion,
+ * which is small until a spec has two hundred of them.
+ */
+export function createScopeProbe(): (request: SearchRequest) => Promise<boolean> {
+  const cache = new Map<string, Promise<boolean>>();
+  return (request: SearchRequest): Promise<boolean> => {
+    const key = JSON.stringify([
+      request.root,
+      request.targets,
+      request.options.globs,
+      request.options.excludeGlobs,
+    ]);
+    let pending = cache.get(key);
+    if (!pending) {
+      // The walk abandons at the first file it finds, so proving a scope is
+      // populated costs a couple of directory reads rather than a traversal.
+      pending = enumerateCandidates(request, ANY_FILE_PROBE).then(
+        (enumeration) => enumeration.files.length > 0,
+      );
+      cache.set(key, pending);
+    }
+    return pending;
+  };
+}
+
 function satisfies(count: number, bounds: Bounds): boolean {
   if (bounds.min !== undefined && count < bounds.min) return false;
   if (bounds.max !== undefined && count > bounds.max) return false;
@@ -243,6 +298,8 @@ export function resolveDirective(
           files,
           bounds: { min: files.length, max: files.length },
           missingTargets: [],
+          // A file list is never empty here: resolution rejects that above.
+          allowEmpty: true,
         },
       };
     }
@@ -255,6 +312,7 @@ export function resolveDirective(
       return fail(`@${kind} requires a non-empty ${subject}="..." attribute.`);
     }
 
+    const allowEmpty = parseBoolean(attributes["allow-empty"], "allow-empty");
     const comments = (attributes["comments"] ?? "ignore").trim().toLowerCase();
     if (comments !== "ignore" && comments !== "include") {
       return fail(
@@ -367,6 +425,7 @@ export function resolveDirective(
           },
           imports: { modules: splitList(symbol), includeTypes },
           missingTargets: [],
+          allowEmpty,
         },
       };
     }
@@ -409,6 +468,7 @@ export function resolveDirective(
         bounds,
         search,
         missingTargets: [],
+        allowEmpty,
       },
     };
   } catch (error) {
@@ -425,9 +485,12 @@ export interface ExecuteOptions {
   engine: Engine;
   allowMissingTargets: boolean;
   strictTargets: boolean;
+  allowEmptyScope: boolean;
   maxSnippets: number;
   /** Per-run analysis cache: parse once, query many. */
   imports: ImportIndex;
+  /** Per-run cache for "is there anything in this scope". */
+  hasFiles: (request: SearchRequest) => Promise<boolean>;
 }
 
 /**
@@ -524,13 +587,28 @@ async function prepareAssertion(
     };
   }
 
+  const request: SearchRequest = {
+    root: options.root,
+    symbol: assertion.symbol as string,
+    targets: existingTargets,
+    options: assertion.search as SearchOptions,
+  };
+
+  if (!options.allowEmptyScope && !assertion.allowEmpty && !(await options.hasFiles(request))) {
+    {
+      return {
+        ...base,
+        ok: false,
+        actual: 0,
+        message: `no files were inspected, so this assertion verified nothing (${EMPTY_SCOPE_HINT})`,
+        matches: [],
+        durationMs: performance.now() - startedAt,
+      };
+    }
+  }
+
   return {
-    request: {
-      root: options.root,
-      symbol: assertion.symbol as string,
-      targets: existingTargets,
-      options: assertion.search as SearchOptions,
-    },
+    request,
     finish: (search: SearchResult): AssertionResult => {
       // A file that could not be read, or whose bytes are not text but did
       // contain the symbol, is a hole in the answer rather than a detail of it.
@@ -614,6 +692,24 @@ async function executeImportAssertion(
   const analysable = enumeration.files.filter((file) =>
     ANALYSABLE_EXTENSIONS.has(path.posix.extname(file.relativePath)),
   );
+
+  if (analysable.length === 0 && !options.allowEmptyScope && !assertion.allowEmpty) {
+    // For an import rule the bar is higher than "some file exists": a directory
+    // of YAML has nothing this can read, so a dependency claim about it is a
+    // claim about nothing.
+    return {
+      ...base,
+      ok: false,
+      actual: 0,
+      message:
+        enumeration.files.length === 0
+          ? `no files were inspected, so this assertion verified nothing (${EMPTY_SCOPE_HINT})`
+          : `none of the ${enumeration.files.length} files here are in a language whose imports spec-guard can read, so this assertion verified nothing (${EMPTY_SCOPE_HINT})`,
+      matches: [],
+      durationMs: performance.now() - startedAt,
+    };
+  }
+
   const skipped = enumeration.files.length - analysable.length;
   if (skipped > 0) {
     warnings.push(
@@ -716,6 +812,7 @@ export async function runSpecGuard(options: RunOptions): Promise<RunResult> {
   const maxSnippets = options.maxSnippets ?? DEFAULT_MAX_SNIPPETS;
   const strictTargets = options.strictTargets ?? false;
   const allowMissingTargets = options.allowMissingTargets ?? false;
+  const allowEmptyScope = options.allowEmptyScope ?? false;
   const scope = createScope(options.defaultSkips ?? true);
 
   const specFiles = await expandSpecPatterns(options.patterns, root);
@@ -757,8 +854,10 @@ export async function runSpecGuard(options: RunOptions): Promise<RunResult> {
     engine,
     allowMissingTargets,
     strictTargets,
+    allowEmptyScope,
     maxSnippets,
     imports: createImportIndex(),
+    hasFiles: createScopeProbe(),
   };
   const results: AssertionResult[] = new Array(assertions.length);
 

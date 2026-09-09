@@ -39,6 +39,7 @@ const ALLOWED_ATTRIBUTES: Record<DirectiveKind, ReadonlySet<string>> = {
     'regex',
     'word',
     'ignore-case',
+    'allow-empty',
     'reason',
   ]),
   'assert-count': new Set([
@@ -53,11 +54,31 @@ const ALLOWED_ATTRIBUTES: Record<DirectiveKind, ReadonlySet<string>> = {
     'regex',
     'word',
     'ignore-case',
+    'allow-empty',
     'reason',
   ]),
   'assert-present': new Set(['file', 'reason']),
-  'assert-import-absence': new Set(['target', 'module', 'exclude', 'types', 'expected', 'max', 'reason']),
-  'assert-import-count': new Set(['target', 'module', 'exclude', 'types', 'expected', 'min', 'max', 'reason']),
+  'assert-import-absence': new Set([
+    'target',
+    'module',
+    'exclude',
+    'types',
+    'expected',
+    'max',
+    'allow-empty',
+    'reason',
+  ]),
+  'assert-import-count': new Set([
+    'target',
+    'module',
+    'exclude',
+    'types',
+    'expected',
+    'min',
+    'max',
+    'allow-empty',
+    'reason',
+  ]),
 };
 
 const DIRECTIVE_RE = /<!--\s*@([a-zA-Z][\w-]*)([\s\S]*?)-->/g;

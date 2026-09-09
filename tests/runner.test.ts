@@ -4,7 +4,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { resetRipgrepProbe } from '../src/engine.js';
 import { createImportIndex } from '../src/imports.js';
 import { EMPTY_LEDGER } from '../src/scope.js';
-import { executeAssertion, resolveDirective, runSpecGuard } from '../src/runner.js';
+import { createScopeProbe, executeAssertion, resolveDirective, runSpecGuard } from '../src/runner.js';
 import type { Directive, DirectiveKind } from '../src/types.js';
 import { DEMO_REPO, findTestRipgrep, makeTempRepo, removeTempRepo } from './helpers.js';
 
@@ -404,8 +404,10 @@ describe('executeAssertion', () => {
       engine: { name: 'javascript', search: async () => ({ count: 0, commentMatches: 0, unclassifiedFiles: 0, scope: EMPTY_LEDGER, matches: [], engine: 'javascript' }) },
       allowMissingTargets: false,
       strictTargets: false,
+      allowEmptyScope: false,
       maxSnippets: 5,
       imports: createImportIndex(),
+      hasFiles: createScopeProbe(),
     });
 
     expect(result).toMatchObject({ ok: true, actual: 2, message: 'all 2 referenced paths exist' });
@@ -421,8 +423,10 @@ describe('executeAssertion', () => {
       engine: { name: 'javascript', search: async () => ({ count: 0, commentMatches: 0, unclassifiedFiles: 0, scope: EMPTY_LEDGER, matches: [], engine: 'javascript' }) },
       allowMissingTargets: false,
       strictTargets: false,
+      allowEmptyScope: false,
       maxSnippets: 5,
       imports: createImportIndex(),
+      hasFiles: createScopeProbe(),
     });
 
     expect(result).toMatchObject({ ok: true, message: 'all 1 referenced path exists' });

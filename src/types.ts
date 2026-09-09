@@ -147,6 +147,16 @@ export interface Assertion {
   imports?: ImportQuery;
   /** Targets that do not exist on disk. */
   missingTargets: string[];
+  /**
+   * Tolerate a scope containing no files.
+   *
+   * Off by default. An assertion over an empty scope passes without inspecting
+   * anything, which is indistinguishable in a report from an assertion that
+   * inspected a thousand files and found nothing - and one of those two is a
+   * lie. Set by `allow-empty="true"` for the rules where covering nothing yet
+   * is the honest state of the world.
+   */
+  allowEmpty: boolean;
 }
 
 export interface AssertionResult {

@@ -477,6 +477,16 @@ export interface EnumerationBudget {
 }
 
 /**
+ * A budget that abandons the walk at the first file it finds.
+ *
+ * Used to answer one question - "is there anything here at all?" - without
+ * walking a tree to count files nobody asked about. The answer is the same
+ * whichever engine will do the searching, which is the point: an assertion that
+ * covers nothing has to be recognised identically by both.
+ */
+export const ANY_FILE_PROBE: EnumerationBudget = { maxFiles: 0, maxBytes: 0 };
+
+/**
  * Lists the files a request would search, sorted by relative path.
  *
  * With a budget, the walk abandons as soon as the tree proves bigger than the
@@ -490,7 +500,12 @@ export async function enumerateCandidates(
 ): Promise<Enumeration> {
   const matcher = createGlobMatcher(request.options.globs);
   const excluded = createExcludeMatcher(request.options.excludeGlobs);
-  const admits = (relativePath: string): boolean => matcher(relativePath) && !excluded(relativePath);
+  // excludeFiles is applied here rather than after the walk so that a budgeted
+  // enumeration counts only files it would really search. Filtering afterwards
+  // let an excluded spec file fill a one-file probe and make a populated
+  // directory look empty.
+  const admits = (absolutePath: string, relativePath: string): boolean =>
+    matcher(relativePath) && !excluded(relativePath) && !request.options.excludeFiles.has(absolutePath);
   const found = new Map<string, CandidateFile>();
   const skipped: SkippedPath[] = [];
   const note = (relativePath: string, reason: SkippedPath['reason']): void => {
@@ -522,7 +537,7 @@ export async function enumerateCandidates(
 
     if (stats.isFile()) {
       const relativePath = toPosix(path.relative(request.root, absoluteTarget));
-      if (stats.size <= MAX_FILE_SIZE && admits(relativePath)) {
+      if (stats.size <= MAX_FILE_SIZE && admits(absoluteTarget, relativePath)) {
         if (!admit(absoluteTarget, relativePath, stats.size)) break outer;
       }
       continue;
@@ -538,12 +553,11 @@ export async function enumerateCandidates(
     for await (const file of walkFiles(absoluteTarget, walkOptions)) {
       if (file.size > MAX_FILE_SIZE) continue;
       const relativePath = toPosix(path.relative(request.root, file.absolutePath));
-      if (!admits(relativePath)) continue;
+      if (!admits(file.absolutePath, relativePath)) continue;
       if (!admit(file.absolutePath, relativePath, file.size)) break outer;
     }
   }
 
-  for (const excluded of request.options.excludeFiles) found.delete(excluded);
   const files = [...found.values()].sort((a, b) => (a.relativePath < b.relativePath ? -1 : 1));
   return { files, exceeded, bytes, skipped };
 }

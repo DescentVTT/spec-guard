@@ -21,6 +21,7 @@ export {
   createCachedEngine,
   enumerateCandidates,
   escapeRegExp,
+  ANY_FILE_PROBE,
   findRipgrep,
   parseRipgrepErrors,
   isMissingBinary,
@@ -101,6 +102,7 @@ export { maskCode, parseAttributes, parseDirectives } from './parser.js';
 export type { ParseContext } from './parser.js';
 
 export {
+  createScopeProbe,
   executeAssertion,
   resolveDirective,
   runSpecGuard,
