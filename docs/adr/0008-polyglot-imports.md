@@ -106,6 +106,29 @@ machine, against 14–17 MB/s for the JavaScript tokenizer. Run-to-run variance 
 that machine is ±40%, so the honest statement is that all five analysers are in
 the same order of magnitude and none of them is the bottleneck in a real run.
 
+### What happens when it meets code nobody wrote for it
+
+There is no Python, Go, Rust or C# on the development machine, so accuracy on
+real code in those languages is untested and this ADR does not claim otherwise.
+What *was* tested is the property that does not depend on the language being
+right: a file somebody commits must not be able to take a CI job down.
+
+- **53.6 MB of real JavaScript** (`node_modules`, 6,977 files) through the
+  shared lexer and the JS analyser: 0 crashes, 17,491 references found, 6 files
+  (0.086%) where the scan ended inside a literal and was reported as unreadable
+  rather than as having no imports, and 150 dynamic references (0.86%) reported
+  rather than counted. Those last two independently reproduce the ~0.09% and
+  ~1% figures ADR-0005 measured on a different corpus.
+- **Every one of the four new readers pointed at 34.5 MB of the wrong
+  language** (4,000 JavaScript files read as Python, Go, Rust and C# in turn):
+  0 crashes. The answers are meaningless; the point is that no answer is a
+  stack trace.
+- **Twelve hostile inputs** × four readers: unterminated strings, block comments
+  and raw strings; 200-deep brace nesting; 20,000 `use` statements; a
+  500,000-character line; NUL bytes; a lone surrogate; CRLF; nothing but
+  separators; nothing but bare keywords. 0 crashes, no hangs, slowest run
+  138 ms.
+
 ### Where a parser would genuinely be better
 
 These are not imports spec-guard misreads. They are imports it cannot see, and
