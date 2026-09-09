@@ -290,7 +290,7 @@ The job name carries the tier - `stryker (full)` or `stryker (incremental)` - so
 a green tick in the checks list cannot be mistaken for an authority it does not
 have.
 
-**The full sweep is now 24m42s** at 4,515 mutants, against 15m51s at 3,493 and
+**The full sweep is now 22m11s** at 4,512 mutants, against 15m51s at 3,493 and
 6m54s at 2,118. The job cap moved from 30 minutes to 45 on that measurement:
 five minutes of headroom is not headroom, and a cap that a normal run brushes
 against fails builds for reasons that have nothing to do with the code. This is
@@ -310,6 +310,40 @@ was changed in a way Stryker's hashing does not catch would go unnoticed until
 the next `main` run. That is a post-merge detection rather than a pre-merge one.
 The alternative - a full sweep on every branch push - was the status quo, and it
 is the thing that stops being affordable.
+
+### 0.5.0: the gate earning its keep
+
+The first full sweep of 0.5.0 came back at **83.77%** and failed the build. That
+is the entry worth having in this document, because everything else in it is
+about a number going up.
+
+Roughly 700 lines of new code had gone in with what looked like thorough tests:
+92 cases for the four new language readers, 25 for the baseline, 17 for SARIF,
+13 for the empty-scope check. Every one of them passed. Every defect in the
+negative-control pass - 13 of them, each reintroduced by hand - was caught. And
+`polyglot.ts` still came back at **77.45% with 132 survivors**.
+
+The gap was not in the languages. It was in the two hundred lines of cursor,
+bracket and literal arithmetic that all four readers share, and it was invisible
+from where the tests were standing:
+
+- `logicalLines` tracks `(`, `[` and `{`. Every test used `(`. Twenty-seven
+  mutants lived on two lines, including one that let a stray `)` push the depth
+  below zero and fuse the rest of the file into a single statement.
+- `Reader.skipSpace` checks four character codes. Every test used a space.
+- `literalValue` distinguishes `startsWith` from `endsWith`, which are the same
+  answer for every *well-formed* literal - so only an unterminated docstring
+  tells them apart, and no test had one.
+- Eight mutants in `cli.ts` had no coverage at all: `--print-baseline` was
+  tested through `formatBaselines` and never once through the CLI.
+
+74 more cases later, `polyglot.ts` is 91.71% and `runner.ts` 87.98%, and the
+sweep is **87.21%** - above the 85.61% that 0.4.0 finished at. The lesson is not
+"write more tests". It is that a suite can be thorough about the thing it was
+written to test and silent about the thing underneath it, and that testing what
+a reader does with Python says nothing about what its cursor does at the end of
+a file. Coverage said those lines ran. They did run - through the front door,
+with the values the front door supplies.
 
 ## Consequences
 

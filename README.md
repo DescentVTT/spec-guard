@@ -773,8 +773,8 @@ prebuilt binary and is never a runtime dependency.
 ### Mutation testing
 
 Coverage says a line ran. It does not say an assertion would notice if the line
-behaved differently. This repository measures the difference: **85.61%** of
-3,493 mutants are killed in CI, against high line coverage.
+behaved differently. This repository measures the difference: **87.21%** of
+4,512 mutants are killed in CI, against high line coverage.
 
 That gap is the point. The first run scored 77.23%, and the weakest file was the
 reporter at 65.48% - not because it lacked tests, but because its tests were
@@ -792,23 +792,25 @@ quoted above; a full sweep is also what publishes the cache the branches start
 from, so an incremental verdict can never be built on another incremental
 verdict.
 
-The full sweep was 6m54s at 2,118 mutants and is 15m51s at 3,493. That growth is
-why the tiers exist: a check that gets quietly more expensive every release is a
-check somebody eventually proposes lowering.
+The full sweep was 6m54s at 2,118 mutants, 15m51s at 3,493, and is 22m11s at
+4,512. That growth is why the tiers exist: a check that gets quietly more
+expensive every release is a check somebody eventually proposes lowering.
 
 Run it locally with `npm run test:mutation` if you like, but do not calibrate
 anything on the result: on the Windows machine this was developed on the same
-suite takes over two hours against 16 minutes hosted, and it scores *higher*,
+suite takes over two hours against 22 minutes hosted, and it scores *higher*,
 because far more mutants hang there and Stryker counts a hang as a kill. Linux
 CI is the measurement.
 
-Five cautionary tales are in [ADR-0003](docs/adr/0003-mutation-testing.md): a
+Six cautionary tales are in [ADR-0003](docs/adr/0003-mutation-testing.md): a
 run whose score was pure fiction because the mutants were never activated, a
 tuning knob that lifted the score six points without adding a test, the platform
 gap above, the baseline being re-anchored when a tokenizer arrived, and a score
 that rose partly because code carrying hard-to-kill mutants was deleted rather
-than because tests improved - along with the real bug that chasing the gate
-uncovered.
+than because tests improved, and the 0.5.0 sweep that failed the build at 83.77%
+because a suite can be thorough about the thing it was written to test and
+silent about the machinery underneath it - along with the real bug that chasing
+the gate uncovered.
 
 ## Requirements
 
