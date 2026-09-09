@@ -596,6 +596,21 @@ was 379-1039 ms - wide enough that the two are not really distinguishable at
 that size. The order-of-magnitude differences at the ends of the table are the
 part worth trusting.
 
+0.5.0 added four language analysers, a scope probe on every assertion and a
+baseline pass, so the obvious question is what that cost. Both versions were run
+against the same synthetic 1,000-file tree, alternating rounds inside one
+process so that this machine's load - which varies by a factor of two over a
+session - falls on both equally:
+
+| | median | min |
+| --- | --- | --- |
+| 0.4.0 | 908.8 ms | 493.7 ms |
+| 0.5.0 | 913.4 ms | 496.6 ms |
+
+0.5% apart, against a run-to-run spread far wider than that. The two versions
+also returned identical counts for all five assertions, which is the more
+useful half of the result.
+
 Two honest caveats:
 
 - **The reported engine is the one that ran, not the one available.** On a small
