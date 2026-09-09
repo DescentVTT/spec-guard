@@ -500,3 +500,19 @@ describe('what a module pattern covers', () => {
     expect(byFile['docs/whole.md']).toBe(1);
   });
 });
+
+describe('a namespace that starts with a keyword', () => {
+  it('does not mistake staticfiles for using static', () => {
+    // `eat('static')` matched the first six characters and the dependency came
+    // back as `files`. Word boundaries, not prefixes.
+    expect(specifiers('using staticfiles.Config;\n', 'a.cs')).toEqual(['staticfiles.Config']);
+  });
+
+  it('still reads a real using static', () => {
+    expect(specifiers('using static System.Math;\n', 'a.cs')).toEqual(['System.Math']);
+  });
+
+  it('does not mistake a crate named extern_helper for extern crate', () => {
+    expect(specifiers('use externals::helper;\n', 'a.rs')).toEqual(['externals::helper']);
+  });
+});

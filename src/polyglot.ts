@@ -176,6 +176,19 @@ class Reader {
     return true;
   }
 
+  /**
+   * Eats a word only when it really is the whole word.
+   *
+   * `eat('static')` also matches the first six characters of a namespace called
+   * `staticfiles`, and would then read the dependency as `files`.
+   */
+  keyword(word: string): boolean {
+    if (!this.text.startsWith(word, this.index)) return false;
+    if (/[A-Za-z0-9_]/.test(this.text[this.index + word.length] ?? '')) return false;
+    this.index += word.length;
+    return true;
+  }
+
   identifier(): string {
     IDENTIFIER.lastIndex = this.index;
     const match = IDENTIFIER.exec(this.text);
@@ -473,7 +486,7 @@ function readCsharp(collector: Collector): void {
     reader.index = match.index + match[0].length;
     reader.skipSpace();
 
-    if (reader.eat('static')) reader.skipSpace();
+    if (reader.keyword('static')) reader.skipSpace();
 
     let target = reader.dotted();
     reader.skipSpace();
