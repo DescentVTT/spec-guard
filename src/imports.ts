@@ -24,9 +24,10 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
 import { toPosix } from './glob.js';
+import { analyzePolyglot, languageFor, normalizeModule, POLYGLOT_EXTENSIONS } from './polyglot.js';
 
-/** Extensions this analyser understands. Anything else is reported as skipped. */
-export const ANALYSABLE_EXTENSIONS: ReadonlySet<string> = new Set([
+/** Extensions the JavaScript tokenizer below reads. */
+export const JS_EXTENSIONS: ReadonlySet<string> = new Set([
   '.js',
   '.mjs',
   '.cjs',
@@ -37,7 +38,16 @@ export const ANALYSABLE_EXTENSIONS: ReadonlySet<string> = new Set([
   '.tsx',
 ]);
 
-export type ReferenceKind = 'import' | 'export' | 'require' | 'dynamic-import';
+/**
+ * Every extension whose dependencies spec-guard can read.
+ *
+ * Anything else is reported as skipped rather than analysed, which is the
+ * difference between "no file here imports the database" and "no file here that
+ * we could read imports the database".
+ */
+export const ANALYSABLE_EXTENSIONS: ReadonlySet<string> = new Set([...JS_EXTENSIONS, ...POLYGLOT_EXTENSIONS.keys()]);
+
+export type ReferenceKind = 'import' | 'export' | 'require' | 'dynamic-import' | 'use' | 'using';
 
 export interface ModuleReference {
   /** The specifier exactly as written, e.g. `../db/client.js`. */
@@ -49,7 +59,7 @@ export interface ModuleReference {
   column: number;
 }
 
-export type NoteKind = 'dynamic' | 'unreadable';
+export type NoteKind = 'dynamic' | 'unreadable' | 'truncated';
 
 export interface AnalysisNote {
   kind: NoteKind;
@@ -485,8 +495,8 @@ export function extractReferences(tokens: readonly Token[], file: string): FileI
   return { references, notes };
 }
 
-/** Tokenizes and extracts, reporting a lost scan as an unreadable note. */
-export function analyzeSource(source: string, file: string): FileImports {
+/** Tokenizes and extracts JavaScript, reporting a lost scan as an unreadable note. */
+export function analyzeJavaScript(source: string, file: string): FileImports {
   const { tokens, desynced } = tokenize(source);
   const result = extractReferences(tokens, file);
   if (desynced) {
@@ -499,6 +509,19 @@ export function analyzeSource(source: string, file: string): FileImports {
     });
   }
   return result;
+}
+
+/**
+ * Reads a file's dependencies, whichever of the supported languages it is in.
+ *
+ * The single place the language is decided. Callers upstream of here - the
+ * runner, the report, the directive - do not know or care which analyser ran,
+ * which is what keeps `@assert-import-absence` one assertion rather than one
+ * per language.
+ */
+export function analyzeSource(source: string, file: string): FileImports {
+  const language = languageFor(file);
+  return language ? analyzePolyglot(source, file, language) : analyzeJavaScript(source, file);
 }
 
 /* ------------------------------------------------------------- normalisation */
@@ -514,6 +537,18 @@ export function resolveSpecifier(specifier: string, importingFile: string): stri
   if (!specifier.startsWith('./') && !specifier.startsWith('../')) return specifier;
   const directory = path.posix.dirname(toPosix(importingFile));
   return path.posix.normalize(path.posix.join(directory, specifier));
+}
+
+/**
+ * The matchable form of a specifier, whatever language it came from.
+ *
+ * The counterpart of `analyzeSource`: one entry point, so the runner matches
+ * module patterns without a switch on the file extension.
+ */
+export function resolveModule(specifier: string, importingFile: string): string {
+  const file = toPosix(importingFile);
+  const language = languageFor(file);
+  return language ? normalizeModule(specifier, file, language) : resolveSpecifier(specifier, file);
 }
 
 /* -------------------------------------------------------------------- index */

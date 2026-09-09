@@ -72,14 +72,30 @@ export {
 export type { ScopeLedger, ScopePolicy, SkippedPath, SkipReason } from './scope.js';
 
 export {
+  analyzeJavaScript,
   analyzeSource,
   createImportIndex,
   extractReferences,
+  resolveModule,
   resolveSpecifier,
   tokenize,
   ANALYSABLE_EXTENSIONS,
+  JS_EXTENSIONS,
 } from './imports.js';
-export type { AnalysisNote, FileImports, ImportIndex, ModuleReference, ReferenceKind } from './imports.js';
+export type { AnalysisNote, FileImports, ImportIndex, ModuleReference, NoteKind, ReferenceKind } from './imports.js';
+
+export {
+  analyzePolyglot,
+  expandUsePath,
+  languageFor,
+  literalValue,
+  normalizeModule,
+  MAX_EXPANSION,
+  POLYGLOT_EXTENSIONS,
+} from './polyglot.js';
+export type { ModuleLanguage } from './polyglot.js';
+
+export { lineStarts, locate, maskRanges } from './text.js';
 
 export { maskCode, parseAttributes, parseDirectives } from './parser.js';
 export type { ParseContext } from './parser.js';

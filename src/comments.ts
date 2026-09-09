@@ -170,25 +170,46 @@ export function syntaxFor(filePath: string): CommentSyntax | null {
   return BY_EXTENSION.get(path.extname(filePath).toLowerCase()) ?? null;
 }
 
+/**
+ * The same profiles, addressed by name instead of by extension.
+ *
+ * For callers that already know what language they are looking at and must not
+ * re-derive it from the path. Two ways of answering "which language is this"
+ * is one more than the number that can be right.
+ */
+const BY_NAME: ReadonlyMap<string, CommentSyntax> = new Map(
+  [...BY_EXTENSION.values()].map((syntax) => [syntax.name, syntax] as const),
+);
+
+export function syntaxNamed(name: string): CommentSyntax | null {
+  return BY_NAME.get(name) ?? null;
+}
+
 /** Half-open [start, end) offsets that are comment text. */
 export type CommentRange = readonly [number, number];
 
+/** Where a literal or block ended, and whether it was actually closed. */
+interface Span {
+  end: number;
+  closed: boolean;
+}
+
 /** Where the literal opened at `at` ends, or the end of the file. */
-function endOfString(source: string, at: number, rule: StringRule): number {
+function endOfString(source: string, at: number, rule: StringRule): Span {
   let index = at + rule.open.length;
   while (index < source.length) {
     if (rule.escape && source[index] === '\\') {
       index += 2;
       continue;
     }
-    if (source.startsWith(rule.close, index)) return index + rule.close.length;
+    if (source.startsWith(rule.close, index)) return { end: index + rule.close.length, closed: true };
     index += 1;
   }
-  return source.length;
+  return { end: source.length, closed: false };
 }
 
 /** Where the block comment opened at `at` ends, or the end of the file. */
-function endOfBlock(source: string, at: number, pair: readonly [string, string], nested: boolean): number {
+function endOfBlock(source: string, at: number, pair: readonly [string, string], nested: boolean): Span {
   const [open, close] = pair;
   let index = at + open.length;
   let depth = 1;
@@ -205,15 +226,32 @@ function endOfBlock(source: string, at: number, pair: readonly [string, string],
     }
     index += 1;
   }
-  return index;
+  return { end: index, closed: depth === 0 };
+}
+
+/** Everything one pass over a source file knows about its comments and literals. */
+export interface LexResult {
+  /** Half-open ranges of comment text, in ascending order. */
+  comments: CommentRange[];
+  /** Half-open ranges of string literals, delimiters included. */
+  strings: CommentRange[];
+  /**
+   * True when a string or block comment ran off the end of the file.
+   *
+   * The ranges are still returned - reading an unterminated literal to EOF is
+   * what a compiler does - but everything after the opening delimiter was
+   * swallowed by it, so anything derived from this scan is missing whatever
+   * lived in there. Callers that draw conclusions from absence must say so.
+   */
+  unterminated: boolean;
 }
 
 /**
- * Finds every comment in the source.
+ * Finds every comment and string literal in the source.
  *
- * One pass, tracking strings so that comment markers inside them are ignored.
- * An unterminated comment or string runs to the end of the file, which matches
- * how a compiler would read it.
+ * One pass, because the two questions are the same question: a comment marker
+ * inside a literal is not a comment, and a quote inside a comment does not open
+ * one. Two passes would need to answer each other's question to be right.
  *
  * The scan is written so that it cannot stand still: whatever the branches
  * below decide, the loop advances by at least one character. That guarantee is
@@ -221,8 +259,10 @@ function endOfBlock(source: string, at: number, pair: readonly [string, string],
  * goes - standing still here would not spin, it would eat memory until the
  * process died, on somebody's file, in somebody's CI.
  */
-export function commentRanges(source: string, syntax: CommentSyntax): CommentRange[] {
-  const ranges: CommentRange[] = [];
+export function lexRanges(source: string, syntax: CommentSyntax): LexResult {
+  const comments: CommentRange[] = [];
+  const strings: CommentRange[] = [];
+  let unterminated = false;
   let index = 0;
 
   while (index < source.length) {
@@ -234,18 +274,25 @@ export function commentRanges(source: string, syntax: CommentSyntax): CommentRan
     // sits in the branch that needs it, so none of them runs speculatively.
     const stringRule = syntax.strings.find((rule) => startsWith(rule.open));
     if (stringRule) {
-      index = endOfString(source, start, stringRule);
+      const span = endOfString(source, start, stringRule);
+      index = span.end;
+      strings.push([start, index]);
+      if (!span.closed) unterminated = true;
     } else {
       const lineToken = syntax.line.find((token) => startsWith(token));
       if (lineToken !== undefined) {
+        // A line comment is closed by the end of the file as legitimately as by
+        // a newline, so running off the end is not a lost scan.
         const newline = source.indexOf('\n', start);
         index = newline === -1 ? source.length : newline;
-        ranges.push([start, index]);
+        comments.push([start, index]);
       } else {
         const blockPair = syntax.block.find(([open]) => startsWith(open));
         if (blockPair) {
-          index = endOfBlock(source, start, blockPair, syntax.nested);
-          ranges.push([start, index]);
+          const span = endOfBlock(source, start, blockPair, syntax.nested);
+          index = span.end;
+          comments.push([start, index]);
+          if (!span.closed) unterminated = true;
         }
       }
     }
@@ -254,7 +301,12 @@ export function commentRanges(source: string, syntax: CommentSyntax): CommentRan
     if (index <= start) index = start + 1;
   }
 
-  return ranges;
+  return { comments, strings, unterminated };
+}
+
+/** The comment ranges alone, for callers that only need to mask them. */
+export function commentRanges(source: string, syntax: CommentSyntax): CommentRange[] {
+  return lexRanges(source, syntax).comments;
 }
 
 /**

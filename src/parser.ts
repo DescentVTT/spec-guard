@@ -15,6 +15,7 @@
  *     silently-passing invariant.
  */
 
+import { lineStarts, locate } from './text.js';
 import type { Directive, DirectiveError, DirectiveKind, ParseResult, SourceLocation } from './types.js';
 
 const KINDS = new Set<string>([
@@ -130,26 +131,6 @@ export function maskCode(source: string): string {
   }
 
   return chars.join('');
-}
-
-/** Pre-computed line starts, for O(log n) offset -> line/column resolution. */
-function lineStarts(source: string): number[] {
-  const starts = [0];
-  for (let i = 0; i < source.length; i++) {
-    if (source[i] === '\n') starts.push(i + 1);
-  }
-  return starts;
-}
-
-function locate(starts: number[], index: number): { line: number; column: number } {
-  let low = 0;
-  let high = starts.length - 1;
-  while (low < high) {
-    const mid = (low + high + 1) >> 1;
-    if ((starts[mid] as number) <= index) low = mid;
-    else high = mid - 1;
-  }
-  return { line: low + 1, column: index - (starts[low] as number) + 1 };
 }
 
 function unescape(value: string): string {

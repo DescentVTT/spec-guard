@@ -22,8 +22,9 @@ import { createExcludeMatcher, expandSpecPatterns, toPosix } from "./glob.js";
 import {
   ANALYSABLE_EXTENSIONS,
   createImportIndex,
-  resolveSpecifier,
+  resolveModule,
   type ImportIndex,
+  type ModuleReference,
 } from "./imports.js";
 import { parseDirectives } from "./parser.js";
 import {
@@ -562,6 +563,16 @@ async function prepareAssertion(
   };
 }
 
+/** How each kind of reference is spelled in a report snippet. */
+const IMPORT_VERBS: Record<ModuleReference["kind"], string> = {
+  import: "import",
+  export: "export",
+  require: "require",
+  "dynamic-import": "import",
+  use: "use",
+  using: "using",
+};
+
 /**
  * Counts the files in scope that depend on the requested module.
  *
@@ -606,7 +617,7 @@ async function executeImportAssertion(
   const skipped = enumeration.files.length - analysable.length;
   if (skipped > 0) {
     warnings.push(
-      `analysed ${analysable.length} of ${enumeration.files.length} files; ${skipped} are not JavaScript or TypeScript`,
+      `analysed ${analysable.length} of ${enumeration.files.length} files; ${skipped} ${skipped === 1 ? "is" : "are"} in a language whose imports spec-guard cannot read`,
     );
   }
 
@@ -626,8 +637,12 @@ async function executeImportAssertion(
 
     const hit = analysis.references.find((reference) => {
       if (reference.typeOnly && !query.includeTypes) return false;
-      return matchesModule(
-        resolveSpecifier(reference.specifier, file.relativePath),
+      // Both forms are tried: the resolved one so `module="app/db/**"` works
+      // everywhere, and the raw one so a Python or C# author can write the
+      // dotted path they see in their own source and still be understood.
+      return (
+        matchesModule(resolveModule(reference.specifier, file.relativePath)) ||
+        matchesModule(reference.specifier)
       );
     });
     if (hit) {
@@ -635,7 +650,7 @@ async function executeImportAssertion(
         file: file.relativePath,
         line: hit.line,
         column: hit.column,
-        text: `${hit.kind === "export" ? "export" : "import"} ${hit.specifier}`,
+        text: `${IMPORT_VERBS[hit.kind]} ${hit.specifier}`,
         count: 1,
       });
     }
