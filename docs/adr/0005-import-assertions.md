@@ -233,6 +233,13 @@ resolution algorithm is how a tool starts being confidently wrong.
 - Not a resolver, not a type checker, not a linter.
 - Not multi-language. JavaScript and TypeScript only, and files with other
   extensions are reported as skipped rather than treated as clean.
+  **Superseded in 0.5.0**, which added Python, Go, Rust and C# - not with four
+  more tokenizers but by masking the source with the comment lexer and reading
+  statements off what is left. The reasoning, and the four things a real parser
+  would see that this does not, are in [ADR-0008](0008-polyglot-imports.md).
+  Files in a language still not covered remain reported rather than treated as
+  clean, and an assertion where *none* of the files can be read now fails
+  instead of passing on an empty analysis.
 - Not a replacement for the string assertions; a different question.
 
 ## Risks
