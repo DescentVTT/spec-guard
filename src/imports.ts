@@ -364,10 +364,17 @@ export function tokenize(source: string): TokenizeResult {
 
     if (isIdentifierStart(char)) {
       const startColumn = column(index);
-      let scan = index;
+      // Starts *past* the first character, which is already known to be an
+      // identifier start. That makes progress unconditional rather than a
+      // consequence of every start character also being a part character - a
+      // relation that holds today and that nothing enforces. This used to be an
+      // `if (scan === index) scan += 1` guard afterwards, which was unreachable
+      // and therefore untestable, and which would only have caught the problem
+      // after the loop had already declined to move. A zero-width word here
+      // does not spin, it appends a token per iteration until the process dies:
+      // the same failure the comment scanner is written to make impossible.
+      let scan = index + 1;
       while (scan < source.length && isIdentifierPart(source[scan] as string)) scan += 1;
-      /* c8 ignore next -- belt and braces: a word must consume at least one character */
-      if (scan === index) scan += 1;
       tokens.push({ type: 'word', value: source.slice(index, scan), line, column: startColumn });
       index = scan;
       continue;

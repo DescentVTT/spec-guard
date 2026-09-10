@@ -177,6 +177,11 @@ than the string-searching code the old figure was calibrated on: branches inside
 a state machine that no input reaches, and counters whose value never escapes.
 `src/imports.ts` sits at 73.62% while every other file is between 84% and 96%.
 
+> **This paragraph was wrong, and 0.5.1 below says how.** The claim that a
+> tokenizer inherently carries more indistinguishable mutants was drawn from
+> checking a handful of them by hand and generalising. Most of that 26% was
+> reachable and simply untested.
+
 The headroom is 0.63 rather than the ~1.5 used for the previous two settings.
 That is deliberate: a marginal regression should trip this gate. If run-to-run
 variance turns out to trip it instead, the honest fix is to lower it again with
@@ -362,6 +367,54 @@ written to test and silent about the thing underneath it, and that testing what
 a reader does with Python says nothing about what its cursor does at the end of
 a file. Coverage said those lines ran. They did run - through the front door,
 with the values the front door supplies.
+
+### 0.5.1: the excuse that had been sitting there for three releases
+
+`imports.ts` had been the lowest-scoring file since 0.2.0, and ADR-0003 had an
+explanation for it: a tokenizer carries branches inside a state machine that no
+input reaches and counters whose value never escapes, so its score is
+structurally lower than string-searching code. That explanation was written
+after hand-checking a few of the survivors, and it was believable enough that it
+stood for three releases while the file sat at 73.62%.
+
+It was mostly wrong. 114 targeted tests took `src/imports.ts` from **73.74% to
+91.94%**, killing 113 mutants and closing all 28 lines that no test executed.
+
+What the real gap was:
+
+- **Every other test of the analyser asserts on module references**, which is
+  blind to almost everything the tokenizer does. A template resumption that
+  loses its place, a regex escape that skips one character too few, a `$` that
+  is not a substitution - none of those change the reference list for any file
+  anyone thought to write a test for. The whole second half of the template
+  scanner, the path that handles `` `${a}${b}` ``, had **no coverage at all**.
+- **A third of the survivors were table entries.** `REGEX_AFTER_WORD`,
+  `REGEX_AFTER_PUNCT` and `JS_EXTENSIONS` mutate one string at a time, and
+  nothing asserted the tables. Those are not incidental constants - `<` being
+  *absent* from the punctuation list is a documented decision that stops JSX
+  closing tags from starting a regular expression, and a hole that has to stay a
+  hole. They are now asserted entry by entry.
+
+The fix was a test file that treats the tokenizer as a thing with an output
+rather than as a step on the way to something else. 11 of 11 reintroduced
+defects were caught, including the two that the previous suite would have let
+through in silence: a second `${` going unnoticed, and a dropped table entry.
+
+One structural change came with it. The word branch guarded against a
+zero-width read with an `if (scan === index) scan += 1` afterwards, which was
+unreachable - every identifier-start character is also an identifier-part
+character - and therefore untestable. It now starts the scan one character in,
+so progress is unconditional by construction rather than a consequence of a
+relation between two predicates that nothing enforces. Verified
+behaviour-preserving on 53.6 MB of real JavaScript: 17,491 references and 6
+unreadable files, identical before and after.
+
+The lesson is the one this document keeps relearning in different clothes. "The
+remaining mutants are equivalent" is the rationalisation available to anyone who
+does not want to write tests, and this ADR says so at line 172. It then made a
+softer version of the same move - "this *kind of code* carries more equivalent
+mutants" - and that version survived three releases because it sounded like
+engineering judgement rather than an excuse.
 
 ## Consequences
 
