@@ -422,6 +422,13 @@ That is the difference between the two claims. "These are equivalent" was
 checked and turned out to be true for seven of eight; the version of it that
 stood for three releases had not been checked at all.
 
+**The floor moves to 89**, against a CI measurement of **89.84%** over 4,509
+mutants - the largest single jump this project has recorded, and the only one
+that came from a single file. 0.84 of headroom, in line with the 0.61 and 0.63
+used for the previous two settings. Every file is now above 83%, where the
+spread used to run from 73% to 96%; `src/engine.ts` at 83.65% is the new lowest,
+and this document is no longer offering a reason why that is fine.
+
 The lesson is the one this document keeps relearning in different clothes. "The
 remaining mutants are equivalent" is the rationalisation available to anyone who
 does not want to write tests, and this ADR says so at line 172. It then made a

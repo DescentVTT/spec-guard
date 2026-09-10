@@ -56,11 +56,16 @@ export default {
   // measures so that losing ground fails the build, while ordinary refactoring
   // does not trip it.
   //
-  // Re-anchored to 85 in 0.4.0 against a CI measurement of 85.61%. The scope
-  // rewrite raised the score by deleting more than it added - the ripgrep JSON
-  // path and the batching apparatus went with it - and by closing a hole in the
-  // reporter that had twenty-six mutants no test executed. Leaving the gate at
-  // 84 would have banked that as slack; 0.61 of headroom keeps it tight enough
-  // that a marginal regression still trips it. See ADR-0003.
-  thresholds: { high: 90, low: 80, break: 85 },
+  // Re-anchored to 89 in 0.5.1 against a CI measurement of 89.84%. The move from
+  // 85 is almost entirely one file: src/imports.ts went from 73.74% to 92.42%
+  // once the tokenizer was tested as a thing with an output rather than as a
+  // step towards a list of module references. Every file is now above 83%,
+  // where the spread used to run from 73% to 96%.
+  //
+  // 0.84 of headroom, in line with the 0.61 and 0.63 used for the previous two
+  // settings: tight enough that a marginal regression trips it. If run-to-run
+  // variance trips it instead, the honest fix is to lower it again with that
+  // evidence recorded, not to widen it now against a problem that has not
+  // happened. See ADR-0003.
+  thresholds: { high: 90, low: 80, break: 89 },
 };
