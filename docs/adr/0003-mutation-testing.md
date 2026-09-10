@@ -409,6 +409,19 @@ relation between two predicates that nothing enforces. Verified
 behaviour-preserving on 53.6 MB of real JavaScript: 17,491 references and 6
 unreadable files, identical before and after.
 
+**What is left, and how it was checked.** 51 survivors remain. Eight of them
+are the same shape - `while (index < source.length)` loosened to `<=` - and
+rather than argue that past the end of the input every branch is false, each
+occurrence was mutated *on its own* and both tokenizers were run over 5,488
+inputs: every prefix of a real source file, twenty-nine inputs designed to end
+mid-construct, and 2,500 files from `node_modules`, comparing the whole token
+stream and the desynced flag. Seven are equivalent. The eighth - the main loop -
+is not, and is killed by `tokenize('')`, which is the cheapest test in the file.
+
+That is the difference between the two claims. "These are equivalent" was
+checked and turned out to be true for seven of eight; the version of it that
+stood for three releases had not been checked at all.
+
 The lesson is the one this document keeps relearning in different clothes. "The
 remaining mutants are equivalent" is the rationalisation available to anyone who
 does not want to write tests, and this ADR says so at line 172. It then made a

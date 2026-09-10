@@ -523,3 +523,52 @@ describe('the extension tables', () => {
     );
   });
 });
+
+describe('a well-formed file never reports a lost scan', () => {
+  // The stream assertions above say what the tokens are; these say the scan
+  // still knows where it is. A mutant that mistakes a lone `$` for a
+  // substitution produces the same tokens and an unbalanced template stack, so
+  // only the flag catches it.
+  it.each([
+    '`plain`',
+    '`a$b`',
+    '`cost: $`',
+    '`${a}b$c`',
+    '`${a}${b}`',
+    '`x${a}y${b}z`',
+    '`${`inner`}`',
+    '`${`a${b}c`}`',
+    '`${ {a: 1} }`',
+    'x = /[/]/; y',
+    'x = /a\/b/;',
+    "const u = 'http://example.com';",
+    'function f() { return { a: 1 }; }',
+    "import { A } from './a.js';",
+  ])('%s', (source) => {
+    expect(lost(source)).toBe(false);
+  });
+});
+
+describe('the extractor at the end of a file', () => {
+  it('ignores an import keyword with nothing after it', () => {
+    expect(specifiers('import')).toEqual([]);
+    expect(specifiers('const x = 1;\nrequire')).toEqual([]);
+  });
+
+  it('ignores require that is not a call', () => {
+    expect(specifiers("const r = require;\nconst s = require.cache;\n")).toEqual([]);
+  });
+
+  it('ignores an import call whose argument is not a literal', () => {
+    expect(specifiers('const m = import();\n')).toEqual([]);
+    expect(specifiers('const m = require();\n')).toEqual([]);
+  });
+
+  it('ignores an export that never reaches a specifier', () => {
+    expect(specifiers('export const a = 1;\nexport default b;\n')).toEqual([]);
+  });
+
+  it('reads an import whose clause spans lines', () => {
+    expect(specifiers("import {\n  A,\n  B,\n} from './a.js';\n")).toEqual(['./a.js']);
+  });
+});
