@@ -437,10 +437,10 @@ softer version of the same move - "this *kind of code* carries more equivalent
 mutants" - and that version survived three releases because it sounded like
 engineering judgement rather than an excuse.
 
-### After 0.5.1: every module, and what writing it down turned up
+### 0.5.1, continued: every module, and what writing it down turned up
 
-The previous section ended with `src/engine.ts` at 83.65% and no excuse offered.
-This one took every module to its ceiling. The point of recording it is not the
+The section above ended with `src/engine.ts` at 83.65% and no excuse offered.
+The rest of the same release took every module to its ceiling. The point of recording it is not the
 number; it is what happened on the way.
 
 **Four wrong answers, not four missing tests.** Each of these was found by

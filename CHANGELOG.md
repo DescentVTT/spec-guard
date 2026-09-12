@@ -5,11 +5,12 @@ All notable changes to this project are documented here. Versions follow
 may change in a minor release — each such change is listed under **Changed**
 with the flag that restores the previous behaviour.
 
-## Unreleased
+## 0.5.1
 
 Writing down what the code already claimed. Every module was driven to its
-honest mutation-testing ceiling, and the exercise turned up four wrong answers
-rather than four missing tests — which is the argument for doing it at all.
+honest mutation-testing ceiling, and the exercise turned up six wrong answers
+rather than six missing tests — which is the argument for doing it at all. No
+new features, and nothing a user has to change.
 
 ### Fixed
 
@@ -45,12 +46,32 @@ rather than four missing tests — which is the argument for doing it at all.
   `createCachedEngine` has always guaranteed.
 - `KINDS` and `ALLOWED_ATTRIBUTES` are exported from the parser, so the
   directive grammar can be asserted rather than restated.
-- **The mutation gate moves from 89 to 97**, against a CI measurement of 97.65%
-  over 4,299 mutants. Every module is above 95% and three are at 100%. The 101
-  mutants still alive have each been checked individually and produce
-  byte-identical output, so that figure is the ceiling rather than a way-point. See [ADR-0003](docs/adr/0003-mutation-testing.md), which also records
-  a Stryker limitation found on the way: a mutant that stops a test file
-  *loading* is reported as survived even though the suite is killing it.
+- **The mutation gate moves from 85 to 97**, against a CI measurement of 97.65%
+  over 4,299 mutants. Every module is above 95% and three are at 100%, where
+  0.5.0 ran from 73% to 96%. The 101 mutants still alive have each been applied
+  individually and produce byte-identical output, so that figure is the ceiling
+  rather than a way-point — and 29 that were assumed equivalent turned out not
+  to be, and are now tested. See
+  [ADR-0003](docs/adr/0003-mutation-testing.md), which also records a Stryker
+  limitation found on the way: a mutant that stops a test file *loading* is
+  reported as survived even though the suite is killing it.
+- **`src/imports.ts` went from 73.74% to 95.89%.** The tokenizer was tested as a
+  step towards a list of module references rather than as a thing with an
+  output, so a template resumption that lost its place, a regex escape that
+  skipped a character, and three lookup tables were all unpinned. One
+  behaviour-preserving change came with it: the word branch starts its scan one
+  character in, so progress is unconditional by construction rather than a
+  consequence of a relation nothing enforced. Verified identical on 53.6 MB of
+  real JavaScript.
+
+### Internal
+
+Not user-visible, but this is where the release's weight is: nine new test
+files, 1,770 tests against 1,206 at 0.5.0, 100% line coverage, and the analyser
+verified byte-identical to the published 0.5.0 across 6,976 files of real code.
+Thirty-five negative controls confirm the suite goes red for each defect above,
+and `scripts/mutation-equivalence.mjs` is in the repository so the equivalence
+measurement stays reproducible.
 
 ## 0.5.0
 

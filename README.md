@@ -611,6 +611,23 @@ session - falls on both equally:
 also returned identical counts for all five assertions, which is the more
 useful half of the result.
 
+0.5.1 replaced three hand-maintained "are these the same question" field lists
+with one, and the surviving version serialises the exclude set where the old one
+compared it by identity - a hot path made slower on purpose, so it was measured
+rather than assumed. Same tree, same alternating rounds:
+
+| | median | min |
+| --- | --- | --- |
+| 0.5.0 | 925.1 ms | 432.1 ms |
+| 0.5.1 | 830.6 ms | 428.5 ms |
+
+The medians are 10% apart and the minima are level, which is this machine's
+noise band doing most of the talking - the honest reading is "no regression",
+not "10% faster". The plausible mechanism for any real gain is that the runner
+now groups by the engine's own definition of a shared pass, so a group of five
+where two requests disagree is run as three and two rather than being refused
+whole and run as five. Counts identical across all five assertions, again.
+
 Two honest caveats:
 
 - **The reported engine is the one that ran, not the one available.** On a small
