@@ -115,9 +115,12 @@ function literalAt(masked: Masked, offset: number): string | null {
   while (low <= high) {
     const mid = (low + high) >> 1;
     const [start, end] = strings[mid] as CommentRange;
-    if (start === offset) return literalValue(masked.source.slice(start, end));
+    // Three-way, with the hit last. Testing for equality first made both
+    // remaining comparisons unfalsifiable: `start === offset` had already
+    // returned, so `<` and `<=` decided the same searches.
     if (start < offset) low = mid + 1;
-    else high = mid - 1;
+    else if (start > offset) high = mid - 1;
+    else return literalValue(masked.source.slice(start, end));
   }
   return null;
 }
@@ -539,8 +542,10 @@ function readCsharp(collector: Collector): void {
 export function normalizeModule(specifier: string, importingFile: string, language: ModuleLanguage): string {
   if (language === 'go') return specifier;
   if (language === 'rust') return specifier.replace(/::/g, '/');
-  if (language === 'csharp') return specifier.replace(/\./g, '/');
 
+  // No branch for C#. A C# specifier is dotted and never relative, so the
+  // general case below already returns exactly what a `language === 'csharp'`
+  // branch returned - it was a special case that did nothing special.
   if (!specifier.startsWith('.')) return specifier.replace(/\./g, '/');
   let level = 0;
   while (specifier[level] === '.') level += 1;
