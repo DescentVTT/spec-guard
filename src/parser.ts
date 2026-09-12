@@ -27,7 +27,6 @@ export const KINDS = new Set<string>([
   'assert-import-count',
 ]);
 
-/** Attributes each directive kind accepts. */
 /**
  * Which attributes each directive accepts.
  *

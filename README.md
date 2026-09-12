@@ -773,9 +773,9 @@ prebuilt binary and is never a runtime dependency.
 ### Mutation testing
 
 Coverage says a line ran. It does not say an assertion would notice if the line
-behaved differently. This repository measures the difference: **89.84%** of
-4,509 mutants are killed in CI, against high line coverage, with no file below
-83%.
+behaved differently. This repository measures the difference: **96.07%** of
+4,331 mutants are killed in CI, against high line coverage, with no file below
+94%.
 
 That gap is the point. The first run scored 77.23%, and the weakest file was the
 reporter at 65.48% - not because it lacked tests, but because its tests were
@@ -785,7 +785,21 @@ test still passed. Exact whole-output comparison took it to 87.30%. The engine
 and the walker were then rewritten for testability rather than papered over with
 more tests, which is what moved them from 75%/78% to 83%/93%.
 
-CI runs it in **two tiers**, both gated at 89%. Branches and pull requests run
+The most recent pass took every module to its ceiling, and its value was not the
+number. Writing down four contracts that had only ever been checked through
+their effect on a match count turned up four wrong answers: two assertions on
+one symbol answered each other's comment handling, an unreadable directory went
+unreported on any repository small enough to scan in process, snippets from CRLF
+files carried a carriage return into the terminal, and an invalid pattern was
+reported with its error message twice. Seventeen branches turned out to be
+unable to decide anything and were deleted rather than pinned, and thirty-three
+negative controls - each defect reintroduced one at a time - confirm the suite
+goes red for every one. All of it is in
+[ADR-0003](docs/adr/0003-mutation-testing.md), including a Stryker limitation
+found on the way: a mutant that stops a test file *loading* is reported as
+survived even though the suite is in fact killing it.
+
+CI runs it in **two tiers**, both gated at 95%. Branches and pull requests run
 Stryker incrementally, reusing the verdict for any mutant whose source and
 covering tests are both unchanged. Pushes to `main`, the weekly schedule and
 manual runs do the full sweep, which is the authoritative number and the one
@@ -793,8 +807,8 @@ quoted above; a full sweep is also what publishes the cache the branches start
 from, so an incremental verdict can never be built on another incremental
 verdict.
 
-The full sweep was 6m54s at 2,118 mutants, 15m51s at 3,493, and is 20m56s at
-4,509. That growth is why the tiers exist: a check that gets quietly more
+The full sweep was 6m54s at 2,118 mutants, 15m51s at 3,493, and is 16m29s at
+4,331. That growth is why the tiers exist: a check that gets quietly more
 expensive every release is a check somebody eventually proposes lowering.
 
 Run it locally with `npm run test:mutation` if you like, but do not calibrate
@@ -803,7 +817,7 @@ suite takes over two hours against 21 minutes hosted, and it scores *higher*,
 because far more mutants hang there and Stryker counts a hang as a kill. Linux
 CI is the measurement.
 
-Seven cautionary tales are in [ADR-0003](docs/adr/0003-mutation-testing.md): a
+Eight cautionary tales are in [ADR-0003](docs/adr/0003-mutation-testing.md): a
 run whose score was pure fiction because the mutants were never activated, a
 tuning knob that lifted the score six points without adding a test, the platform
 gap above, the baseline being re-anchored when a tokenizer arrived, and a score
@@ -813,7 +827,8 @@ because a suite can be thorough about the thing it was written to test and
 silent about the machinery underneath it, and the excuse that let the tokenizer
 sit at 73% for three releases because "that kind of code carries more equivalent
 mutants" sounded like judgement rather than an unchecked assumption - along with
-the real bug that chasing the gate uncovered.
+the real bugs that chasing the gate uncovered, and a class of mutant the runner
+reports as survived while the suite is in fact killing it.
 
 ## Requirements
 

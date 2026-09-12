@@ -131,9 +131,17 @@ describe('the exclude matcher', () => {
   });
 
   it('never tests the empty prefix of a path', () => {
-    // The ancestor loop stops at depth 1. Running it to depth 0 tests the empty
-    // string, which an empty pattern matches - so every path would be excluded.
-    expect(createExcludeMatcher([''])('src/a.ts')).toBe(false);
+    // The ancestor loop stops at depth 1, because the empty string is not an
+    // ancestor of anything. Running it to depth 0 tests `''`, and a pattern
+    // that matches the empty string then excludes every file in the tree - an
+    // assertion that inspects nothing and passes.
+    //
+    // `{dist/**,}` is that pattern, and the trailing comma that produces it is
+    // an ordinary typo. It has to contain a slash to reach this branch at all.
+    const excluded = createExcludeMatcher(['{dist/**,}']);
+
+    expect(excluded('dist/a.js')).toBe(true);
+    expect(excluded('src/a.ts')).toBe(false);
   });
 });
 

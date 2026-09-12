@@ -119,6 +119,29 @@ describe('constructs one character away from an import', () => {
     expect(specifiers("const a = `x${ y }z`;\nimport './real.js';")).toEqual(['./real.js']);
   });
 
+  it('does not read a string whose contents are the word import', () => {
+    // The extractor only considers *word* tokens. Dropping that filter makes
+    // the contents of a string literal into a keyword, and two adjacent
+    // strings into an import of the second.
+    expect(specifiers("const a = 'import'\n'./evil.js'\n")).toEqual([]);
+  });
+
+  it('imports the module named "." rather than mistaking it for a member access', () => {
+    // `import.meta` is recognised by the punctuation after `import`. A string
+    // whose contents happen to be a dot is not punctuation.
+    expect(specifiers("import '.';")).toEqual(['.']);
+  });
+
+  it('imports the module named "(" rather than mistaking it for a call', () => {
+    expect(specifiers("import '(';")).toEqual(['(']);
+  });
+
+  it('does not mark an import of a module named "type" as type-only', () => {
+    // The word after `import` decides. A string is not that word.
+    expect(specifiers("import 'type';")).toEqual(['type']);
+    expect(typeOnly("import 'type';")).toBe(false);
+  });
+
   it('ends a line comment at the newline', () => {
     expect(specifiers("// import './hidden.js';\nimport './real.js';")).toEqual(['./real.js']);
   });

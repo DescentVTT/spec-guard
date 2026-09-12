@@ -484,12 +484,19 @@ pair, and every test file that imports the module fails to load.
     TypeError: Iterator value undefined is not an entry object
     Test Files  1 failed (1)
 
-Stryker ran the whole suite for each of them - the log says so - and reported
-Survived anyway. The reason is that a mutant which stops a test file *loading*
-produces no test results at all, and no failing test reads to the runner as no
-test having killed it. On the same lines, `StringLiteral` and `ArrayDeclaration`
-mutants are killed normally, which rules out the simpler explanation that
-module-level code is never re-executed.
+Stryker ran the whole suite for each of them - the log says "Ran all tests for
+this mutant" - and reported Survived anyway. Reproduced locally with
+`--mutate 'src/comments.ts:140-185'`, so it is not a property of the hosted
+runner.
+
+What is measured is the contradiction. The explanation that fits it is that a
+mutant which stops a test file *loading* produces no test *results*, and zero
+failing tests reads to the runner as no test having killed it - vitest reports
+that case as "1 failed | no tests". What rules out the simpler explanation, that
+module-level code is never re-executed under a mutant, is that on the very same
+lines `StringLiteral` and `ArrayDeclaration` mutants are killed normally: 156 of
+the 184 static mutants in this file die, and only the ones that break the import
+survive.
 
 Two things follow. The first is that the table is now plain data filled in by a
 loop, which is easier to read and contains no such callback; that is a change
@@ -499,26 +506,36 @@ have removed all 473 static mutants from the score, and 414 of them are killed
 honestly - discarding those to hide 59 artefacts hides more than it reveals.
 Where a static survivor is a false one, it is better to say so here.
 
-**What was deleted rather than tested.** Fourteen branches turned out to be
+**What was deleted rather than tested.** Seventeen branches turned out to be
 unable to decide anything, and deleting a branch is a cleaner kill than pinning
 it. The recurring shape was a presence check in front of a comparison that
 already handled absence: `bounds.min !== undefined && count < bounds.min` guards
 nothing, because `count < undefined` is false for every count. The same shape
-appeared in the min-greater-than-max check. Others: a floor of one reader for a
-list of no files, a guard around an empty batch that the caller had already
-answered, a `typeof` narrowing that a `Set` lookup already performed, a `catch`
-around a `spawn` that cannot throw, an uncertainty filter over a ledger that
-only ever holds uncertainty, a `symbol: ""` invented for a walk that never
-searches for one, and a `language === 'csharp'` branch returning exactly what
-the general case below it returned.
+appeared in the min-greater-than-max check. The rest, in one list: a floor of
+one reader for a list of no files; a guard around an empty batch the caller had
+already answered; a shortcut for a single request that `searchBatch` handles
+identically; an empty-list guard in a function only ever called with a non-empty
+one; a `typeof` narrowing a `Set` lookup already performed; a `catch` around a
+`spawn` that cannot throw; an uncertainty filter over a ledger that only ever
+holds uncertainty; a `symbol: ""` invented for a walk that never searches for
+one; a `language === 'csharp'` branch returning exactly what the general case
+below it returned; a backslash on a regex-escape list that `toPosix` guarantees
+cannot arrive; a bracket counter in the C# generic skip, which ends at the
+directive's `;` whatever is nested inside it; and the "no bounds at all" branch
+of two prose functions that are only reached from a resolver which refuses a
+directive with no bounds. (`describeBounds` keeps its fourth branch: the
+published `executeAssertion` *can* be handed an unbounded assertion, so that one
+is reachable, and it is now tested.)
 
-Four more were made *reachable* rather than removed. `maskRanges` advances its
-cursor to the furthest point reached instead of special-casing empty, inverted
-and nested ranges; `locate` searches a half-open interval, so the `- 1` that
-converged to the right answer whichever way it was perturbed is gone; `literalAt`
-compares three ways with the hit last, so both of its remaining comparisons
-decide something; and `comparePaths` states what it does with a tie, which no
-call site can produce and which is exactly why it had to be written down.
+Four more were rewritten so that the case that could not be reached became one
+that could. `maskRanges` advances its cursor to the furthest point reached, so
+an empty, inverted or already-masked range is a no-op by arithmetic rather than
+by a special case; `locate` searches a half-open interval, so the `- 1` that
+converged to the right answer whichever way it was perturbed is gone;
+`literalAt` compares three ways with the hit last, so both of its remaining
+comparisons decide something; and `comparePaths` states what it does with a tie,
+which no call site can produce and which is exactly why it had to be written
+down.
 
 **What is still unkillable, and why.** Roughly a dozen mutants remain that no
 test can distinguish, and they are worth naming so the next person does not
@@ -532,12 +549,23 @@ keys are conservative by construction - equal keys mean the same answer, while
 two spellings of one question merely cost a repeated search - so a mutant that
 makes a key *finer* cannot change a result, only a cache hit rate.
 
-**The floor moves to 93.** Six new test files, none of them a rewrite of an
-existing one: they test the modules as things with outputs rather than as steps
-towards a count. Where the old tests read a report with colour off - which is
-almost everywhere - the colour arguments could have named any colour at all; the
-SARIF document is now asserted whole, because a serialisation format is a
-contract with a machine that is not in the room.
+**The floor moves to 95**, against a CI measurement of **96.07%** over 4,331
+mutants. Every file is above 94%, where the spread ran from 83% to 95% a release
+ago. Nine new test files, none of them a rewrite of an existing one: they test
+each module as a thing with an output rather than as a step towards a count.
+Where the old tests read a report with colour off - which is almost everywhere -
+the colour arguments could have named any colour at all; the SARIF document is
+now asserted whole, because a serialisation format is a contract with a machine
+that is not in the room.
+
+Thirty-three negative controls back it up: each defect fixed here, and each
+mutation a new test was written to kill, was reintroduced one at a time and the
+suite had to go red. The harness refuses to run unless it can confirm its patch
+applied, because a control whose anchor has moved passes for the wrong reason -
+and it caught one straight away. The test written for the adaptive engine's
+dropped ledger called `searchFiles` directly, which is not the branch that had
+the bug; reintroducing the bug left the suite green, and the test now goes
+through the engine with its directory reader intercepted.
 
 ## Consequences
 
