@@ -654,10 +654,11 @@ worth nothing if the caller stops passing it, and the boolean cannot tell.
 
 Applied as a negative control, the mutant takes all three tests red and nothing
 else: 3 failed, 199 passed. Stryker over that line alone reports 1 killed, 0
-survived, and `src/engine.ts` goes from 22 unkilled mutants in 503 to 21 -
-95.64% to a projected 95.83%, with the whole project at 97.67% over 100
-survivors. Those two are arithmetic on the CI report, not a measurement, for the
-reason in the next paragraph.
+survived, and `src/engine.ts` goes from 22 unkilled mutants in 505 to 21 -
+**95.64% to 95.84%**, with the whole project at **97.67% over 100 survivors**.
+Both are CI measurements on this commit. They were written here first as
+arithmetic on the previous report and confirmed unchanged, for the reason in the
+next paragraph.
 
 **A local sweep cannot confirm it, and finding out why is worth more than the
 number was.** Re-running Stryker over the whole of `src/engine.ts` on this
@@ -668,7 +669,9 @@ mutants CI had killed outright, and `Survived -> Timeout` for 12 that CI
 reported alive, including every spawn option in `findRipgrep` - code no test
 added here goes near. The local run took 28m55s against CI's 17m56s for four
 times as many mutants. The machine was loaded, mutants that merely ran slowly
-crossed `timeoutMS`, and Stryker scores a timeout as a kill.
+crossed `timeoutMS`, and Stryker scores a timeout as a kill. CI then settled it:
+the same tree, the same tests, **5 timeouts in `engine.ts` against the local
+run's 47** - unchanged from the sweep before this commit.
 
 That is the failure mode this document has been guarding against from the other
 end. A timeout is a legitimate kill when the mutant genuinely hangs, and a free
@@ -687,7 +690,7 @@ ago, and three are at 100%. The survivor count CI reports is 101, which is
 exactly the number the sweep proved indistinguishable *in output*: the ceiling is
 measured, so the headroom is a regression guard rather than a cushion. One of the
 101 turned out to be distinguishable in cost, and is now killed - see the
-any-file probe above; the next sweep should report 100 and 97.67%. Nine new test files, none of them a rewrite of an existing one: they test
+any-file probe above, after which CI reports 100 and 97.67%. Nine new test files, none of them a rewrite of an existing one: they test
 each module as a thing with an output rather than as a step towards a count.
 Where the old tests read a report with colour off - which is almost everywhere -
 the colour arguments could have named any colour at all; the SARIF document is
