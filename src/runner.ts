@@ -35,7 +35,6 @@ import {
   createScope,
   DEFAULT_SCOPE,
   EMPTY_LEDGER,
-  UNCERTAIN_REASONS,
   type ScopePolicy,
 } from "./scope.js";
 import type {
@@ -780,9 +779,13 @@ async function prepareAssertion(
       // The count is still reported, because it is still true of everything
       // that was read; --strict is for runs where "true of what we read" is not
       // good enough.
-      const gaps = search.scope.skipped.filter((entry) =>
-        UNCERTAIN_REASONS.has(entry.reason),
-      );
+      //
+      // No filter for uncertainty here any more. The ledger only ever holds
+      // gaps: the walk drops a policy skip before recording it, and the only
+      // other reasons the scanner adds are "unreadable" and "binary". Filtering
+      // again was a second statement of an invariant that is enforced where it
+      // is created, and being a no-op, nothing could tell it from its absence.
+      const gaps = search.scope.skipped;
       const strictFailure = options.strictTargets && gaps.length > 0;
       const { excluded, stale, shows } = applyBaseline(assertion.baseline, search.fileCounts);
       const staleFailure = assertion.ratchet === "two-sided" && stale.length > 0;
@@ -853,9 +856,11 @@ async function executeImportAssertion(
     );
   }
 
+  // No symbol: an import assertion never runs a text search, and the walk does
+  // not depend on one. This used to pass `symbol: ""`, an invented value that
+  // reached nothing and that no test could therefore be wrong about.
   const enumeration = await enumerateCandidates({
     root: options.root,
-    symbol: "",
     targets: existingTargets,
     options: assertion.search as SearchOptions,
   });

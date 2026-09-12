@@ -16,7 +16,7 @@
 import { promises as fsp } from 'node:fs';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { javascriptEngine, type SearchRequest } from '../src/engine.js';
+import { javascriptEngine, resetRipgrepProbe, type SearchRequest } from '../src/engine.js';
 import {
   batchConcurrency,
   createScopeProbe,
@@ -751,6 +751,105 @@ describe('run options', () => {
 
     expect(report.durationMs).toBeGreaterThanOrEqual(0);
     expect(report.durationMs).toBeLessThan(performance.now());
+  });
+});
+
+describe('which attribute an absence rule blames', () => {
+  it('blames expected when expected carried the bad value', () => {
+    expect(errorOf('assert-absence', { symbol: 'X', expected: 'lots' })).toBe(
+      'Attribute "expected" must be a non-negative integer, got "lots".',
+    );
+  });
+
+  it('blames max when max carried it', () => {
+    expect(errorOf('assert-absence', { symbol: 'X', max: 'lots' })).toBe(
+      'Attribute "max" must be a non-negative integer, got "lots".',
+    );
+  });
+
+  it('treats an absence rule with neither as "not at all"', () => {
+    expect(assertionOf('assert-absence', { symbol: 'X' }).bounds).toEqual({ max: 0 });
+  });
+
+  it('reads expected as the ceiling for an absence rule', () => {
+    expect(assertionOf('assert-absence', { symbol: 'X', expected: '2' }).bounds).toEqual({ max: 2 });
+  });
+});
+
+describe('a result with nothing to report', () => {
+  it('carries an empty stale-baseline list rather than an absent one', async () => {
+    const root = await repo({
+      'src/a.ts': 'nothing\n',
+      'docs/a.md': '<!-- @assert-absence target="src" symbol="Widget" -->\n',
+    });
+
+    const result = (await run(root)).results[0];
+
+    expect(result?.staleBaseline).toEqual([]);
+    expect(result?.baselinedMatches).toBe(0);
+    expect(result?.warnings).toEqual([]);
+  });
+});
+
+describe('a spec file that cannot be read', () => {
+  it('reports it as an error with no directive text to quote', async () => {
+    const root = await repo({ 'docs/a.md': '<!-- @assert-absence target="." symbol="X" -->\n' });
+    const real = fsp.readFile.bind(fsp);
+    vi.spyOn(fsp, 'readFile').mockImplementation((async (...args: Parameters<typeof fsp.readFile>) => {
+      const [file] = args;
+      if (typeof file === 'string' && file.endsWith('a.md')) throw new Error('EACCES: permission denied');
+      return real(...args);
+    }) as typeof fsp.readFile);
+
+    const report = await run(root);
+
+    expect(report.ok).toBe(false);
+    expect(report.errors).toHaveLength(1);
+    // There is no directive to quote, because the file was never parsed.
+    expect(report.errors[0]?.raw).toBe('');
+    expect(report.errors[0]?.message).toBe('Unable to read spec file: EACCES: permission denied');
+    expect(report.errors[0]?.location).toMatchObject({ relativeFile: 'docs/a.md', line: 1, column: 1 });
+  });
+});
+
+describe('when ripgrep breaks part way through a run', () => {
+  /** A tree past SMALL_TREE_BUDGET on every platform, so the run reaches for ripgrep. */
+  const FILLER = 'const padding = 1;\n'.repeat(20_000);
+
+  it('says so in the warnings and reports the engine that finished the job', async () => {
+    const previous = process.env.SPEC_GUARD_RG;
+    // node(1) rejects ripgrep's flags and exits non-zero, which is the shape of
+    // a ripgrep that is installed and broken rather than one that is absent.
+    process.env.SPEC_GUARD_RG = process.execPath;
+    resetRipgrepProbe();
+    try {
+      const root = await repo({
+        'src/a.ts': FILLER,
+        'src/b.ts': FILLER,
+        'src/c.ts': FILLER,
+        'src/d.ts': FILLER,
+        'src/needle.ts': 'const w = Widget;\n',
+        'docs/a.md': '<!-- @assert-count target="src" symbol="Widget" expected="1" -->\n',
+      });
+
+      const report = await runSpecGuard({ patterns: ['docs/a.md'], root, engine: 'auto' });
+
+      expect(report.results[0]?.ok).toBe(true);
+      expect(report.warnings).toHaveLength(1);
+      // Split in two because what a broken ripgrep writes to stderr is its
+      // business and can run to several lines; the wrapper around it is ours.
+      expect(report.warnings[0]).toMatch(
+        /^ripgrep failed, fell back to the JavaScript engine \(ripgrep exited with code \d+: \S/,
+      );
+      expect(report.warnings[0]?.endsWith(')')).toBe(true);
+      // Not "ripgrep": the answer came from the scanner, and a report that
+      // names the engine it hoped for is a report that cannot be reproduced.
+      expect(report.engine).toBe('javascript');
+    } finally {
+      if (previous === undefined) delete process.env.SPEC_GUARD_RG;
+      else process.env.SPEC_GUARD_RG = previous;
+      resetRipgrepProbe();
+    }
   });
 });
 

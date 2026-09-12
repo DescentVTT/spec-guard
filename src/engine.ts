@@ -78,7 +78,7 @@ export function readConcurrency(fileCount: number): number {
 export const ROOT_TARGETS: readonly string[] = ['.'];
 
 /** The targets a request asks for, or the root when it asks for none. */
-function targetsOf(request: SearchRequest): readonly string[] {
+function targetsOf(request: WalkRequest): readonly string[] {
   return request.targets.length > 0 ? request.targets : ROOT_TARGETS;
 }
 
@@ -94,14 +94,31 @@ export function comparePaths(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
-export interface SearchRequest {
+/**
+ * Everything a walk of the tree depends on - which is everything except the
+ * pattern, since enumeration never looks inside a file.
+ *
+ * A separate type because callers that only want the file list had to invent a
+ * symbol to ask for one, and an invented value is a value no test can be wrong
+ * about. The import assertions passed `symbol: ""`.
+ */
+export interface WalkRequest {
   /** Absolute root directory. All targets are resolved against it. */
   root: string;
-  /** Literal string or regular expression source. */
-  symbol: string;
   /** Existing target paths, relative to root, POSIX separators. */
   targets: string[];
   options: SearchOptions;
+  /**
+   * Ignored here. Declared optional so that a `SearchRequest` written inline -
+   * which every existing caller of `enumerateCandidates` does - still satisfies
+   * TypeScript's excess-property check.
+   */
+  symbol?: string;
+}
+
+export interface SearchRequest extends WalkRequest {
+  /** Literal string or regular expression source. */
+  symbol: string;
 }
 
 export interface Engine {
@@ -185,7 +202,7 @@ function emptyTally(): Tally {
  * the exclude set or memoising the result would buy cache hits and could not
  * buy correctness.
  */
-function walkKey(request: SearchRequest): string {
+function walkKey(request: WalkRequest): string {
   const { options } = request;
   return JSON.stringify([
     request.root,
@@ -656,7 +673,7 @@ export const ANY_FILE_PROBE: EnumerationBudget = { maxFiles: 0, maxBytes: 0 };
  * rather than a full traversal.
  */
 export async function enumerateCandidates(
-  request: SearchRequest,
+  request: WalkRequest,
   budget?: EnumerationBudget,
   /**
    * Directory reader, forwarded to the walk. Exists for the same reason
