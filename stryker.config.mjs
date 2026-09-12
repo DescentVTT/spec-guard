@@ -56,16 +56,15 @@ export default {
   // measures so that losing ground fails the build, while ordinary refactoring
   // does not trip it.
   //
-  // Re-anchored to 89 in 0.5.1 against a CI measurement of 89.84%. The move from
-  // 85 is almost entirely one file: src/imports.ts went from 73.74% to 92.42%
-  // once the tokenizer was tested as a thing with an output rather than as a
-  // step towards a list of module references. Every file is now above 83%,
-  // where the spread used to run from 73% to 96%.
+  // Re-anchored to 95 against a CI measurement of 96.80%. Where the
+  // previous move came from one file, this one came from all of them: every
+  // module was taken to its ceiling and the spread now runs from 94% to 100%,
+  // against 83% to 95% a release ago.
   //
-  // 0.84 of headroom, in line with the 0.61 and 0.63 used for the previous two
-  // settings: tight enough that a marginal regression trips it. If run-to-run
-  // variance trips it instead, the honest fix is to lower it again with that
-  // evidence recorded, not to widen it now against a problem that has not
-  // happened. See ADR-0003.
-  thresholds: { high: 90, low: 80, break: 89 },
+  // The headroom is deliberately wider than the 0.61, 0.63 and 0.84 used
+  // before - not because the measurement is noisier, but because what is left
+  // above the gate is thinner. Recovering a tenth of a point now costs a test
+  // for a mutant nobody has found a distinguishing input for, and a gate that
+  // demands that is a gate that gets lowered. See ADR-0003.
+  thresholds: { high: 97, low: 90, break: 95 },
 };

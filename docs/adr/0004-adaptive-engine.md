@@ -105,3 +105,20 @@ cost forty times the entire search.
 
 `--engine rg` and `--engine js` still force the matter, and both remain
 covered by the parity tests that assert the two engines agree.
+
+### The branch that made the choice visible after all
+
+The whole point of deciding per group is that the choice must not change the
+answer, and for a year one of them did. The small-tree branch had the walk's
+skip ledger in hand - the probe produces it - and returned without it, so a
+directory that could not be read was a reported gap on any repository large
+enough to reach ripgrep and silence on any repository small enough to be scanned
+in process. Same tree, two answers, decided by its size: exactly the divergence
+ADR-0007 exists to remove, reintroduced by the optimisation that was supposed to
+be invisible.
+
+It survived because every test of this branch asserted a count, and a count is
+the one thing the two paths did agree on. The regression test drives the
+adaptive engine with its directory reader intercepted, which is the only
+portable way to produce a directory that cannot be read - Windows has no chmod,
+and a permission bit a failed test leaves behind is worse than no test at all.

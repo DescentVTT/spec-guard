@@ -45,6 +45,11 @@ rather than four missing tests — which is the argument for doing it at all.
   `createCachedEngine` has always guaranteed.
 - `KINDS` and `ALLOWED_ATTRIBUTES` are exported from the parser, so the
   directive grammar can be asserted rather than restated.
+- **The mutation gate moves from 89 to 95**, against a CI measurement of 96.80%
+  over 4,310 mutants. Every module is above 94%, where the spread ran from 83%
+  to 95%. See [ADR-0003](docs/adr/0003-mutation-testing.md), which also records
+  a Stryker limitation found on the way: a mutant that stops a test file
+  *loading* is reported as survived even though the suite is killing it.
 
 ## 0.5.0
 

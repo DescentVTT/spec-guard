@@ -773,8 +773,8 @@ prebuilt binary and is never a runtime dependency.
 ### Mutation testing
 
 Coverage says a line ran. It does not say an assertion would notice if the line
-behaved differently. This repository measures the difference: **96.07%** of
-4,331 mutants are killed in CI, against high line coverage, with no file below
+behaved differently. This repository measures the difference: **96.80%** of
+4,310 mutants are killed in CI, against high line coverage, with no file below
 94%.
 
 That gap is the point. The first run scored 77.23%, and the weakest file was the
@@ -792,9 +792,11 @@ one symbol answered each other's comment handling, an unreadable directory went
 unreported on any repository small enough to scan in process, snippets from CRLF
 files carried a carriage return into the terminal, and an invalid pattern was
 reported with its error message twice. Seventeen branches turned out to be
-unable to decide anything and were deleted rather than pinned, and thirty-three
+unable to decide anything and were deleted rather than pinned; thirty-five
 negative controls - each defect reintroduced one at a time - confirm the suite
-goes red for every one. All of it is in
+goes red for every one, and the changes meant to be invisible were checked
+against 6,976 files of real code, reference for reference, against the published
+0.5.0 build. All of it is in
 [ADR-0003](docs/adr/0003-mutation-testing.md), including a Stryker limitation
 found on the way: a mutant that stops a test file *loading* is reported as
 survived even though the suite is in fact killing it.
@@ -807,8 +809,8 @@ quoted above; a full sweep is also what publishes the cache the branches start
 from, so an incremental verdict can never be built on another incremental
 verdict.
 
-The full sweep was 6m54s at 2,118 mutants, 15m51s at 3,493, and is 16m29s at
-4,331. That growth is why the tiers exist: a check that gets quietly more
+The full sweep was 6m54s at 2,118 mutants, 15m51s at 3,493, and is 16m46s at
+4,310. That growth is why the tiers exist: a check that gets quietly more
 expensive every release is a check somebody eventually proposes lowering.
 
 Run it locally with `npm run test:mutation` if you like, but do not calibrate

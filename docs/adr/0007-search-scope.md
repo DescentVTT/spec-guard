@@ -156,6 +156,19 @@ only ever hands the scanner files that matched.
   between the engines is now a bug in one place rather than a difference of
   opinion between two.
 
+### A fourth one, found later
+
+One divergence outlived this ADR by a release. The adaptive engine's small-tree
+branch collected the walk's ledger and returned without it, so an unreadable
+directory was reported on a large repository and not on a small one. It is fixed
+and covered; ADR-0004 records how, and why no test had caught it.
+
+The lesson is the one this document already argues, arriving from a new
+direction: a ledger that is *produced* correctly is not the same as a ledger
+that is *reported*, and only the second one is what a reader sees. Every path
+that returns a `SearchResult` has to carry it, and "every path" now includes the
+ones added for speed.
+
 <!-- @assert-present file="src/scope.ts, tests/blind-spots.test.ts" reason="the policy and the regression tests for the defect it fixes" -->
 <!-- @assert-count target="src/scope.ts" symbol="DEFAULT_SKIPPED_DIRECTORIES" min="1" reason="the policy list is named, not scattered" -->
 <!-- @assert-absence target="src/engine.ts" symbol="--no-messages" reason="it hid the per-file errors that prove a file was unreadable" -->

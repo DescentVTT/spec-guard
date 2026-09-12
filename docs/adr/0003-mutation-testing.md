@@ -436,7 +436,7 @@ softer version of the same move - "this *kind of code* carries more equivalent
 mutants" - and that version survived three releases because it sounded like
 engineering judgement rather than an excuse.
 
-### 0.5.2: every module, and what writing it down turned up
+### After 0.5.1: every module, and what writing it down turned up
 
 The previous section ended with `src/engine.ts` at 83.65% and no excuse offered.
 This one took every module to its ceiling. The point of recording it is not the
@@ -549,7 +549,7 @@ keys are conservative by construction - equal keys mean the same answer, while
 two spellings of one question merely cost a repeated search - so a mutant that
 makes a key *finer* cannot change a result, only a cache hit rate.
 
-**The floor moves to 95**, against a CI measurement of **96.07%** over 4,331
+**The floor moves to 95**, against a CI measurement of **96.80%** over 4,310
 mutants. Every file is above 94%, where the spread ran from 83% to 95% a release
 ago. Nine new test files, none of them a rewrite of an existing one: they test
 each module as a thing with an output rather than as a step towards a count.
@@ -558,14 +558,23 @@ the colour arguments could have named any colour at all; the SARIF document is
 now asserted whole, because a serialisation format is a contract with a machine
 that is not in the room.
 
-Thirty-three negative controls back it up: each defect fixed here, and each
-mutation a new test was written to kill, was reintroduced one at a time and the
-suite had to go red. The harness refuses to run unless it can confirm its patch
-applied, because a control whose anchor has moved passes for the wrong reason -
-and it caught one straight away. The test written for the adaptive engine's
+Thirty-five negative controls back it up, all thirty-five caught: each defect
+fixed here, and each mutation a new test was written to kill, was reintroduced
+one at a time and the suite had to go red. The harness refuses to run unless it
+can confirm its patch applied, because a control whose anchor has moved passes
+for the wrong reason - and the first pass turned up three that had not really
+run, one of which was a genuine hole. The test written for the adaptive engine's
 dropped ledger called `searchFiles` directly, which is not the branch that had
 the bug; reintroducing the bug left the suite green, and the test now goes
-through the engine with its directory reader intercepted.
+through the engine with its directory reader intercepted. The other two were the
+harness's own: an anchor written with `\n` against a CRLF file, and a "defect"
+that was the deleted dead branch put back, which is not a defect at all.
+
+And the changes that are meant to be invisible were checked against a corpus
+rather than argued for. The analyser at this commit and the published 0.5.0
+build were run over **6,976 files, 51.2 MB** of `node_modules` and compared file
+by file - every reference with its kind, specifier, type-only flag and position,
+and every note. 17,491 references, 156 notes, identical on every file.
 
 ## Consequences
 
@@ -575,8 +584,8 @@ Stryker over a small range of a pure function and confirm the killed/survived
 split matches the command runner. When the runner supports vitest 5, delete the
 pin and this ADR's assertion.
 
-Mutation testing runs on every push, breaking the build below 85 - incrementally
-on a branch, in full on `main`. It was first held back to a weekly schedule on
+Mutation testing runs on every push, breaking the build below the gate -
+incrementally on a branch, in full on `main`. It was first held back to a weekly schedule on
 the assumption that running the suite once per mutant would be too slow for the
 critical path. That assumption was wrong by an order of magnitude: the first
 hosted run finished in 6m54s, and a mutation score is only worth having if it
