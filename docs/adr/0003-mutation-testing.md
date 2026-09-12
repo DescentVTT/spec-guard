@@ -498,14 +498,26 @@ lines `StringLiteral` and `ArrayDeclaration` mutants are killed normally: 156 of
 the 184 static mutants in this file die, and only the ones that break the import
 survive.
 
-Two things follow. The first is that the table is now plain data filled in by a
-loop, which is easier to read and contains no such callback; that is a change
-the code is better for, and the measurement improving is a consequence rather
-than the reason. The second is that `ignoreStatic` was *not* turned on. Measured on
-the sweep this decision was taken against, it would have removed all 473 static
-mutants from the score, of which 414 die honestly - discarding those to hide 59
-artefacts hides more than it reveals. Where a static survivor is a false one, it
-is better to say so here.
+Two things follow. The first is that `ignoreStatic` was *not* turned on.
+Measured on the sweep this decision was taken against, it would have removed all
+473 static mutants from the score, of which 414 die honestly - discarding those
+to hide 59 artefacts hides more than it reveals. Where a static survivor is a
+false one, it is better to say so here.
+
+The second took two attempts, and the failed attempt is the more instructive.
+The table was rewritten as plain data - an array of `[extensions, syntax]` rows
+filled in by a loop - and this document said the construct was gone. It was not.
+A row emptied to `[]` destructures to `undefined` and the module throws while
+loading, which is the same failure mode in a different spelling: ten mutants
+moved from one shape into the other and went on being reported as survived.
+Removing the callback was not the same as removing the property that mattered.
+
+What matters is that a mutant produce a *wrong answer* rather than a *dead
+module*. The table is now a `register(syntax, extensions)` call per language.
+Emptying an argument list cannot throw; it leaves `syntaxFor('a.cs')` answering
+null, which is something a test can see, and one does. The lesson generalises
+past this table: when a mutant is unmeasurable, the question is which shape
+makes its failure visible - not whether some rewrite will do.
 
 **What was deleted rather than tested.** Seventeen branches turned out to be
 unable to decide anything, and deleting a branch is a cleaner kill than pinning
@@ -538,17 +550,64 @@ comparisons decide something; and `comparePaths` states what it does with a tie,
 which no call site can produce and which is exactly why it had to be written
 down.
 
-**What is still unkillable, and why.** Roughly a dozen mutants remain that no
-test can distinguish, and they are worth naming so the next person does not
-spend an afternoon on them. `while (index < source.length)` loosened to `<=`
-reads one position past the end, where every branch is false - checked
-exhaustively in 0.5.1 and unchanged. `.catch(() => null)` mutated to
-`() => undefined` is invisible to any caller that tests for falsiness, which is
-why `statOrNull` exists: one place where the difference is the contract.
-`windowsHide: true` has no observable effect on a test runner. And the request
-keys are conservative by construction - equal keys mean the same answer, while
-two spellings of one question merely cost a repeated search - so a mutant that
-makes a key *finer* cannot change a result, only a cache hit rate.
+**What is still unkillable, and why - measured, not argued.** This paragraph
+originally listed the classes of mutant left alive and explained why each was
+equivalent. That is the move this document warns against at line 172, made one
+more time, and it was wrong about a fifth of them.
+
+Every one of the 130 survivors in the authoritative report was applied to the
+source at the exact span Stryker reported, compiled, and run through a
+fingerprint of **4,176 observations**: the analyser over 1,200 files of real
+JavaScript and TypeScript, every seventh prefix of a real source file, and a
+hundred inputs designed to stop mid-construct in five languages; the tokenizer's
+stream and its `desynced` flag; the comment lexer's ranges and its
+`unterminated` flag against nine profiles; the directive grammar over the
+project's own documents and twenty adversarial ones; the glob compiler's emitted
+regular expression over 26 patterns crossed with 16 paths; every offset, engine
+and runner helper; 240 directive resolutions; every reporter format - terminal
+in eight colour, verbosity and ascii combinations, JSON, SARIF and the baseline
+printer - over twenty result shapes; thirteen real runs over a real tree with
+both engines, including a ripgrep subprocess; and 46 invocations of the command
+line. The fingerprint is deterministic across repeated runs and demonstrably
+sensitive: a control mutation of `comparePaths` changes it.
+
+**29 of the 130 changed something.** Distinguishable is not the same as tested,
+so each was then applied again and the *suite* required to go red: 29 of 29.
+The interesting ones are the ones this document had already excused:
+
+- Rust's brace counter *is* load-bearing. The argument for equivalence - that
+  `expandUsePath` ignores text after the closing brace - holds only when there
+  is no second `use` statement to swallow, and every fixture had one statement.
+- The type-only chain's `&&` matters for `import A, { B } from 'x'`, a shape the
+  tests did not have. Loosened, it marks an ordinary import type-only, and
+  `types="ignore"` then drops it silently.
+- Checking `*` without `/` opens a block comment on `2*3`. No adversarial input
+  contained a multiplication; 1,200 files of real code contain thousands.
+- `from .` defeats the Python pattern where `from import x` - the input the test
+  used - quietly matches with an empty module name.
+- `normalizeModule('.')` is the single relative marker whose stray slash
+  `path.normalize` does not collapse. Every longer form hides it.
+
+The 101 that changed nothing are indistinguishable to everything the probe can
+reach, which is a measurement rather than an opinion - and worth stating with
+its limits, because "indistinguishable" is only as strong as the instrument:
+
+- `while (index < source.length)` loosened to `<=` reads one position past the
+  end, where every branch is false. Checked exhaustively in 0.5.1 over 5,488
+  inputs, and again here over every prefix of a real file.
+- `.catch(() => null)` mutated to `() => undefined` is invisible to any caller
+  that tests for falsiness, which is why `statOrNull` exists: one place where
+  the difference is the contract.
+- **Spawn options.** The probe starts a real ripgrep, but `windowsHide` has no
+  effect on a process with no console to hide, and `stdio: ['ignore','pipe',
+  'pipe']` emptied to `[]` gets the same defaults filled back in. Identical
+  output is not a claim about identical behaviour on a Windows desktop.
+- **Memoisation.** The enumeration cache and the `ripgrepMissing` latch change
+  how much work happens, not what comes out. An instrument that measured work
+  would separate them; this one measures output, on purpose.
+- **The request keys**, which are conservative by construction: equal keys mean
+  the same answer, and two spellings of one question cost only a repeated
+  search, so a mutant that makes a key *finer* cannot change a result.
 
 **The floor moves to 95**, against a CI measurement of **96.98%** over 4,310
 mutants. Every file is above 95%, where the spread ran from 83% to 95% a release

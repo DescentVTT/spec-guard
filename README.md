@@ -796,7 +796,14 @@ unable to decide anything and were deleted rather than pinned; thirty-five
 negative controls - each defect reintroduced one at a time - confirm the suite
 goes red for every one, and the changes meant to be invisible were checked
 against 6,976 files of real code, reference for reference, against the published
-0.5.0 build. All of it is in
+0.5.0 build.
+
+Then the survivors themselves were checked rather than excused. All 130 were
+applied one at a time and run through a fingerprint of 4,176 observations, and
+**29 of them turned out not to be equivalent at all** - a Rust brace counter
+that only matters when a second statement follows, a type-only test that marks
+`import A, { B } from 'x'` type-only when loosened, a comment check that opens a
+block comment on `2*3`. All 29 are now tested and all 29 die. All of it is in
 [ADR-0003](docs/adr/0003-mutation-testing.md), including a Stryker limitation
 found on the way: a mutant that stops a test file *loading* is reported as
 survived even though the suite is in fact killing it.
