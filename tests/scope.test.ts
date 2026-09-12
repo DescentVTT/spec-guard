@@ -15,6 +15,7 @@ import {
   LedgerBuilder,
   DEFAULT_SCOPE,
   DEFAULT_SKIPPED_DIRECTORIES,
+  EMPTY_LEDGER,
   MAX_LEDGER_ENTRIES,
   SCAN_EVERYTHING,
   UNCERTAIN_REASONS,
@@ -37,8 +38,24 @@ describe('the default policy', () => {
   });
 
   it('labels each skip with why it happened', () => {
-    expect(DEFAULT_SKIPPED_DIRECTORIES.get('.git')).toBe('vcs');
-    expect(DEFAULT_SKIPPED_DIRECTORIES.get('node_modules')).toBe('dependencies');
+    // Entry by entry, not a spot check. The reason is what decides whether a
+    // skip is reported as policy or as a gap, and asserting two of the four
+    // left the other two free to say anything - which is how `.hg` and `.svn`
+    // came to be the only entries in this table that no test constrained.
+    expect([...DEFAULT_SKIPPED_DIRECTORIES]).toEqual([
+      ['.git', 'vcs'],
+      ['.hg', 'vcs'],
+      ['.svn', 'vcs'],
+      ['node_modules', 'dependencies'],
+    ]);
+  });
+
+  it('classifies every default skip as policy rather than as a gap', () => {
+    // The corollary of the table above: none of these four may reach the
+    // uncertainty list, or every run would report four gaps it does not have.
+    for (const reason of DEFAULT_SKIPPED_DIRECTORIES.values()) {
+      expect(UNCERTAIN_REASONS.has(reason), reason).toBe(false);
+    }
   });
 
   it('separates deliberate omissions from gaps in the answer', () => {
@@ -79,6 +96,13 @@ describe('isBinary', () => {
 });
 
 describe('LedgerBuilder', () => {
+  it('starts from a shared empty ledger that really is empty', () => {
+    // Every result that never touched the filesystem carries this object, so
+    // anything in it would be attributed to a search that did not happen.
+    expect(EMPTY_LEDGER.skipped).toEqual([]);
+    expect(new LedgerBuilder().build().skipped).toEqual(EMPTY_LEDGER.skipped);
+  });
+
   it('records a path, its reason, and any matches found in it', () => {
     const ledger = new LedgerBuilder();
     ledger.add('a.bin', 'binary', 2);

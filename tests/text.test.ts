@@ -24,6 +24,20 @@ describe('lineStarts', () => {
   it('counts a trailing newline as opening a line', () => {
     expect(lineStarts('a\n')).toEqual([0, 2]);
   });
+
+  it('finds a single line in a source with no newline at all', () => {
+    expect(lineStarts('abc')).toEqual([0]);
+  });
+
+  it('puts a CRLF line start after the newline, not after the return', () => {
+    // The CR belongs to the line it ends. Starting the next line on it would
+    // report every Windows-authored file one column out.
+    expect(lineStarts('a\r\nb')).toEqual([0, 3]);
+  });
+
+  it('records consecutive newlines as separate line starts', () => {
+    expect(lineStarts('\n\n\n')).toEqual([0, 1, 2, 3]);
+  });
 });
 
 describe('locate', () => {
@@ -97,6 +111,23 @@ describe('maskRanges', () => {
   it('ignores an empty or inverted range', () => {
     expect(maskRanges('abcdef', [[2, 2]])).toBe('abcdef');
     expect(maskRanges('abcdef', [[4, 1]])).toBe('abcdef');
+  });
+
+  it('does not rewind after an inverted range that follows a real one', () => {
+    // The cursor is at 3 when the inverted range arrives, and its end (4) is
+    // behind the start it was clamped to (6). Taking the end as the new cursor
+    // would emit "ef" twice and lengthen the string.
+    const masked = maskRanges('abcdefgh', [[1, 3], [6, 4]]);
+
+    expect(masked).toBe('a  defgh');
+    expect(masked).toHaveLength(8);
+  });
+
+  it('does not rewind after an empty range that follows a real one', () => {
+    const masked = maskRanges('abcdefgh', [[1, 3], [6, 6]]);
+
+    expect(masked).toBe('a  defgh');
+    expect(masked).toHaveLength(8);
   });
 
   it('clamps a range that runs past the end', () => {
