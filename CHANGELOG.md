@@ -14,8 +14,8 @@ with the flag that restores the previous behaviour.
   reported by name - and not executed. A proposed ADR can now be written with
   its assertions live and the build green, and a superseded ADR can stay on
   disk, intact, enforcing nothing. Three spellings are read, because three are
-  in use: MADR front-matter, a Nygard `## Status` section, and a bold
-  `**Status:**` label in the preamble. Anything else - an unrecognised word, a
+  in use: MADR front-matter (quoted, as MADR's template writes it, or not), a
+  Nygard `## Status` section, and a bold `**Status:**` label in the preamble. Anything else - an unrecognised word, a
   misspelling, no status at all - keeps enforcing, which is the direction that
   cannot turn a typo into a silently disabled rule.
 

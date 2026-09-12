@@ -125,12 +125,35 @@ export const INACTIVE_STATUSES: ReadonlySet<string> = new Set([
 const FRONTMATTER_RE = /^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/;
 
 /**
- * `status: accepted`, `**Status:** accepted` and `**Status**: accepted`.
+ * The three ways the key is spelled: `**Status**:`, `**Status:**`, `Status:`.
  *
- * The colon is mandatory in one of the two places, which is what keeps a
- * sentence beginning "Status reports are..." from being read as metadata.
+ * Written as alternatives rather than as optional emphasis on either side of
+ * the colon, which is what it used to be - and an optional `**` after the colon
+ * cannot tell the key's closing marker from the value's opening one, so
+ * `Status: **Draft**` reached the report as "Draft**". Here emphasis after the
+ * colon is only consumed when it closes emphasis that opened the key. The
+ * colon itself is mandatory, which keeps "Status reports are..." from being
+ * read as metadata. Leading whitespace in the value is left to `toStatus`,
+ * which trims it anyway.
  */
-const STATUS_LABEL_RE = /^[ \t]{0,3}(?:\*\*|__)?status(?:\*\*|__)?[ \t]*:[ \t]*(?:\*\*|__)?[ \t]*(.*)$/i;
+const STATUS_LABEL_RE = /^[ \t]{0,3}(?:(\*\*|__)status(?:\1[ \t]*:|[ \t]*:\1)|status[ \t]*:)(.*)/i;
+
+/**
+ * The value a YAML scalar holds: a quoted one up to its closing quote, a plain
+ * one up to a comment.
+ *
+ * Not a YAML parser, and it does not need to be one - it reads one line. But
+ * it has to read that line the way YAML does. MADR's own template quotes the
+ * status, and a quote left in leaves no first word to read; a trailing
+ * `# decided at review` left in is part of the label; and a regex anchored at
+ * both ends of a quoted value read `"proposed" # a comment` as no status at
+ * all, which keeps a withdrawn proposal in force.
+ */
+function yamlScalar(raw: string): string {
+  const text = raw.trim();
+  const quoted = /^(["'])(.*?)\1/.exec(text);
+  return quoted ? (quoted[2] as string) : text.replace(/\s#.*/, '');
+}
 
 /** An ATX heading whose entire text is "Status". */
 const STATUS_HEADING_RE = /^[ \t]{0,3}#{1,6}[ \t]+status[ \t]*#*[ \t]*$/i;
@@ -180,7 +203,9 @@ function fromFrontmatter(masked: string): SpecStatus | undefined {
   if (!block) return undefined;
   for (const line of toLines(block[1] as string)) {
     const found = STATUS_LABEL_RE.exec(line);
-    if (found) return toStatus(found[1] as string, 'frontmatter');
+    // Read as YAML here and nowhere else: quotes and `#` are syntax in
+    // front-matter and characters in a sentence.
+    if (found) return toStatus(yamlScalar(found[2] as string), 'frontmatter');
   }
   return undefined;
 }
@@ -216,7 +241,7 @@ function fromLabel(lines: readonly string[]): SpecStatus | undefined {
   for (const line of lines) {
     if (SECTION_HEADING_RE.test(line)) return undefined;
     const found = STATUS_LABEL_RE.exec(line);
-    if (found) return toStatus(found[1] as string, 'label');
+    if (found) return toStatus(found[2] as string, 'label');
   }
   return undefined;
 }

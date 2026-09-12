@@ -753,12 +753,71 @@ when the markers balance: two rules, because they answer two questions.
 
 The score went **93.04% -> 97.54% -> 98.91%** over three sweeps of the changed
 code, 17 survivors down to 3, and a fourth sweep of the status reader on its
-own - where all three of the last survivors were - returned **100% over 104
-mutants with none alive**. CI has the measurement that counts: local timeouts
-moved 24 -> 36 -> 13 across those runs with no change to any loop, which is the
-same load artefact measured in 0.5.1, and four of this project's own tests
-timed out at exactly 30s when the suite was run beside a sweep. Nothing on this
-machine measures anything while Stryker is using it.
+own reported **100% over 104 mutants with none alive**. That was recorded here,
+and in the commit that shipped the feature, as the result.
+
+**It was false, and CI said so.** The full sweep on `main` put the project at
+97.52%, down from 97.67%, with every new survivor in `parser.ts` - nine alive
+before the feature, twenty after. All eleven were regex mutants on the five
+module-level pattern constants the "100%" sweep had covered. Applied to the
+source by hand and run against the suite, all eleven survived. CI was right.
+
+Finding out why the local run disagreed mattered more than the eleven, because
+every targeted sweep in this section was a local run. The same mutant - the
+`[ \t]+` after a heading's hashes, reduced to `[ \t]` - swept on its own on a
+quiet machine is reported **Survived**, and the eleven mutants on that line
+that were killed credit tests about status headings. The sweep that called it
+killed had credited its kills to `ripgrep engine 'bare directory name' -> 5
+files` and to `does not stop early when fail-fast finds no failure (killed
+11)`. Neither reads a status line. Both spawn ripgrep.
+
+The mechanism is a third form of the load artefact. A regex literal at module
+scope is a *static* mutant: it is evaluated once at import, so Stryker cannot
+attribute it to the tests that cover it and runs the whole suite against it
+instead. The sweep ran while another repository's Stryker was saturating the
+machine and while this suite was also running beside it - the run in which four
+subprocess tests timed out at exactly vitest's 30s. Under that load those tests
+fail against *any* mutant. A failed test is a kill. And because the failure is
+vitest's per-test timeout rather than Stryker's per-mutant one, it is scored
+**Killed**, not Timeout - so the warning this document already gives about
+timeouts inflating a score could not see it. 0.5.1 found timeouts that were
+kills in disguise; this is a failing test that is a timeout in disguise.
+
+So the rule gets stricter. A local sweep is evidence only when the machine is
+quiet, and never for static mutants: those are verified by applying each one to
+the source by hand. For the status reader that is fifty-six mutants - every
+level-1 mutant weapon-regex generates for its nine patterns, the generator and
+the level Stryker's own regex mutator uses - and after the fixes below **all
+fifty-six are killed**. `scripts/mutation-regex.mjs` writes each into the real
+file, refuses to count one whose literal does not appear exactly once, and
+restores the source.
+
+<!-- @assert-present file="scripts/mutation-regex.mjs" reason="static mutants are verified by hand, not by a sweep; this is the hand" -->
+
+The eleven were not all missing tests. Two were, in the plain sense: the
+indent and space allowances in the label and heading patterns had no input
+that exercised them. The rest pointed at behaviour:
+
+- **`Status: **Draft**` reached the report as "Draft\*\*".** The label pattern
+  allowed optional emphasis after the colon, which cannot tell the key's
+  closing `**` from the value's opening one. It is now three alternatives - the
+  three ways the key is spelled - and emphasis after the colon is consumed only
+  when it closes emphasis that opened the key.
+- **MADR's own template declared no status.** It writes
+  `status: "{proposed | ...}"`; a quote leaves no first word to read, so a
+  document written from the template that ADR-0010 names stayed in force. And
+  the first repair, a quoted-value pattern anchored at both ends, read
+  `status: "proposed" # decided at review` - valid YAML - as nothing, which two
+  more surviving anchor mutants reported. Front-matter values are now read the
+  way YAML reads one line: quoted up to the closing quote, plain up to a comment.
+- **Front-matter with trailing whitespace on a fence was not front-matter**, and
+  a file ending at the closing fence was not either. Invisible while the label
+  reader picked up the same `status:` line, and decisive the moment front-matter
+  and the `## Status` section disagree - which is the case precedence exists for.
+
+Local timeouts moved 24 -> 36 -> 13 across the first three sweeps with no
+change to any loop. Nothing on this machine measures anything while something
+else is using it, and the number that counts is the hosted one.
 
 A separate finding, from running the new parser over this repository rather
 than over fixtures: **ADR-0003 is CRLF on disk**, and the status patterns are

@@ -68,6 +68,85 @@ describe('where a status is read from', () => {
     expect(parseStatus('# ADR-1\n\nStatus: accepted\n\n## Context\n')?.source).toBe('label');
   });
 
+  it('reads a bold value without eating half of it', () => {
+    // The pattern used to allow optional emphasis after the colon, which cannot
+    // tell the key's closing `**` from the value's opening one - so this
+    // reached the report as "Draft**", the exact half-mangled line the label
+    // rule below exists to prevent. Found by a regex mutant CI reported alive.
+    expect(parseStatus('Status: **Draft**\n')).toMatchObject({ value: 'draft', label: 'Draft' });
+    expect(parseStatus('**Status:** **Draft**\n')).toMatchObject({ value: 'draft', label: 'Draft' });
+    expect(parseStatus('**Status**:**Draft**\n')).toMatchObject({ value: 'draft', label: 'Draft' });
+    expect(parseStatus('__Status__: draft\n')).toMatchObject({ value: 'draft', label: 'draft' });
+  });
+
+  it('reads the label however the whitespace around it falls', () => {
+    // Up to three spaces of indent is CommonMark's own allowance, and a missing
+    // space after the colon is a typo that should not decide whether a
+    // superseded document keeps enforcing.
+    expect(parseStatus('   **Status:** superseded\n')?.value).toBe('superseded');
+    expect(parseStatus('Status:Superseded\n')).toMatchObject({ value: 'superseded', label: 'Superseded' });
+    expect(parseStatus('**Status:**superseded\n')?.value).toBe('superseded');
+    expect(parseStatus('##  Status\n\nDraft\n')?.value).toBe('draft');
+  });
+
+  it("reads MADR's quoted front-matter", () => {
+    // MADR's own template writes `status: "{proposed | rejected | ...}"`. Quotes
+    // left in leave no first word to read, so a document written from the
+    // template that the ADR names stayed in force.
+    expect(parseStatus('---\nstatus: "proposed"\n---\n')).toMatchObject({ value: 'proposed', label: 'proposed' });
+    expect(parseStatus("---\nstatus: 'superseded by ADR-0007'\n---\n")).toMatchObject({
+      value: 'superseded',
+      label: 'superseded by ADR-0007',
+    });
+    // Only front-matter is YAML. In prose a quote is a character.
+    expect(parseStatus('Status: "draft"\n')).toBeUndefined();
+  });
+
+  it('reads a front-matter status the way YAML reads it, comments and all', () => {
+    // A trailing comment is not part of the value, whether the value is quoted
+    // or not. Read with both ends of the quotes anchored, the first of these
+    // declared no status - a withdrawn proposal left in force.
+    expect(parseStatus('---\nstatus: "proposed" # decided at review\n---\n')).toMatchObject({
+      value: 'proposed',
+      label: 'proposed',
+      active: false,
+    });
+    expect(parseStatus('---\nstatus: draft # see "ADR-0012"\n---\n')).toMatchObject({ value: 'draft', label: 'draft' });
+    expect(parseStatus('---\nstatus: "draft" # see "ADR-0012"\n---\n')?.label).toBe('draft');
+    // And the same characters where YAML says they are content: a `#` inside
+    // quotes, a `#` with no space before it, a quote inside a plain scalar.
+    expect(parseStatus('---\nstatus: "superseded by #12"\n---\n')?.label).toBe('superseded by #12');
+    expect(parseStatus('---\nstatus: superseded by ADR#12\n---\n')?.label).toBe('superseded by ADR#12');
+    expect(parseStatus('---\nstatus: superseded by "ADR-0007"\n---\n')).toMatchObject({
+      value: 'superseded',
+      label: 'superseded by "ADR-0007"',
+    });
+  });
+
+  it('tolerates whitespace before the colon in every spelling of the key', () => {
+    // The plain form always allowed it; the two bold forms have to agree, or
+    // an autoformatter's spacing decides whether a document is enforced.
+    expect(parseStatus('Status : superseded\n')?.value).toBe('superseded');
+    expect(parseStatus('**Status** : superseded\n')?.value).toBe('superseded');
+    expect(parseStatus('**Status :** superseded\n')?.value).toBe('superseded');
+  });
+
+  it('keeps front-matter in charge when its fences carry trailing whitespace', () => {
+    // Stated as a disagreement on purpose. The label reader would pick the
+    // `status:` line up anyway, so a fence that failed to parse only shows when
+    // front-matter and the section say different things - and then it decides
+    // whether the document is enforced.
+    const conflicting = '--- \nstatus: superseded\n---\t\n\n# ADR-1\n\n## Status\n\nAccepted.\n';
+
+    expect(parseStatus(conflicting)).toMatchObject({ value: 'superseded', source: 'frontmatter', active: false });
+  });
+
+  it('reads front-matter in a file that ends at the closing fence', () => {
+    // No trailing newline. Quoted, because the label reader does not unquote -
+    // so if the block is not recognised as front-matter, nothing is recognised.
+    expect(parseStatus('---\nstatus: "superseded"\n---')).toMatchObject({ value: 'superseded', source: 'frontmatter' });
+  });
+
   it('prefers front-matter to a heading, and a heading to a label', () => {
     // Not a tie-break for its own sake: a document carrying two of these is a
     // document mid-migration between conventions, and the machine-readable one
@@ -157,6 +236,28 @@ describe('what is not a status', () => {
 
   it('ignores a sentence that merely begins with the word', () => {
     expect(parseStatus('# ADR-1\n\nStatuses are hard to keep current.\n\n## Context\n')).toBeUndefined();
+  });
+
+  it('ignores a key that only begins with the word', () => {
+    expect(parseStatus('# ADR-1\n\nStatuses: none recorded yet\n\n## Context\n')).toBeUndefined();
+    expect(parseStatus('# ADR-1\n\nStatusline: proposed layout\n\n## Context\n')).toBeUndefined();
+  });
+
+  it('ignores a bold key that never closes', () => {
+    // Malformed Markdown, so no status - which leaves the document in force,
+    // the direction a parsing failure is supposed to fall.
+    expect(parseStatus('**Status: superseded\n')).toBeUndefined();
+  });
+
+  it('does not end the preamble at a `##` in the middle of a line', () => {
+    // The preamble ends at a heading, not at a pair of hashes. Unanchored, a
+    // title that mentions them hides the status line under it.
+    expect(parseStatus('# ADR-7: Replace ## markers\n\nStatus: draft\n\n## Context\n')?.value).toBe('draft');
+  });
+
+  it('ends the preamble at an indented section heading', () => {
+    // Indented up to three spaces is still a heading, so the preamble is over.
+    expect(parseStatus('# ADR-1\n\n   ## Context\n\nStatus: rejected\n')).toBeUndefined();
   });
 
   it('ignores the word in the middle of a line, colon and all', () => {

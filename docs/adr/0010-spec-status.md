@@ -67,7 +67,15 @@ drifts inside a nine-document corpus one author wrote in one week.
 
 The value is normalised to its first word and the line is kept as written.
 "superseded" tells a reader a rule stopped applying; "Superseded by ADR-0007"
-tells them where it went, which is the question they are about to ask.
+tells them where it went, which is the question they are about to ask. The
+word is read through leading emphasis, so `**Superseded** by ADR-0007` is
+superseded; the line loses its emphasis only when the markers wrap all of it,
+so `**Draft**` is shown as "Draft" and "Superseded by *ADR-0007*" is shown as
+written.
+
+Front-matter values are unquoted, because MADR's own template writes
+`status: "proposed"` and a quote leaves no first word to read. Nowhere else is:
+in YAML a quote is syntax, and in a sentence it is a character.
 
 The loose `**Status:**` form is only read in the preamble, above the first `##`.
 It is a line of prose with a colon in it, and accepted anywhere in a long
