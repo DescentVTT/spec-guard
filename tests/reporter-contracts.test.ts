@@ -146,6 +146,53 @@ describe('a coloured report, exactly', () => {
     );
   });
 
+  it('paints an error block, a truncated match list and the notes under a pass', () => {
+    // The other half of the palette. Every colour here sits on a path the
+    // failure block above does not take: the invalid-directive marker and the
+    // raw line it quotes, the "not shown" tail, the note under a passing
+    // assertion, and the run-level summary note.
+    const passing: Result = {
+      ...failing,
+      ok: true,
+      actual: 0,
+      matches: [],
+      fileMatches: [],
+      commentMatches: 2,
+    };
+    const report = fixture({
+      ok: false,
+      results: [passing, { ...failing, actual: 9, matches: [failing.matches[0] as Result['matches'][number]] }],
+      summary: { specs: 1, total: 2, passed: 1, failed: 1, skipped: 0 },
+      errors: [
+        {
+          location: { file: 'C:/repo/docs/a.md', relativeFile: 'docs/a.md', line: 9, column: 1 },
+          raw: '<!-- @assert-nothing -->',
+          message: 'unknown directive',
+        },
+      ],
+    });
+    const output = formatReport(report, { color: true, verbose: true });
+
+    expect(output).toContain(`${ESC}[33m${ESC}[1m⚠${ESC}[0m ${ESC}[1mdocs/a.md:9${ESC}[0m  ${ESC}[33minvalid directive${ESC}[0m`);
+    expect(output).toContain(`    ${ESC}[2m<!-- @assert-nothing -->${ESC}[0m`);
+    expect(output).toContain(`      ${ESC}[2m… 8 more matches not shown${ESC}[0m`);
+    expect(output).toContain(
+      `${ESC}[33m⚠${ESC}[0m ${ESC}[33mdocs/a.md:4  2 matches inside comments were not counted; ` +
+        `add comments="include" to count them${ESC}[0m`,
+    );
+    expect(output).toContain(`${ESC}[33m1 invalid${ESC}[0m`);
+  });
+
+  it('paints a note under a failing assertion yellow', () => {
+    const report = fixture({
+      results: [{ ...failing, scope: { skipped: [{ path: 'src/x.ts', reason: 'unreadable' }] } }],
+    });
+
+    expect(formatReport(report, { color: true, verbose: false })).toContain(
+      `    ${ESC}[33m⚠ 1 path could not be read: src/x.ts${ESC}[0m`,
+    );
+  });
+
   it('paints a skipped count when there is one', () => {
     const report = fixture({
       ok: true,
@@ -299,6 +346,18 @@ describe('the scope note', () => {
     expect(output).toContain('2 matches in 1 binary file not counted: src/a.bin');
   });
 
+  it('marks the passing glyph in ascii too', () => {
+    const report = fixture({
+      ok: true,
+      results: [{ ...failing, ok: true, matches: [], fileMatches: [] }],
+      summary: { specs: 1, total: 1, passed: 1, failed: 0, skipped: 0 },
+    });
+    const ascii = formatReport(report, { color: false, verbose: true, ascii: true });
+
+    expect(ascii).toContain('+ docs/a.md:4');
+    expect(ascii).toContain('+ every spec assertion holds');
+  });
+
   it('names up to three binary files, and totals the matches across all of them', () => {
     const report = fixture({
       results: [
@@ -315,9 +374,13 @@ describe('the scope note', () => {
       ],
     });
 
-    expect(formatReport(report, { color: false, verbose: false })).toContain(
-      '4 matches in 4 binary files not counted: src/a.bin, src/b.bin, src/c.bin',
-    );
+    // The whole line, so the sample really stops at three. `toContain` on the
+    // first three names passes just as well when all four are listed.
+    const line = formatReport(report, { color: false, verbose: false })
+      .split('\n')
+      .find((text) => text.includes('binary files'));
+
+    expect(line).toBe('    ⚠ 4 matches in 4 binary files not counted: src/a.bin, src/b.bin, src/c.bin');
   });
 });
 
@@ -502,6 +565,24 @@ describe('the sarif document, in full', () => {
     const two = fingerprintOf(fixture({ results: [{ ...failing, symbol: 'Gones', targets: ['rc'] }] }));
 
     expect(one).not.toBe(two);
+  });
+
+  it('separates the file list of an assert-present the same way', () => {
+    // `files.join(',')` stands in for the symbol an assert-present does not
+    // have. Joined with nothing, two files named `a` and `b` are the same
+    // assertion as one file named `ab`.
+    const present = (files: string[]): Result => ({
+      ...failing,
+      kind: 'assert-present',
+      symbol: undefined,
+      files,
+      matches: [],
+      fileMatches: [],
+    });
+
+    expect(fingerprintOf(fixture({ results: [present(['a', 'b'])] }))).not.toBe(
+      fingerprintOf(fixture({ results: [present(['ab'])] })),
+    );
   });
 
   it('gives an assertion and an invalid directive in the same spec different identities', () => {

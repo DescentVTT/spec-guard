@@ -300,6 +300,22 @@ describe('what an assertion says it will check', () => {
     );
   });
 
+  it('names every target, separated', () => {
+    expect(assertionOf('assert-count', { symbol: 'X', expected: '1', target: 'src, lib' }).description).toBe(
+      '"X" must appear exactly 1 time in src, lib',
+    );
+    expect(assertionOf('assert-import-absence', { module: 'a/**', target: 'src, lib' }).description).toBe(
+      'src, lib must not import "a/**"',
+    );
+  });
+
+  it('names no files on an assertion that searches text', () => {
+    // `files` belongs to assert-present. Anything in it here would be reported
+    // as a file this assertion claimed must exist.
+    expect(assertionOf('assert-count', { symbol: 'X', expected: '1' }).files).toEqual([]);
+    expect(assertionOf('assert-import-absence', { module: 'a/**' }).files).toEqual([]);
+  });
+
   it('names the excluded globs on a text assertion too', () => {
     expect(assertionOf('assert-absence', { symbol: 'X', exclude: 'tests/**, docs/**' }).description).toBe(
       '"X" must not appear in . (excluding tests/**, docs/**)',
@@ -558,6 +574,21 @@ describe('unresolvable references', () => {
     expect(warnings[1]).toMatch(/^ {2}src\/a\.ts:1 /);
   });
 
+  it('lists no more of them than --max-snippets allows', async () => {
+    const dynamic = Object.fromEntries(
+      Array.from({ length: 8 }, (_, index) => [
+        `src/f${index}.ts`,
+        `const n${index} = process.env.M; const m = await import(n${index});\n`,
+      ]),
+    );
+    const root = await repo({ ...dynamic, 'docs/a.md': '<!-- @assert-import-absence target="src" module="x/**" -->\n' });
+
+    const warnings = (await run(root, { maxSnippets: 3 })).results[0]?.warnings ?? [];
+
+    expect(warnings[0]).toBe('8 module references could not be resolved statically');
+    expect(warnings).toHaveLength(4);
+  });
+
   it('fails under --strict-targets, and says how many', async () => {
     const root = await repo({ ...DYNAMIC, 'docs/a.md': '<!-- @assert-import-absence target="src" module="nothing/**" -->\n' });
 
@@ -591,6 +622,65 @@ describe('unresolvable references', () => {
 
     expect(report.results[0]?.ok).toBe(true);
     expect(report.results[0]?.message).toBe('expected no matches, found 0');
+  });
+});
+
+describe('an import assertion that verified nothing', () => {
+  it('carries no snippets with its failure', async () => {
+    const root = await repo({
+      'src/notes.txt': 'not code\n',
+      'docs/a.md': '<!-- @assert-import-absence target="src" module="a/**" -->\n',
+    });
+
+    const result = (await run(root)).results[0];
+
+    expect(result?.ok).toBe(false);
+    expect(result?.matches).toEqual([]);
+    expect(result?.message).toBe(
+      'none of the 1 files here are in a language whose imports spec-guard can read, ' +
+        'so this assertion verified nothing (add allow-empty="true" if that is expected)',
+    );
+  });
+
+  it('says so differently when the scope held no files at all', async () => {
+    const root = await repo({
+      'src/notes.txt': 'not code\n',
+      'docs/a.md': '<!-- @assert-import-absence target="src" module="a/**" exclude="*.txt" -->\n',
+    });
+
+    expect((await run(root)).results[0]?.message).toBe(
+      'no files were inspected, so this assertion verified nothing (add allow-empty="true" if that is expected)',
+    );
+  });
+});
+
+describe('an import assertion with a baseline', () => {
+  const SPEC = (extra: string) =>
+    `<!-- @assert-import-absence target="src" module="app/db/**" ${extra} -->\n`;
+
+  it('reports the files that matched, and leaves a baselined one out of the snippets', async () => {
+    const root = await repo({
+      'src/a.py': 'from app.db.client import Client\n',
+      'src/b.py': 'from app.db.client import Client\n',
+      'docs/a.md': SPEC('baseline="src/a.py"'),
+    });
+
+    const result = (await run(root)).results[0];
+
+    expect(result?.fileMatches).toEqual([{ file: 'src/a.py', count: 1 }, { file: 'src/b.py', count: 1 }]);
+    expect(result?.matches.map((match) => match.file)).toEqual(['src/b.py']);
+    expect(result?.baselinedMatches).toBe(1);
+  });
+
+  it('fails a two-sided ratchet on a stale entry, and a one-way ratchet does not', async () => {
+    const files = { 'src/a.py': 'import os\n' };
+    const twoSided = await repo({ ...files, 'docs/a.md': SPEC('baseline="src/gone.py"') });
+    const oneWay = await repo({ ...files, 'docs/a.md': SPEC('baseline="src/gone.py" ratchet="one-way"') });
+
+    expect((await run(twoSided)).results[0]?.ok).toBe(false);
+    // One-way means "never worse"; a baseline entry that no longer matches is
+    // better, and demanding it be pruned would make the ratchet two-sided.
+    expect((await run(oneWay)).results[0]?.ok).toBe(true);
   });
 });
 
@@ -734,6 +824,21 @@ describe('run options', () => {
     // A pattern that matches nothing yields no error at all; this test exists
     // for the read failure, so the file has to exist and then not be readable.
     expect(report.errors).toEqual([]);
+  });
+
+  it('chooses an engine adaptively when none was named', async () => {
+    // The default reaches `resolveEngine`, which now compares every preference
+    // by name including `auto` - so an option that says nothing has to still
+    // say "auto" and not something that falls through to the ripgrep branch.
+    const root = await repo({
+      'src/a.ts': 'Widget\n',
+      'docs/a.md': '<!-- @assert-count target="src" symbol="Widget" min="1" -->\n',
+    });
+
+    const report = await runSpecGuard({ patterns: ['docs/a.md'], root });
+
+    expect(report.results[0]?.ok).toBe(true);
+    expect(report.engine).toBe('javascript');
   });
 
   it('runs no assertions and reports nothing when a spec has none', async () => {
