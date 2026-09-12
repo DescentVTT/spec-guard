@@ -193,7 +193,9 @@ describe('findRipgrep', () => {
 
 describe('resolveEngine', () => {
   it('returns the javascript engine on request', async () => {
-    expect((await resolveEngine('javascript')).name).toBe('javascript');
+    // By identity. The adaptive engine answers to the name "javascript" too,
+    // until the first time it uses ripgrep.
+    expect(await resolveEngine('javascript')).toBe(javascriptEngine);
   });
 
   it('fails loudly when ripgrep is required but missing', async () => {

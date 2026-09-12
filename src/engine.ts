@@ -24,24 +24,75 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
 import { createCommentMask, type CommentMask } from './comments.js';
-import { createExcludeMatcher, createGlobMatcher, toPosix, walkFiles } from './glob.js';
 import {
-  isBinary,
-  LedgerBuilder,
-  MAX_LEDGER_ENTRIES,
-  UNCERTAIN_REASONS,
-  type SkippedPath,
-} from './scope.js';
+  createExcludeMatcher,
+  createGlobMatcher,
+  toPosix,
+  walkFiles,
+  type DirectoryReader,
+  type WalkOptions,
+} from './glob.js';
+import { isBinary, LedgerBuilder, UNCERTAIN_REASONS, type SkippedPath } from './scope.js';
+import { lineStarts, locate } from './text.js';
 import type { EngineName, MatchLocation, SearchOptions, SearchResult } from './types.js';
 
 /** Files larger than this are skipped by both engines, keeping them in sync. */
 export const MAX_FILE_SIZE = 20 * 1024 * 1024;
 
+/**
+ * One rule about file size, in one place.
+ *
+ * It used to be written twice and spelled differently each time - `size <=
+ * MAX_FILE_SIZE` where a file was admitted and `size > MAX_FILE_SIZE` where one
+ * was skipped - so the boundary was defined by two expressions that had to be
+ * kept complementary by hand. ripgrep is given the same number as
+ * `--max-filesize`, which is also inclusive, so all three now agree by
+ * construction rather than by inspection.
+ */
+export function withinSizeLimit(size: number): boolean {
+  return size <= MAX_FILE_SIZE;
+}
+
 /** Hard cap on collected locations; the reporter only ever shows a handful. */
-const MAX_COLLECTED_MATCHES = 500;
+export const MAX_COLLECTED_MATCHES = 500;
 
 /** Longest line snippet echoed back to the terminal. */
 const MAX_SNIPPET_LENGTH = 200;
+
+/** Most files read at once. Enough to keep a disk busy, few enough to be polite. */
+export const MAX_CONCURRENT_READS = 16;
+
+/** How many readers to start for a file list: never more than there are files. */
+export function readConcurrency(fileCount: number): number {
+  return Math.min(MAX_CONCURRENT_READS, fileCount);
+}
+
+/**
+ * The target list for a request that names none: the root itself.
+ *
+ * Shared by the walker and the ripgrep argv rather than written out at each,
+ * because the two must agree on what "no target" means - ripgrep given an empty
+ * path argument searches nothing at all, and a walk given one searches
+ * everything.
+ */
+export const ROOT_TARGETS: readonly string[] = ['.'];
+
+/** The targets a request asks for, or the root when it asks for none. */
+function targetsOf(request: SearchRequest): readonly string[] {
+  return request.targets.length > 0 ? request.targets : ROOT_TARGETS;
+}
+
+/**
+ * Total ordering on POSIX paths, ties included.
+ *
+ * Three call sites used to inline `a < b ? -1 : 1`, which is correct only
+ * because no caller can produce two equal paths - and therefore had no
+ * behaviour to test at the tie. Stating the tie makes the function total, the
+ * ordering identical, and the comparison something a test can pin down.
+ */
+export function comparePaths(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
 
 export interface SearchRequest {
   /** Absolute root directory. All targets are resolved against it. */
@@ -69,8 +120,17 @@ export function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-function truncate(value: string): string {
-  const trimmed = value.replace(/\r?\n$/, '');
+/**
+ * Trims a line to snippet length, and takes the line terminator off it.
+ *
+ * The terminator is a lone CR, not a newline: the caller slices up to the
+ * `\n`, so on a CRLF file the carriage return is the one byte that survives.
+ * This used to strip `\r?\n$`, which cannot match anything the caller passes -
+ * so every snippet from a Windows-authored file carried a CR into the report,
+ * where it returns the terminal cursor to column 0 and overwrites the line.
+ */
+export function truncate(value: string): string {
+  const trimmed = value.replace(/\r$/, '');
   return trimmed.length > MAX_SNIPPET_LENGTH ? `${trimmed.slice(0, MAX_SNIPPET_LENGTH)}…` : trimmed;
 }
 
@@ -80,7 +140,7 @@ function truncate(value: string): string {
  * files in no fixed order, so this is what makes snippet output stable.
  */
 export function sortLocations(locations: MatchLocation[]): MatchLocation[] {
-  return locations.sort((a, b) => (a.file === b.file ? a.line - b.line : a.file < b.file ? -1 : 1));
+  return locations.sort((a, b) => (a.file === b.file ? a.line - b.line : comparePaths(a.file, b.file)));
 }
 
 /** Per-pattern accumulator used by both engines. */
@@ -96,31 +156,87 @@ function emptyTally(): Tally {
 }
 
 
-/** Requests that may share one pass: same root, same targets, same options. */
-function sharesOnePass(requests: readonly SearchRequest[]): boolean {
-  const [first] = requests;
-  /* c8 ignore next -- runSearches never passes an empty list here */
-  if (!first) return false;
-  return requests.every(
-    (request) =>
-      request.root === first.root &&
-      request.targets.length === first.targets.length &&
-      request.targets.every((target, index) => target === first.targets[index]) &&
-      request.options.regex === first.options.regex &&
-      request.options.word === first.options.word &&
-      request.options.ignoreCase === first.options.ignoreCase &&
-      request.options.globs.length === first.options.globs.length &&
-      request.options.globs.every((glob, index) => glob === first.options.globs[index]) &&
-      request.options.excludeGlobs.length === first.options.excludeGlobs.length &&
-      request.options.excludeGlobs.every((glob, index) => glob === first.options.excludeGlobs[index]) &&
-      request.options.excludeFiles === first.options.excludeFiles,
-  );
+/* ------------------------------------------------------------ request keys */
+
+/**
+ * When two requests are the same question, in three nested scopes.
+ *
+ * Three places need this and each used to answer it separately: whether two
+ * requests can share one walk, whether they can share one scan of that walk,
+ * and whether one result can be served from the cache instead of searched
+ * again. The lists drifted, as hand-maintained parallel lists do, and two of
+ * the gaps were live defects rather than missed cache hits:
+ *
+ *   - the result cache ignored `ignoreComments`, so an assertion written
+ *     `comments="include"` was answered with the comment-stripped count from
+ *     the assertion above it, or the other way round depending on which ran
+ *     first;
+ *   - the grouping test ignored it too, so the same two assertions were merged
+ *     into one pass and the second was scanned with the first's mask;
+ *   - neither considered `scope`, which is one object per run today and would
+ *     have done the same thing the day it stopped being one.
+ *
+ * Now each key is the one inside it plus exactly what that layer adds, so a new
+ * search option is either in `walkKey` or in `passKey` and cannot be in neither.
+ *
+ * The keys are conservative by construction: equal keys mean the same answer,
+ * while two spellings of one question merely cost a repeated search. That is
+ * the safe direction, and it is why there is no canonicalisation here - sorting
+ * the exclude set or memoising the result would buy cache hits and could not
+ * buy correctness.
+ */
+function walkKey(request: SearchRequest): string {
+  const { options } = request;
+  return JSON.stringify([
+    request.root,
+    request.targets,
+    options.globs,
+    options.excludeGlobs,
+    [...options.excludeFiles],
+    [...options.scope.skippedDirectories],
+  ]);
+}
+
+/**
+ * One walk, plus everything that decides what counts as a match within it.
+ *
+ * Exported because the runner groups assertions before handing them here, and
+ * it used to do so against a list of its own that was missing four of these
+ * fields. Being too coarse there costs no correctness - `sharesOnePass` checks
+ * again and declines - but it did cost the batching: a group of five where two
+ * requests disagreed was refused as a whole and run as five separate searches,
+ * rather than as the three-and-two it actually was.
+ */
+export function passKey(request: SearchRequest): string {
+  const { options } = request;
+  return JSON.stringify([walkKey(request), options.regex, options.word, options.ignoreCase, options.ignoreComments]);
+}
+
+/** One pass, plus the pattern it is looking for. */
+function searchKey(request: SearchRequest): string {
+  return JSON.stringify([passKey(request), request.symbol]);
+}
+
+/**
+ * Requests that may share one pass: same walk, same matching semantics.
+ *
+ * Takes the first request rather than finding it, so there is no empty list to
+ * defend against here. `runSearches` has already answered that question, and
+ * answering it twice left a branch nothing could reach.
+ */
+function sharesOnePass(first: SearchRequest, requests: readonly SearchRequest[]): boolean {
+  const key = passKey(first);
+  return requests.every((request) => passKey(request) === key);
 }
 
 /** Runs requests through the batch API when the engine has one. */
 export async function runSearches(engine: Engine, requests: SearchRequest[]): Promise<SearchResult[]> {
-  if (requests.length === 0) return [];
-  if (requests.length === 1 || !engine.searchBatch || !sharesOnePass(requests)) {
+  const [first] = requests;
+  if (!first) return [];
+  // No special case for a single request. Handing one request to `searchBatch`
+  // is what `search` does anyway in all three engines here, so the shortcut
+  // saved one key comparison and cost a branch that no result could depend on.
+  if (!engine.searchBatch || !sharesOnePass(first, requests)) {
     return Promise.all(requests.map((request) => engine.search(request)));
   }
   return engine.searchBatch(requests);
@@ -139,14 +255,13 @@ export function resetRipgrepProbe(): void {
 export function findRipgrep(): Promise<string | null> {
   ripgrepProbe ??= new Promise<string | null>((resolve) => {
     const binary = process.env.SPEC_GUARD_RG || 'rg';
-    let child;
-    try {
-      child = spawn(binary, ['--version'], { stdio: 'ignore', windowsHide: true });
-    } catch {
-      /* c8 ignore next 3 -- spawn only throws synchronously on bad arguments */
-      resolve(null);
-      return;
-    }
+    // No try/catch. `spawn` throws synchronously only for invalid arguments,
+    // and every argument here is a literal except the binary name, which comes
+    // from the environment and therefore cannot contain the NUL byte that is
+    // the only thing that would make a string argument invalid. The catch was
+    // unreachable, and an unreachable catch that resolves to "not installed"
+    // would have turned a real failure into a silent fallback if it ever ran.
+    const child = spawn(binary, ['--version'], { stdio: 'ignore', windowsHide: true });
     child.once('error', () => resolve(null));
     child.once('close', (code) => resolve(code === 0 ? binary : null));
   });
@@ -201,7 +316,7 @@ export function buildRipgrepArgs(request: SearchRequest, patterns: readonly stri
   for (const name of options.scope.skippedDirectories.keys()) args.push('--glob', `!${name}/`);
   for (const pattern of patterns) args.push('--regexp', pattern);
   args.push('--');
-  args.push(...(request.targets.length > 0 ? request.targets : ['.']));
+  args.push(...targetsOf(request));
   return args;
 }
 
@@ -261,35 +376,72 @@ class RipgrepEngine implements Engine {
         stdio: ['ignore', 'pipe', 'pipe'],
       });
 
-      let stdout = '';
-      let stderr = '';
-      child.stdout.setEncoding('utf8');
-      child.stdout.on('data', (chunk: string) => (stdout += chunk));
-      child.stderr.setEncoding('utf8');
-      child.stderr.on('data', (chunk: string) => (stderr += chunk));
+      // Bytes, decoded once at the end, rather than a string built chunk by
+      // chunk. `setEncoding('utf8')` would also have been correct, but the
+      // failure it prevents is invisible when it is missing: a path containing
+      // a multi-byte character that straddles a chunk boundary decodes to two
+      // replacement characters, and only for files large enough and named
+      // awkwardly enough to land on the seam. Holding bytes until there are no
+      // more of them makes that unrepresentable rather than merely handled.
+      const stdout: Buffer[] = [];
+      const stderr: Buffer[] = [];
+      child.stdout.on('data', (chunk: Buffer) => stdout.push(chunk));
+      child.stderr.on('data', (chunk: Buffer) => stderr.push(chunk));
 
       child.once('error', reject);
       child.once('close', (code) => {
+        const errors = Buffer.concat(stderr).toString('utf8');
         // 0 = matches, 1 = none, anything else is a real failure.
         if (code !== 0 && code !== 1) {
-          reject(new Error(`ripgrep exited with code ${code}${stderr ? `: ${stderr.trim()}` : ''}`));
+          reject(new Error(ripgrepFailureMessage(code, errors)));
           return;
         }
-        const files: CandidateFile[] = [];
-        // --null separates paths with NUL, which is the only separator a file
-        // name cannot contain. Splitting on newlines loses files whose names
-        // contain one.
-        for (const entry of stdout.split('\0')) {
-          if (entry.length === 0) continue;
-          const absolutePath = path.resolve(request.root, entry);
-          if (request.options.excludeFiles.has(absolutePath)) continue;
-          files.push({ absolutePath, relativePath: toPosix(path.relative(request.root, absolutePath)) });
-        }
-        files.sort((a, b) => (a.relativePath < b.relativePath ? -1 : 1));
-        resolve({ files, unreadable: parseRipgrepErrors(stderr) });
+        resolve({
+          files: parseRipgrepFiles(Buffer.concat(stdout).toString('utf8'), request.root, request.options.excludeFiles),
+          unreadable: parseRipgrepErrors(errors),
+        });
       });
     });
   }
+}
+
+/**
+ * What a run says when ripgrep exits with a code that is neither 0 nor 1.
+ *
+ * Separate from the spawn because it is the only part a reader ever sees, and
+ * inside the promise the only way to produce one was to break a real
+ * subprocess - so the exact text, including whether the trailing newline every
+ * command writes ends up in the middle of the sentence, was never asserted.
+ */
+export function ripgrepFailureMessage(code: number | null, errors: string): string {
+  return `ripgrep exited with code ${code}${errors ? `: ${errors.trim()}` : ''}`;
+}
+
+/**
+ * Turns ripgrep's `--files-with-matches --null` output into candidate files.
+ *
+ * Split out from the spawn so that the parsing has somewhere to be tested from:
+ * inside the promise it could only be reached by running a real subprocess,
+ * which is why the separator handling, the exclusion filter and the ordering
+ * were all covered only incidentally, by whatever a real tree happened to
+ * contain.
+ */
+export function parseRipgrepFiles(
+  stdout: string,
+  root: string,
+  excludeFiles: ReadonlySet<string>,
+): CandidateFile[] {
+  const files: CandidateFile[] = [];
+  // --null separates paths with NUL, which is the only separator a file name
+  // cannot contain. Splitting on newlines loses files whose names contain one.
+  for (const entry of stdout.split('\0')) {
+    // The list is NUL-*terminated*, so the last split is always empty.
+    if (entry.length === 0) continue;
+    const absolutePath = path.resolve(root, entry);
+    if (excludeFiles.has(absolutePath)) continue;
+    files.push({ absolutePath, relativePath: toPosix(path.relative(root, absolutePath)) });
+  }
+  return files.sort((a, b) => comparePaths(a.relativePath, b.relativePath));
 }
 
 /**
@@ -379,7 +531,10 @@ class JavaScriptEngine implements Engine {
     const regexps = new Map(patterns.map((pattern) => [pattern, buildJsRegExp(pattern, first.options)]));
     const tallies = new Map<string, Tally>(patterns.map((pattern) => [pattern, emptyTally()]));
 
-    const concurrency = Math.min(16, Math.max(1, files.length));
+    // No floor of 1: an empty file list starts no readers, and a loop that
+    // never runs produces the same empty tallies as one that runs once and
+    // finds nothing. The guard was defending against an outcome it shared.
+    const concurrency = readConcurrency(files.length);
     let cursor = 0;
     const perFile = new Map<string, Map<string, Tally>>();
     // Per pattern, how many matches each file holds. Only files that matched
@@ -474,7 +629,7 @@ export interface Enumeration {
   exceeded: boolean;
   bytes: number;
   /** Paths the walk declined to inspect, with the reason for each. */
-  skipped: SkippedPath[];
+  skipped: readonly SkippedPath[];
 }
 
 export interface EnumerationBudget {
@@ -503,6 +658,14 @@ export const ANY_FILE_PROBE: EnumerationBudget = { maxFiles: 0, maxBytes: 0 };
 export async function enumerateCandidates(
   request: SearchRequest,
   budget?: EnumerationBudget,
+  /**
+   * Directory reader, forwarded to the walk. Exists for the same reason
+   * `walkFiles` takes one: the interesting behaviour here is what the
+   * enumeration does with a directory it *cannot* read, and there is no
+   * portable way to create one - Windows has no chmod, and a permission bit set
+   * by a test is a permission bit a failed test leaves behind.
+   */
+  readDirectory?: DirectoryReader,
 ): Promise<Enumeration> {
   const matcher = createGlobMatcher(request.options.globs);
   const excluded = createExcludeMatcher(request.options.excludeGlobs);
@@ -513,7 +676,11 @@ export async function enumerateCandidates(
   const admits = (absolutePath: string, relativePath: string): boolean =>
     matcher(relativePath) && !excluded(relativePath) && !request.options.excludeFiles.has(absolutePath);
   const found = new Map<string, CandidateFile>();
-  const skipped: SkippedPath[] = [];
+  // A LedgerBuilder rather than an array and a cap of its own: the sample cap
+  // is one rule, it is applied again downstream, and a second implementation of
+  // it here was reachable only by a tree with a hundred unreadable paths in it -
+  // which is to say, by nothing the suite could build.
+  const ledger = new LedgerBuilder();
   const note = (relativePath: string, reason: SkippedPath['reason']): void => {
     // Only gaps go in the ledger. `.git` and `node_modules` are configuration,
     // not news: they are the same on every run, they are documented, and
@@ -521,7 +688,7 @@ export async function enumerateCandidates(
     // It also keeps the two engines' ledgers identical, since ripgrep is only
     // ever asked about files it did not skip.
     if (!UNCERTAIN_REASONS.has(reason)) return;
-    if (skipped.length < MAX_LEDGER_ENTRIES) skipped.push({ path: relativePath, reason });
+    ledger.add(relativePath, reason);
   };
   let bytes = 0;
   let exceeded = false;
@@ -536,36 +703,37 @@ export async function enumerateCandidates(
     return true;
   };
 
-  outer: for (const target of request.targets.length > 0 ? request.targets : ['.']) {
+  outer: for (const target of targetsOf(request)) {
     const absoluteTarget = path.resolve(request.root, target);
     const stats = await fs.stat(absoluteTarget).catch(() => null);
     if (!stats) continue;
 
     if (stats.isFile()) {
       const relativePath = toPosix(path.relative(request.root, absoluteTarget));
-      if (stats.size <= MAX_FILE_SIZE && admits(absoluteTarget, relativePath)) {
+      if (withinSizeLimit(stats.size) && admits(absoluteTarget, relativePath)) {
         if (!admit(absoluteTarget, relativePath, stats.size)) break outer;
       }
       continue;
     }
 
     const prefix = toPosix(path.relative(request.root, absoluteTarget));
-    const walkOptions = {
+    const walkOptions: WalkOptions = {
       scope: request.options.scope,
       onSkip: (relativePath: string, reason: SkippedPath['reason']): void =>
         note(prefix ? `${prefix}/${relativePath}` : relativePath, reason),
+      ...(readDirectory ? { readDirectory } : {}),
     };
 
     for await (const file of walkFiles(absoluteTarget, walkOptions)) {
-      if (file.size > MAX_FILE_SIZE) continue;
+      if (!withinSizeLimit(file.size)) continue;
       const relativePath = toPosix(path.relative(request.root, file.absolutePath));
       if (!admits(file.absolutePath, relativePath)) continue;
       if (!admit(file.absolutePath, relativePath, file.size)) break outer;
     }
   }
 
-  const files = [...found.values()].sort((a, b) => (a.relativePath < b.relativePath ? -1 : 1));
-  return { files, exceeded, bytes, skipped };
+  const files = [...found.values()].sort((a, b) => comparePaths(a.relativePath, b.relativePath));
+  return { files, exceeded, bytes, skipped: ledger.build().skipped };
 }
 
 /** Counts matches in one file and records per-line snippets. */
@@ -587,23 +755,13 @@ export function scanContent(
   const byLine = new Map<number, MatchLocation>();
 
   // Lazily built line index: only paid for when the file actually matches.
-  let lineStarts: number[] | null = null;
-  const lineOf = (index: number): { line: number; column: number } => {
-    if (!lineStarts) {
-      lineStarts = [0];
-      for (let i = 0; i < content.length; i++) {
-        if (content[i] === '\n') lineStarts.push(i + 1);
-      }
-    }
-    let low = 0;
-    let high = lineStarts.length - 1;
-    while (low < high) {
-      const mid = (low + high + 1) >> 1;
-      if ((lineStarts[mid] as number) <= index) low = mid;
-      else high = mid - 1;
-    }
-    return { line: low + 1, column: index - (lineStarts[low] as number) + 1 };
-  };
+  // The arithmetic itself belongs to text.ts, which every other reader of a
+  // source file already shares. This function used to carry its own copy of
+  // both halves, which is precisely the second chance to be off by one that
+  // module exists to remove.
+  let starts: number[] | null = null;
+  const lineOf = (index: number): { line: number; column: number } =>
+    locate((starts ??= lineStarts(content)), index);
 
   let match: RegExpExecArray | null;
   while ((match = regexp.exec(content)) !== null) {
@@ -669,49 +827,38 @@ export const javascriptEngine: BatchEngine = new JavaScriptEngine();
  * The budget is set just below each crossover, so choosing JavaScript is never
  * the slower option by more than a few milliseconds, while a small tree on
  * Windows avoids a spawn that would cost ten times the whole search.
+ *
+ * Taking the platform as an argument rather than reading it: a decision that is
+ * explicitly about two platforms cannot be verified on one of them if the other
+ * branch is only reachable by being that other platform. Both are now asserted
+ * everywhere the suite runs.
  */
-export const SMALL_TREE_BUDGET: EnumerationBudget =
-  process.platform === 'win32' ? { maxFiles: 512, maxBytes: 1024 * 1024 } : { maxFiles: 32, maxBytes: 64 * 1024 };
+export function smallTreeBudget(platform: NodeJS.Platform): EnumerationBudget {
+  return platform === 'win32' ? { maxFiles: 512, maxBytes: 1024 * 1024 } : { maxFiles: 32, maxBytes: 64 * 1024 };
+}
 
-/** Spawn failures that mean "this binary is not installed", not "search failed". */
-const MISSING_BINARY_CODES = new Set(['ENOENT', 'EACCES', 'EPERM', 'EINVAL', 'UNKNOWN']);
+export const SMALL_TREE_BUDGET: EnumerationBudget = smallTreeBudget(process.platform);
+
+/**
+ * Spawn failures that mean "this binary is not installed", not "search failed".
+ *
+ * Typed as a set of `unknown` so the lookup can be handed whatever an error
+ * object carried. The alternative - narrowing with `typeof code === 'string'`
+ * first - was a branch that could not change an answer, because a code that is
+ * not a string is not in the set either.
+ */
+const MISSING_BINARY_CODES: ReadonlySet<unknown> = new Set([
+  'ENOENT',
+  'EACCES',
+  'EPERM',
+  'EINVAL',
+  'UNKNOWN',
+]);
 
 /** Exported so the code list can be asserted; EACCES and friends are not
  * reproducible on demand from a real spawn. */
 export function isMissingBinary(error: unknown): boolean {
-  const code = (error as { code?: string } | null)?.code;
-  return typeof code === 'string' && MISSING_BINARY_CODES.has(code);
-}
-
-/**
- * Identity tokens for exclude sets.
- *
- * The enumeration cache key has to account for `excludeFiles`, because
- * enumeration applies it - two groups over the same targets but with different
- * exclusions are different questions. Hashing the paths would be wasteful (a
- * run excludes every spec file), and the runner passes one set for the whole
- * run, so identity is both cheap and sufficient.
- */
-const excludeSetIds = new WeakMap<ReadonlySet<string>, number>();
-let nextExcludeSetId = 0;
-
-function excludeSetId(excludeFiles: ReadonlySet<string>): number {
-  let id = excludeSetIds.get(excludeFiles);
-  if (id === undefined) {
-    id = nextExcludeSetId++;
-    excludeSetIds.set(excludeFiles, id);
-  }
-  return id;
-}
-
-function enumerationKey(request: SearchRequest): string {
-  return JSON.stringify([
-    request.root,
-    request.targets,
-    request.options.globs,
-    request.options.excludeGlobs,
-    excludeSetId(request.options.excludeFiles),
-  ]);
+  return MISSING_BINARY_CODES.has((error as { code?: unknown } | null | undefined)?.code);
 }
 
 /**
@@ -746,7 +893,7 @@ class AdaptiveEngine implements Engine {
     if (!first) return [];
 
     if (!this.ripgrepMissing) {
-      const key = enumerationKey(first);
+      const key = walkKey(first);
       let probe = this.enumerations.get(key);
       if (!probe) {
         probe = enumerateCandidates(first, SMALL_TREE_BUDGET);
@@ -757,7 +904,13 @@ class AdaptiveEngine implements Engine {
       if (!enumeration.exceeded) {
         // Small tree: the walk already produced the file list, so scanning it
         // here costs less than starting a process.
-        return javascriptEngine.searchFiles(enumeration.files, requests);
+        //
+        // `enumeration.skipped` is passed on, which it was not: the walk's own
+        // ledger was collected and then dropped, so a directory the walk could
+        // not read went unreported on any tree small enough to take this branch
+        // and was reported on any tree that was not. Two answers about the same
+        // repository, decided by its size - the drift ADR-0007 exists to stop.
+        return javascriptEngine.searchFiles(enumeration.files, requests, [], enumeration.skipped);
       }
 
       try {
@@ -776,18 +929,24 @@ class AdaptiveEngine implements Engine {
 
 /** Resolves the engine to use, honouring an explicit preference. */
 export async function resolveEngine(preference: EnginePreference = 'auto'): Promise<Engine> {
+  // Every preference is compared, including the default. Leaving `auto` as the
+  // fall-through meant its name was never read, so the default could have said
+  // anything at all and every run would still have behaved identically.
   if (preference === 'javascript') return javascriptEngine;
-  if (preference === 'ripgrep') {
-    const binary = await findRipgrep();
-    if (!binary) {
-      throw new Error('ripgrep (rg) was requested with --engine rg but is not available on PATH.');
-    }
-    return new RipgrepEngine(binary);
+  if (preference === 'auto') return new AdaptiveEngine();
+  const binary = await findRipgrep();
+  if (!binary) {
+    throw new Error('ripgrep (rg) was requested with --engine rg but is not available on PATH.');
   }
-  return new AdaptiveEngine();
+  return new RipgrepEngine(binary);
 }
 
-export type CachedEngine = Engine & { fallbacks: string[] };
+/**
+ * `searchBatch` is required rather than optional: `createCachedEngine` always
+ * supplies one, and typing it as maybe-absent only meant every caller that
+ * wanted it wrote a cast asserting what the factory already guaranteed.
+ */
+export type CachedEngine = Engine & Required<Pick<Engine, 'searchBatch'>> & { fallbacks: string[] };
 
 /**
  * Wraps an engine with a de-duplicating cache plus an automatic fallback to the
@@ -797,18 +956,7 @@ export function createCachedEngine(engine: Engine): CachedEngine {
   const cache = new Map<string, Promise<SearchResult>>();
   const fallbacks: string[] = [];
 
-  const keyOf = (request: SearchRequest): string =>
-    JSON.stringify([
-      request.root,
-      request.symbol,
-      request.targets,
-      request.options.regex,
-      request.options.word,
-      request.options.ignoreCase,
-      request.options.globs,
-      request.options.excludeGlobs,
-      [...request.options.excludeFiles].sort(),
-    ]);
+  const keyOf = searchKey;
 
   const recordFallback = (error: unknown): void => {
     fallbacks.push(error instanceof Error ? error.message : String(error));
@@ -841,19 +989,21 @@ export function createCachedEngine(engine: Engine): CachedEngine {
       const missing = requests.filter((_, index) => !cache.has(keys[index] as string));
       const uncached = [...new Map(missing.map((request) => [keyOf(request), request])).values()];
 
-      if (uncached.length > 0) {
-        const pending = runSearches(engine, uncached).catch(async (error: unknown) => {
-          if (engine === javascriptEngine) throw error;
-          recordFallback(error);
-          return runSearches(javascriptEngine, uncached);
-        });
-        uncached.forEach((request, index) => {
-          cache.set(
-            keyOf(request),
-            pending.then((results) => results[index] as SearchResult),
-          );
-        });
-      }
+      // No `if (uncached.length > 0)` around this: `runSearches` returns an
+      // empty array without touching the engine, and a forEach over nothing
+      // does nothing. The guard could not change an outcome, which is why
+      // nothing could be written to hold it in place.
+      const pending = runSearches(engine, uncached).catch(async (error: unknown) => {
+        if (engine === javascriptEngine) throw error;
+        recordFallback(error);
+        return runSearches(javascriptEngine, uncached);
+      });
+      uncached.forEach((request, index) => {
+        cache.set(
+          keyOf(request),
+          pending.then((results) => results[index] as SearchResult),
+        );
+      });
 
       return Promise.all(keys.map((key) => cache.get(key) as Promise<SearchResult>));
     },

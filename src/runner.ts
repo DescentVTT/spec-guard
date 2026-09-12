@@ -10,11 +10,14 @@ import { promises as fs } from "node:fs";
 import path from "node:path";
 
 import {
+  comparePaths,
   createCachedEngine,
   enumerateCandidates,
+  passKey,
   resolveEngine,
   runSearches,
   ANY_FILE_PROBE,
+  ROOT_TARGETS,
   type Engine,
   type EnginePreference,
   type SearchRequest,
@@ -98,6 +101,18 @@ export interface RunResult extends RunReport {
   specFiles: string[];
 }
 
+/**
+ * Milliseconds between two `performance.now()` marks.
+ *
+ * Seven results carry a duration and each used to subtract inline, which is
+ * seven chances to write the operands the wrong way round and report a negative
+ * time - and seven copies of one subtraction that nothing could pin down,
+ * because "a plausible number of milliseconds" is not an assertion.
+ */
+export function elapsed(from: number, to: number = performance.now()): number {
+  return to - from;
+}
+
 const TRUE_VALUES = new Set(["true", "1", "yes", "on"]);
 const FALSE_VALUES = new Set(["false", "0", "no", "off"]);
 
@@ -131,10 +146,11 @@ function parseCount(value: string, attribute: string): number {
  */
 function splitList(value: string | undefined): string[] {
   if (value === undefined) return [];
-  return value
-    .split(/[,\s]+/)
-    .map((item) => item.trim())
-    .filter((item) => item.length > 0);
+  // Taking the items rather than splitting on the separators. Split needed a
+  // `+` on the separator class, a trim and a length filter, and any two of the
+  // three made the third unnecessary - so none of them could be tested. What is
+  // wanted is "the runs of non-separator characters", and that is one pattern.
+  return value.match(/[^,\s]+/g) ?? [];
 }
 
 /** Rejects absolute paths and any `..` escape out of the root. */
@@ -143,6 +159,11 @@ function normalizeTarget(
   root: string,
   attribute: string,
 ): string {
+  // The second test is not redundant with the first: `path.isAbsolute` follows
+  // the host platform, so a Windows drive path is absolute on Windows and an
+  // ordinary relative name on Linux. A spec naming `C:/repo/src` has to be
+  // refused on both, or the same document means two different things. It is
+  // anchored, because a colon partway along a path is just a character.
   if (path.isAbsolute(target) || /^[a-zA-Z]:[\\/]/.test(target)) {
     throw new Error(
       `Attribute "${attribute}" must be relative to --root, got "${target}".`,
@@ -172,7 +193,6 @@ function describeBounds(bounds: Bounds): string {
   if (min !== undefined) return `at least ${min} match${plural(min)}`;
   if (max !== undefined)
     return max === 0 ? "no matches" : `at most ${max} match${plural(max)}`;
-  /* c8 ignore next */
   return "any number of matches";
 }
 
@@ -188,7 +208,6 @@ function describeExpectation(bounds: Bounds): string {
   }
   if (min !== undefined) return `must appear at least ${times(min)}`;
   if (max === 0) return "must not appear";
-  /* c8 ignore next */
   return max === undefined
     ? "may appear any number of times"
     : `must appear at most ${times(max)}`;
@@ -206,7 +225,6 @@ function describeImportExpectation(bounds: Bounds): string {
       : `must import from between ${min} and ${max} files`;
   }
   if (min !== undefined) return `must import from at least ${files(min)}`;
-  /* c8 ignore next */
   return max === undefined
     ? "may import"
     : `must import from at most ${files(max)}`;
@@ -369,10 +387,19 @@ export function createScopeProbe(): (request: SearchRequest) => Promise<boolean>
   };
 }
 
-function satisfies(count: number, bounds: Bounds): boolean {
-  if (bounds.min !== undefined && count < bounds.min) return false;
-  if (bounds.max !== undefined && count > bounds.max) return false;
-  return true;
+/**
+ * Whether a count is inside the bounds. An absent bound is no bound.
+ *
+ * Written as defaults rather than as two `!== undefined` guards. Those guards
+ * could not change an answer - `count < undefined` is false for every count, so
+ * the comparison already admitted everything - which meant two conditions in
+ * the middle of the pass/fail decision that no test could hold in place.
+ */
+function satisfies(
+  count: number,
+  { min = 0, max = Number.POSITIVE_INFINITY }: Bounds,
+): boolean {
+  return count >= min && count <= max;
 }
 
 export interface ResolveContext {
@@ -452,7 +479,7 @@ export function resolveDirective(
     }
 
     const rawTargets = splitList(attributes["target"]);
-    const targets = (rawTargets.length > 0 ? rawTargets : ["."]).map((target) =>
+    const targets = (rawTargets.length > 0 ? rawTargets : ROOT_TARGETS).map((target) =>
       normalizeTarget(target, context.root, "target"),
     );
 
@@ -501,11 +528,10 @@ export function resolveDirective(
           bounds.min = parseCount(attributes["min"], "min");
         if (attributes["max"] !== undefined)
           bounds.max = parseCount(attributes["max"], "max");
-        if (
-          bounds.min !== undefined &&
-          bounds.max !== undefined &&
-          bounds.min > bounds.max
-        ) {
+        // Defaults rather than presence checks, for the same reason as
+        // `satisfies`: `min > undefined` is false whatever min is, so the two
+        // `!== undefined` guards this used to carry could not decide anything.
+        if ((bounds.min ?? 0) > (bounds.max ?? Number.POSITIVE_INFINITY)) {
           return fail(
             `min="${bounds.min}" is greater than max="${bounds.max}".`,
           );
@@ -578,9 +604,10 @@ export function resolveDirective(
       try {
         new RegExp(symbol);
       } catch (error) {
-        return fail(
-          `Invalid regular expression: ${error instanceof Error ? error.message : String(error)}`,
-        );
+        // No prefix of our own. V8's message already begins "Invalid regular
+        // expression: /(/: ...", so adding one produced the phrase twice in a
+        // row and pushed the pattern itself off the useful part of the line.
+        return fail(error instanceof Error ? error.message : String(error));
       }
     }
 
@@ -687,7 +714,7 @@ async function prepareAssertion(
           ? `all ${assertion.files.length} referenced ${assertion.files.length === 1 ? "path exists" : "paths exist"}`
           : `missing: ${missing.join(", ")}`,
       matches: [],
-      durationMs: performance.now() - startedAt,
+      durationMs: elapsed(startedAt),
     };
   }
 
@@ -721,7 +748,7 @@ async function prepareAssertion(
       actual: 0,
       message: `target path${assertion.missingTargets.length === 1 ? " does" : "s do"} not exist: ${assertion.missingTargets.join(", ")}`,
       matches: [],
-      durationMs: performance.now() - startedAt,
+      durationMs: elapsed(startedAt),
     };
   }
 
@@ -740,7 +767,7 @@ async function prepareAssertion(
         actual: 0,
         message: `no files were inspected, so this assertion verified nothing (${EMPTY_SCOPE_HINT})`,
         matches: [],
-        durationMs: performance.now() - startedAt,
+        durationMs: elapsed(startedAt),
       };
     }
   }
@@ -779,7 +806,7 @@ async function prepareAssertion(
         unclassifiedFiles: search.unclassifiedFiles,
         scope: search.scope,
         engine: search.engine,
-        durationMs: performance.now() - startedAt,
+        durationMs: elapsed(startedAt),
       };
     },
   };
@@ -850,7 +877,7 @@ async function executeImportAssertion(
           ? `no files were inspected, so this assertion verified nothing (${EMPTY_SCOPE_HINT})`
           : `none of the ${enumeration.files.length} files here are in a language whose imports spec-guard can read, so this assertion verified nothing (${EMPTY_SCOPE_HINT})`,
       matches: [],
-      durationMs: performance.now() - startedAt,
+      durationMs: elapsed(startedAt),
     };
   }
 
@@ -934,7 +961,7 @@ async function executeImportAssertion(
     staleBaseline: stale,
     fileMatches: [...fileCounts].map(([file, count]) => ({ file, count })),
     matches: matches.filter((match) => shows(match.file)).slice(0, options.maxSnippets),
-    durationMs: performance.now() - startedAt,
+    durationMs: elapsed(startedAt),
   };
 }
 
@@ -949,19 +976,14 @@ export async function executeAssertion(
 }
 
 /**
- * Groups searches that can share a single pass over the tree: same targets,
- * same flags. This is where most of spec-guard's speed comes from - a spec with
- * twenty assertions over `src/` costs one ripgrep pass, not twenty.
+ * How many workers to run over the batches.
+ *
+ * At least one, so an empty run still terminates; never more than there are
+ * batches, so a spec with three groups does not start eight workers to find
+ * five of them nothing to do.
  */
-function groupKey(request: SearchRequest): string {
-  const { options } = request;
-  return JSON.stringify([
-    request.targets,
-    options.regex,
-    options.word,
-    options.ignoreCase,
-    options.globs,
-  ]);
+export function batchConcurrency(requested: number, batches: number): number {
+  return Math.max(1, Math.min(requested, batches));
 }
 
 /** Reads, parses and executes every directive found in the given spec files. */
@@ -1018,7 +1040,7 @@ export async function runSpecGuard(options: RunOptions): Promise<RunResult> {
     imports: createImportIndex(),
     hasFiles: createScopeProbe(),
   };
-  const results: AssertionResult[] = new Array(assertions.length);
+  const results: AssertionResult[] = [];
 
   if (options.failFast) {
     // Fail-fast trades throughput for an early exit, so it runs unbatched.
@@ -1049,16 +1071,20 @@ export async function runSpecGuard(options: RunOptions): Promise<RunResult> {
         results[index] = entry;
         return;
       }
-      const key = groupKey(entry.request);
+      // The engine's own definition of "these can share one pass", rather than
+      // a second list here that had drifted four fields behind it. This is
+      // where most of spec-guard's speed comes from: a spec with twenty
+      // assertions over `src/` costs one ripgrep pass, not twenty.
+      const key = passKey(entry.request);
       const group = groups.get(key);
       if (group) group.push({ index, pending: entry });
       else groups.set(key, [{ index, pending: entry }]);
     });
 
     const batches = [...groups.values()];
-    const concurrency = Math.max(
-      1,
-      Math.min(options.concurrency ?? DEFAULT_CONCURRENCY, batches.length || 1),
+    const concurrency = batchConcurrency(
+      options.concurrency ?? DEFAULT_CONCURRENCY,
+      batches.length,
     );
     let cursor = 0;
     const worker = async (): Promise<void> => {
@@ -1089,9 +1115,7 @@ export async function runSpecGuard(options: RunOptions): Promise<RunResult> {
   errors.sort((a, b) =>
     a.location.relativeFile === b.location.relativeFile
       ? a.location.line - b.location.line
-      : a.location.relativeFile < b.location.relativeFile
-        ? -1
-        : 1,
+      : comparePaths(a.location.relativeFile, b.location.relativeFile),
   );
 
   const failed = results.filter((result) => !result.ok).length;
@@ -1099,7 +1123,7 @@ export async function runSpecGuard(options: RunOptions): Promise<RunResult> {
     ok: failed === 0 && errors.length === 0,
     root,
     engine: warnings.length > 0 ? "javascript" : engine.name,
-    durationMs: performance.now() - startedAt,
+    durationMs: elapsed(startedAt),
     summary: {
       specs: specFiles.length,
       total: results.length,
