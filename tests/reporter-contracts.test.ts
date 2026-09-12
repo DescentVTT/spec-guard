@@ -71,10 +71,11 @@ function fixture(overrides: Partial<RunResult> = {}): RunResult {
     root: 'C:/repo',
     engine: 'ripgrep',
     durationMs: 12,
-    summary: { specs: 1, total: 1, passed: 0, failed: 1, skipped: 0 },
+    summary: { specs: 1, total: 1, passed: 0, failed: 1, skipped: 0, inactive: 0 },
     specFiles: ['docs/a.md'],
     errors: [],
     warnings: [],
+    inactiveSpecs: [],
     results: [failing],
     ...overrides,
   };
@@ -130,7 +131,7 @@ describe('a coloured report, exactly', () => {
     const report = fixture({
       ok: true,
       results: [passing],
-      summary: { specs: 1, total: 1, passed: 1, failed: 0, skipped: 0 },
+      summary: { specs: 1, total: 1, passed: 1, failed: 0, skipped: 0, inactive: 0 },
     });
 
     expect(formatReport(report, { color: true, verbose: true })).toBe(
@@ -162,7 +163,7 @@ describe('a coloured report, exactly', () => {
     const report = fixture({
       ok: false,
       results: [passing, { ...failing, actual: 9, matches: [failing.matches[0] as Result['matches'][number]] }],
-      summary: { specs: 1, total: 2, passed: 1, failed: 1, skipped: 0 },
+      summary: { specs: 1, total: 2, passed: 1, failed: 1, skipped: 0, inactive: 0 },
       errors: [
         {
           location: { file: 'C:/repo/docs/a.md', relativeFile: 'docs/a.md', line: 9, column: 1 },
@@ -197,7 +198,7 @@ describe('a coloured report, exactly', () => {
     const report = fixture({
       ok: true,
       results: [passing],
-      summary: { specs: 1, total: 1, passed: 1, failed: 0, skipped: 0 },
+      summary: { specs: 1, total: 1, passed: 1, failed: 0, skipped: 0, inactive: 0 },
     });
 
     expect(formatReport(report, { color: true, verbose: false })).toContain(
@@ -219,7 +220,7 @@ describe('a coloured report, exactly', () => {
     const report = fixture({
       ok: true,
       results: [],
-      summary: { specs: 1, total: 0, passed: 0, failed: 0, skipped: 3 },
+      summary: { specs: 1, total: 0, passed: 0, failed: 0, skipped: 3, inactive: 0 },
     });
 
     expect(formatReport(report, { color: true, verbose: false })).toContain(`${ESC}[2m3 skipped${ESC}[0m`);
@@ -232,7 +233,7 @@ describe('the blank line after the list of passes', () => {
 
     expect(
       formatReport(
-        fixture({ ok: true, results: [passing], summary: { specs: 1, total: 1, passed: 1, failed: 0, skipped: 0 } }),
+        fixture({ ok: true, results: [passing], summary: { specs: 1, total: 1, passed: 1, failed: 0, skipped: 0, inactive: 0 } }),
         { color: false, verbose: true },
       ),
     ).toBe(
@@ -372,7 +373,7 @@ describe('the scope note', () => {
     const report = fixture({
       ok: true,
       results: [{ ...failing, ok: true, matches: [], fileMatches: [] }],
-      summary: { specs: 1, total: 1, passed: 1, failed: 0, skipped: 0 },
+      summary: { specs: 1, total: 1, passed: 1, failed: 0, skipped: 0, inactive: 0 },
     });
     const ascii = formatReport(report, { color: false, verbose: true, ascii: true });
 

@@ -66,10 +66,10 @@ export function shouldUseAscii(env: NodeJS.ProcessEnv = process.env, platform = 
   return !env['WT_SESSION'] && !env['TERM'] && !env['TERM_PROGRAM'];
 }
 
-function symbols(ascii: boolean): { pass: string; fail: string; warn: string; more: string } {
+function symbols(ascii: boolean): { pass: string; fail: string; warn: string; skip: string; more: string } {
   return ascii
-    ? { pass: '+', fail: 'x', warn: '!', more: '...' }
-    : { pass: '✔', fail: '✖', warn: '⚠', more: '…' };
+    ? { pass: '+', fail: 'x', warn: '!', skip: 'o', more: '...' }
+    : { pass: '✔', fail: '✖', warn: '⚠', skip: '○', more: '…' };
 }
 
 function formatDuration(ms: number): string {
@@ -282,18 +282,39 @@ export function formatReport(report: RunResult, options: ReporterOptions, maxSni
     lines.push('');
   }
 
+  // Named, not totalled. A count of withheld rules tells a reader that some
+  // part of their specification stopped being enforced without telling them
+  // which part, and the whole reason to report this at all is that a rule
+  // going quiet is indistinguishable from a rule passing.
+  for (const spec of report.inactiveSpecs) {
+    const detail =
+      spec.directives === 0
+        ? 'no directives to execute'
+        : `${countLabel(spec.directives, 'assertion')} not executed`;
+    lines.push(paint(`${glyphs.skip} ${spec.file} is ${spec.label} - ${detail}`, 'dim'));
+  }
+  if (report.inactiveSpecs.length > 0) lines.push('');
+
   const parts = [
     paint(`${report.summary.passed} passed`, 'green'),
     failures.length > 0 ? paint(`${report.summary.failed} failed`, 'red', 'bold') : null,
     report.errors.length > 0 ? paint(`${report.errors.length} invalid`, 'yellow') : null,
     report.summary.skipped > 0 ? paint(`${report.summary.skipped} skipped`, 'dim') : null,
+    report.summary.inactive > 0 ? paint(`${report.summary.inactive} not in force`, 'dim') : null,
     paint(formatDuration(report.durationMs), 'dim'),
   ].filter((part): part is string => part !== null);
 
   lines.push(parts.join(paint(' · ', 'dim')));
 
   if (report.ok) {
-    lines.push(paint(`${glyphs.pass} every spec assertion holds`, 'green'));
+    // "Every assertion holds" over zero assertions is true and useless, and it
+    // is the exact sentence someone reads as proof their specification is
+    // being enforced. A run that verified nothing has to say so instead.
+    lines.push(
+      report.summary.total > 0
+        ? paint(`${glyphs.pass} every spec assertion holds`, 'green')
+        : paint(`${glyphs.warn} no assertion was executed, so nothing was verified`, 'yellow'),
+    );
   }
 
   return lines.join('\n');
@@ -381,6 +402,7 @@ export function formatJson(report: RunResult): string {
         raw: error.raw,
       })),
       warnings: report.warnings,
+      inactiveSpecs: report.inactiveSpecs,
     },
     null,
     2,
@@ -411,6 +433,26 @@ const SARIF_RULES: ReadonlyArray<{ id: string; text: string }> = [
   { id: 'assert-import-count', text: 'A dependency count one part of the codebase must hold to.' },
   { id: 'invalid-directive', text: 'A directive that could not be parsed, so nothing was checked.' },
 ];
+
+/**
+ * SARIF's slot for "something happened during this run that is not a finding".
+ *
+ * A document that is not in force produces no result, and a format that only
+ * carries results would show a clean code-scanning page for a repository whose
+ * rules had gone dormant - the same silence the human report refuses. This is
+ * the standard's own answer to that: a note-level execution notification,
+ * which GitHub surfaces as run information rather than as an alert.
+ */
+function inactiveNotifications(report: RunResult): Array<{ level: string; message: { text: string } }> {
+  return report.inactiveSpecs.map((spec) => ({
+    level: 'note',
+    message: {
+      text:
+        `${spec.file} is ${spec.label}, so ` +
+        `${spec.directives === 1 ? 'its 1 assertion was' : `its ${spec.directives} assertions were`} not executed.`,
+    },
+  }));
+}
 
 interface SarifLocation {
   physicalLocation: {
@@ -502,6 +544,15 @@ export function formatSarif(report: RunResult, options: { version?: string } = {
       version: '2.1.0',
       runs: [
         {
+          // Present only when there is something to say. An empty invocations
+          // block is noise in every consumer that renders one.
+          ...(report.inactiveSpecs.length > 0
+            ? {
+                invocations: [
+                  { executionSuccessful: report.ok, toolExecutionNotifications: inactiveNotifications(report) },
+                ],
+              }
+            : {}),
           tool: {
             driver: {
               name: 'spec-guard',

@@ -44,6 +44,7 @@ import type {
   Bounds,
   Directive,
   DirectiveError,
+  InactiveSpec,
   MatchLocation,
   RatchetMode,
   RunReport,
@@ -93,6 +94,14 @@ export interface RunOptions {
    * look at literally everything.
    */
   defaultSkips?: boolean;
+  /**
+   * Execute every directive, whatever lifecycle status its document declares.
+   *
+   * The way to ask "would this draft pass if we accepted it today", and the
+   * escape hatch for a team whose `Proposed` means something else. Off by
+   * default, because the point of reading the status is to honour it.
+   */
+  ignoreStatus?: boolean;
 }
 
 export interface RunResult extends RunReport {
@@ -1007,7 +1016,10 @@ export async function runSpecGuard(options: RunOptions): Promise<RunResult> {
   );
 
   const directives: Directive[] = [];
+  /** Parsed, validated, and then not run: see ADR-0010. */
+  const withheld: Directive[] = [];
   const errors: DirectiveError[] = [];
+  const inactiveSpecs: InactiveSpec[] = [];
 
   for (const file of specFiles) {
     const relativeFile = toPosix(path.relative(root, file)) || toPosix(file);
@@ -1021,8 +1033,23 @@ export async function runSpecGuard(options: RunOptions): Promise<RunResult> {
     });
     if (source === null) continue;
     const parsed = parseDirectives(source, { file, relativeFile });
-    directives.push(...parsed.directives);
     errors.push(...parsed.errors);
+    const status = parsed.status;
+    if (status && !status.active && !(options.ignoreStatus ?? false)) {
+      withheld.push(...parsed.directives);
+      // Recorded even when it held no directives. "docs/adr/0011.md is a
+      // draft" is worth saying to someone wondering why their new rule has no
+      // effect, and a report that only mentions the documents it happened to
+      // find directives in cannot answer that.
+      inactiveSpecs.push({
+        file: relativeFile,
+        status: status.value,
+        label: status.label,
+        directives: parsed.directives.length,
+      });
+      continue;
+    }
+    directives.push(...parsed.directives);
   }
 
   const assertions: Assertion[] = [];
@@ -1030,6 +1057,15 @@ export async function runSpecGuard(options: RunOptions): Promise<RunResult> {
     const resolved = resolveDirective(directive, { root, excludeFiles, scope });
     if ("error" in resolved) errors.push(resolved.error);
     else assertions.push(resolved.assertion);
+  }
+
+  // Not in force is not the same as not checked. A withheld directive is still
+  // held to being well-formed, so a draft's typo is found on the day it is
+  // written rather than on the day the ADR is accepted - which is the day
+  // everyone has already agreed the rule is right and stopped looking at it.
+  for (const directive of withheld) {
+    const resolved = resolveDirective(directive, { root, excludeFiles, scope });
+    if ("error" in resolved) errors.push(resolved.error);
   }
 
   const engine = createCachedEngine(
@@ -1135,10 +1171,12 @@ export async function runSpecGuard(options: RunOptions): Promise<RunResult> {
       passed: results.length - failed,
       failed,
       skipped: assertions.length - results.length,
+      inactive: withheld.length,
     },
     results,
     errors,
     warnings,
+    inactiveSpecs,
     specFiles: specFiles.map(
       (file) => toPosix(path.relative(root, file)) || toPosix(file),
     ),

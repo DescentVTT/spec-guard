@@ -715,6 +715,58 @@ build were run over **6,976 files, 51.2 MB** of `node_modules` and compared file
 by file - every reference with its kind, specifier, type-only flag and position,
 and every note. 17,491 references, 156 notes, identical on every file.
 
+### 0.6.0: a new feature, held to the same bar before it shipped
+
+Document status ([ADR-0010](0010-spec-status.md)) was the first feature written
+after the gate moved to 97, so it was swept before it landed rather than after.
+The first sweep of the new code returned **93.04%** over 284 mutants - under the
+gate - and what the seventeen survivors were is the point of recording this.
+
+Eleven were reporter output nobody had asserted exactly: colour arguments
+(`'dim'` -> `""`), the blank line separating the withheld list from the totals,
+and the SARIF singular/plural. Cheap to kill and worth killing - a `paint(...,
+"")` that nothing notices is a colour that can be deleted, and the blank line
+is the difference between a block and a run-on.
+
+Two were the honest kind of finding. A surviving `startsWith('#')` guard in the
+`## Status` reader turned out to be **dead**, not untested: every ATX heading
+begins with `#`, and a value that does not begin with a letter is already no
+status at all, so the guard could not decide anything on any input. It was
+deleted rather than pinned by a contrived test - the distinction the mutation
+report is good at making is "nothing can tell this from its absence", and that
+is a reason to remove code, not to write a test that restates it.
+
+The other was an emphasis-stripping rule, and it is worth the whole section,
+because the first fix for it was also wrong and the next sweep said so. Two
+surviving regex mutants pointed at a rule that took one marker off each end of
+a line, so "Superseded by *ADR-0007*" would have reached the report as
+"Superseded by *ADR-0007". It was changed to unwrap only balanced markers - and
+the sweep after that reported a surviving `$` anchor on the new pattern. The
+mutant that survives an assertion is the one whose behaviour no input
+distinguishes, so the question is always *which* input was missing, and here it
+was `**Superseded** by ADR-0007`: the commonest way anyone writes the line.
+Balanced-only unwrapping left that starting with an asterisk, no first word to
+read, **no status at all** - a superseded ADR quietly left in force, which is
+precisely the failure [ADR-0010](0010-spec-status.md) exists to prevent. The
+word is now read *through* leading emphasis and the label is unwrapped only
+when the markers balance: two rules, because they answer two questions.
+
+The score went **93.04% -> 97.54% -> 98.91%** over three sweeps of the changed
+code, 17 survivors down to 3, and a fourth sweep of the status reader on its
+own - where all three of the last survivors were - returned **100% over 104
+mutants with none alive**. CI has the measurement that counts: local timeouts
+moved 24 -> 36 -> 13 across those runs with no change to any loop, which is the
+same load artefact measured in 0.5.1, and four of this project's own tests
+timed out at exactly 30s when the suite was run beside a sweep. Nothing on this
+machine measures anything while Stryker is using it.
+
+A separate finding, from running the new parser over this repository rather
+than over fixtures: **ADR-0003 is CRLF on disk**, and the status patterns are
+anchored to end-of-line. A trailing carriage return defeated every one of them,
+so the feature would have shipped silently inert on a Windows checkout. No
+mutant would have found that - the code was correct about the fixtures it was
+given. It took pointing the thing at real files.
+
 ## Consequences
 
 Whoever bumps vitest to 5 will fail CI on the assertion above, and land on this

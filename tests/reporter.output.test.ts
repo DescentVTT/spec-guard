@@ -79,10 +79,11 @@ function fixture(overrides: Partial<RunResult> = {}): RunResult {
     root: 'C:/repo',
     engine: 'ripgrep',
     durationMs: 12,
-    summary: { specs: 1, total: 2, passed: 1, failed: 1, skipped: 0 },
+    summary: { specs: 1, total: 2, passed: 1, failed: 1, skipped: 0, inactive: 0 },
     specFiles: ['docs/a.md'],
     errors: [],
     warnings: [],
+    inactiveSpecs: [],
     results: [passingResult, failingResult],
     ...overrides,
   };
@@ -91,7 +92,7 @@ function fixture(overrides: Partial<RunResult> = {}): RunResult {
 function onlyFailure(overrides: Partial<Result> = {}): RunResult {
   return fixture({
     results: [{ ...failingResult, ...overrides }],
-    summary: { specs: 1, total: 1, passed: 0, failed: 1, skipped: 0 },
+    summary: { specs: 1, total: 1, passed: 0, failed: 1, skipped: 0, inactive: 0 },
   });
 }
 
@@ -115,7 +116,7 @@ describe('exact rendered output', () => {
   it('renders a verbose passing report exactly', () => {
     const passing = fixture({
       ok: true,
-      summary: { specs: 1, total: 1, passed: 1, failed: 0, skipped: 0 },
+      summary: { specs: 1, total: 1, passed: 1, failed: 0, skipped: 0, inactive: 0 },
       results: [passingResult],
     });
 
@@ -134,7 +135,7 @@ describe('exact rendered output', () => {
   it('renders an assert-present pass by listing its files', () => {
     const present = fixture({
       ok: true,
-      summary: { specs: 1, total: 1, passed: 1, failed: 0, skipped: 0 },
+      summary: { specs: 1, total: 1, passed: 1, failed: 0, skipped: 0, inactive: 0 },
       results: [
         {
           ...passingResult,
@@ -162,7 +163,7 @@ describe('exact rendered output', () => {
   });
 
   it('shows the skipped count when fail-fast stopped the run', () => {
-    const stopped = fixture({ summary: { specs: 1, total: 2, passed: 1, failed: 1, skipped: 4 } });
+    const stopped = fixture({ summary: { specs: 1, total: 2, passed: 1, failed: 1, skipped: 4, inactive: 0 } });
     expect(formatReport(stopped, { color: false, verbose: false })).toContain('4 skipped');
   });
 
@@ -215,7 +216,7 @@ describe('exact rendered output', () => {
   it('paints the pass marker green and the headline bold blue', () => {
     const passing = fixture({
       ok: true,
-      summary: { specs: 1, total: 1, passed: 1, failed: 0, skipped: 0 },
+      summary: { specs: 1, total: 1, passed: 1, failed: 0, skipped: 0, inactive: 0 },
       results: [passingResult],
     });
     const output = formatReport(passing, { color: true, verbose: true });
@@ -331,7 +332,7 @@ describe('comment exclusion notes', () => {
   const passedByExclusion = (commentMatches: number, unclassifiedFiles = 0): RunResult =>
     fixture({
       ok: true,
-      summary: { specs: 1, total: 1, passed: 1, failed: 0, skipped: 0 },
+      summary: { specs: 1, total: 1, passed: 1, failed: 0, skipped: 0, inactive: 0 },
       results: [{ ...passingResult, commentMatches, unclassifiedFiles }],
     });
 
@@ -398,7 +399,7 @@ describe('comment exclusion notes', () => {
     // survived, which means the whole block could have been deleted unnoticed.
     const report = fixture({
       ok: true,
-      summary: { specs: 1, total: 1, passed: 1, failed: 0, skipped: 0 },
+      summary: { specs: 1, total: 1, passed: 1, failed: 0, skipped: 0, inactive: 0 },
       results: [{ ...passingResult, commentMatches: 2, warnings: ['target path not found: src/gone'] }],
     });
 
@@ -421,7 +422,7 @@ describe('comment exclusion notes', () => {
   it('separates run-level warnings from what follows', () => {
     const report = fixture({
       ok: true,
-      summary: { specs: 1, total: 1, passed: 1, failed: 0, skipped: 0 },
+      summary: { specs: 1, total: 1, passed: 1, failed: 0, skipped: 0, inactive: 0 },
       results: [passingResult],
       warnings: ['ripgrep failed, falling back to the scanner'],
     });
@@ -458,7 +459,7 @@ describe('what was not inspected', () => {
   const withLedger = (skipped: RunResult['results'][number]['scope']['skipped'], ok = true): RunResult =>
     fixture({
       ok,
-      summary: { specs: 1, total: 1, passed: ok ? 1 : 0, failed: ok ? 0 : 1, skipped: 0 },
+      summary: { specs: 1, total: 1, passed: ok ? 1 : 0, failed: ok ? 0 : 1, skipped: 0, inactive: 0 },
       results: [{ ...(ok ? passingResult : failingResult), scope: { skipped } }],
     });
 

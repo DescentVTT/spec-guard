@@ -40,6 +40,7 @@ export interface CliOptions {
   engine: EnginePreference;
   allowMissingTargets: boolean;
   defaultSkips: boolean;
+  ignoreStatus: boolean;
   strictTargets: boolean;
   allowEmptyScope: boolean;
   printBaseline: boolean;
@@ -87,6 +88,7 @@ Options
       --allow-empty-scope Tolerate assertions whose scope holds no files (they fail by default)
       --print-baseline    Print the baseline="..." that would exempt today's violations, and exit
       --no-default-skips  Search .git, .hg, .svn and node_modules too
+      --ignore-status     Execute directives in draft, proposed and superseded documents too
       --include-specs     Also count matches inside the spec files themselves
       --max-snippets <n>  Failure snippets per assertion (default: ${DEFAULT_MAX_SNIPPETS})
       --concurrency <n>   Assertions executed in parallel (default: ${DEFAULT_CONCURRENCY})
@@ -102,6 +104,8 @@ Directives
 
   Matches inside comments do not count; add comments="include" to count them.
   An assertion whose scope holds no files fails; add allow-empty="true" to allow it.
+  A document whose status is draft, proposed, rejected, deprecated or superseded
+  is reported and not executed; --ignore-status runs it anyway.
 
 Exit codes
   0 all assertions passed   1 an assertion failed   2 spec-guard could not run`;
@@ -148,6 +152,7 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
     engine: 'auto',
     allowMissingTargets: false,
     defaultSkips: true,
+    ignoreStatus: false,
     strictTargets: false,
     allowEmptyScope: false,
     printBaseline: false,
@@ -224,6 +229,9 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
         break;
       case '--no-default-skips':
         options.defaultSkips = false;
+        break;
+      case '--ignore-status':
+        options.ignoreStatus = true;
         break;
       case '--include-specs':
         options.includeSpecs = true;
@@ -306,6 +314,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2), io: 
       allowMissingTargets: options.allowMissingTargets,
       allowEmptyScope: options.allowEmptyScope,
       defaultSkips: options.defaultSkips,
+      ignoreStatus: options.ignoreStatus,
       strictTargets: options.strictTargets,
       includeSpecs: options.includeSpecs,
       concurrency: options.concurrency,

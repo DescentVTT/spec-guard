@@ -5,6 +5,55 @@ All notable changes to this project are documented here. Versions follow
 may change in a minor release — each such change is listed under **Changed**
 with the flag that restores the previous behaviour.
 
+## Unreleased
+
+### Added
+
+- **Document lifecycle status.** A Markdown document whose status is `draft`,
+  `proposed`, `rejected`, `deprecated` or `superseded` is parsed, validated,
+  reported by name - and not executed. A proposed ADR can now be written with
+  its assertions live and the build green, and a superseded ADR can stay on
+  disk, intact, enforcing nothing. Three spellings are read, because three are
+  in use: MADR front-matter, a Nygard `## Status` section, and a bold
+  `**Status:**` label in the preamble. Anything else - an unrecognised word, a
+  misspelling, no status at all - keeps enforcing, which is the direction that
+  cannot turn a typo into a silently disabled rule.
+
+  Withholding is never quiet. Every withheld document is named in the human
+  report (`○ docs/adr/0011.md is Proposed. - 2 assertions not executed`), in
+  `--format json` as `inactiveSpecs`, and in `--format sarif` as a note-level
+  execution notification - because a rule that has gone quiet is otherwise
+  indistinguishable from a rule that passed. Directives in a withheld document
+  are still checked for typos, bad attributes and unresolvable values, so a
+  draft's mistake is found on the day it is written rather than on the day
+  everyone agrees the rule is right and stops looking at it.
+  See [ADR-0010](docs/adr/0010-spec-status.md), which also records why there is
+  no per-directive `if-status` attribute.
+- `--ignore-status` executes every directive whatever its document declares -
+  how to ask whether a draft would pass if you accepted it today.
+- `parseStatus`, `INACTIVE_STATUSES`, and the `SpecStatus` / `InactiveSpec`
+  types are exported from the programmatic API.
+
+### Changed
+
+- **A run that executed no assertions no longer reports that every assertion
+  holds.** It says `no assertion was executed, so nothing was verified`. True
+  and useless was the old sentence's problem: it is the exact line someone
+  reads as proof their specification is being enforced. Reachable before this
+  release through a spec file with no directives in it; withholding made it
+  easy to reach.
+- `RunSummary` gains `inactive` and `RunReport` gains `inactiveSpecs`. Both are
+  always present; consumers deep-comparing a summary object will see the new
+  field.
+
+### Fixed
+
+- **A CRLF document declared no status at all.** A trailing carriage return
+  defeats the end-of-line anchor in every status pattern, so the feature above
+  would have been silently inert on a Windows checkout. Found by running the
+  parser over this repository's own ADR-0003, which happened to be CRLF on
+  disk.
+
 ## 0.5.1
 
 Writing down what the code already claimed. Every module was driven to its

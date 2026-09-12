@@ -101,7 +101,7 @@ export type { ModuleLanguage } from './polyglot.js';
 
 export { lineStarts, locate, maskRanges } from './text.js';
 
-export { maskCode, parseAttributes, parseDirectives } from './parser.js';
+export { maskCode, parseAttributes, parseDirectives, parseStatus, INACTIVE_STATUSES } from './parser.js';
 export type { ParseContext } from './parser.js';
 
 export {
@@ -128,6 +128,7 @@ export type {
   DirectiveKind,
   EngineName,
   ImportQuery,
+  InactiveSpec,
   MatchLocation,
   ParseResult,
   RatchetMode,
@@ -136,5 +137,6 @@ export type {
   SearchOptions,
   SearchResult,
   SourceLocation,
+  SpecStatus,
   StaleBaselineEntry,
 } from './types.js';

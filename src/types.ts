@@ -51,9 +51,46 @@ export interface DirectiveError {
   raw: string;
 }
 
+/**
+ * A document's declared lifecycle state, as written in the document.
+ *
+ * ADRs are an historical ledger: one moves from Proposed to Accepted, and later
+ * to Superseded, and the superseded text stays on disk because deleting it
+ * deletes the reason a decision was made. spec-guard executed every directive
+ * it found regardless, which made a draft break CI and made a superseded ADR
+ * keep enforcing a rule its own heading says was replaced.
+ *
+ * See ADR-0010 for why this is read from the document rather than declared per
+ * directive, and why an unrecognised word stays in force.
+ */
+export interface SpecStatus {
+  /** The first word, lowercased: `superseded` from "Superseded by ADR-0007". */
+  value: string;
+  /** The whole line as written, which is what a reader wants to be shown. */
+  label: string;
+  /** Where in the document it was found. */
+  source: 'frontmatter' | 'heading' | 'label';
+  /** Whether the directives in this document execute. */
+  active: boolean;
+}
+
 export interface ParseResult {
   directives: Directive[];
   errors: DirectiveError[];
+  /** The document's declared status, when it declares one. */
+  status?: SpecStatus;
+}
+
+/** A spec file whose status withheld its directives from execution. */
+export interface InactiveSpec {
+  /** Path relative to the root, forward slashes. */
+  file: string;
+  /** The normalised status word that withheld it. */
+  status: string;
+  /** The status line as written. */
+  label: string;
+  /** How many directives were not executed. */
+  directives: number;
 }
 
 /** Search behaviour shared by `assert-absence` and `assert-count`. */
@@ -260,6 +297,15 @@ export interface RunSummary {
   failed: number;
   /** Assertions never executed because --fail-fast stopped the run. */
   skipped: number;
+  /**
+   * Assertions never executed because their document is not in force.
+   *
+   * Its own field rather than a second meaning for `skipped`: one of these is
+   * "the run stopped early", the other is "the author said this rule does not
+   * apply yet", and a reader who cannot tell them apart is being told a run
+   * was complete when it was not.
+   */
+  inactive: number;
 }
 
 export interface RunReport {
@@ -273,4 +319,13 @@ export interface RunReport {
   errors: DirectiveError[];
   /** Non-fatal notices, e.g. an engine fallback. */
   warnings: string[];
+  /**
+   * Documents whose status withheld their directives.
+   *
+   * Reported by name, never merely counted. A rule that stopped being enforced
+   * is the one thing a report must not be quiet about, and "0 failed" over a
+   * tree where half the ADRs went dormant is the exact shape of the lie this
+   * tool exists to prevent.
+   */
+  inactiveSpecs: InactiveSpec[];
 }

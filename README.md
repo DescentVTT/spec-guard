@@ -441,6 +441,61 @@ paste in. It prints; it does not edit. [ADR-0009](docs/adr/0009-debt-baselines.m
 explains why that distinction is the whole design, and why there is no `--fix`
 for architecture rules.
 
+## Document status - drafts and superseded ADRs
+
+An ADR has a life. It is `Proposed` before anyone agrees to it, and `Superseded`
+long before anyone deletes it - because deleting it deletes the reason a
+decision was made.
+
+spec-guard reads that status from the document and honours it. A document whose
+status is `draft`, `proposed`, `rejected`, `deprecated` or `superseded` is
+parsed, validated, reported - and not executed.
+
+Three spellings are recognised, because three are in use:
+
+<!-- Shown fenced on purpose: spec-guard masks code before reading a status. -->
+
+```md
+---
+status: proposed
+---
+```
+
+```md
+## Status
+
+Accepted (0.3.0).
+```
+
+```md
+**Status:** accepted
+```
+
+Front-matter wins, then the `## Status` section, then the bold label (which is
+only read above the first `##`). Anything else - `Provisional`, `In review`, a
+misspelled `Supersedded`, or no status at all - keeps enforcing. That asymmetry
+is deliberate: an unanticipated word that keeps enforcing is a visible failure
+with an obvious fix, while one that stops enforcing is a green build over a rule
+nobody is checking.
+
+Withholding is never quiet:
+
+```text
+○ docs/adr/0011-queues.md is Proposed. - 2 assertions not executed
+
+12 passed · 2 not in force · 48ms
+```
+
+By name, not by count - the same fact reaches `--format json` as `inactiveSpecs`
+and `--format sarif` as a note-level execution notification. A withheld
+directive is still checked for typos and bad attributes, so a draft's mistake is
+found on the day it is written rather than on the day it is accepted.
+`--ignore-status` runs everything, which is how you ask whether a draft would
+pass if you accepted it today.
+
+[ADR-0010](docs/adr/0010-spec-status.md) has the full reasoning, including why
+there is no per-directive `if-status` attribute.
+
 ## CLI
 
 ```bash
@@ -460,6 +515,7 @@ spec-guard [patterns...] [options]
 | `--allow-empty-scope` | Warn instead of failing when an assertion inspects no files |
 | `--print-baseline` | Print the `baseline="..."` that would exempt today's violations, and exit |
 | `--no-default-skips` | Search `.git`, `.hg`, `.svn` and `node_modules` too |
+| `--ignore-status` | Execute directives in draft, proposed and superseded documents too |
 | `--include-specs` | Also count matches inside the spec files themselves |
 | `--max-snippets <n>` | Failure snippets per assertion (default 5) |
 | `--concurrency <n>` | Search passes in flight at once (default 8) |
@@ -684,6 +740,12 @@ the syntax must not execute it. Masking preserves byte offsets, so reported line
 numbers stay exact. (This is subtle: pairing backtick runs the naive way
 desynchronises after a stray unmatched run and un-masks real prose. spec-guard
 uses CommonMark's equal-length pairing rule, and there is a regression test.)
+
+**A document's lifecycle status is read; a directive's is not.** Status is
+document-level and visible in every rendered Markdown view. A per-directive
+`if-status` attribute would be a switch disabling one assertion inside an
+accepted ADR, invisible to anyone who does not read the raw source - and the
+one thing a mechanism for not running an assertion must never be is invisible.
 
 **Malformed directives fail the run.** A typo like `expct="1"` could be ignored
 as "not a directive". It is instead an error, because a spec tool whose typos

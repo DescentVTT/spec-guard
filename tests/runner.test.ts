@@ -147,7 +147,7 @@ describe.each(ENGINES)('runSpecGuard [%s engine]', (engine) => {
     const report = await runSpecGuard({ patterns: ['docs/adr/0001-passing.md'], root: DEMO_REPO, engine });
 
     expect(report.ok).toBe(true);
-    expect(report.summary).toEqual({ specs: 1, total: 8, passed: 8, failed: 0, skipped: 0 });
+    expect(report.summary).toEqual({ specs: 1, total: 8, passed: 8, failed: 0, skipped: 0, inactive: 0 });
     expect(report.errors).toEqual([]);
     expect(report.warnings).toEqual([]);
     // With no fallback, the report names the engine that was asked for.
