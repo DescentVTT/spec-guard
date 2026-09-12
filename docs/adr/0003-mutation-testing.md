@@ -609,9 +609,11 @@ its limits, because "indistinguishable" is only as strong as the instrument:
   the same answer, and two spellings of one question cost only a repeated
   search, so a mutant that makes a key *finer* cannot change a result.
 
-**The floor moves to 95**, against a CI measurement of **96.98%** over 4,310
+**The floor moves to 97**, against a CI measurement of **97.65%** over 4,299
 mutants. Every file is above 95%, where the spread ran from 83% to 95% a release
-ago. Nine new test files, none of them a rewrite of an existing one: they test
+ago, and three are at 100%. The survivor count CI reports is 101, which is
+exactly the number the sweep below proved indistinguishable: the ceiling is
+measured, so the headroom is a regression guard rather than a cushion. Nine new test files, none of them a rewrite of an existing one: they test
 each module as a thing with an output rather than as a step towards a count.
 Where the old tests read a report with colour off - which is almost everywhere -
 the colour arguments could have named any colour at all; the SARIF document is

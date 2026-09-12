@@ -56,15 +56,17 @@ export default {
   // measures so that losing ground fails the build, while ordinary refactoring
   // does not trip it.
   //
-  // Re-anchored to 95 against a CI measurement of 96.98%. Where the
-  // previous move came from one file, this one came from all of them: every
-  // module was taken to its ceiling and the spread now runs from 95% to 100%,
-  // against 83% to 95% a release ago.
+  // Re-anchored to 97 against a CI measurement of 97.65%, and this is the first
+  // setting in the project's history where the *ceiling* is known rather than
+  // guessed at. Every one of the survivors was applied individually and run
+  // through a behavioural fingerprint: 29 turned out to be distinguishable and
+  // are now tested, and the 101 that remain produce byte-identical output. The
+  // count of survivors CI reports is exactly that 101.
   //
-  // The headroom is deliberately wider than the 0.61, 0.63 and 0.84 used
-  // before - not because the measurement is noisier, but because what is left
-  // above the gate is thinner. Recovering a tenth of a point now costs a test
-  // for a mutant nobody has found a distinguishing input for, and a gate that
-  // demands that is a gate that gets lowered. See ADR-0003.
-  thresholds: { high: 97, low: 90, break: 95 },
+  // So 97.65% is not "where we got to", it is the top - and 0.65 of headroom,
+  // in line with the 0.61, 0.63 and 0.84 used before, is a real regression
+  // guard rather than a cushion. Anything that drops it is either a test
+  // deleted or a mutant nobody has looked at, and both deserve to fail the
+  // build. See ADR-0003.
+  thresholds: { high: 98, low: 95, break: 97 },
 };

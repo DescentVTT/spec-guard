@@ -774,8 +774,10 @@ prebuilt binary and is never a runtime dependency.
 
 Coverage says a line ran. It does not say an assertion would notice if the line
 behaved differently. This repository measures the difference: line coverage is
-**100%**, and **96.98%** of 4,310 mutants are killed in CI, with no file below
-95%. The second number is the one worth reading.
+**100%**, and **97.65%** of 4,299 mutants are killed in CI, with no file below
+95%. The second number is the one worth reading - and it is the ceiling, not a
+way-point: every surviving mutant has been checked individually and the 101 that
+are left produce byte-identical output.
 
 That gap is the point. The first run scored 77.23%, and the weakest file was the
 reporter at 65.48% - not because it lacked tests, but because its tests were
@@ -808,7 +810,7 @@ block comment on `2*3`. All 29 are now tested and all 29 die. All of it is in
 found on the way: a mutant that stops a test file *loading* is reported as
 survived even though the suite is in fact killing it.
 
-CI runs it in **two tiers**, both gated at 95%. Branches and pull requests run
+CI runs it in **two tiers**, both gated at 97%. Branches and pull requests run
 Stryker incrementally, reusing the verdict for any mutant whose source and
 covering tests are both unchanged. Pushes to `main`, the weekly schedule and
 manual runs do the full sweep, which is the authoritative number and the one
@@ -816,8 +818,8 @@ quoted above; a full sweep is also what publishes the cache the branches start
 from, so an incremental verdict can never be built on another incremental
 verdict.
 
-The full sweep was 6m54s at 2,118 mutants, 15m51s at 3,493, and is 16m18s at
-4,310. That growth is why the tiers exist: a check that gets quietly more
+The full sweep was 6m54s at 2,118 mutants, 15m51s at 3,493, and is 17m at
+4,299. That growth is why the tiers exist: a check that gets quietly more
 expensive every release is a check somebody eventually proposes lowering.
 
 Run it locally with `npm run test:mutation` if you like, but do not calibrate
