@@ -5,6 +5,47 @@ All notable changes to this project are documented here. Versions follow
 may change in a minor release — each such change is listed under **Changed**
 with the flag that restores the previous behaviour.
 
+## Unreleased
+
+Writing down what the code already claimed. Every module was driven to its
+honest mutation-testing ceiling, and the exercise turned up four wrong answers
+rather than four missing tests — which is the argument for doing it at all.
+
+### Fixed
+
+- **Two assertions on the same symbol answered each other's comment handling.**
+  The result cache keyed on the symbol, the targets and the search flags, but
+  not on `comments`. A spec with `<!-- @assert-count symbol="X" ... -->` above
+  `<!-- @assert-count symbol="X" ... comments="include" -->` returned whichever
+  count ran first for both. The grouping test had the same omission, so the two
+  were also merged into a single pass and the second was scanned with the
+  first's mask. There is now one definition of "the same question", in three
+  nested scopes, and the scope policy is part of it too.
+- **An unreadable directory went unreported on a small repository.** The
+  adaptive engine had the walk's skip ledger in hand and returned without it on
+  any tree small enough to scan in process, so the same directory was a reported
+  gap on a large repository and silence on a small one. Same tree, two answers,
+  decided by its size.
+- **Snippets from CRLF files carried a carriage return into the report**, which
+  returns the terminal cursor to column 0 and overwrites the line just printed.
+  The trim looked for `\r?\n` at the end of a line the caller had already cut at
+  the newline, so it could never match.
+- **A bad `regex="true"` pattern was reported as `Invalid regular expression:
+  Invalid regular expression: /(/: ...`** — V8's message already says it once.
+
+### Changed
+
+- **Two requests differing only in `scope` are no longer merged into one
+  search pass.** Reachable today only through the programmatic API, where a
+  caller may build more than one `ScopePolicy` per run.
+- `enumerateCandidates` takes a `WalkRequest` — a `SearchRequest` without the
+  `symbol`, because a walk does not depend on one. Existing callers are
+  unaffected; the symbol is now optional rather than required.
+- `CachedEngine` declares `searchBatch` as present rather than optional, which
+  `createCachedEngine` has always guaranteed.
+- `KINDS` and `ALLOWED_ATTRIBUTES` are exported from the parser, so the
+  directive grammar can be asserted rather than restated.
+
 ## 0.5.0
 
 Import assertions covered one language, so a dependency rule pointed at a

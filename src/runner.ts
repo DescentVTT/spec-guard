@@ -207,9 +207,10 @@ function describeExpectation(bounds: Bounds): string {
   }
   if (min !== undefined) return `must appear at least ${times(min)}`;
   if (max === 0) return "must not appear";
-  return max === undefined
-    ? "may appear any number of times"
-    : `must appear at most ${times(max)}`;
+  // No branch for "neither bound": this is only ever called from
+  // `resolveDirective`, which refuses a directive that names none. Carrying a
+  // fourth case here meant carrying a string no run could print.
+  return `must appear at most ${times(max ?? 0)}`;
 }
 
 /** Prose for an import claim: "must not import", "must import at least 2 files". */
@@ -224,9 +225,8 @@ function describeImportExpectation(bounds: Bounds): string {
       : `must import from between ${min} and ${max} files`;
   }
   if (min !== undefined) return `must import from at least ${files(min)}`;
-  return max === undefined
-    ? "may import"
-    : `must import from at most ${files(max)}`;
+  // As above: `resolveDirective` never produces an unbounded import claim.
+  return `must import from at most ${files(max ?? 0)}`;
 }
 
 /**

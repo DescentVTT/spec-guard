@@ -489,6 +489,36 @@ describe('enumerateCandidates', () => {
 });
 
 describe('the adaptive engine', () => {
+  it('carries the walk ledger out of its small-tree branch', async () => {
+    // The branch that scans in process had the ledger in hand and returned
+    // without it, so an unreadable directory was a reported gap on a large
+    // repository and silence on a small one. The reader is intercepted rather
+    // than the permissions changed, because Windows has no chmod and a
+    // permission bit a failed test leaves behind is worse than no test.
+    const root = await repo({ 'src/a.ts': 'Widget\n', 'src/locked/b.ts': 'Widget\n' });
+    const real = fsp.readdir.bind(fsp);
+    vi.spyOn(fsp, 'readdir').mockImplementation((async (...args: Parameters<typeof fsp.readdir>) => {
+      const [directory] = args;
+      if (typeof directory === 'string' && directory.endsWith('locked')) throw new Error('EACCES');
+      return real(...args);
+    }) as typeof fsp.readdir);
+
+    const engine = await resolveEngine('auto');
+    const result = await engine.search({ root, symbol: 'Widget', targets: ['src'], options: searchOptions() });
+
+    expect(result.engine).toBe('javascript');
+    expect(result.scope.skipped).toEqual([{ path: 'src/locked', reason: 'unreadable' }]);
+  });
+
+  it('reports nothing skipped when there was nothing to skip', async () => {
+    const root = await repo({ 'src/a.ts': 'Widget\n' });
+    const engine = await resolveEngine('auto');
+
+    const result = await engine.search({ root, symbol: 'Widget', targets: ['src'], options: searchOptions() });
+
+    expect(result.scope.skipped).toEqual([]);
+  });
+
   it('reports a directory it could not read even on a tree small enough to scan in process', async () => {
     // The small-tree branch had the walk's ledger in hand and returned without
     // it, so the same unreadable directory was a reported gap on a large

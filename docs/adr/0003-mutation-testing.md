@@ -436,6 +436,109 @@ softer version of the same move - "this *kind of code* carries more equivalent
 mutants" - and that version survived three releases because it sounded like
 engineering judgement rather than an excuse.
 
+### 0.5.2: every module, and what writing it down turned up
+
+The previous section ended with `src/engine.ts` at 83.65% and no excuse offered.
+This one took every module to its ceiling. The point of recording it is not the
+number; it is what happened on the way.
+
+**Four wrong answers, not four missing tests.** Each of these was found by
+trying to write down a contract that had only ever been checked through its
+effect on a match count.
+
+- The result cache keyed on the symbol, the targets and the search flags, but
+  not on `comments`. A spec with two assertions on one symbol - one of them
+  `comments="include"` - was answered for both with whichever count ran first.
+- The grouping test had the same omission, so those two assertions were also
+  merged into one pass and the second was scanned with the first's mask.
+- Neither considered `scope`. One `ScopePolicy` per run today; the day that
+  stopped being true it would have been the same defect a third time.
+- The adaptive engine had the walk's skip ledger in hand and returned without
+  it on any tree small enough to scan in process. An unreadable directory was a
+  reported gap on a large repository and silence on a small one - the same tree
+  answered two ways, decided by its size, which is precisely the drift ADR-0007
+  exists to remove.
+
+The first three are one defect: "when are two requests the same question" was
+answered by three hand-maintained lists of fields, and lists like that drift.
+There is now one definition in three nested scopes - walk, pass, search - each
+being the one inside it plus what that layer adds. The fourth is what a
+`toContain` on a count cannot see.
+
+Two smaller ones came with them. Every snippet from a CRLF file carried a
+carriage return into the report, because the trim looked for `\r?\n` at the end
+of a line the caller had already cut at the newline - a pattern that cannot
+match anything it is given. And a bad `regex="true"` pattern was reported as
+`Invalid regular expression: Invalid regular expression: /(/: ...`, because V8's
+message already says it once.
+
+**A harness limitation, reproduced.** Eleven mutants in `src/comments.ts` sat in
+module-level `.map()` callbacks that build the extension-to-language table.
+Stryker reported all eleven as survived. The suite kills every one of them:
+applying any of them by hand makes `new Map` throw on an entry that is not a
+pair, and every test file that imports the module fails to load.
+
+    $ # (extension) => [extension, C_SHARP]   ->   () => undefined
+    $ npx vitest run tests/comments.test.ts
+    FAIL  tests/comments.test.ts [ tests/comments.test.ts ]
+    TypeError: Iterator value undefined is not an entry object
+    Test Files  1 failed (1)
+
+Stryker ran the whole suite for each of them - the log says so - and reported
+Survived anyway. The reason is that a mutant which stops a test file *loading*
+produces no test results at all, and no failing test reads to the runner as no
+test having killed it. On the same lines, `StringLiteral` and `ArrayDeclaration`
+mutants are killed normally, which rules out the simpler explanation that
+module-level code is never re-executed.
+
+Two things follow. The first is that the table is now plain data filled in by a
+loop, which is easier to read and contains no such callback; that is a change
+the code is better for, and the measurement improving is a consequence rather
+than the reason. The second is that `ignoreStatic` was *not* turned on. It would
+have removed all 473 static mutants from the score, and 414 of them are killed
+honestly - discarding those to hide 59 artefacts hides more than it reveals.
+Where a static survivor is a false one, it is better to say so here.
+
+**What was deleted rather than tested.** Fourteen branches turned out to be
+unable to decide anything, and deleting a branch is a cleaner kill than pinning
+it. The recurring shape was a presence check in front of a comparison that
+already handled absence: `bounds.min !== undefined && count < bounds.min` guards
+nothing, because `count < undefined` is false for every count. The same shape
+appeared in the min-greater-than-max check. Others: a floor of one reader for a
+list of no files, a guard around an empty batch that the caller had already
+answered, a `typeof` narrowing that a `Set` lookup already performed, a `catch`
+around a `spawn` that cannot throw, an uncertainty filter over a ledger that
+only ever holds uncertainty, a `symbol: ""` invented for a walk that never
+searches for one, and a `language === 'csharp'` branch returning exactly what
+the general case below it returned.
+
+Four more were made *reachable* rather than removed. `maskRanges` advances its
+cursor to the furthest point reached instead of special-casing empty, inverted
+and nested ranges; `locate` searches a half-open interval, so the `- 1` that
+converged to the right answer whichever way it was perturbed is gone; `literalAt`
+compares three ways with the hit last, so both of its remaining comparisons
+decide something; and `comparePaths` states what it does with a tie, which no
+call site can produce and which is exactly why it had to be written down.
+
+**What is still unkillable, and why.** Roughly a dozen mutants remain that no
+test can distinguish, and they are worth naming so the next person does not
+spend an afternoon on them. `while (index < source.length)` loosened to `<=`
+reads one position past the end, where every branch is false - checked
+exhaustively in 0.5.1 and unchanged. `.catch(() => null)` mutated to
+`() => undefined` is invisible to any caller that tests for falsiness, which is
+why `statOrNull` exists: one place where the difference is the contract.
+`windowsHide: true` has no observable effect on a test runner. And the request
+keys are conservative by construction - equal keys mean the same answer, while
+two spellings of one question merely cost a repeated search - so a mutant that
+makes a key *finer* cannot change a result, only a cache hit rate.
+
+**The floor moves to 93.** Six new test files, none of them a rewrite of an
+existing one: they test the modules as things with outputs rather than as steps
+towards a count. Where the old tests read a report with colour off - which is
+almost everywhere - the colour arguments could have named any colour at all; the
+SARIF document is now asserted whole, because a serialisation format is a
+contract with a machine that is not in the room.
+
 ## Consequences
 
 Whoever bumps vitest to 5 will fail CI on the assertion above, and land on this

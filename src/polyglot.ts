@@ -218,19 +218,22 @@ export class Reader {
     return parts.join('.');
   }
 
-  /** Skips a balanced `<...>`, so a generic alias target does not end the read. */
+  /**
+   * Skips a generic argument list, so an alias target's `<...>` does not end
+   * the read.
+   *
+   * No bracket counting. A `using` directive ends at the first `;` or newline
+   * whatever is nested inside its angle brackets, and the caller's only
+   * question is whether the next non-space character is that `;` - so `A<B>`
+   * and `A<B<C>>` are both passed over by the same rule. The depth counter
+   * that used to be here could not change an answer for any input C# accepts,
+   * which is another way of saying no test could hold it in place.
+   */
   skipGenerics(): void {
     if (this.peek() !== '<') return;
-    let depth = 0;
     while (this.index < this.text.length) {
       const char = this.text[this.index] as string;
-      if (char === '<') depth += 1;
-      else if (char === '>') {
-        depth -= 1;
-        this.index += 1;
-        if (depth === 0) return;
-        continue;
-      } else if (char === ';' || char === '\n') return;
+      if (char === ';' || char === '\n') return;
       this.index += 1;
     }
   }
