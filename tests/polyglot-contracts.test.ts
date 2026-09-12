@@ -30,10 +30,18 @@ describe('every polyglot reference', () => {
   it.each([
     ['a.py', 'import os\n', 'import'],
     ['a.py', 'from os import path\n', 'import'],
+    // The bare relative form emits from a different place in the reader, and
+    // so does a grouped Go import - each with its own copy of the verb.
+    ['pkg/a.py', 'from . import sibling\n', 'import'],
     ['a.py', "__import__('os')\n", 'dynamic-import'],
+    ['a.py', "importlib.import_module('os')\n", 'dynamic-import'],
     ['a.go', 'import "fmt"\n', 'import'],
+    ['a.go', 'import (\n\t"fmt"\n)\n', 'import'],
+    ['a.go', 'import f "fmt"\n', 'import'],
     ['a.rs', 'use std::fmt;\n', 'use'],
+    ['a.rs', 'use std::{fmt, io};\n', 'use'],
     ['a.cs', 'using System.Text;\n', 'using'],
+    ['a.cs', 'using J = System.Text.Json;\n', 'using'],
   ])('%s writes %s with the verb %s', (file, source, kind) => {
     // The verb reaches the report as the first word of every snippet, and the
     // list of specifiers every other test reads is blind to it.
@@ -119,9 +127,18 @@ describe('python', () => {
     expect(specifiers('import   a.b\n', 'a.py')).toEqual(['a.b']);
   });
 
-  it('says nothing about a from-line it cannot parse', () => {
-    // Not a crash, and not a guess.
-    expect(specifiers('from import x\n', 'a.py')).toEqual([]);
+  it.each([
+    ['from import x\n'],
+    // The ones that really defeat the pattern. `from import x` looks broken but
+    // still matches, with an empty module name; these do not match at all, and
+    // reading group 1 off a null match is a crash rather than a bad answer.
+    ['from .\n'],
+    ['from ..\n'],
+    ['from 1 import x\n'],
+    ['from -\n'],
+  ])('says nothing about %j, which it cannot parse', (source) => {
+    expect(() => specifiers(source, 'pkg/m.py')).not.toThrow();
+    expect(specifiers(source, 'pkg/m.py')).toEqual([]);
   });
 
   it('strips the parentheses off a bare relative import list', () => {
@@ -230,6 +247,22 @@ describe('rust use statements', () => {
     const source = 'use a::{\n  b::{c, d},\n  e,\n};\n';
     expect(specifiers(source, 'a.rs')).toEqual(['a::b::c', 'a::b::d', 'a::e']);
   });
+
+  it.each([
+    ['a group', 'use a::{b};\nuse c::d;\n'],
+    ['a group spanning lines', 'use a::{\n  b,\n};\nuse c::d;\n'],
+    ['a nested group', 'use a::{b::{x, y}};\nuse c::d;\n'],
+    ['a group with a trailing comma', 'use a::{b,};\nuse c::d;\n'],
+  ])('stops %s at its own semicolon, not the next one', (_name, source) => {
+    // The brace counter is what ends the path. Break it and the first `use`
+    // runs past its terminator and swallows the statement below - which only
+    // shows up when there *is* a statement below, so a one-statement fixture
+    // cannot see it.
+    const found = specifiers(source, 'a.rs');
+
+    expect(found).toContain('c::d');
+    expect(found.length).toBeGreaterThan(1);
+  });
 });
 
 /* -------------------------------------------------------------------- c# */
@@ -306,5 +339,17 @@ describe('normalizeModule', () => {
 
   it('climbs one directory per extra dot', () => {
     expect(normalizeModule('...top', 'a/b/c/main.py', 'python')).toBe('a/top');
+  });
+
+  it.each([
+    ['.', 'a/b.py', 'a'],
+    ['..', 'a/b/c.py', 'a'],
+    ['...', 'a/b/c/d.py', 'a'],
+  ])('resolves the bare relative marker %s to a directory, not a trailing slash', (specifier, file, expected) => {
+    // The dots are stripped before the separators are rewritten. Rewriting
+    // them instead turns `.` into `/` and the answer into `a/`, which no
+    // module pattern matches - and every longer form hides it, because
+    // `path.normalize` collapses the extra slash back out again.
+    expect(normalizeModule(specifier, file, 'python')).toBe(expected);
   });
 });

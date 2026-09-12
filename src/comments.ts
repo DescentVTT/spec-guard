@@ -140,51 +140,52 @@ const NO_COMMENTS: CommentSyntax = {
   strings: [],
 };
 
-/**
- * Which extensions each profile covers.
- *
- * Plain data, filled in by the loop below rather than by ten spread `.map()`
- * expressions. That is easier to read, and it also removes a construct this
- * project cannot measure: a mutation inside a module-level `.map()` callback
- * makes `new Map` throw on an entry that is not a pair, which stops every test
- * file importing this module from loading at all - and a run with no test
- * results is reported as "no test killed it" rather than as the wholesale
- * failure it is. Eleven such mutants sat in this table looking like untested
- * code when the suite catches every one of them. See ADR-0003.
- */
-const EXTENSIONS: ReadonlyArray<readonly [readonly string[], CommentSyntax]> = [
-  [['.js', '.mjs', '.cjs', '.jsx', '.ts', '.mts', '.cts', '.tsx'], JS_LIKE],
-  [
-    ['.c', '.h', '.cc', '.cpp', '.cxx', '.hpp', '.java', '.kt', '.kts', '.scala', '.swift', '.dart', '.php', '.m', '.mm', '.zig'],
-    C_LIKE,
-  ],
-  [['.cs', '.csx'], C_SHARP],
-  [['.rs'], RUST],
-  [['.go'], GO],
-  [['.py', '.pyi', '.rb', '.sh', '.bash', '.zsh', '.yaml', '.yml', '.toml', '.tf', '.pl', '.r'], HASH],
-  [['.sql', '.lua', '.hs', '.elm'], SQL_LIKE],
-  [['.html', '.htm', '.xml', '.svg', '.vue', '.svelte', '.md', '.markdown'], MARKUP],
-  // .jsonc is named for the comments it allows, so it gets the C-style reader.
-  [['.jsonc'], C_LIKE],
-  [['.json', '.txt', '.csv', '.tsv', '.lock', '.log'], NO_COMMENTS],
-];
-
 /** Extension to comment syntax. Anything absent is left unclassified. */
 const BY_EXTENSION = new Map<string, CommentSyntax>();
+
 /**
  * The same profiles, addressed by name instead of by extension.
  *
  * For callers that already know what language they are looking at and must not
  * re-derive it from the path. Two ways of answering "which language is this"
  * is one more than the number that can be right, so this is filled from the
- * same pass rather than from a second list.
+ * same calls rather than from a second list.
  */
 const BY_NAME = new Map<string, CommentSyntax>();
 
-for (const [extensions, syntax] of EXTENSIONS) {
-  for (const extension of extensions) BY_EXTENSION.set(extension, syntax);
+/**
+ * Records the files one profile covers.
+ *
+ * A call per language rather than a table of rows, and the shape is chosen for
+ * a specific reason. This table has been written three ways: ten spread
+ * `.map()` calls, then an array of `[extensions, syntax]` pairs, and now this.
+ * The first two share a failure mode - a mutation inside the callback, or a row
+ * emptied to `[]`, makes this module throw while it is loading, and a mutant
+ * that stops a module loading produces no test results at all, which the
+ * mutation runner reads as "no test killed it". Twenty such mutants have sat in
+ * this table across the two earlier shapes, looking like untested code while
+ * the suite caught every one of them.
+ *
+ * Emptying an argument list here cannot throw. It produces a table that is
+ * simply *wrong* - `syntaxFor('a.cs')` answers null - which is something a test
+ * can see, and one does. See ADR-0003.
+ */
+function register(syntax: CommentSyntax, extensions: readonly string[]): void {
   BY_NAME.set(syntax.name, syntax);
+  for (const extension of extensions) BY_EXTENSION.set(extension, syntax);
 }
+
+register(JS_LIKE, ['.js', '.mjs', '.cjs', '.jsx', '.ts', '.mts', '.cts', '.tsx']);
+register(C_LIKE, ['.c', '.h', '.cc', '.cpp', '.cxx', '.hpp', '.java', '.kt', '.kts', '.scala', '.swift', '.dart', '.php', '.m', '.mm', '.zig']);
+register(C_SHARP, ['.cs', '.csx']);
+register(RUST, ['.rs']);
+register(GO, ['.go']);
+register(HASH, ['.py', '.pyi', '.rb', '.sh', '.bash', '.zsh', '.yaml', '.yml', '.toml', '.tf', '.pl', '.r']);
+register(SQL_LIKE, ['.sql', '.lua', '.hs', '.elm']);
+register(MARKUP, ['.html', '.htm', '.xml', '.svg', '.vue', '.svelte', '.md', '.markdown']);
+// .jsonc is named for the comments it allows, so it gets the C-style reader.
+register(C_LIKE, ['.jsonc']);
+register(NO_COMMENTS, ['.json', '.txt', '.csv', '.tsv', '.lock', '.log']);
 
 /** The comment syntax for a path, or null when the language is unknown. */
 export function syntaxFor(filePath: string): CommentSyntax | null {

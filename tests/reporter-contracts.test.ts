@@ -183,6 +183,28 @@ describe('a coloured report, exactly', () => {
     expect(output).toContain(`${ESC}[33m1 invalid${ESC}[0m`);
   });
 
+  it('paints the run-level summary note, which is a different line from the per-result one', () => {
+    // Totalled across *passing* assertions and printed once at the end. The
+    // per-result note above sits inside a failure block and takes a different
+    // code path, so neither one covers the other.
+    const passing: Result = {
+      ...failing,
+      ok: true,
+      matches: [],
+      fileMatches: [],
+      scope: { skipped: [{ path: 'src/a.bin', reason: 'binary', matches: 1 }] },
+    };
+    const report = fixture({
+      ok: true,
+      results: [passing],
+      summary: { specs: 1, total: 1, passed: 1, failed: 0, skipped: 0 },
+    });
+
+    expect(formatReport(report, { color: true, verbose: false })).toContain(
+      `${ESC}[33m⚠${ESC}[0m ${ESC}[33m1 match in 1 binary file not counted: src/a.bin${ESC}[0m`,
+    );
+  });
+
   it('paints a note under a failing assertion yellow', () => {
     const report = fixture({
       results: [{ ...failing, scope: { skipped: [{ path: 'src/x.ts', reason: 'unreadable' }] } }],
@@ -555,6 +577,41 @@ describe('the sarif document, in full', () => {
     };
 
     expect(parsed.runs[0]?.tool.driver.version).toBe('0.0.0');
+  });
+
+  it('gives a fixed assertion a fixed fingerprint, across versions', () => {
+    // Pinned deliberately. A code-scanning service treats `partialFingerprints`
+    // as the identity of an alert: change how one is derived and every open
+    // alert closes and a new one opens in its place, which is a worse outcome
+    // than most of the changes that would cause it. Anything that moves these
+    // two values is a decision, and this is where it gets made.
+    const report = fixture({
+      results: [{ ...failing, matches: [], fileMatches: [], description: 'd', message: 'm', actual: 1 }],
+      errors: [
+        {
+          location: { file: 'C:/repo/docs/a.md', relativeFile: 'docs/a.md', line: 9, column: 1 },
+          raw: '<!-- @x -->',
+          message: 'unknown directive',
+        },
+      ],
+    });
+    const parsed = JSON.parse(formatSarif(report)) as {
+      runs: Array<{ results: Array<{ ruleId: string; partialFingerprints: { specGuardAssertion: string } }> }>;
+    };
+
+    expect(parsed.runs[0]?.results.map((r) => [r.ruleId, r.partialFingerprints.specGuardAssertion])).toEqual([
+      ['assert-absence', '0cb6fa74e5d77b5da7bb402a905cd949'],
+      ['invalid-directive', 'fb3833b92384c9998504212683068631'],
+    ]);
+  });
+
+  it('separates the target list of a fingerprint the same way', () => {
+    // `targets.join(',')`, like the file list above: two targets named `a` and
+    // `b` must not be the same assertion as one target named `a,b`.
+    const withTargets = (targets: string[]): RunResult =>
+      fixture({ results: [{ ...failing, targets, matches: [], fileMatches: [] }] });
+
+    expect(fingerprintOf(withTargets(['a', 'b']))).not.toBe(fingerprintOf(withTargets(['ab'])));
   });
 
   it('separates the parts of a fingerprint, so two spellings of one string differ', () => {

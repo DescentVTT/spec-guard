@@ -494,6 +494,28 @@ describe('assert-present resolves to a fixed shape', () => {
 
     expect((await run(root)).results[0]?.message).toBe('missing: src/gone.ts, src/also-gone.ts');
   });
+
+  it('carries the empty lists a kind that never searches still has to fill in', async () => {
+    // `assert-present` returns the shared base result untouched, so this is the
+    // only path on which those empty arrays are what a reader sees - every
+    // other kind overwrites them on the way out.
+    const root = await repo({
+      'src/a.ts': 'x\n',
+      'docs/a.md': '<!-- @assert-present file="src/a.ts" -->\n',
+    });
+
+    expect((await run(root)).results[0]).toMatchObject({
+      ok: true,
+      staleBaseline: [],
+      fileMatches: [],
+      matches: [],
+      warnings: [],
+      baselinedMatches: 0,
+      commentMatches: 0,
+      unclassifiedFiles: 0,
+      scope: { skipped: [] },
+    });
+  });
 });
 
 /* ------------------------------------------------------- import execution */
@@ -622,6 +644,36 @@ describe('unresolvable references', () => {
 
     expect(report.results[0]?.ok).toBe(true);
     expect(report.results[0]?.message).toBe('expected no matches, found 0');
+  });
+});
+
+describe('an import assertion looks only where it was told to', () => {
+  it('does not fall back to the whole root when its target exists', async () => {
+    // Losing the target list makes the walk default to the repository root.
+    // A test whose only other file is the spec cannot see that, because the
+    // spec is excluded anyway - the extra file has to be one that counts.
+    const root = await repo({
+      'src/a.py': 'import os\n',
+      'lib/outside.py': 'from app.db.client import Client\n',
+      'docs/a.md': '<!-- @assert-import-absence target="src" module="app/db/**" -->\n',
+    });
+
+    const result = (await run(root)).results[0];
+
+    expect(result?.ok).toBe(true);
+    expect(result?.actual).toBe(0);
+    expect(result?.matches).toEqual([]);
+  });
+
+  it('walks every target it was given, not just the first', async () => {
+    const root = await repo({
+      'src/a.py': 'from app.db.client import Client\n',
+      'lib/b.py': 'from app.db.client import Client\n',
+      'other/c.py': 'from app.db.client import Client\n',
+      'docs/a.md': '<!-- @assert-import-absence target="src, lib" module="app/db/**" -->\n',
+    });
+
+    expect((await run(root)).results[0]?.matches.map((m) => m.file).sort()).toEqual(['lib/b.py', 'src/a.py']);
   });
 });
 

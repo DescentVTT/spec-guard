@@ -109,6 +109,18 @@ describe('constructs one character away from an import', () => {
     expect(specifiers("/**/\nimport './real.js';")).toEqual(['./real.js']);
   });
 
+  it('does not open a block comment on a multiplication', () => {
+    // Both characters have to be right. Checking only the `*` makes `2*3` the
+    // start of a comment that runs to the end of the file, taking every import
+    // below it with it - and a corpus of real code is full of `2*3`.
+    expect(specifiers("const a = 2*3;\nimport './real.js';")).toEqual(['./real.js']);
+    expect(specifiers("const a = b *c;\nimport './real.js';")).toEqual(['./real.js']);
+  });
+
+  it('does not open a line comment on a lone slash', () => {
+    expect(specifiers("const a = 6 / 2;\nimport './real.js';")).toEqual(['./real.js']);
+  });
+
   it('does not read a brace in a template as a substitution', () => {
     // Only `${` opens one. Treating a bare `{` as a substitution ends the
     // template early and everything after it is read as code.
@@ -117,6 +129,22 @@ describe('constructs one character away from an import', () => {
 
   it('does read a substitution, and comes back out of it', () => {
     expect(specifiers("const a = `x${ y }z`;\nimport './real.js';")).toEqual(['./real.js']);
+  });
+
+  it.each([
+    ['an unmatched opening brace', 'const a = `a{b`;'],
+    ['an unmatched closing brace', 'const a = `a}b`;'],
+    ['a brace-heavy template', 'const a = `{{{`;'],
+    ['a brace inside a substitution', 'const a = `x${ {y: 1} }z`;'],
+    ['a template inside a substitution', 'const a = `x${ `y{z` }w`;'],
+  ])('reads %s as ordinary template text', (_name, prelude) => {
+    // Only `${` opens a substitution. Accepting a bare `{` sends the scanner
+    // looking for a closing brace that a template need not contain, and it
+    // runs off the end of the file taking every import with it.
+    const source = `${prelude}\nimport './real.js';`;
+
+    expect(specifiers(source)).toEqual(['./real.js']);
+    expect(notes(source)).toEqual([]);
   });
 
   it('does not read a string whose contents are the word import', () => {
@@ -187,8 +215,24 @@ describe('import type', () => {
     expect(specifiers("import type './a.js';")).toEqual([]);
   });
 
-  it('leaves an ordinary import alone', () => {
-    expect(typeOnly("import { A } from './a.js';")).toBe(false);
+  it.each([
+    ['a named import', "import { A } from './a.js';"],
+    ['a default import', "import A from './a.js';"],
+    ['a default and a named import together', "import A, { B } from './a.js';"],
+    ['a namespace import', "import * as ns from './a.js';"],
+    ['a default and a namespace import', "import A, * as ns from './a.js';"],
+    ['a side-effect import', "import './a.js';"],
+    ['a re-export', "export { A } from './a.js';"],
+    ['a star re-export', "export * from './a.js';"],
+    ['a renamed re-export', "export { A as B } from './a.js';"],
+    ['a require', "const a = require('./a.js');"],
+    ['a dynamic import', "const a = await import('./a.js');"],
+  ])('leaves %s alone', (_name, source) => {
+    // Every shape, because the type-only test is three conditions joined by
+    // `&&` and loosening any one of them marks a whole class of ordinary
+    // import as type-only - which `types="ignore"` then drops silently.
+    expect(specifiers(source)).toEqual(['./a.js']);
+    expect(typeOnly(source)).toBe(false);
   });
 
   it('marks a type-only export as type-only', () => {

@@ -130,6 +130,14 @@ describe('the exclude matcher', () => {
     expect(createExcludeMatcher(['src/config//'])('src/config/a.ts')).toBe(true);
   });
 
+  it('strips a leading ./ only from the front, here too', () => {
+    // The same anchored replacement as the include matcher, and it needs the
+    // same test: unanchored it turns `src/./a.ts` into `src/a.ts` and excludes
+    // a file the pattern did not name.
+    expect(createExcludeMatcher(['./src/a.ts'])('src/a.ts')).toBe(true);
+    expect(createExcludeMatcher(['src/./a.ts'])('src/a.ts')).toBe(false);
+  });
+
   it('never tests the empty prefix of a path', () => {
     // The ancestor loop stops at depth 1, because the empty string is not an
     // ancestor of anything. Running it to depth 0 tests `''`, and a pattern

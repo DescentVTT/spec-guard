@@ -137,4 +137,16 @@ describe('parseRipgrepErrors', () => {
     expect(parseRipgrepErrors('')).toEqual([]);
     expect(parseRipgrepErrors('\n\n')).toEqual([]);
   });
+
+  it('reports nothing for a line that is only whitespace', () => {
+    // The blank-line test above uses genuinely empty lines, which are dropped
+    // by the split. A line of spaces is not, and without the trim it becomes a
+    // path - so the report claims a file called "  " could not be read.
+    expect(parseRipgrepErrors('   ')).toEqual([]);
+    expect(parseRipgrepErrors('a.txt: denied\n \t \nb.txt: denied')).toEqual(['a.txt', 'b.txt']);
+  });
+
+  it('trims the path it takes out of a padded line', () => {
+    expect(parseRipgrepErrors('  src/a.txt: denied  ')).toEqual(['src/a.txt']);
+  });
 });
