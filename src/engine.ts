@@ -27,6 +27,7 @@ import { createCommentMask, type CommentMask } from './comments.js';
 import {
   createExcludeMatcher,
   createGlobMatcher,
+  statOrNull,
   toPosix,
   walkFiles,
   type DirectoryReader,
@@ -722,7 +723,7 @@ export async function enumerateCandidates(
 
   outer: for (const target of targetsOf(request)) {
     const absoluteTarget = path.resolve(request.root, target);
-    const stats = await fs.stat(absoluteTarget).catch(() => null);
+    const stats = await statOrNull(absoluteTarget);
     if (!stats) continue;
 
     if (stats.isFile()) {

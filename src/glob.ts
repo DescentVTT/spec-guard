@@ -6,7 +6,7 @@
  * patterns itself instead of trusting the shell.
  */
 
-import { promises as fs, type Dirent } from 'node:fs';
+import { promises as fs, type Dirent, type Stats } from 'node:fs';
 import path from 'node:path';
 
 import { DEFAULT_SCOPE, type ScopePolicy, type SkipReason } from './scope.js';
@@ -23,7 +23,10 @@ export function toPosix(value: string): string {
   return value.replace(/\\/g, '/');
 }
 
-const REGEXP_SPECIALS = new Set(['.', '+', '^', '$', '(', ')', '|', '\\']);
+// No backslash on the list. `globToRegExp` runs its input through `toPosix`
+// first, so by the time this is consulted there are no backslashes left to
+// escape - an entry for one described a character that cannot arrive.
+const REGEXP_SPECIALS = new Set(['.', '+', '^', '$', '(', ')', '|']);
 
 /**
  * Converts a glob to an anchored RegExp.
@@ -118,6 +121,19 @@ export function createGlobMatcher(patterns: readonly string[]): (relativePath: s
     matchers.some(({ regexp, basenameOnly }) =>
       regexp.test(basenameOnly ? path.posix.basename(relativePath) : relativePath),
     );
+}
+
+/**
+ * `fs.stat`, or null for a path that cannot be stat'd.
+ *
+ * One helper rather than five `.catch(() => null)` tails. Each of those was a
+ * function whose only distinguishing behaviour is that it returns null rather
+ * than undefined, and since every caller tests the result for falsiness, no
+ * caller could tell the difference. Here the difference is the contract, and
+ * one assertion holds it.
+ */
+export async function statOrNull(target: string): Promise<Stats | null> {
+  return fs.stat(target).catch(() => null);
 }
 
 /** Reads one directory. Injectable so the ordering guarantee can be tested. */
@@ -241,7 +257,7 @@ export async function* walkFiles(root: string, options: WalkOptions = {}): Async
       let isFile = entry.isFile();
       if (entry.isSymbolicLink()) {
         if (!followSymlinks) continue;
-        const stats = await fs.stat(absolutePath).catch(() => null);
+        const stats = await statOrNull(absolutePath);
         if (!stats) continue;
         isDirectory = stats.isDirectory();
         isFile = stats.isFile();
@@ -264,7 +280,7 @@ export async function* walkFiles(root: string, options: WalkOptions = {}): Async
       }
 
       if (!isFile) continue;
-      const stats = await fs.stat(absolutePath).catch(() => null);
+      const stats = await statOrNull(absolutePath);
       if (!stats) {
         onSkip?.(relativePath, 'unreadable');
         continue;
@@ -273,7 +289,7 @@ export async function* walkFiles(root: string, options: WalkOptions = {}): Async
     }
   }
 
-  const rootStats = await fs.stat(root).catch(() => null);
+  const rootStats = await statOrNull(root);
   if (!rootStats?.isDirectory()) return;
   yield* visit(root, '');
 }
@@ -308,7 +324,7 @@ export async function expandSpecPatterns(
 
     if (!isGlob(pattern)) {
       const absolute = path.resolve(root, pattern);
-      const stats = await fs.stat(absolute).catch(() => null);
+      const stats = await statOrNull(absolute);
       if (stats?.isFile()) {
         found.add(absolute);
       } else if (stats?.isDirectory()) {

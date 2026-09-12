@@ -18,7 +18,8 @@
 import { lineStarts, locate } from './text.js';
 import type { Directive, DirectiveError, DirectiveKind, ParseResult, SourceLocation } from './types.js';
 
-const KINDS = new Set<string>([
+/** Every directive spec-guard understands. */
+export const KINDS = new Set<string>([
   'assert-absence',
   'assert-count',
   'assert-present',
@@ -27,7 +28,15 @@ const KINDS = new Set<string>([
 ]);
 
 /** Attributes each directive kind accepts. */
-const ALLOWED_ATTRIBUTES: Record<DirectiveKind, ReadonlySet<string>> = {
+/**
+ * Which attributes each directive accepts.
+ *
+ * Exported so a test can assert it entry by entry. It used to be private, and
+ * the suite carried a second copy that had fallen five attributes behind - so
+ * `comments`, `allow-empty`, `baseline` and `ratchet` could have been dropped
+ * from any kind and nothing would have said so.
+ */
+export const ALLOWED_ATTRIBUTES: Record<DirectiveKind, ReadonlySet<string>> = {
   'assert-absence': new Set([
     'target',
     'symbol',

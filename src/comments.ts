@@ -140,46 +140,56 @@ const NO_COMMENTS: CommentSyntax = {
   strings: [],
 };
 
-/** Extension to comment syntax. Anything absent is left unclassified. */
-const BY_EXTENSION: ReadonlyMap<string, CommentSyntax> = new Map([
-  ...['.js', '.mjs', '.cjs', '.jsx', '.ts', '.mts', '.cts', '.tsx'].map(
-    (extension) => [extension, JS_LIKE] as const,
-  ),
-  ...['.c', '.h', '.cc', '.cpp', '.cxx', '.hpp', '.java', '.kt', '.kts', '.scala', '.swift', '.dart', '.php', '.m', '.mm', '.zig'].map(
-    (extension) => [extension, C_LIKE] as const,
-  ),
-  ...['.cs', '.csx'].map((extension) => [extension, C_SHARP] as const),
-  ...['.rs'].map((extension) => [extension, RUST] as const),
-  ...['.go'].map((extension) => [extension, GO] as const),
-  ...['.py', '.pyi', '.rb', '.sh', '.bash', '.zsh', '.yaml', '.yml', '.toml', '.tf', '.pl', '.r'].map(
-    (extension) => [extension, HASH] as const,
-  ),
-  ...['.sql', '.lua', '.hs', '.elm'].map((extension) => [extension, SQL_LIKE] as const),
-  ...['.html', '.htm', '.xml', '.svg', '.vue', '.svelte', '.md', '.markdown'].map(
-    (extension) => [extension, MARKUP] as const,
-  ),
+/**
+ * Which extensions each profile covers.
+ *
+ * Plain data, filled in by the loop below rather than by ten spread `.map()`
+ * expressions. That is easier to read, and it also removes a construct this
+ * project cannot measure: a mutation inside a module-level `.map()` callback
+ * makes `new Map` throw on an entry that is not a pair, which stops every test
+ * file importing this module from loading at all - and a run with no test
+ * results is reported as "no test killed it" rather than as the wholesale
+ * failure it is. Eleven such mutants sat in this table looking like untested
+ * code when the suite catches every one of them. See ADR-0003.
+ */
+const EXTENSIONS: ReadonlyArray<readonly [readonly string[], CommentSyntax]> = [
+  [['.js', '.mjs', '.cjs', '.jsx', '.ts', '.mts', '.cts', '.tsx'], JS_LIKE],
+  [
+    ['.c', '.h', '.cc', '.cpp', '.cxx', '.hpp', '.java', '.kt', '.kts', '.scala', '.swift', '.dart', '.php', '.m', '.mm', '.zig'],
+    C_LIKE,
+  ],
+  [['.cs', '.csx'], C_SHARP],
+  [['.rs'], RUST],
+  [['.go'], GO],
+  [['.py', '.pyi', '.rb', '.sh', '.bash', '.zsh', '.yaml', '.yml', '.toml', '.tf', '.pl', '.r'], HASH],
+  [['.sql', '.lua', '.hs', '.elm'], SQL_LIKE],
+  [['.html', '.htm', '.xml', '.svg', '.vue', '.svelte', '.md', '.markdown'], MARKUP],
   // .jsonc is named for the comments it allows, so it gets the C-style reader.
-  ...['.jsonc'].map((extension) => [extension, C_LIKE] as const),
-  ...['.json', '.txt', '.csv', '.tsv', '.lock', '.log'].map(
-    (extension) => [extension, NO_COMMENTS] as const,
-  ),
-]);
+  [['.jsonc'], C_LIKE],
+  [['.json', '.txt', '.csv', '.tsv', '.lock', '.log'], NO_COMMENTS],
+];
 
-/** The comment syntax for a path, or null when the language is unknown. */
-export function syntaxFor(filePath: string): CommentSyntax | null {
-  return BY_EXTENSION.get(path.extname(filePath).toLowerCase()) ?? null;
-}
-
+/** Extension to comment syntax. Anything absent is left unclassified. */
+const BY_EXTENSION = new Map<string, CommentSyntax>();
 /**
  * The same profiles, addressed by name instead of by extension.
  *
  * For callers that already know what language they are looking at and must not
  * re-derive it from the path. Two ways of answering "which language is this"
- * is one more than the number that can be right.
+ * is one more than the number that can be right, so this is filled from the
+ * same pass rather than from a second list.
  */
-const BY_NAME: ReadonlyMap<string, CommentSyntax> = new Map(
-  [...BY_EXTENSION.values()].map((syntax) => [syntax.name, syntax] as const),
-);
+const BY_NAME = new Map<string, CommentSyntax>();
+
+for (const [extensions, syntax] of EXTENSIONS) {
+  for (const extension of extensions) BY_EXTENSION.set(extension, syntax);
+  BY_NAME.set(syntax.name, syntax);
+}
+
+/** The comment syntax for a path, or null when the language is unknown. */
+export function syntaxFor(filePath: string): CommentSyntax | null {
+  return BY_EXTENSION.get(path.extname(filePath).toLowerCase()) ?? null;
+}
 
 export function syntaxNamed(name: string): CommentSyntax | null {
   return BY_NAME.get(name) ?? null;
