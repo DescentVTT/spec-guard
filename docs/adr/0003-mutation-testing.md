@@ -51,6 +51,7 @@ measurement of test strength is worth four seconds per run.
 <!-- @assert-count target="package.json" symbol='"vitest": "^4' expected="1" reason="vitest 5 makes Stryker report a fictional score; see this ADR" -->
 <!-- @assert-present file="stryker.config.mjs,vitest.mutation.config.ts,.github/workflows/mutation.yml" -->
 <!-- @assert-present file="scripts/mutation-equivalence.mjs,scripts/mutation-probe.mjs" reason="the equivalence measurement in this ADR must stay reproducible" -->
+<!-- @assert-count target="tests" symbol="ANY_FILE_PROBE" min="1" reason="its contract is a cost, which no output assertion reaches; see the any-file probe below" -->
 
 ## Result
 
@@ -611,11 +612,82 @@ its limits, because "indistinguishable" is only as strong as the instrument:
   the same answer, and two spellings of one question cost only a repeated
   search, so a mutant that makes a key *finer* cannot change a result.
 
+**And one of those bullets was hiding a real hole.** "An instrument that
+measured work would separate them; this one measures output, on purpose" is an
+honest statement of the probe's limits and a comfortable place to file anything
+that survives. Reading the 22 engine survivors back one at a time turned up a
+mutant that does not belong there:
+
+```
+ANY_FILE_PROBE: EnumerationBudget = { maxFiles: 0, maxBytes: 0 }   ->   {}
+```
+
+Emptied, both comparisons in `admit` become `x > undefined`, which is false for
+every `x`, so `exceeded` never trips. Its one consumer here - `createScopeProbe`,
+though the constant is exported and a caller of the library can pass it too -
+asks `enumeration.files.length > 0`, and that answer is unchanged: the walk finds
+the same first file, having read every directory in the scope and stat'd every
+file in them to get there. This repository's own `src/` is flat and
+thirteen files deep, so it would not have noticed; a nested source tree is a
+full recursive traversal per distinct scope, and the cache this probe sits
+behind exists because a spec asks the question once per assertion.
+
+The difference between this and the memoisation bullet is that there the cost is
+an optimisation over a behaviour that exists anyway. Here the cost *is* the
+behaviour. `ANY_FILE_PROBE` has no other reason to exist - the constant is
+named for the question it answers cheaply - so a survivor that removes the
+cheapness removes the whole thing, and filing it under "the instrument measures
+output" was the equivalence rationalisation this document opens by warning
+against, arrived at from the other direction.
+
+It is now pinned by a cost contract rather than by its shape. Asserting
+`maxFiles === 0` would restate the source in the test file and kill the mutant
+without establishing anything; what the tests assert is the traversal. A tree of
+24 directories holding 192 files is walked twice through an injected
+`DirectoryReader` that records which directories it was asked for: budgeted, the
+probe reads two and returns one file with `exceeded` set; unbudgeted, the same
+tree and the same reader cost 25 reads and yield all 192. The second half is
+what makes the first half mean something - a bound of two proves nothing about a
+fixture that only has two directories in it. A third test holds `createScopeProbe`
+itself to the same bound with `fs.readdir` counted, because a cheap constant is
+worth nothing if the caller stops passing it, and the boolean cannot tell.
+
+Applied as a negative control, the mutant takes all three tests red and nothing
+else: 3 failed, 199 passed. Stryker over that line alone reports 1 killed, 0
+survived, and `src/engine.ts` goes from 22 unkilled mutants in 503 to 21 -
+95.64% to a projected 95.83%, with the whole project at 97.67% over 100
+survivors. Those two are arithmetic on the CI report, not a measurement, for the
+reason in the next paragraph.
+
+**A local sweep cannot confirm it, and finding out why is worth more than the
+number was.** Re-running Stryker over the whole of `src/engine.ts` on this
+machine returned **98.22%** - better than CI by more than two points, from one
+new test. It is not better. Comparing the two reports mutant by mutant, 43
+changed status and 42 of them are the same change: `Killed -> Timeout` for 30
+mutants CI had killed outright, and `Survived -> Timeout` for 12 that CI
+reported alive, including every spawn option in `findRipgrep` - code no test
+added here goes near. The local run took 28m55s against CI's 17m56s for four
+times as many mutants. The machine was loaded, mutants that merely ran slowly
+crossed `timeoutMS`, and Stryker scores a timeout as a kill.
+
+That is the failure mode this document has been guarding against from the other
+end. A timeout is a legitimate kill when the mutant genuinely hangs, and a free
+one when the machine is busy - so a local score drifts *upward* under load,
+which is the direction that feels like progress. It is the reason the gate is
+checked in CI and the reason `timeoutMS` sits at 60s rather than somewhere
+tighter, and it is now also the reason no score in this document comes from a
+developer machine. Exactly one status change in that run survives the scrutiny:
+`666:50 ObjectLiteral -> {}` moved `Survived -> Killed`, which the single-line
+run and the negative control both confirm independently - the tests fail on
+their assertions, not by hanging.
+
 **The floor moves to 97**, against a CI measurement of **97.65%** over 4,299
 mutants. Every file is above 95%, where the spread ran from 83% to 95% a release
 ago, and three are at 100%. The survivor count CI reports is 101, which is
-exactly the number the sweep below proved indistinguishable: the ceiling is
-measured, so the headroom is a regression guard rather than a cushion. Nine new test files, none of them a rewrite of an existing one: they test
+exactly the number the sweep proved indistinguishable *in output*: the ceiling is
+measured, so the headroom is a regression guard rather than a cushion. One of the
+101 turned out to be distinguishable in cost, and is now killed - see the
+any-file probe above; the next sweep should report 100 and 97.67%. Nine new test files, none of them a rewrite of an existing one: they test
 each module as a thing with an output rather than as a step towards a count.
 Where the old tests read a report with colour off - which is almost everywhere -
 the colour arguments could have named any colour at all; the SARIF document is

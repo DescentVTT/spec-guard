@@ -46,11 +46,12 @@ import {
   MAX_FILE_SIZE,
   ROOT_TARGETS,
   SMALL_TREE_BUDGET,
+  ANY_FILE_PROBE,
   type SearchRequest,
 } from '../src/engine.js';
-import type { DirectoryReader } from '../src/glob.js';
+import { defaultDirectoryReader, type DirectoryReader } from '../src/glob.js';
 import { DEFAULT_SCOPE, MAX_LEDGER_ENTRIES, SCAN_EVERYTHING } from '../src/scope.js';
-import { DEMO_REPO, makeTempRepo, removeTempRepo, searchOptions } from './helpers.js';
+import { DEMO_REPO, makeTempRepo, removeTempRepo, searchOptions, wideTree } from './helpers.js';
 
 const temporary: string[] = [];
 
@@ -485,6 +486,82 @@ describe('enumerateCandidates', () => {
 
     expect(enumeration.files.map((file) => file.relativePath)).toEqual(['a.ts', 'nested/b.ts']);
     expect(ROOT_TARGETS).toEqual(['.']);
+  });
+});
+
+/* ------------------------------------------------------- the any-file probe */
+
+describe('ANY_FILE_PROBE', () => {
+  // One readdir for the target, one per directory beneath it if the walk runs
+  // to the end. 24 and 8 are arbitrary; that 24 is much larger than 2 is not.
+  const DIRECTORIES = 24;
+  const FILES_PER_DIRECTORY = 8;
+
+  function counting(): { reader: DirectoryReader; calls: string[] } {
+    const calls: string[] = [];
+    return {
+      calls,
+      reader: (directory) => {
+        calls.push(directory);
+        return defaultDirectoryReader(directory);
+      },
+    };
+  }
+
+  it('abandons the walk at the first file instead of traversing the tree', async () => {
+    // The only question anyone asks this budget is `files.length > 0`, and that
+    // answer survives having no budget at all: a walk with no ceiling finds the
+    // same first file, having read every directory on the way to it. So the
+    // cost *is* the contract, and the cost is what is asserted here - there is
+    // nothing else about this constant that an output can disagree with, which
+    // is exactly why an emptied `{}` sat in the mutation report as a survivor.
+    const root = await repo(wideTree(DIRECTORIES, FILES_PER_DIRECTORY));
+    const request: SearchRequest = { root, symbol: 'Widget', targets: ['src'], options: searchOptions() };
+
+    const probe = counting();
+    const enumeration = await enumerateCandidates(request, ANY_FILE_PROBE, probe.reader);
+
+    expect(enumeration.files).toHaveLength(1);
+    expect(enumeration.exceeded).toBe(true);
+    expect(probe.calls).toHaveLength(2);
+
+    // The other half of the claim. Without this the bound above would pass on a
+    // repository that simply had two directories in it, and the test would be
+    // measuring the fixture rather than the budget.
+    const whole = counting();
+    const full = await enumerateCandidates(request, undefined, whole.reader);
+
+    expect(full.files).toHaveLength(DIRECTORIES * FILES_PER_DIRECTORY);
+    expect(full.exceeded).toBe(false);
+    expect(whole.calls).toHaveLength(DIRECTORIES + 1);
+  });
+
+  it('is a budget of zero on both axes, so either one alone would stop the walk', async () => {
+    // Stated against the walk rather than against the literal: a probe that
+    // capped files but not bytes would still abandon at the first file, and a
+    // test reading `maxFiles === 0` could not tell the two apart. Each field is
+    // shown to be sufficient on its own by neutralising the other.
+    const root = await repo(wideTree(DIRECTORIES, FILES_PER_DIRECTORY));
+    const request: SearchRequest = { root, symbol: 'Widget', targets: ['src'], options: searchOptions() };
+
+    const byFiles = counting();
+    const filesOnly = await enumerateCandidates(
+      request,
+      { maxFiles: ANY_FILE_PROBE.maxFiles, maxBytes: Number.POSITIVE_INFINITY },
+      byFiles.reader,
+    );
+
+    const byBytes = counting();
+    const bytesOnly = await enumerateCandidates(
+      request,
+      { maxFiles: Number.POSITIVE_INFINITY, maxBytes: ANY_FILE_PROBE.maxBytes },
+      byBytes.reader,
+    );
+
+    expect(filesOnly.exceeded).toBe(true);
+    expect(byFiles.calls).toHaveLength(2);
+    expect(bytesOnly.exceeded).toBe(true);
+    expect(byBytes.calls).toHaveLength(2);
   });
 });
 

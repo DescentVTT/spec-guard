@@ -30,7 +30,7 @@ import {
 import { createImportIndex } from '../src/imports.js';
 import { DEFAULT_SCOPE } from '../src/scope.js';
 import type { Assertion, Bounds, Directive, DirectiveKind } from '../src/types.js';
-import { DEMO_REPO, makeTempRepo, removeTempRepo, searchOptions } from './helpers.js';
+import { DEMO_REPO, makeTempRepo, removeTempRepo, searchOptions, wideTree } from './helpers.js';
 
 const temporary: string[] = [];
 
@@ -836,6 +836,24 @@ describe('createScopeProbe', () => {
 
     expect(await probe(base)).toBe(true);
     expect(await probe({ ...base, options: searchOptions({ excludeGlobs: ['*.ts'] }) })).toBe(false);
+  });
+
+  it('proves a scope populated without traversing it', async () => {
+    // The engine's own contract on ANY_FILE_PROBE is that it abandons at the
+    // first file. That is worth nothing here unless this caller still passes
+    // it, and "still passes it" is not visible in the boolean: an unbudgeted
+    // probe returns the same `true` after reading every directory in the
+    // scope. So the caller is held to the cost as well as to the answer.
+    const DIRECTORIES = 24;
+    const root = await repo(wideTree(DIRECTORIES, 8));
+    const probe = createScopeProbe();
+    const spy = vi.spyOn(fsp, 'readdir');
+
+    expect(await probe({ root, symbol: 'Widget', targets: ['src'], options: searchOptions() })).toBe(true);
+
+    // One read for `src`, one for the first directory in it.
+    expect(spy.mock.calls).toHaveLength(2);
+    expect(DIRECTORIES + 1).toBeGreaterThan(spy.mock.calls.length);
   });
 });
 

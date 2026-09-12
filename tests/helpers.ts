@@ -52,6 +52,25 @@ export async function removeTempRepo(root: string): Promise<void> {
   await fs.rm(root, { recursive: true, force: true, maxRetries: 3 });
 }
 
+/**
+ * A tree wide enough that walking it and abandoning it are different numbers.
+ *
+ * Exists for the cost contracts: an assertion that a probe reads two
+ * directories says nothing on a repository that only has two. Here the file
+ * count and the directory count are both known, so the bound can be stated
+ * against the traversal it is supposed to be cheaper than.
+ */
+export function wideTree(directories: number, filesPerDirectory: number, prefix = 'src'): Record<string, string> {
+  const files: Record<string, string> = {};
+  for (let directory = 0; directory < directories; directory++) {
+    const name = `d${String(directory).padStart(2, '0')}`;
+    for (let file = 0; file < filesPerDirectory; file++) {
+      files[`${prefix}/${name}/f${file}.ts`] = 'Widget\n';
+    }
+  }
+  return files;
+}
+
 /** Convenience: an empty SearchOptions with the given overrides. */
 export function searchOptions(overrides: Partial<import('../src/types.js').SearchOptions> = {}) {
   return {
