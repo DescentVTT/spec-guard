@@ -50,6 +50,7 @@ measurement of test strength is worth four seconds per run.
 
 <!-- @assert-count target="package.json" symbol='"vitest": "^4' expected="1" reason="vitest 5 makes Stryker report a fictional score; see this ADR" -->
 <!-- @assert-present file="stryker.config.mjs,vitest.mutation.config.ts,.github/workflows/mutation.yml" -->
+<!-- @assert-present file="scripts/mutation-equivalence.mjs,scripts/mutation-probe.mjs" reason="the equivalence measurement in this ADR must stay reproducible" -->
 
 ## Result
 
@@ -555,9 +556,10 @@ originally listed the classes of mutant left alive and explained why each was
 equivalent. That is the move this document warns against at line 172, made one
 more time, and it was wrong about a fifth of them.
 
-Every one of the 130 survivors in the authoritative report was applied to the
-source at the exact span Stryker reported, compiled, and run through a
-fingerprint of **4,176 observations**: the analyser over 1,200 files of real
+`scripts/mutation-equivalence.mjs` settles it. Every one of the 130 survivors in
+the authoritative report was applied to the source at the exact span Stryker
+reported, compiled, and run through `scripts/mutation-probe.mjs` - a fingerprint
+of **4,176 observations**: the analyser over 1,200 files of real
 JavaScript and TypeScript, every seventh prefix of a real source file, and a
 hundred inputs designed to stop mid-construct in five languages; the tokenizer's
 stream and its `desynced` flag; the comment lexer's ranges and its
