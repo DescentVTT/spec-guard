@@ -56,9 +56,9 @@ export default {
   // measures so that losing ground fails the build, while ordinary refactoring
   // does not trip it.
   //
-  // Re-anchored to 95 against a CI measurement of 96.80%. Where the
+  // Re-anchored to 95 against a CI measurement of 96.98%. Where the
   // previous move came from one file, this one came from all of them: every
-  // module was taken to its ceiling and the spread now runs from 94% to 100%,
+  // module was taken to its ceiling and the spread now runs from 95% to 100%,
   // against 83% to 95% a release ago.
   //
   // The headroom is deliberately wider than the 0.61, 0.63 and 0.84 used

@@ -773,9 +773,9 @@ prebuilt binary and is never a runtime dependency.
 ### Mutation testing
 
 Coverage says a line ran. It does not say an assertion would notice if the line
-behaved differently. This repository measures the difference: **96.80%** of
-4,310 mutants are killed in CI, against high line coverage, with no file below
-94%.
+behaved differently. This repository measures the difference: line coverage is
+**100%**, and **96.98%** of 4,310 mutants are killed in CI, with no file below
+95%. The second number is the one worth reading.
 
 That gap is the point. The first run scored 77.23%, and the weakest file was the
 reporter at 65.48% - not because it lacked tests, but because its tests were
@@ -809,7 +809,7 @@ quoted above; a full sweep is also what publishes the cache the branches start
 from, so an incremental verdict can never be built on another incremental
 verdict.
 
-The full sweep was 6m54s at 2,118 mutants, 15m51s at 3,493, and is 16m46s at
+The full sweep was 6m54s at 2,118 mutants, 15m51s at 3,493, and is 16m18s at
 4,310. That growth is why the tiers exist: a check that gets quietly more
 expensive every release is a check somebody eventually proposes lowering.
 

@@ -501,10 +501,11 @@ survive.
 Two things follow. The first is that the table is now plain data filled in by a
 loop, which is easier to read and contains no such callback; that is a change
 the code is better for, and the measurement improving is a consequence rather
-than the reason. The second is that `ignoreStatic` was *not* turned on. It would
-have removed all 473 static mutants from the score, and 414 of them are killed
-honestly - discarding those to hide 59 artefacts hides more than it reveals.
-Where a static survivor is a false one, it is better to say so here.
+than the reason. The second is that `ignoreStatic` was *not* turned on. Measured on
+the sweep this decision was taken against, it would have removed all 473 static
+mutants from the score, of which 414 die honestly - discarding those to hide 59
+artefacts hides more than it reveals. Where a static survivor is a false one, it
+is better to say so here.
 
 **What was deleted rather than tested.** Seventeen branches turned out to be
 unable to decide anything, and deleting a branch is a cleaner kill than pinning
@@ -549,8 +550,8 @@ keys are conservative by construction - equal keys mean the same answer, while
 two spellings of one question merely cost a repeated search - so a mutant that
 makes a key *finer* cannot change a result, only a cache hit rate.
 
-**The floor moves to 95**, against a CI measurement of **96.80%** over 4,310
-mutants. Every file is above 94%, where the spread ran from 83% to 95% a release
+**The floor moves to 95**, against a CI measurement of **96.98%** over 4,310
+mutants. Every file is above 95%, where the spread ran from 83% to 95% a release
 ago. Nine new test files, none of them a rewrite of an existing one: they test
 each module as a thing with an output rather than as a step towards a count.
 Where the old tests read a report with colour off - which is almost everywhere -
