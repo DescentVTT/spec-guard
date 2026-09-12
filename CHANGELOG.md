@@ -5,7 +5,12 @@ All notable changes to this project are documented here. Versions follow
 may change in a minor release — each such change is listed under **Changed**
 with the flag that restores the previous behaviour.
 
-## Unreleased
+## 0.6.0
+
+ADRs have a life, and spec-guard now reads it. A proposed ADR can carry live
+assertions without breaking the build, and a superseded one can stay on disk
+without enforcing the rule it records being replaced. Most of the work is in
+making sure a rule that stops running can never look like a rule that passed.
 
 ### Added
 
@@ -15,9 +20,10 @@ with the flag that restores the previous behaviour.
   its assertions live and the build green, and a superseded ADR can stay on
   disk, intact, enforcing nothing. Three spellings are read, because three are
   in use: MADR front-matter (quoted, as MADR's template writes it, or not), a
-  Nygard `## Status` section, and a bold `**Status:**` label in the preamble. Anything else - an unrecognised word, a
-  misspelling, no status at all - keeps enforcing, which is the direction that
-  cannot turn a typo into a silently disabled rule.
+  Nygard `## Status` section, and a bold `**Status:**` label in the preamble.
+  CRLF documents read the same as LF ones. Anything else - an unrecognised
+  word, a misspelling, no status at all - keeps enforcing, which is the
+  direction that cannot turn a typo into a silently disabled rule.
 
   Withholding is never quiet. Every withheld document is named in the human
   report (`○ docs/adr/0011.md is Proposed. - 2 assertions not executed`), in
@@ -45,14 +51,13 @@ with the flag that restores the previous behaviour.
 - `RunSummary` gains `inactive` and `RunReport` gains `inactiveSpecs`. Both are
   always present; consumers deep-comparing a summary object will see the new
   field.
-
-### Fixed
-
-- **A CRLF document declared no status at all.** A trailing carriage return
-  defeats the end-of-line anchor in every status pattern, so the feature above
-  would have been silently inert on a Windows checkout. Found by running the
-  parser over this repository's own ADR-0003, which happened to be CRLF on
-  disk.
+- **Mutation score 97.77%** over 4,482 mutants, against the gate of 97 - up
+  from the 97.65% 0.5.1 shipped with, and no survivor in the new code. Getting there turned up a way a local sweep overstates a score
+  that the timeout warning could not see: a regex constant at module scope runs
+  the whole suite per mutant, so on a loaded machine an unrelated test timing
+  out is scored as a kill. Those patterns are now verified by applying every
+  mutant by hand, `scripts/mutation-regex.mjs`, and the account is in
+  [ADR-0003](docs/adr/0003-mutation-testing.md).
 
 ## 0.5.1
 
