@@ -961,7 +961,7 @@ Three survivors are equivalent and stay:
 | fence check `open.index < e` to `<=` | a consumed range ends at the end of a line, where no fence can begin |
 | `matches: []` in the result of searching nothing | with no file counts, the baseline filter shows no match whatever the array holds |
 
-### Unreleased: structure assertions, swept before they were pushed
+### 0.8.0: structure assertions, and two guesses that fit the numbers
 
 [ADR-0013](0013-structure-assertions.md) followed the same order as ADR-0012.
 First, a local sweep scoped to the new module and the changed lines of seven
@@ -1038,12 +1038,30 @@ Two tests now cover them, and replaying each mutant fails exactly the test
 written for it.
 
 CI's sweep of that commit scored **98.57% over 6,939 mutants, with 96
-survivors**. Against the sweep 0.7.0 shipped on, every module matches survivor
+survivors**. Against the sweep 0.7.0 shipped on, every module matched survivor
 for survivor except two:
 - `structure.ts`, with the four above;
 - `glob.ts`, one fewer, because `indexOf(']', index - 1)` was scored as a
-  timeout. It survives in every sweep before, and its module's timeouts rose by
-  one. It is the drift the section before this one describes, not a kill.
+  timeout.
+
+The second was first written off as drift: a mutant that survived in every
+earlier sweep, a module whose timeouts rose by one. When the next sweep scored
+it the same way, that explanation was tested, and it was wrong. Started one
+place early, the search for a class's closing `]` finds the previous class's `]`
+whenever two classes are adjacent, and the compiler steps back to the `[` it
+started from, for ever. Replayed on the built module, `[0-9]-*.md` compiles and
+`[0-9][0-9]-*.md` never returns. No test before this release put two classes side
+by side; the ADR naming rule `[0-9][0-9][0-9][0-9]-*.md` and its tests do. So it
+is a genuine hang, and this is the one kind of timeout that counts as a kill.
+Calling it drift was a guess that happened to fit the numbers, which is the
+thing this document keeps finding out about guesses that fit the numbers.
+
+CI settled it on the next commit, with the four tests in: **98.63% over 6,939
+mutants, with 92 survivors**. That is the highest score this project has
+measured, and one fewer survivor than 0.7.0 before 676 new mutants arrived:
+- `structure.ts` has none;
+- `glob.ts` has six, less the adjacent-class hang;
+- every other module has exactly the survivors it had in 0.7.0.
 
 ## Consequences
 

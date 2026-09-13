@@ -331,8 +331,10 @@ A local sweep scoped to `structure.ts` and the changed lines elsewhere scored
 After those fixes a second sweep scored 99.72%. A third, after the listing cache
 was re-keyed, reported 100%. CI's full sweep then found four survivors in the
 re-keyed cache that the third sweep had scored as killed. They survived again
-when replayed by hand, and are now tested. [ADR-0003](0003-mutation-testing.md)
-has each survivor, and CI's full sweep has the last word.
+when replayed by hand, and are now tested. CI's sweep with those tests in scored
+98.63% over 6,939 mutants, with `structure.ts` at 100% and 92 survivors in the
+project, one fewer than before. [ADR-0003](0003-mutation-testing.md) has each
+survivor.
 
 ### What is deliberately not in it
 

@@ -5,7 +5,7 @@ All notable changes to this project are documented here. Versions follow
 may change in a minor release — each such change is listed under **Changed**
 with the flag that restores the previous behaviour.
 
-## Unreleased
+## 0.8.0
 
 An architecture document can now state conventions about names and layout: what
 the files in a directory are called, what every package holds, and which files
@@ -54,6 +54,13 @@ come in pairs. [ADR-0013](docs/adr/0013-structure-assertions.md).
 - The MCP server's instructions and the `get_architectural_rules` description
   tell an agent that the rules for a path now include what it must be named and
   the partner files it needs.
+- **Mutation score 98.63%** over 6,939 mutants, up from 0.7.0's 98.47%, with 92
+  survivors - one fewer than before the 676 mutants this release adds.
+  `structure.ts` is at 100%, and every other module has exactly the survivors it
+  had, less one in `glob.ts` that the new tests turned into a genuine hang. A
+  local sweep had reported four survivors in the new listing cache as killed; CI
+  found them, and they are tested. See
+  [ADR-0003](docs/adr/0003-mutation-testing.md).
 
 ## 0.7.0
 
