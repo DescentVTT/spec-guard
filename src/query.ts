@@ -104,7 +104,9 @@ export class QueryPathError extends Error {}
  */
 export async function resolveQueryPath(input: string, root: string): Promise<QueryPath & { exists: boolean }> {
   if (input.trim().length === 0) throw new QueryPathError('A path to query must not be empty.');
-  const absolutePath = path.resolve(root, input);
+  // Separators normalised before resolving, so the path, the absolute path and
+  // whether it exists all describe the same file on every platform.
+  const absolutePath = path.resolve(root, toPosix(input));
   const relative = path.relative(root, absolutePath);
   const posix = toPosix(relative);
   if (posix === '..' || posix.startsWith('../') || path.isAbsolute(relative)) {

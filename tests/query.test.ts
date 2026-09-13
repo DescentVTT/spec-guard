@@ -129,7 +129,9 @@ describe('resolveQueryPath', () => {
       exists: true,
       absolutePath: path.join(root, 'src/domain/user.ts'),
     });
-    expect((await resolveQueryPath('src\\domain\\user.ts', root)).path).toBe(path.sep === '\\' ? 'src/domain/user.ts' : 'src\\domain\\user.ts');
+    // Backslashes become separators on every platform, as they do in a spec's
+    // own targets - a path an agent sends from Windows means the same file here.
+    expect(await resolveQueryPath('src\\domain\\user.ts', root)).toMatchObject({ path: 'src/domain/user.ts', exists: true, absolutePath: path.join(root, 'src/domain/user.ts') });
     expect(await resolveQueryPath('./src/app/../domain/new.ts', root)).toMatchObject({ path: 'src/domain/new.ts', shape: 'file', exists: false });
   });
 

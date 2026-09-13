@@ -186,7 +186,7 @@ answered.
   - `io.modelcontextprotocol/serverInfo` in `_meta`;
   - on the results 2026-07-28 requires it (discover, the lists, reads), `ttlMs: 0` and
     `cacheScope: "private"`.
-  
+
   Zero, because rules are read fresh on every request, and a client serving an
   ADR edited a minute ago from its cache would be the drift this tool exists to
   catch.
