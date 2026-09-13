@@ -33,6 +33,13 @@ with the flag that restores the previous behaviour.
 
 ### Changed
 
+- **Mutation score 97.97%** over 5,078 mutants, up from 0.6.0's 97.77%. The two
+  new modules are at 99.51% (`graph.ts`) and 96.43% (`layers.ts`), and each of
+  their three survivors was shown equivalent by running the mutated build
+  against the real one on thousands of random inputs. The first sweep of this
+  work found 34 survivors that 37 hand-written negative controls had not; see
+  [ADR-0003](docs/adr/0003-mutation-testing.md) for how they were replayed from
+  the report and killed.
 - The SARIF fingerprint of an assertion that names neither a symbol nor a file
   now includes its description. Only the two new kinds are affected; every
   existing alert keeps its identity. Without it, two cycle rules on one target

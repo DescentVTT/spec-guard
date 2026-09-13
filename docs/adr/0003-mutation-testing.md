@@ -870,6 +870,13 @@ One survivor was not killed but removed: a `?? []` in the cycle filter became an
 optional call, so there is no fallback array to mutate, and the four mutants the
 new form admits are all killed.
 
+CI then settled it, to the survivor. The full sweep returned **97.97% over 5,078
+mutants** - the highest this project has measured - with **97 survivors**: the
+94 there were before ADR-0011, less the old one killed on the way, plus the four
+above. `graph.ts` is at 99.51% with Tarjan's stack as its only survivor,
+`layers.ts` holds the two cache lines and nothing else, and `runner.ts` is back
+to its eight.
+
 ## Consequences
 
 Whoever bumps vitest to 5 will fail CI on the assertion above, and land on this
