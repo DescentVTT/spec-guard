@@ -189,6 +189,13 @@ describe('fenced blocks', () => {
     expect(parseDirectives(source, context).directives).toEqual([]);
   });
 
+  it('blanks every fenced block in a document, not only the first', () => {
+    // A closing fence is skipped because it lies inside the block it closes;
+    // the next opener lies outside it and must open a block of its own.
+    const source = '```\none\n```\nprose\n```\n<!-- @assert-absence symbol="X" -->\n```\n<!-- @assert-absence symbol="Y" -->\n';
+    expect(parseDirectives(source, context).directives.map((directive) => directive.attributes['symbol'])).toEqual(['Y']);
+  });
+
   it('blanks a tilde fence too, and needs three of them', () => {
     // `~{3,}` not `~`: a single tilde in prose is a tilde.
     expect(parseDirectives('~~~\n<!-- @assert-absence symbol="X" -->\n~~~\n', context).directives).toEqual([]);

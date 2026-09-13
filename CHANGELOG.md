@@ -30,6 +30,44 @@ with the flag that restores the previous behaviour.
   and for why the other four languages are not in the graph.
 - `buildGraph`, `resolveReference`, `stronglyConnected`, `cyclicComponents`,
   `witness`, `checkLayers` and `referenceForms` are exported, with their types.
+- **`spec-guard query <paths...>`** - the rules in force for a file or directory,
+  grouped by the document that states them, with each rule's reason, a path's
+  position in every layer order (`may import`, `must not import`), and any
+  baseline entry that exempts it. Answered from the specs alone, without reading
+  the codebase, so it works for a file that does not exist yet; `--json` for
+  scripts. Rules in documents that are not in force are counted and named, and
+  listed with `--ignore-status`. The arithmetic behind it is tested against the
+  files a real run searches, under both engines and on random trees; see
+  [ADR-0012](docs/adr/0012-query-and-mcp.md) for the three things it cannot see.
+- **`spec-guard mcp`** - a Model Context Protocol server on stdio, with no
+  dependency on the MCP SDK. Tools `get_architectural_rules` (the query) and
+  `check_architecture` (a run, narrowed to the rules governing given paths, each
+  judged over its whole scope, with violations marked as in those paths or not);
+  resources `spec://rules` and `spec://doc/{+path}`. Serves clients that open
+  with `initialize` (2024-10-07 to 2025-11-25) and clients on 2026-07-28 that
+  version every request and probe with `server/discover`, classifying each
+  request the way the TypeScript SDK's own server does.
+- **`--spec <pattern>`**, repeatable: where `query` and `mcp` take their specs,
+  and an alternative to positional patterns for a run.
+- `select` on `runSpecGuard`, to execute only some of the resolved assertions.
+  `readSpecs`, `parseDocument`, `parseTitle`, `walkPaths`, `governs`,
+  `queryRules`, `createMcpHandler` and `serveStdio` are exported, with their types.
+
+### Fixed
+
+- **A rule whose every `target` was missing searched the whole repository**
+  under `--allow-missing-targets`, because an empty target list means the root
+  to the engine. So `@assert-count target="src/auth" symbol="verifyToken"
+  min="1"` kept passing after `src/auth` was deleted, as long as a test still
+  named `verifyToken`; import, layer and cycle rules did the same. This has been
+  true since 0.1.0 - the 0.3.0 entry below that describes the old behaviour as
+  "search nothing, find nothing" was wrong about what the code did. Such a rule
+  now has an empty scope: it fails as one, and with `--allow-empty-scope` or
+  `allow-empty="true"` it finds nothing. **If you rely on
+  `--allow-missing-targets` for a rule whose only target is gone, add
+  `--allow-empty-scope`.**
+- An import rule whose only target is missing, without `--allow-missing-targets`,
+  now says the target does not exist instead of that its scope is empty.
 
 ### Changed
 
@@ -40,6 +78,14 @@ with the flag that restores the previous behaviour.
   work found 34 survivors that 37 hand-written negative controls had not; see
   [ADR-0003](docs/adr/0003-mutation-testing.md) for how they were replayed from
   the report and killed.
+- **Reading specs is several times faster**, which a query's budget made worth
+  measuring. `maskCode` builds ranges instead of blanking a character array
+  (7.8 ms to 1.1 ms over this repository's specs, identical output on 72 real
+  documents and 100,000 random inputs); spec globs no longer stat every file
+  they list (102 ms to 18 ms over 1,200 specs on Windows); and specs are read
+  16 at a time. A query over this repository went from 24.6 ms to 5.1 ms. A run
+  spends most of its time searching code, so this repository's selfcheck gained
+  about 8%.
 - The SARIF fingerprint of an assertion that names neither a symbol nor a file
   now includes its description. Only the two new kinds are affected; every
   existing alert keeps its identity. Without it, two cycle rules on one target

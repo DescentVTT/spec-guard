@@ -170,3 +170,78 @@ describe('launcher', () => {
     expect(result.stderr).toContain('npm run build');
   });
 });
+
+describe.skipIf(!built)('spec-guard mcp, as a client launches it', () => {
+  /** Starts the server, feeds it lines, closes its stdin, and collects what it wrote. */
+  function converse(lines: readonly string[], args: readonly string[] = []): Promise<RunOutcome> {
+    return new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, [BIN, 'mcp', ...args], { cwd: PROJECT_ROOT, windowsHide: true });
+      let stdout = '';
+      let stderr = '';
+      child.stdout.setEncoding('utf8');
+      child.stderr.setEncoding('utf8');
+      child.stdout.on('data', (chunk: string) => (stdout += chunk));
+      child.stderr.on('data', (chunk: string) => (stderr += chunk));
+      child.once('error', reject);
+      child.once('close', (code) => resolve({ code: code ?? -1, stdout, stderr }));
+      child.stdin.end(lines.map((line) => `${line}\n`).join(''));
+    });
+  }
+
+  const SPECS = ['--spec', 'docs/**/*.md', '--spec', 'README.md'];
+
+  it('answers a legacy session over real pipes, writes only protocol to stdout, and exits 0 on EOF', async () => {
+    const outcome = await converse(
+      [
+        '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25","capabilities":{},"clientInfo":{"name":"e2e","version":"1"}}}',
+        '{"jsonrpc":"2.0","method":"notifications/initialized"}',
+        '{"jsonrpc":"2.0","id":2,"method":"tools/list"}',
+        '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_architectural_rules","arguments":{"path":"src/runner.ts"}}}',
+      ],
+      SPECS,
+    );
+
+    expect(outcome.code).toBe(0);
+    const messages = outcome.stdout.split('\n').filter((line) => line.length > 0).map((line) => JSON.parse(line) as { id: number; result: Record<string, unknown> });
+    expect(outcome.stdout.endsWith('\n')).toBe(true);
+    expect(messages.map((message) => message.id).sort()).toEqual([1, 2, 3]);
+    const byId = new Map(messages.map((message) => [message.id, message.result]));
+    expect(byId.get(1)).toMatchObject({ protocolVersion: '2025-11-25', serverInfo: { name: 'spec-guard' } });
+    expect((byId.get(2)?.['tools'] as Array<{ name: string }>).map((entry) => entry.name)).toEqual(['get_architectural_rules', 'check_architecture']);
+    const rules = byId.get(3)?.['structuredContent'] as { results: Array<{ rules: Array<{ kind: string }> }> };
+    expect(rules.results[0]?.rules.map((rule) => rule.kind)).toContain('assert-layers');
+    expect(outcome.stderr).toContain('MCP server on stdio');
+  });
+
+  it('answers a modern client that probes with server/discover first', async () => {
+    const meta = '"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}';
+    const outcome = await converse([
+      `{"jsonrpc":"2.0","id":"probe","method":"server/discover","params":{${meta}}}`,
+      `{"jsonrpc":"2.0","id":"call","method":"tools/call","params":{"name":"get_architectural_rules","arguments":{"path":"src/mcp.ts"},${meta}}}`,
+    ], SPECS);
+
+    expect(outcome.code).toBe(0);
+    const messages = outcome.stdout.trim().split('\n').map((line) => JSON.parse(line) as { id: string; result: Record<string, unknown> });
+    const probe = messages.find((message) => message.id === 'probe');
+    expect(probe?.result).toMatchObject({ resultType: 'complete', supportedVersions: ['2026-07-28'], ttlMs: 0, cacheScope: 'private' });
+    expect(messages.find((message) => message.id === 'call')?.result).toMatchObject({ resultType: 'complete', content: [{ type: 'text' }] });
+  });
+});
+
+describe.skipIf(!built)('spec-guard query, as a process', () => {
+  it('prints the rules governing a path and exits 0', async () => {
+    const result = await run(['query', 'src/parser.ts', '--spec', 'docs/**/*.md']);
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain('src/parser.ts\n');
+    expect(result.stdout).toContain('layer: src/parser.ts');
+  });
+
+  it('exits 2 for a path outside the root', async () => {
+    const result = await run(['query', '../somewhere-else.ts']);
+
+    expect(result.code).toBe(2);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('is outside the root');
+  });
+});

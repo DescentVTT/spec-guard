@@ -13,7 +13,7 @@
  */
 
 export { main, parseArgs, version, HELP, UsageError, EXIT_OK, EXIT_FAILED, EXIT_ERROR } from './cli.js';
-export type { CliIO, CliOptions, OutputFormat } from './cli.js';
+export type { CliIO, CliOptions, Command, OutputFormat } from './cli.js';
 
 export {
   buildJsRegExp,
@@ -55,8 +55,9 @@ export {
   isGlob,
   toPosix,
   walkFiles,
+  walkPaths,
 } from './glob.js';
-export type { DirectoryReader, WalkedFile, WalkOptions } from './glob.js';
+export type { DirectoryReader, WalkedFile, WalkedPath, WalkOptions } from './glob.js';
 
 export {
   createScope,
@@ -116,8 +117,42 @@ export type { LayerInput, LayerReport, LayerViolation } from './layers.js';
 
 export { lineStarts, locate, maskRanges } from './text.js';
 
-export { maskCode, parseAttributes, parseDirectives, parseStatus, INACTIVE_STATUSES } from './parser.js';
-export type { ParseContext } from './parser.js';
+export { maskCode, parseAttributes, parseDirectives, parseDocument, parseStatus, parseTitle, INACTIVE_STATUSES } from './parser.js';
+export type { ParseContext, ParsedDocument } from './parser.js';
+
+export { readSpecs, specPath } from './specs.js';
+export type { SpecDocument, SpecSet } from './specs.js';
+
+export { governs, layerPosition, viewRule, within } from './rules.js';
+export type { DocumentView, LayerPosition, PathShape, QueryPath, RuleView } from './rules.js';
+
+export {
+  answerQuery,
+  formatQuery,
+  formatQueryJson,
+  inQueriedPaths,
+  loadRuleSet,
+  queryRules,
+  resolveQueryPath,
+  viewDocument,
+  QueryPathError,
+} from './query.js';
+export type { PathRules, QueryOptions, QueryReport, RuleSet, RuleSetOptions } from './query.js';
+
+export {
+  classifyRequest,
+  createMcpHandler,
+  documentPath,
+  documentUri,
+  envelopeIssue,
+  negotiateLegacyVersion,
+  serveStdio,
+  LEGACY_PROTOCOL_VERSIONS,
+  MODERN_PROTOCOL_VERSIONS,
+  RESOURCE_TEMPLATES,
+  TOOLS,
+} from './mcp.js';
+export type { Era, McpServerOptions, OutgoingMessage } from './mcp.js';
 
 export {
   applyBaseline,
@@ -125,6 +160,7 @@ export {
   executeAssertion,
   resolveDirective,
   runSpecGuard,
+  specExclusions,
   DEFAULT_CONCURRENCY,
   DEFAULT_MAX_SNIPPETS,
 } from './runner.js';

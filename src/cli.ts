@@ -9,7 +9,10 @@
 
 import { createRequire } from 'node:module';
 import path from 'node:path';
+import type { Readable } from 'node:stream';
 
+import { createMcpHandler, serveStdio } from './mcp.js';
+import { formatQuery, formatQueryJson, queryRules } from './query.js';
 import { formatBaselines, formatJson, formatReport, formatSarif, shouldUseAscii, shouldUseColor } from './reporter.js';
 import { DEFAULT_CONCURRENCY, DEFAULT_MAX_SNIPPETS, runSpecGuard } from './runner.js';
 import type { EnginePreference } from './engine.js';
@@ -24,13 +27,21 @@ export interface CliIO {
   env: NodeJS.ProcessEnv;
   cwd: string;
   isTTY: boolean;
+  /** Where `spec-guard mcp` reads its messages. Only that command reads input. */
+  stdin?: Readable;
 }
+
+/** What the command line asked for: a run, a query, or a server. */
+export type Command = 'check' | 'query' | 'mcp';
 
 /** How a finished run is written out. */
 export type OutputFormat = 'human' | 'json' | 'sarif';
 
 export interface CliOptions {
+  command: Command;
   patterns: string[];
+  /** The paths `spec-guard query` asks about. */
+  paths: string[];
   root: string;
   verbose: boolean;
   failFast: boolean;
@@ -69,14 +80,18 @@ export function version(): string {
 export const HELP = `spec-guard - Executable architecture assertions for Markdown specs & ADRs
 
 Usage
-  spec-guard [patterns...] [options]
+  spec-guard [patterns...] [options]     execute the directives in the specs
+  spec-guard query <paths...> [options]  list the rules in force for files or directories
+  spec-guard mcp [options]               serve the rules to an AI agent over MCP on stdio
 
 Patterns
   Globs or paths to the Markdown specs to execute. A directory expands to the
-  Markdown files inside it. Defaults to "docs/**/*.md" when omitted.
+  Markdown files inside it. Defaults to "docs/**/*.md" when omitted. query and
+  mcp take theirs from --spec.
 
 Options
   -r, --root <path>       Codebase root that assertions are resolved against (default: cwd)
+      --spec <pattern>    A spec glob or path; repeatable (default: "docs/**/*.md")
   -v, --verbose           Print passing assertions too
       --fail-fast         Stop at the first failing assertion
       --json              Emit a machine-readable JSON report (same as --format json)
@@ -108,6 +123,10 @@ Directives
   An assertion whose scope holds no files fails; add allow-empty="true" to allow it.
   A document whose status is draft, proposed, rejected, deprecated or superseded
   is reported and not executed; --ignore-status runs it anyway.
+
+query answers from the specs alone, without reading the codebase, so it works
+for a file that does not exist yet. mcp offers the same answer, and a check,
+as the tools get_architectural_rules and check_architecture.
 
 Exit codes
   0 all assertions passed   1 an assertion failed   2 spec-guard could not run`;
@@ -142,10 +161,41 @@ function positiveInteger(name: string, value: string): number {
   return Number.parseInt(value, 10);
 }
 
+/**
+ * Options that mean nothing to a command, by command.
+ *
+ * Refused rather than ignored: `spec-guard query --strict` accepting the flag
+ * and doing nothing with it would tell someone their query was strict.
+ */
+const NOT_FOR: Record<Exclude<Command, 'check'>, ReadonlySet<string>> = {
+  query: new Set([
+    '--verbose',
+    '--fail-fast',
+    '--engine',
+    '--strict',
+    '--allow-missing-targets',
+    '--allow-empty-scope',
+    '--print-baseline',
+    '--allow-empty',
+    '--max-snippets',
+    '--concurrency',
+    '--color',
+    '--no-color',
+  ]),
+  mcp: new Set(['--verbose', '--fail-fast', '--json', '--format', '--print-baseline', '--allow-empty', '--color', '--no-color']),
+};
+
+/** The long name of an option, whichever way it was spelled. */
+const LONG_NAMES: Readonly<Record<string, string>> = { '-v': '--verbose' };
+
 /** Minimal, dependency-free argv parser. Supports `--flag value` and `--flag=value`. */
 export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
+  const command: Command = argv[0] === 'query' || argv[0] === 'mcp' ? argv[0] : 'check';
+  const specs: string[] = [];
   const options: CliOptions = {
+    command,
     patterns: [],
+    paths: [],
     root: cwd,
     verbose: false,
     failFast: false,
@@ -168,11 +218,12 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
 
   let onlyPositional = false;
 
-  for (let index = 0; index < argv.length; index++) {
+  for (let index = command === 'check' ? 0 : 1; index < argv.length; index++) {
     const argument = argv[index] as string;
 
     if (onlyPositional || !argument.startsWith('-') || argument === '-') {
-      options.patterns.push(argument);
+      if (command === 'mcp') throw new UsageError(`spec-guard mcp takes no arguments, got "${argument}". Name specs with --spec.`);
+      (command === 'query' ? options.paths : options.patterns).push(argument);
       continue;
     }
     if (argument === '--') {
@@ -188,6 +239,10 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
       index += 1;
       return requireValue(name, argv[index]);
     };
+
+    if (command !== 'check' && NOT_FOR[command].has(LONG_NAMES[name] ?? name)) {
+      throw new UsageError(`Option ${name} does not apply to spec-guard ${command}.`);
+    }
 
     switch (name) {
       case '-h':
@@ -210,6 +265,9 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
         break;
       case '--format': {
         const value = nextValue().toLowerCase();
+        if (command === 'query' && value === 'sarif') {
+          throw new UsageError('spec-guard query has no sarif format: it lists rules, not results. Expected human or json.');
+        }
         if (value !== 'human' && value !== 'json' && value !== 'sarif') {
           throw new UsageError(`Unknown format "${value}". Expected human, json or sarif.`);
         }
@@ -251,6 +309,9 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
       case '--root':
         options.root = path.resolve(cwd, nextValue());
         break;
+      case '--spec':
+        specs.push(nextValue());
+        break;
       case '--engine': {
         const value = nextValue().toLowerCase();
         const engine = ENGINE_ALIASES[value];
@@ -271,7 +332,11 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
     }
   }
 
+  options.patterns.push(...specs);
   if (options.patterns.length === 0) options.patterns = ['docs/**/*.md'];
+  if (command === 'query' && options.paths.length === 0 && !options.help && !options.version) {
+    throw new UsageError('spec-guard query needs a path to ask about, e.g. spec-guard query src/domain/user.ts.');
+  }
   return options;
 }
 
@@ -282,7 +347,63 @@ function defaultIO(): CliIO {
     env: process.env,
     cwd: process.cwd(),
     isTTY: Boolean(process.stdout.isTTY),
+    stdin: process.stdin,
   };
+}
+
+/** `spec-guard query`: prints the rules governing each path. */
+async function runQuery(options: CliOptions, io: CliIO): Promise<number> {
+  let report;
+  try {
+    report = await queryRules({
+      patterns: options.patterns,
+      root: options.root,
+      paths: options.paths,
+      includeInactive: options.ignoreStatus,
+      includeSpecs: options.includeSpecs,
+      defaultSkips: options.defaultSkips,
+    });
+  } catch (error) {
+    io.stderr(`spec-guard: ${error instanceof Error ? error.message : String(error)}`);
+    return EXIT_ERROR;
+  }
+
+  if (report.specFiles.length === 0) {
+    if (options.format === 'json') io.stdout(formatQueryJson(report));
+    else io.stderr(`spec-guard: no spec files matched ${options.patterns.map((p) => `"${p}"`).join(', ')}`);
+    return EXIT_ERROR;
+  }
+
+  io.stdout(options.format === 'json' ? formatQueryJson(report) : formatQuery(report));
+  return EXIT_OK;
+}
+
+/** `spec-guard mcp`: serves until the client closes stdin. */
+async function runMcp(options: CliOptions, io: CliIO): Promise<number> {
+  if (!io.stdin) {
+    io.stderr('spec-guard: mcp needs a readable stdin.');
+    return EXIT_ERROR;
+  }
+  const handler = createMcpHandler({
+    root: options.root,
+    patterns: options.patterns,
+    version: version(),
+    run: {
+      engine: options.engine,
+      allowMissingTargets: options.allowMissingTargets,
+      allowEmptyScope: options.allowEmptyScope,
+      defaultSkips: options.defaultSkips,
+      ignoreStatus: options.ignoreStatus,
+      strictTargets: options.strictTargets,
+      includeSpecs: options.includeSpecs,
+      concurrency: options.concurrency,
+      maxSnippets: options.maxSnippets,
+    },
+  });
+  // stderr is the one channel the stdio binding leaves free for people.
+  io.stderr(`spec-guard ${version()}: MCP server on stdio, rules from ${options.patterns.join(', ')} under ${options.root}`);
+  await serveStdio(io.stdin, io.stdout, handler);
+  return EXIT_OK;
 }
 
 /** Runs the CLI and resolves to the process exit code. */
@@ -305,6 +426,8 @@ export async function main(argv: readonly string[] = process.argv.slice(2), io: 
     io.stdout(version());
     return EXIT_OK;
   }
+  if (options.command === 'query') return runQuery(options, io);
+  if (options.command === 'mcp') return runMcp(options, io);
 
   let report;
   try {

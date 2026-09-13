@@ -575,15 +575,100 @@ pass if you accepted it today.
 [ADR-0010](docs/adr/0010-spec-status.md) has the full reasoning, including why
 there is no per-directive `if-status` attribute.
 
+## Asking before writing - `query` and the MCP server
+
+A run tells you, after the fact, that code broke a rule. `spec-guard query`
+tells you which rules a file is under before you touch it:
+
+```bash
+spec-guard query src/domain/user.ts --spec "docs/**/*.md"
+```
+
+```text
+src/domain/user.ts
+  3 rules from 2 documents
+
+  ADR-0004: No legacy client  (docs/adr/0004-legacy.md, accepted)
+    :12 @assert-absence  "LegacyClient" must not appear in src
+
+  ADR-0011: Layering constraints  (docs/adr/0011-layers.md, accepted)
+    :40 @assert-layers  src must keep its layers in order, src/domain < src/application < src/infrastructure
+      layer: src/domain (1 of 3)
+      may import: src/domain
+      must not import: src/application, src/infrastructure
+      reason: the domain depends on nothing
+    :41 @assert-import-absence  src/domain must not import "pg"
+
+  1 more rule would govern this path if docs/adr/0014-clocks.md (proposed) were in force; --ignore-status lists it
+
+14 spec files read in 6.1ms
+```
+
+It answers from the specs alone, without reading the codebase, so it works for
+a file that does not exist yet. A directory lists every rule that could reach a
+file under it. `--json` is the same answer for a script. Rules in documents that
+are not in force are counted and named, never silently left out.
+
+The arithmetic that decides whether a rule governs a path is tested against the
+walk a real run makes, file for file, under both engines and on randomly
+generated trees. [ADR-0012](docs/adr/0012-query-and-mcp.md) lists the three
+things it cannot see: file content (binary, oversized, unreadable), symbolic
+links, and letter case on case-insensitive filesystems.
+
+### The MCP server
+
+`spec-guard mcp` serves the same answer to an AI agent over the
+[Model Context Protocol](https://modelcontextprotocol.io) on stdio, with no
+dependency on the MCP SDK. Register it with your client as a stdio server; the
+usual `mcpServers` entry is:
+
+```json
+{
+  "mcpServers": {
+    "spec-guard": {
+      "command": "npx",
+      "args": ["spec-guard", "mcp", "--spec", "docs/**/*.md"]
+    }
+  }
+}
+```
+
+The root defaults to the directory the client starts the server in; pass
+`--root` if yours starts servers somewhere else. On Windows, `npx` is a `.cmd`
+script that a client spawning without a shell cannot launch; point `command` at
+`node` and the first argument at
+`node_modules/@descent-vtt/spec-guard/bin/spec-guard.js` instead. Run flags such
+as `--engine`, `--strict`, `--ignore-status` and `--allow-missing-targets` apply
+to its checks.
+
+| Tool | What it does |
+| --- | --- |
+| `get_architectural_rules(path, include_inactive?)` | The query above, as text and as structured content |
+| `check_architecture(paths?)` | A run. Given paths, only the rules that govern them, each over its whole scope, with every violation marked as in those paths or not |
+
+| Resource | What it holds |
+| --- | --- |
+| `spec://rules` | Every rule in force, as JSON |
+| `spec://doc/{+path}` | Any spec document, in force or not |
+
+Both protocol eras are served: clients that open with `initialize` (revisions
+2024-10-07 to 2025-11-25), and clients on 2026-07-28 that put the protocol
+version on every request and probe with `server/discover`. Nothing is cached, so
+an ADR edited mid-session is read as edited. ADR-0012 has the shapes, the
+sources they follow, and what is deliberately not implemented.
+
 ## CLI
 
 ```bash
-spec-guard [patterns...] [options]
+spec-guard [patterns...] [options]     # execute the directives
+spec-guard query <paths...> [options]  # the rules in force for files or directories
+spec-guard mcp [options]               # serve the rules over MCP on stdio
 ```
 
 | Option | Description |
 | --- | --- |
 | `-r, --root <path>` | Codebase root that assertions resolve against (default: cwd) |
+| `--spec <pattern>` | A spec glob or path, repeatable. `query` and `mcp` take their specs only from here |
 | `-v, --verbose` | Print passing assertions too |
 | `--fail-fast` | Stop at the first failing assertion |
 | `--json` | Machine-readable report on stdout (same as `--format json`) |

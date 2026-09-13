@@ -195,16 +195,30 @@ describe.each(ENGINES)('runSpecGuard [%s engine]', (engine) => {
     expect(report.results[0]?.warnings).toEqual(['target path not found: src/does-not-exist']);
   });
 
-  it('tolerates a missing target only when asked', async () => {
-    const report = await runSpecGuard({
+  it('tolerates a missing target only when asked, and then has nothing left to search', async () => {
+    const tolerated = await runSpecGuard({
+      patterns: ['docs/adr/0005-missing-target.md'],
+      root: DEMO_REPO,
+      engine,
+      allowMissingTargets: true,
+      allowEmptyScope: true,
+    });
+
+    expect(tolerated.ok).toBe(true);
+    expect(tolerated.results[0]?.warnings).toEqual(['target path not found: src/does-not-exist']);
+    // Nothing was searched: no engine ran, so none is named.
+    expect(tolerated.results[0]?.engine).toBeUndefined();
+
+    // Its only target is gone, so its scope is empty - which fails like any
+    // other empty scope. This used to pass by searching the whole root instead.
+    const alone = await runSpecGuard({
       patterns: ['docs/adr/0005-missing-target.md'],
       root: DEMO_REPO,
       engine,
       allowMissingTargets: true,
     });
-
-    expect(report.ok).toBe(true);
-    expect(report.results[0]?.warnings).toEqual(['target path not found: src/does-not-exist']);
+    expect(alone.ok).toBe(false);
+    expect(alone.results[0]?.message).toBe('no files were inspected, so this assertion verified nothing (add allow-empty="true" if that is expected)');
   });
 
   it('runs every spec matched by a glob', async () => {

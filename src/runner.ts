@@ -22,7 +22,7 @@ import {
   type EnginePreference,
   type SearchRequest,
 } from "./engine.js";
-import { createExcludeMatcher, expandSpecPatterns, toPosix } from "./glob.js";
+import { createExcludeMatcher, toPosix } from "./glob.js";
 import {
   buildGraph,
   cyclicComponents,
@@ -40,7 +40,7 @@ import {
   type ModuleReference,
 } from "./imports.js";
 import { checkLayers } from "./layers.js";
-import { parseDirectives } from "./parser.js";
+import { readSpecs, specPath } from "./specs.js";
 import {
   createScope,
   DEFAULT_SCOPE,
@@ -60,6 +60,7 @@ import type {
   RunReport,
   SearchOptions,
   SearchResult,
+  SpecStatus,
   StaleBaselineEntry,
 } from "./types.js";
 
@@ -112,6 +113,15 @@ export interface RunOptions {
    * default, because the point of reading the status is to honour it.
    */
   ignoreStatus?: boolean;
+  /**
+   * Which resolved assertions to execute. Every one, when unset.
+   *
+   * For a caller that wants the rules governing a few paths rather than all of
+   * them - the MCP server's `check_architecture`. An assertion that is not
+   * selected is not executed and not counted; it is still resolved, so a
+   * malformed directive is an error whatever is selected.
+   */
+  select?: (assertion: Assertion) => boolean;
 }
 
 export interface RunResult extends RunReport {
@@ -690,6 +700,16 @@ export function resolveDirective(
   }
 }
 
+/**
+ * The spec files a search must not count, as absolute paths.
+ *
+ * A spec names the symbol it forbids, so without this every absence rule would
+ * find itself. Empty under `--include-specs`.
+ */
+export function specExclusions(specFiles: readonly string[], includeSpecs: boolean): ReadonlySet<string> {
+  return new Set(includeSpecs ? undefined : specFiles.map((file) => path.resolve(file)));
+}
+
 async function pathExists(candidate: string): Promise<boolean> {
   return (await fs.stat(candidate).catch(() => null)) !== null;
 }
@@ -811,22 +831,25 @@ async function prepareAssertion(
     options: assertion.search as SearchOptions,
   };
 
-  if (!options.allowEmptyScope && !assertion.allowEmpty && !(await options.hasFiles(request))) {
-    {
-      return {
-        ...base,
-        ok: false,
-        actual: 0,
-        message: `no files were inspected, so this assertion verified nothing (${EMPTY_SCOPE_HINT})`,
-        matches: [],
-        durationMs: elapsed(startedAt),
-      };
-    }
+  // Every target missing, and that tolerated, leaves nothing to search - and
+  // must not be handed to the engine as an empty target list, which the engine
+  // reads, by contract, as the root. It used to be: a rule on a deleted
+  // `src/auth` searched the whole repository, where `min="1"` could pass on a
+  // test file. Found by holding `spec-guard query` to the walk; see ADR-0012.
+  const nothingLeft = existingTargets.length === 0;
+
+  if (!options.allowEmptyScope && !assertion.allowEmpty && (nothingLeft || !(await options.hasFiles(request)))) {
+    return {
+      ...base,
+      ok: false,
+      actual: 0,
+      message: `no files were inspected, so this assertion verified nothing (${EMPTY_SCOPE_HINT})`,
+      matches: [],
+      durationMs: elapsed(startedAt),
+    };
   }
 
-  return {
-    request,
-    finish: (search: SearchResult): AssertionResult => {
+  const finish = (search: Unsearched | SearchResult): AssertionResult => {
       // A file that could not be read, or whose bytes are not text but did
       // contain the symbol, is a hole in the answer rather than a detail of it.
       // The count is still reported, because it is still true of everything
@@ -864,9 +887,22 @@ async function prepareAssertion(
         engine: search.engine,
         durationMs: elapsed(startedAt),
       };
-    },
   };
+
+  return nothingLeft ? finish(NOTHING_SEARCHED) : { request, finish };
 }
+
+/** The result of a search that had no files to look at, and so ran no engine. */
+type Unsearched = Omit<SearchResult, "engine"> & { engine?: undefined };
+
+const NOTHING_SEARCHED: Unsearched = {
+  count: 0,
+  commentMatches: 0,
+  unclassifiedFiles: 0,
+  matches: [],
+  fileCounts: new Map(),
+  scope: EMPTY_LEDGER,
+};
 
 /** How each kind of reference is spelled in a report snippet. */
 const IMPORT_VERBS: Record<ModuleReference["kind"], string> = {
@@ -912,11 +948,25 @@ async function executeImportAssertion(
   // No symbol: an import assertion never runs a text search, and the walk does
   // not depend on one. This used to pass `symbol: ""`, an invented value that
   // reached nothing and that no test could therefore be wrong about.
-  const enumeration = await enumerateCandidates({
-    root: options.root,
-    targets: existingTargets,
-    options: assertion.search as SearchOptions,
-  });
+  //
+  // And no walk at all when every target is missing: an empty target list is
+  // the root to the engine, as the text rules above found out.
+  const enumeration =
+    existingTargets.length === 0
+      ? { files: [] }
+      : await enumerateCandidates({
+          root: options.root,
+          targets: existingTargets,
+          options: assertion.search as SearchOptions,
+        });
+
+  // Why a missing target fails the assertion, or null when it does not. Decided
+  // before scope, so a rule whose only target is gone says so rather than that
+  // its scope is empty - which is true, and not the thing to fix.
+  const missing =
+    !options.allowMissingTargets && assertion.missingTargets.length > 0
+      ? `target path${assertion.missingTargets.length === 1 ? " does" : "s do"} not exist: ${assertion.missingTargets.join(", ")}`
+      : null;
 
   // A cycle needs files the resolver can name, which today means JavaScript
   // and TypeScript; every other import rule reads any language spec-guard
@@ -928,7 +978,7 @@ async function executeImportAssertion(
       : ANALYSABLE_EXTENSIONS.has(path.posix.extname(file.relativePath)),
   );
 
-  if (analysable.length === 0 && !options.allowEmptyScope && !assertion.allowEmpty) {
+  if (analysable.length === 0 && missing === null && !options.allowEmptyScope && !assertion.allowEmpty) {
     // For an import rule the bar is higher than "some file exists": a directory
     // of YAML has nothing this can read, so a dependency claim about it is a
     // claim about nothing.
@@ -982,10 +1032,7 @@ async function executeImportAssertion(
     walked: enumeration.files.map((file) => file.relativePath),
     targets: existingTargets,
     unresolved: unresolved.length,
-    missing:
-      !options.allowMissingTargets && assertion.missingTargets.length > 0
-        ? `target path${assertion.missingTargets.length === 1 ? " does" : "s do"} not exist: ${assertion.missingTargets.join(", ")}`
-        : null,
+    missing,
   };
 
   if (cycles) return finishCycles(assertion, options, base, warnings, startedAt, read);
@@ -1266,53 +1313,44 @@ export async function runSpecGuard(options: RunOptions): Promise<RunResult> {
   const allowEmptyScope = options.allowEmptyScope ?? false;
   const scope = createScope(options.defaultSkips ?? true);
 
-  const specFiles = await expandSpecPatterns(options.patterns, root);
-  const excludeFiles = new Set(
-    options.includeSpecs ? [] : specFiles.map((file) => path.resolve(file)),
-  );
+  const specs = await readSpecs(options.patterns, root);
+  const specFiles = specs.files;
+  const excludeFiles = specExclusions(specFiles, options.includeSpecs ?? false);
 
   const directives: Directive[] = [];
   /** Parsed, validated, and then not run: see ADR-0010. */
   const withheld: Directive[] = [];
-  const errors: DirectiveError[] = [];
+  const errors: DirectiveError[] = [...specs.errors];
   const inactiveSpecs: InactiveSpec[] = [];
 
-  for (const file of specFiles) {
-    const relativeFile = toPosix(path.relative(root, file)) || toPosix(file);
-    const source = await fs.readFile(file, "utf8").catch((error: unknown) => {
-      errors.push({
-        location: { file, relativeFile, line: 1, column: 1 },
-        raw: "",
-        message: `Unable to read spec file: ${error instanceof Error ? error.message : String(error)}`,
-      });
-      return null;
-    });
-    if (source === null) continue;
-    const parsed = parseDirectives(source, { file, relativeFile });
-    errors.push(...parsed.errors);
-    const status = parsed.status;
-    if (status && !status.active && !(options.ignoreStatus ?? false)) {
-      withheld.push(...parsed.directives);
+  for (const document of specs.documents) {
+    if (!document.inForce && !(options.ignoreStatus ?? false)) {
+      // A document is only ever out of force because of a status it declares.
+      const status = document.status as SpecStatus;
+      withheld.push(...document.directives);
       // Recorded even when it held no directives. "docs/adr/0011.md is a
       // draft" is worth saying to someone wondering why their new rule has no
       // effect, and a report that only mentions the documents it happened to
       // find directives in cannot answer that.
       inactiveSpecs.push({
-        file: relativeFile,
+        file: document.relativeFile,
         status: status.value,
         label: status.label,
-        directives: parsed.directives.length,
+        directives: document.directives.length,
       });
       continue;
     }
-    directives.push(...parsed.directives);
+    directives.push(...document.directives);
   }
 
   const assertions: Assertion[] = [];
   for (const directive of directives) {
     const resolved = resolveDirective(directive, { root, excludeFiles, scope });
     if ("error" in resolved) errors.push(resolved.error);
-    else assertions.push(resolved.assertion);
+    // Selection happens after resolution, so a directive that is not selected
+    // is still held to being well-formed - the same bargain ADR-0010 strikes
+    // for a document that is not in force.
+    else if (options.select?.(resolved.assertion) ?? true) assertions.push(resolved.assertion);
   }
 
   // Not in force is not the same as not checked. A withheld directive is still
@@ -1433,8 +1471,6 @@ export async function runSpecGuard(options: RunOptions): Promise<RunResult> {
     errors,
     warnings,
     inactiveSpecs,
-    specFiles: specFiles.map(
-      (file) => toPosix(path.relative(root, file)) || toPosix(file),
-    ),
+    specFiles: specFiles.map((file) => specPath(root, file)),
   };
 }

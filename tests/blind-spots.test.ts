@@ -321,6 +321,24 @@ describe('paths that cannot be read', () => {
     expect(skipped).toEqual([['phantom.ts', 'unreadable']]);
   });
 
+  it('leaves out a file it could not stat when nobody asked to hear about it', async () => {
+    const root = await repo({ 'a.ts': 'clean\n' });
+    const found = [];
+    for await (const file of walkFiles(root, {
+      readDirectory: async (directory) =>
+        directory === root
+          ? ([
+              { name: 'a.ts', isDirectory: () => false, isFile: () => true, isSymbolicLink: () => false },
+              { name: 'phantom.ts', isDirectory: () => false, isFile: () => true, isSymbolicLink: () => false },
+            ] as never)
+          : [],
+    })) {
+      found.push(file.relativePath);
+    }
+
+    expect(found).toEqual(['a.ts']);
+  });
+
   it('reports a directory it could not list', async () => {
     const root = await repo({ 'src/a.ts': 'clean\n' });
     const skipped: Array<[string, string]> = [];

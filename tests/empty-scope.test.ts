@@ -207,3 +207,60 @@ describe('--allow-empty-scope', () => {
     ).toBe(EXIT_OK);
   });
 });
+
+describe('an assertion whose every target is missing, with --allow-missing-targets', () => {
+  // The engine reads an empty target list as the root, by contract. These rules
+  // used to hand it one, and so searched the whole repository in place of a
+  // directory that was gone.
+  const tree = {
+    'docs/a.md': [
+      '<!-- @assert-count target="src/auth" symbol="verifyToken" min="1" -->',
+      '<!-- @assert-import-count target="src/auth" module="jose" min="1" -->',
+      '<!-- @assert-import-cycle target="src/auth" -->',
+      '<!-- @assert-layers target="src/auth" order="src/auth/a, src/auth/b" -->',
+    ].join('\n'),
+    'tests/auth.test.ts': "import { verifyToken } from 'jose';\nimport './auth.test.js';\n",
+  };
+
+  it('finds nothing elsewhere in the tree, so a rule that needs a match fails', async () => {
+    const report = await run(await repo(tree), ['docs/a.md'], { allowMissingTargets: true, allowEmptyScope: true });
+
+    expect(report.results.map((result) => [result.ok, result.actual, result.message])).toEqual([
+      [false, 0, 'expected at least 1 match, found 0'],
+      [false, 0, 'expected at least 1 match, found 0'],
+      [true, 0, 'expected no import cycles, found 0'],
+      [true, 0, 'expected no violating files, found 0'],
+    ]);
+  });
+
+  it('is an empty scope, which fails unless an empty scope is allowed', async () => {
+    const report = await run(await repo(tree), ['docs/a.md'], { allowMissingTargets: true });
+
+    for (const result of report.results.slice(0, 3)) {
+      expect(result.ok).toBe(false);
+      expect(result.message).toBe('no files were inspected, so this assertion verified nothing (add allow-empty="true" if that is expected)');
+    }
+  });
+
+  it('still says the target is missing when missing targets are not allowed', async () => {
+    const report = await run(await repo(tree), ['docs/a.md']);
+
+    expect(report.results.map((result) => result.message)).toEqual([
+      'target path does not exist: src/auth',
+      'target path does not exist: src/auth',
+      'target path does not exist: src/auth',
+      'target path does not exist: src/auth',
+    ]);
+  });
+
+  it('keeps searching the targets that do exist', async () => {
+    const root = await repo({
+      'docs/a.md': '<!-- @assert-count target="src/auth, tests" symbol="verifyToken" min="1" -->\n',
+      'tests/auth.test.ts': 'verifyToken\n',
+    });
+    const result = (await run(root, ['docs/a.md'], { allowMissingTargets: true })).results[0];
+
+    expect(result?.ok).toBe(true);
+    expect(result?.actual).toBe(1);
+  });
+});

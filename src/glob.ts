@@ -210,10 +210,14 @@ export interface WalkOptions {
   readDirectory?: DirectoryReader;
 }
 
-export interface WalkedFile {
+/** A file the walk found, before anyone has asked how big it is. */
+export interface WalkedPath {
   absolutePath: string;
   /** Path relative to the walk root, POSIX separators. */
   relativePath: string;
+}
+
+export interface WalkedFile extends WalkedPath {
   size: number;
 }
 
@@ -223,17 +227,39 @@ export function compareDirents(a: { name: string }, b: { name: string }): number
 }
 
 /**
- * Depth-first directory walk yielding regular files.
+ * Depth-first directory walk yielding regular files with their sizes.
  * Emits nothing when `root` is missing or is not a directory.
+ *
+ * A file that is listed but cannot be stat'd - it was deleted mid-walk, or its
+ * permissions forbid it - is reported as unreadable rather than yielded.
  */
 export async function* walkFiles(root: string, options: WalkOptions = {}): AsyncGenerator<WalkedFile> {
+  for await (const file of walkPaths(root, options)) {
+    const stats = await statOrNull(file.absolutePath);
+    if (!stats) {
+      options.onSkip?.(file.relativePath, 'unreadable');
+      continue;
+    }
+    yield { ...file, size: stats.size };
+  }
+}
+
+/**
+ * The same walk, without a stat per file.
+ *
+ * Split out for the spec patterns, which need names and never sizes. The stat is
+ * most of what a walk costs on Windows: 516ms for 1,200 files against 42ms for
+ * the directory reads alone, measured when `spec-guard query` put a budget on
+ * finding the specs. See ADR-0012.
+ */
+export async function* walkPaths(root: string, options: WalkOptions = {}): AsyncGenerator<WalkedPath> {
   const scope = options.scope ?? DEFAULT_SCOPE;
   const followSymlinks = options.followSymlinks ?? false;
   const readDirectory = options.readDirectory ?? defaultDirectoryReader;
   const onSkip = options.onSkip;
   const seen = new Set<string>();
 
-  async function* visit(directory: string, prefix: string): AsyncGenerator<WalkedFile> {
+  async function* visit(directory: string, prefix: string): AsyncGenerator<WalkedPath> {
     let entries;
     try {
       entries = await readDirectory(directory);
@@ -280,12 +306,7 @@ export async function* walkFiles(root: string, options: WalkOptions = {}): Async
       }
 
       if (!isFile) continue;
-      const stats = await statOrNull(absolutePath);
-      if (!stats) {
-        onSkip?.(relativePath, 'unreadable');
-        continue;
-      }
-      yield { absolutePath, relativePath, size: stats.size };
+      yield { absolutePath, relativePath };
     }
   }
 
@@ -328,7 +349,7 @@ export async function expandSpecPatterns(
       if (stats?.isFile()) {
         found.add(absolute);
       } else if (stats?.isDirectory()) {
-        for await (const file of walkFiles(absolute)) {
+        for await (const file of walkPaths(absolute)) {
           if (defaultExtensions.some((extension) => file.relativePath.toLowerCase().endsWith(extension))) {
             found.add(file.absolutePath);
           }
@@ -342,7 +363,7 @@ export async function expandSpecPatterns(
     const walkRoot = isAbsolutePattern ? base || path.parse(pattern).root : path.resolve(root, base);
     const matcher = createGlobMatcher([pattern]);
 
-    for await (const file of walkFiles(walkRoot)) {
+    for await (const file of walkPaths(walkRoot)) {
       const candidate = isAbsolutePattern
         ? toPosix(file.absolutePath)
         : toPosix(path.relative(root, file.absolutePath));
