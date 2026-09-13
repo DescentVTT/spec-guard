@@ -257,10 +257,12 @@ export function stronglyConnected(nodes: readonly string[], successors: Readonly
  */
 export function cyclicComponents(graph: Pick<ImportGraph, 'nodes' | 'successors'>): string[][] {
   return stronglyConnected(graph.nodes, graph.successors)
-    .filter(
-      (component) =>
-        component.length > 1 || (graph.successors.get(component[0] as string) ?? []).includes(component[0] as string),
-    )
+    .filter((component) => {
+      const first = component[0] as string;
+      // A file with no imports is not in the map at all; `?.` says so rather
+      // than inventing an empty list for it to be absent from.
+      return component.length > 1 || graph.successors.get(first)?.includes(first) === true;
+    })
     .map((component) => component.sort(comparePaths))
     .sort((a, b) => comparePaths(a[0] as string, b[0] as string));
 }

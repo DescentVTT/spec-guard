@@ -826,6 +826,50 @@ so the feature would have shipped silently inert on a Windows checkout. No
 mutant would have found that - the code was correct about the fixtures it was
 given. It took pointing the thing at real files.
 
+### Unreleased: thirty-seven controls, and thirty-four survivors anyway
+
+Layering and import cycles ([ADR-0011](0011-layers-and-cycles.md)) were built
+with this document's discipline applied in advance: thirty-seven negative
+controls, each a defect written into the source by hand, every one caught on an
+assertion. The machine was not quiet, so by the rule above there was no local
+sweep, and CI's full sweep was the first measurement.
+
+It returned **97.36%**, down from 97.77%, with **34 new survivors** - 27 of them
+in the runner.
+
+That is the finding worth keeping. The thirty-seven controls were the defects
+their author could imagine, and they were all real: two of them found genuine
+bugs. The thirty-four were the defects nobody imagined - the exact `..` import,
+the second of two targets, the root target spelled `.`, a target that is itself
+the import's path, `--max-snippets` on each new list, a kept-order rule that must
+say *nothing*, a one-way ratchet, a clean `--strict` run. Hand-written controls
+measure the tests against a model of the code. The report measures them against
+the code.
+
+So the survivors were replayed rather than reasoned about. A script loads the CI
+report, checks that each file on disk is byte-for-byte the source that was
+mutated, writes each surviving mutant in at the location and with the
+replacement the report gives, and runs the suites. After the new tests, **30 of
+the 34 are killed**, and so is one survivor older than ADR-0011 in code this
+change restructured. Of the other four, three were claimed equivalent and then
+tested as though they were not - the mutated build against the real one on
+random input, any difference refuting the claim:
+
+| survivor | claim | evidence |
+| --- | --- | --- |
+| Tarjan's `stack` initialised non-empty | the bottom is never popped: every pop stops at the root frame pushed above it | identical components on 5,000 random graphs, leaves left out of the map as `buildGraph` leaves them |
+| layering cache, always recompute | a memo over a pure function | identical reports on 3,000 random inputs |
+| layering cache, never store | the same | identical reports on 3,000 random inputs |
+| `modules: []` for the two graph kinds | data no graph-kind path reads | control flow: both finishers return before the only reader |
+
+The two cache lines are the class this document already names - an optimisation
+over a behaviour that exists anyway - and were kept because layering 6,977 files
+took 712 ms without them and 481 ms with.
+
+One survivor was not killed but removed: a `?? []` in the cycle filter became an
+optional call, so there is no fallback array to mutate, and the four mutants the
+new form admits are all killed.
+
 ## Consequences
 
 Whoever bumps vitest to 5 will fail CI on the assertion above, and land on this

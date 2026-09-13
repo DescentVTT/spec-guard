@@ -176,6 +176,11 @@ describe('building the graph', () => {
     expect(graph.nodes).toEqual(nodes);
   });
 
+  it('lists its nodes in path order whatever order the walk handed them over', () => {
+    const graph = buildGraph([], scope(['src/c.ts', 'src/a.ts', 'src/b.ts']), true);
+    expect(graph.nodes).toEqual(['src/a.ts', 'src/b.ts', 'src/c.ts']);
+  });
+
   it('leaves type-only references out when asked to', () => {
     const inputs = [{ file: 'src/a.ts', references: [ref('./b.js', 1, true)] }];
 
@@ -208,6 +213,13 @@ describe("Tarjan's components", () => {
   it('finds every component, including the nodes in none', () => {
     const successors = graphOf({ a: ['b'], b: ['c'], c: ['a', 'd'], d: [] });
     expect(sorted(stronglyConnected(['a', 'b', 'c', 'd'], successors))).toEqual([['a', 'b', 'c'], ['d']]);
+  });
+
+  it('treats a file missing from the map as importing nothing', () => {
+    // Which is how `buildGraph` records every file with no imports, so this -
+    // not `d: []` - is the shape a real graph has at its leaves.
+    const successors = graphOf({ a: ['b'], b: ['a', 'd'] });
+    expect(sorted(stronglyConnected(['a', 'b', 'd'], successors))).toEqual([['a', 'b'], ['d']]);
   });
 
   it('separates two cycles joined by a one-way edge', () => {
@@ -252,6 +264,7 @@ describe('which components are cycles', () => {
       successors: graphOf({ a: ['b'], b: ['a'], c: ['c'], d: ['e'] }),
     });
 
+    // `e` imports nothing and so is not in the map; `d` imports something else.
     expect(components).toEqual([['a', 'b'], ['c']]);
   });
 

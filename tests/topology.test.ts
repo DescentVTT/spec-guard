@@ -415,6 +415,171 @@ describe('what an @assert-layers directive must say before anything is read', ()
   });
 });
 
+/* ----------------------------------------------- what the first sweep missed */
+
+/**
+ * Inputs the first CI mutation sweep of this feature showed nothing exercised.
+ *
+ * Each of these was a surviving mutant: a condition that could be deleted, or a
+ * slice that could be dropped, with every test still passing. Most are the
+ * boundaries of a cycle rule's scope, which is exactly where a check turns an
+ * import it should report into one it silently ignores.
+ */
+describe('the edges of a cycle rule scope', () => {
+  const unresolvedIn = async (files: Record<string, string>, directive: string, options = {}) =>
+    (await only({ 'docs/a.md': `${directive}\n`, ...files }, options)).warnings;
+
+  it('ignores an import of a file that exists and is not code', async () => {
+    // The stylesheet is counted as outside the graph, which is true; what it
+    // must not be is an import the graph failed to follow.
+    expect(
+      await unresolvedIn({ 'src/a.ts': "import './app.css';\n", 'src/app.css': 'body {}\n' }, '<!-- @assert-import-cycle target="src" -->'),
+    ).toEqual(['placed 1 of 2 files in the import graph; 1 is not JavaScript or TypeScript']);
+  });
+
+  it('treats `..` from a root-level file as leaving the root', async () => {
+    expect(await unresolvedIn({ 'a.ts': "import '..';\n" }, '<!-- @assert-import-cycle -->')).toEqual([]);
+  });
+
+  it('reports a missing import at the root when the rule has no target', async () => {
+    expect(await unresolvedIn({ 'a.ts': "import './gone.js';\n" }, '<!-- @assert-import-cycle -->')).toContain(
+      '  a.ts:1 ./gone.js',
+    );
+  });
+
+  it('reports a missing import into the second of two targets', async () => {
+    const warnings = await unresolvedIn(
+      { 'src/a.ts': "import '../lib/gone.js';\n", 'lib/b.ts': 'export {};\n' },
+      '<!-- @assert-import-cycle target="src, lib" -->',
+    );
+    expect(warnings).toContain('  src/a.ts:1 ../lib/gone.js');
+  });
+
+  it('reports an import of a target directory that has no index', async () => {
+    const warnings = await unresolvedIn(
+      { 'src/a.ts': "import './lib';\n", 'src/lib/b.ts': 'export {};\n' },
+      '<!-- @assert-import-cycle target="src/a.ts, src/lib" -->',
+    );
+    expect(warnings).toContain('  src/a.ts:1 ./lib');
+  });
+
+  it('lists no more unresolved imports, and no more cycles, than --max-snippets allows', async () => {
+    const files = {
+      'docs/a.md': '<!-- @assert-import-cycle target="src" -->\n',
+      'src/a.ts': "import './b.js';\nimport './gone1.js';\nimport './gone2.js';\n",
+      'src/b.ts': "import './a.js';\n",
+      'src/c.ts': "import './d.js';\n",
+      'src/d.ts': "import './c.js';\n",
+    };
+    const result = await only(files, { maxSnippets: 1 });
+
+    expect(result.warnings).toEqual([
+      '2 imports could not be resolved to a file, so their edges are missing from the graph',
+      '  src/a.ts:2 ./gone1.js',
+    ]);
+    expect(result.actual).toBe(2);
+    expect(result.matches).toHaveLength(1);
+  });
+});
+
+describe('the per-module import rules, through the reader they now share', () => {
+  it('shows no more matches than --max-snippets allows', async () => {
+    // A survivor older than ADR-0011, in code this change restructured: the
+    // cap on an import assertion's snippets could be removed and nothing said.
+    const result = await only(
+      {
+        'docs/a.md': '<!-- @assert-import-absence target="src" module="node:fs" -->\n',
+        'src/a.ts': "import 'node:fs';\n",
+        'src/b.ts': "import 'node:fs';\n",
+      },
+      { maxSnippets: 1 },
+    );
+
+    expect(result.actual).toBe(2);
+    expect(result.matches).toHaveLength(1);
+  });
+});
+
+describe('the edges of a layer rule', () => {
+  it('says nothing at all about a rule every file obeys and every layer covers', async () => {
+    const result = await only({ 'docs/a.md': `<!-- @assert-layers target="src" ${ORDER} -->\n`, ...LAYERED });
+
+    expect(result.ok).toBe(true);
+    expect(result.warnings).toEqual([]);
+
+    // Including when empty layers would have been allowed: permission to have
+    // one is not a reason to announce that there are none.
+    const allowed = await only({ 'docs/a.md': `<!-- @assert-layers target="src" ${ORDER} allow-empty="true" -->\n`, ...LAYERED });
+    expect(allowed.warnings).toEqual([]);
+  });
+
+  it('fails on a missing target', async () => {
+    const result = await only({ 'docs/a.md': `<!-- @assert-layers target="src, gone" ${ORDER} -->\n`, ...LAYERED });
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toBe('target path does not exist: gone');
+  });
+
+  it('passes under --strict when nothing went unresolved', async () => {
+    const result = await only({ 'docs/a.md': `<!-- @assert-layers target="src" ${ORDER} -->\n`, ...LAYERED }, { strictTargets: true });
+
+    expect(result.ok).toBe(true);
+  });
+
+  it('lets a one-way ratchet keep a stale baseline entry', async () => {
+    const result = await only({
+      'docs/a.md': `<!-- @assert-layers target="src" ${ORDER} baseline="src/domain/user.ts" ratchet="one-way" -->\n`,
+      ...LAYERED,
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.staleBaseline).toEqual([{ path: 'src/domain/user.ts', declared: 1, found: 0 }]);
+  });
+
+  it('shows only the violations the baseline does not cover, and no more than --max-snippets', async () => {
+    const files = {
+      ...LAYERED,
+      'src/domain/user.ts': "import '../infrastructure/db.js';\n",
+      'src/domain/order.ts': "import '../infrastructure/db.js';\n",
+      'src/domain/zone.ts': "import '../infrastructure/db.js';\n",
+    };
+
+    const baselined = await only({
+      'docs/a.md': `<!-- @assert-layers target="src" ${ORDER} baseline="src/domain/order.ts" max="5" -->\n`,
+      ...files,
+    });
+    expect(baselined.matches.map((match) => match.file)).toEqual(['src/domain/user.ts', 'src/domain/zone.ts']);
+
+    const capped = await only({ 'docs/a.md': `<!-- @assert-layers target="src" ${ORDER} -->\n`, ...files }, { maxSnippets: 1 });
+    expect(capped.matches).toHaveLength(1);
+    expect(capped.actual).toBe(3);
+  });
+
+  it('names every ambiguous file, separated, and no more than --max-snippets of them', async () => {
+    const files = {
+      'docs/a.md': '<!-- @assert-layers target="src" order="domain, src/domain/events, infrastructure" -->\n',
+      'src/domain/events/a.ts': 'export {};\n',
+      'src/domain/events/b.ts': 'export {};\n',
+      'src/infrastructure/db.ts': 'export {};\n',
+    };
+
+    expect((await only(files)).message).toBe(
+      'src/domain/events/a.ts is in both "domain" and "src/domain/events"; src/domain/events/b.ts is in both "domain" and "src/domain/events"; a file in two layers has no single rule to follow',
+    );
+    expect((await only(files, { maxSnippets: 1 })).message).toBe(
+      'src/domain/events/a.ts is in both "domain" and "src/domain/events"; a file in two layers has no single rule to follow',
+    );
+  });
+
+  it('describes a budget of one in the singular', async () => {
+    const result = await only({ 'docs/a.md': `<!-- @assert-layers target="src" ${ORDER} max="1" -->\n`, ...LAYERED });
+
+    expect(result.description).toBe(
+      'src must keep its layers in order, src/domain < src/application < src/infrastructure, with at most 1 violating file',
+    );
+  });
+});
+
 /* -------------------------------------------------------------- the report */
 
 describe('how the two directives are reported', () => {
@@ -430,6 +595,12 @@ describe('how the two directives are reported', () => {
     expect(text).toContain(
       '✔ docs/a.md:2  @assert-layers src must keep its layers in order, src/domain < src/application < src/infrastructure (0 violating files)',
     );
+
+    // And the count is dimmed like every other pass line's, which only a report
+    // with colour on can show.
+    const ESC = String.fromCharCode(27);
+    const coloured = formatReport(await run(root), { color: true, verbose: true });
+    expect(coloured).toContain(`src must have no import cycles ${ESC}[2m(0 cycles)${ESC}[0m`);
   });
 
   it('gives two cycle rules on one target two alert identities', async () => {
