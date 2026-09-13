@@ -879,10 +879,23 @@ to its eight.
 
 ### Unreleased: query and MCP, and the code a sweep should delete
 
-The first full sweep with ADR-0012 in it returned **98.39% over 6,266 mutants**.
-That is the highest this project has measured, with **95 survivors**, two fewer
-than before 1,188 new mutants arrived. `query.ts` and `rules.ts` are at 100%,
-`mcp.ts` at 99.84%, `specs.ts` at 97.62%.
+CI settled it at **98.47% over 6,263 mutants** with **93 survivors**. That is the
+highest score this project has measured, and four fewer survivors than before
+1,185 new mutants arrived. `query.ts`, `rules.ts`, `mcp.ts` and `specs.ts` are at
+100%, and `cli.ts` is back to the one survivor it had before.
+
+The sweep in between is worth a sentence, because its number was wrong by three.
+It reported 98.39% with 95 survivors, and three of its "kills" were mutants in
+modules this work never touched, which every sweep before and after scores as
+surviving:
+- one of the layering cache lines ADR-0011 showed equivalent;
+- one mutant in `imports.ts`;
+- one mutant in `polyglot.ts`.
+
+The sweep after this work matched the one before it exactly in all three modules.
+So its real count was 98, and a single sweep's survivor count is good to about
+three in either direction. It was caught only by comparing per-file tables
+across runs, which is now how a count gets recorded here.
 
 It got there because the survivors were dealt with before the push. A local
 sweep scoped to the new and changed lines came first, with static mutants left

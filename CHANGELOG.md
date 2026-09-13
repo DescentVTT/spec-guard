@@ -5,7 +5,14 @@ All notable changes to this project are documented here. Versions follow
 may change in a minor release — each such change is listed under **Changed**
 with the flag that restores the previous behaviour.
 
-## Unreleased
+## 0.7.0
+
+Two things an architecture document could not do before. It can state the shape
+of a codebase: which layers depend on which, and that nothing imports itself
+round a loop. And it can be asked, before any code is written, which of its
+rules govern the file about to change - from the command line, or by an AI agent
+over the Model Context Protocol. Building the second found a false green older
+than every release, and it is fixed below.
 
 ### Added
 
@@ -74,14 +81,22 @@ with the flag that restores the previous behaviour.
 
 ### Changed
 
-- **Mutation score 98.39%** over 6,266 mutants, up from 0.6.0's 97.77%, with 95
-  survivors - two fewer than before the 1,188 mutants this release adds. The
-  layering and cycle modules are at 99.51% (`graph.ts`) and 98.21%
-  (`layers.ts`); their three original survivors were shown equivalent by running
-  the mutated build against the real one on thousands of random inputs. The query
-  and the server are at 100% (`query.ts`, `rules.ts`) and 99.84% (`mcp.ts`); the
-  survivors found on the way were mostly code nothing could observe, and was
-  deleted. See [ADR-0003](docs/adr/0003-mutation-testing.md) for both accounts.
+- **`query` and `mcp` are commands when they are the first argument.** A spec
+  file literally named `query` or `mcp`, passed as the first pattern, now starts
+  a command instead; write `./query`, or put it after `--`.
+- **A rule whose every `target` is missing has an empty scope under
+  `--allow-missing-targets`**, where it used to search the whole repository -
+  see Fixed. Add `--allow-empty-scope`, or `allow-empty="true"` on the rule, for
+  it to pass. Searching the root in its place is not restorable: it was the bug.
+- **Mutation score 98.47%** over 6,263 mutants, up from 0.6.0's 97.77%, with 93
+  survivors - four fewer than before the 1,185 mutants this release adds. The
+  layering and cycle modules are at 99.51% (`graph.ts`) and 96.43%
+  (`layers.ts`); their three survivors were shown equivalent by running the
+  mutated build against the real one on thousands of random inputs. The query
+  and the server (`query.ts`, `rules.ts`, `mcp.ts`, `specs.ts`) are all at 100%;
+  most of the survivors found on the way were code nothing could observe, and it
+  was deleted. See [ADR-0003](docs/adr/0003-mutation-testing.md) for both
+  accounts, and for why one sweep's count is good to about three.
 - `version(manifest?)` takes the manifest to read, so its fallback for a broken
   install - `0.0.0` rather than a crash - is tested.
 - **Reading specs is several times faster**, which a query's budget made worth
