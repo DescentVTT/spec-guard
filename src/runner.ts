@@ -24,12 +24,22 @@ import {
 } from "./engine.js";
 import { createExcludeMatcher, expandSpecPatterns, toPosix } from "./glob.js";
 import {
+  buildGraph,
+  cyclicComponents,
+  edgeKey,
+  isGraphFile,
+  witness,
+  type GraphInput,
+  type GraphScope,
+} from "./graph.js";
+import {
   ANALYSABLE_EXTENSIONS,
   createImportIndex,
   resolveModule,
   type ImportIndex,
   type ModuleReference,
 } from "./imports.js";
+import { checkLayers } from "./layers.js";
 import { parseDirectives } from "./parser.js";
 import {
   createScope,
@@ -187,21 +197,28 @@ function normalizeTarget(
   return toPosix(relative) || ".";
 }
 
-function plural(count: number): string {
-  return count === 1 ? "" : "es";
+/** What a count is a count of, in both numbers. */
+interface Unit {
+  one: string;
+  many: string;
 }
 
-function describeBounds(bounds: Bounds): string {
+const MATCHES: Unit = { one: "match", many: "matches" };
+const CYCLES: Unit = { one: "import cycle", many: "import cycles" };
+const VIOLATING_FILES: Unit = { one: "violating file", many: "violating files" };
+
+function describeBounds(bounds: Bounds, unit: Unit = MATCHES): string {
   const { min, max } = bounds;
+  const counted = (count: number): string => `${count} ${count === 1 ? unit.one : unit.many}`;
   if (min !== undefined && max !== undefined) {
     return min === max
-      ? `exactly ${min} match${plural(min)}`
-      : `between ${min} and ${max} matches`;
+      ? `exactly ${counted(min)}`
+      : `between ${min} and ${max} ${unit.many}`;
   }
-  if (min !== undefined) return `at least ${min} match${plural(min)}`;
+  if (min !== undefined) return `at least ${counted(min)}`;
   if (max !== undefined)
-    return max === 0 ? "no matches" : `at most ${max} match${plural(max)}`;
-  return "any number of matches";
+    return max === 0 ? `no ${unit.many}` : `at most ${counted(max)}`;
+  return `any number of ${unit.many}`;
 }
 
 /** Prose form used in the assertion description ("must appear at most 3 times"). */
@@ -265,8 +282,9 @@ function describeOutcome(
   bounds: Bounds,
   actual: number,
   extras: { excluded: number; stale: readonly StaleBaselineEntry[]; gaps: number },
+  unit: Unit = MATCHES,
 ): string {
-  const parts = [`expected ${describeBounds(bounds)}, found ${actual}`];
+  const parts = [`expected ${describeBounds(bounds, unit)}, found ${actual}`];
 
   if (extras.excluded > 0) {
     parts.push(
@@ -455,11 +473,16 @@ export function resolveDirective(
       };
     }
 
-    const isImportKind =
+    const perModule =
       kind === "assert-import-absence" || kind === "assert-import-count";
-    const subject = isImportKind ? "module" : "symbol";
-    const symbol = attributes[subject];
-    if (symbol === undefined || symbol.length === 0) {
+    // The two directives of ADR-0011. A cycle is a claim about the graph
+    // itself and names no subject; layers name theirs in `order`.
+    const graphKind = kind === "assert-import-cycle" || kind === "assert-layers";
+    const isImportKind = perModule || graphKind;
+    const subject =
+      kind === "assert-layers" ? "order" : perModule ? "module" : "symbol";
+    const symbol = attributes[subject] ?? "";
+    if (kind !== "assert-import-cycle" && symbol.length === 0) {
       return fail(`@${kind} requires a non-empty ${subject}="..." attribute.`);
     }
 
@@ -492,7 +515,7 @@ export function resolveDirective(
     );
 
     const bounds: Bounds = {};
-    if (kind === "assert-absence" || kind === "assert-import-absence") {
+    if (kind === "assert-absence" || kind === "assert-import-absence" || graphKind) {
       if (
         attributes["expected"] !== undefined &&
         attributes["max"] !== undefined
@@ -565,13 +588,33 @@ export function resolveDirective(
           `Attribute "types" must be include or ignore, got "${attributes["types"]}".`,
         );
       }
+      const layers = splitList(symbol);
+      if (kind === "assert-layers") {
+        if (layers.length < 2) {
+          return fail(
+            `@assert-layers needs at least two layers in order="...", got ${layers.length}.`,
+          );
+        }
+        const repeated = layers.find((layer, at) => layers.indexOf(layer) !== at);
+        if (repeated !== undefined) {
+          return fail(`Layer "${repeated}" is listed twice in order="...".`);
+        }
+      }
+      const typesNote = includeTypes ? "" : " (type-only imports ignored)";
+      const description =
+        kind === "assert-import-cycle"
+          ? `${scope} must have ${describeBounds(bounds, CYCLES)}${typesNote}${except}`
+          : kind === "assert-layers"
+            ? `${scope} must keep its layers in order, ${layers.join(" < ")}${bounds.max === 0 ? "" : `, with ${describeBounds(bounds, VIOLATING_FILES)}`}${typesNote}${except}`
+            : `${scope} ${describeImportExpectation(bounds)} "${symbol}"${except}`;
       return {
         assertion: {
           kind,
           location,
-          description: `${scope} ${describeImportExpectation(bounds)} "${symbol}"${except}`,
+          description,
           reason,
-          symbol,
+          // Only the per-module kinds have a subject a report can quote.
+          symbol: perModule ? symbol : undefined,
           targets,
           files: [],
           bounds,
@@ -588,7 +631,8 @@ export function resolveDirective(
             scope: context.scope ?? DEFAULT_SCOPE,
             excludeFiles: context.excludeFiles,
           },
-          imports: { modules: splitList(symbol), includeTypes },
+          imports: { modules: perModule ? splitList(symbol) : [], includeTypes },
+          ...(kind === "assert-layers" ? { layers } : {}),
           missingTargets: [],
           allowEmpty,
           baseline,
@@ -874,8 +918,14 @@ async function executeImportAssertion(
     options: assertion.search as SearchOptions,
   });
 
+  // A cycle needs files the resolver can name, which today means JavaScript
+  // and TypeScript; every other import rule reads any language spec-guard
+  // tokenizes. ADR-0011 has the reasons, language by language.
+  const cycles = assertion.kind === "assert-import-cycle";
   const analysable = enumeration.files.filter((file) =>
-    ANALYSABLE_EXTENSIONS.has(path.posix.extname(file.relativePath)),
+    cycles
+      ? isGraphFile(file.relativePath)
+      : ANALYSABLE_EXTENSIONS.has(path.posix.extname(file.relativePath)),
   );
 
   if (analysable.length === 0 && !options.allowEmptyScope && !assertion.allowEmpty) {
@@ -889,7 +939,9 @@ async function executeImportAssertion(
       message:
         enumeration.files.length === 0
           ? `no files were inspected, so this assertion verified nothing (${EMPTY_SCOPE_HINT})`
-          : `none of the ${enumeration.files.length} files here are in a language whose imports spec-guard can read, so this assertion verified nothing (${EMPTY_SCOPE_HINT})`,
+          : cycles
+            ? `none of the ${enumeration.files.length} files here are JavaScript or TypeScript, so there is no import graph to check and this assertion verified nothing (${EMPTY_SCOPE_HINT})`
+            : `none of the ${enumeration.files.length} files here are in a language whose imports spec-guard can read, so this assertion verified nothing (${EMPTY_SCOPE_HINT})`,
       matches: [],
       durationMs: elapsed(startedAt),
     };
@@ -898,12 +950,13 @@ async function executeImportAssertion(
   const skipped = enumeration.files.length - analysable.length;
   if (skipped > 0) {
     warnings.push(
-      `analysed ${analysable.length} of ${enumeration.files.length} files; ${skipped} ${skipped === 1 ? "is" : "are"} in a language whose imports spec-guard cannot read`,
+      cycles
+        ? `placed ${analysable.length} of ${enumeration.files.length} files in the import graph; ${skipped} ${skipped === 1 ? "is" : "are"} not JavaScript or TypeScript`
+        : `analysed ${analysable.length} of ${enumeration.files.length} files; ${skipped} ${skipped === 1 ? "is" : "are"} in a language whose imports spec-guard cannot read`,
     );
   }
 
-  const matchesModule = createExcludeMatcher(query.modules);
-  const matches: MatchLocation[] = [];
+  const analysed: GraphInput[] = [];
   const unresolved: string[] = [];
 
   for (const file of analysable) {
@@ -911,30 +964,10 @@ async function executeImportAssertion(
       file.absolutePath,
       file.relativePath,
     );
-
     for (const note of analysis.notes) {
       unresolved.push(`${note.file}:${note.line} ${note.detail}`);
     }
-
-    const hit = analysis.references.find((reference) => {
-      if (reference.typeOnly && !query.includeTypes) return false;
-      // Both forms are tried: the resolved one so `module="app/db/**"` works
-      // everywhere, and the raw one so a Python or C# author can write the
-      // dotted path they see in their own source and still be understood.
-      return (
-        matchesModule(resolveModule(reference.specifier, file.relativePath)) ||
-        matchesModule(reference.specifier)
-      );
-    });
-    if (hit) {
-      matches.push({
-        file: file.relativePath,
-        line: hit.line,
-        column: hit.column,
-        text: `${IMPORT_VERBS[hit.kind]} ${hit.specifier}`,
-        count: 1,
-      });
-    }
+    analysed.push({ file: file.relativePath, references: analysis.references });
   }
 
   if (unresolved.length > 0) {
@@ -944,8 +977,46 @@ async function executeImportAssertion(
     );
   }
 
-  const missingFailure =
-    !options.allowMissingTargets && assertion.missingTargets.length > 0;
+  const read: ImportRead = {
+    analysed,
+    walked: enumeration.files.map((file) => file.relativePath),
+    targets: existingTargets,
+    unresolved: unresolved.length,
+    missing:
+      !options.allowMissingTargets && assertion.missingTargets.length > 0
+        ? `target path${assertion.missingTargets.length === 1 ? " does" : "s do"} not exist: ${assertion.missingTargets.join(", ")}`
+        : null,
+  };
+
+  if (cycles) return finishCycles(assertion, options, base, warnings, startedAt, read);
+  if (assertion.layers) {
+    return finishLayers(assertion, assertion.layers, options, base, warnings, startedAt, read);
+  }
+
+  const matchesModule = createExcludeMatcher(query.modules);
+  const matches: MatchLocation[] = [];
+
+  for (const { file, references } of analysed) {
+    const hit = references.find((reference) => {
+      if (reference.typeOnly && !query.includeTypes) return false;
+      // Both forms are tried: the resolved one so `module="app/db/**"` works
+      // everywhere, and the raw one so a Python or C# author can write the
+      // dotted path they see in their own source and still be understood.
+      return (
+        matchesModule(resolveModule(reference.specifier, file)) ||
+        matchesModule(reference.specifier)
+      );
+    });
+    if (hit) {
+      matches.push({
+        file,
+        line: hit.line,
+        column: hit.column,
+        text: `${IMPORT_VERBS[hit.kind]} ${hit.specifier}`,
+        count: 1,
+      });
+    }
+  }
 
   // One reference per file, so the file counts are the matches themselves.
   const fileCounts = new Map(matches.map((match) => [match.file, 1]));
@@ -954,27 +1025,212 @@ async function executeImportAssertion(
   const actual = matches.length - excluded;
 
   const strictFailure =
-    missingFailure || (options.strictTargets && unresolved.length > 0);
+    read.missing !== null || (options.strictTargets && unresolved.length > 0);
   const ok = satisfies(actual, assertion.bounds) && !strictFailure && !staleFailure;
 
   return {
     ...base,
     ok,
     actual,
-    message: missingFailure
-      ? `target path${assertion.missingTargets.length === 1 ? " does" : "s do"} not exist: ${assertion.missingTargets.join(", ")}`
-      : describeOutcome(assertion.bounds, actual, {
-          excluded,
-          stale: staleFailure ? stale : [],
-          gaps: 0,
-        }) +
-        (options.strictTargets && unresolved.length > 0
-          ? `; ${unresolved.length} reference${unresolved.length === 1 ? "" : "s"} could not be resolved`
-          : ""),
+    message:
+      read.missing ??
+      describeOutcome(assertion.bounds, actual, {
+        excluded,
+        stale: staleFailure ? stale : [],
+        gaps: 0,
+      }) + strictSuffix(options, unresolved.length),
     baselinedMatches: excluded,
     staleBaseline: stale,
     fileMatches: [...fileCounts].map(([file, count]) => ({ file, count })),
     matches: matches.filter((match) => shows(match.file)).slice(0, options.maxSnippets),
+    durationMs: elapsed(startedAt),
+  };
+}
+
+/** Everything an import rule reads before it decides anything. */
+interface ImportRead {
+  /** Each file in the analysis, with the references it makes. */
+  analysed: GraphInput[];
+  /** Every file the walk produced, analysable or not. */
+  walked: string[];
+  /** The targets that exist. */
+  targets: string[];
+  /** References the tokenizer could not resolve statically. */
+  unresolved: number;
+  /** Why a missing target fails the assertion, or null when it does not. */
+  missing: string | null;
+}
+
+type ImportBase = Omit<
+  AssertionResult,
+  "ok" | "actual" | "message" | "matches" | "durationMs"
+>;
+
+/** What `--strict` adds to a message when references went unresolved. */
+function strictSuffix(options: { strictTargets: boolean }, unresolved: number): string {
+  return options.strictTargets && unresolved > 0
+    ? `; ${unresolved} reference${unresolved === 1 ? "" : "s"} could not be resolved`
+    : "";
+}
+
+/**
+ * Counts the import cycles in scope - components, not simple cycles.
+ *
+ * Each is shown as one concrete loop with the line of every import on it, at
+ * the location of the first. The count does not move when someone adds a
+ * second route around a loop that already exists, which is what makes it a
+ * number a spec can hold. See ADR-0011.
+ */
+function finishCycles(
+  assertion: Assertion,
+  options: Omit<ExecuteOptions, "engine">,
+  base: ImportBase,
+  warnings: string[],
+  startedAt: number,
+  read: ImportRead,
+): AssertionResult {
+  const query = assertion.imports as NonNullable<Assertion["imports"]>;
+  const scope: GraphScope = {
+    nodes: new Set(read.analysed.map((entry) => entry.file)),
+    walked: new Set(read.walked),
+    excluded: createExcludeMatcher((assertion.search as SearchOptions).excludeGlobs),
+    covers: (relativePath) =>
+      relativePath !== ".." &&
+      !relativePath.startsWith("../") &&
+      read.targets.some(
+        (target) =>
+          target === "." || relativePath === target || relativePath.startsWith(`${target}/`),
+      ),
+  };
+
+  const graph = buildGraph(read.analysed, scope, query.includeTypes);
+  const loops = cyclicComponents(graph).map((component) => witness(component, graph.successors));
+
+  if (graph.unresolved.length > 0) {
+    const count = graph.unresolved.length;
+    warnings.push(
+      `${count} import${count === 1 ? "" : "s"} could not be resolved to a file, so ${count === 1 ? "its edge is" : "their edges are"} missing from the graph`,
+      ...graph.unresolved
+        .slice(0, options.maxSnippets)
+        .map(({ file, reference }) => `  ${file}:${reference.line} ${reference.specifier}`),
+    );
+  }
+
+  const gaps = read.unresolved + graph.unresolved.length;
+  const actual = loops.length;
+  const ok =
+    satisfies(actual, assertion.bounds) &&
+    read.missing === null &&
+    !(options.strictTargets && gaps > 0);
+
+  const matches = loops.map((loop): MatchLocation => {
+    const hop = (at: number): ModuleReference =>
+      graph.via.get(edgeKey(loop[at] as string, loop[at + 1] as string)) as ModuleReference;
+    return {
+      file: loop[0] as string,
+      line: hop(0).line,
+      column: hop(0).column,
+      // Every file on the loop with the line that leaves it, so the imports to
+      // change can be read off without opening each file to find them.
+      text: loop.map((file, at) => (at < loop.length - 1 ? `${file}:${hop(at).line}` : file)).join(" -> "),
+      count: 1,
+    };
+  });
+
+  return {
+    ...base,
+    ok,
+    actual,
+    message:
+      read.missing ??
+      describeOutcome(assertion.bounds, actual, { excluded: 0, stale: [], gaps: 0 }, CYCLES) +
+        strictSuffix(options, gaps),
+    matches: matches.slice(0, options.maxSnippets),
+    durationMs: elapsed(startedAt),
+  };
+}
+
+/**
+ * Checks each file's imports against the layer order.
+ *
+ * Three things fail besides a violation, because each is a rule that would
+ * otherwise pass while checking less than it says: a layer that matches no
+ * file, a file two layers claim, and a missing target. See ADR-0011.
+ */
+function finishLayers(
+  assertion: Assertion,
+  order: readonly string[],
+  options: Omit<ExecuteOptions, "engine">,
+  base: ImportBase,
+  warnings: string[],
+  startedAt: number,
+  read: ImportRead,
+): AssertionResult {
+  const query = assertion.imports as NonNullable<Assertion["imports"]>;
+  const report = checkLayers(read.analysed, order, query.includeTypes);
+  const quoted = (layers: readonly number[]): string =>
+    layers.map((layer) => `"${order[layer]}"`).join(" and ");
+
+  const empty = order.flatMap((_, layer) => (report.members[layer] === 0 ? [layer] : []));
+  const emptyAllowed = options.allowEmptyScope || assertion.allowEmpty;
+  const one = empty.length === 1;
+  const unmatched = `${one ? "layer" : "layers"} ${quoted(empty)} ${one ? "matches" : "match"} no file in scope`;
+
+  if (report.unassigned.length > 0) {
+    warnings.push(
+      `${report.unassigned.length} of ${read.analysed.length} files ${report.unassigned.length === 1 ? "belongs" : "belong"} to no layer, so nothing here constrains ${report.unassigned.length === 1 ? "it" : "them"}`,
+    );
+  }
+  if (empty.length > 0 && emptyAllowed) warnings.push(unmatched);
+
+  const fileCounts = new Map(report.violations.map((violation) => [violation.file, 1]));
+  const { excluded, stale, shows } = applyBaseline(assertion.baseline, fileCounts);
+  const staleFailure = assertion.ratchet === "two-sided" && stale.length > 0;
+  const actual = report.violations.length - excluded;
+  const emptyFailure = empty.length > 0 && !emptyAllowed;
+
+  const ok =
+    satisfies(actual, assertion.bounds) &&
+    read.missing === null &&
+    !staleFailure &&
+    !emptyFailure &&
+    report.ambiguous.length === 0 &&
+    !(options.strictTargets && read.unresolved > 0);
+
+  const message =
+    read.missing ??
+    (emptyFailure
+      ? `${unmatched}, so nothing is held to ${one ? "it" : "them"} (${EMPTY_SCOPE_HINT})`
+      : report.ambiguous.length > 0
+        ? `${report.ambiguous
+            .slice(0, options.maxSnippets)
+            .map(({ file, layers }) => `${file} is in both ${quoted(layers)}`)
+            .join("; ")}; a file in two layers has no single rule to follow`
+        : describeOutcome(
+            assertion.bounds,
+            actual,
+            { excluded, stale: staleFailure ? stale : [], gaps: 0 },
+            VIOLATING_FILES,
+          ) + strictSuffix(options, read.unresolved));
+
+  return {
+    ...base,
+    ok,
+    actual,
+    message,
+    baselinedMatches: excluded,
+    staleBaseline: stale,
+    fileMatches: [...fileCounts].map(([file, count]) => ({ file, count })),
+    matches: report.violations
+      .filter((violation) => shows(violation.file))
+      .slice(0, options.maxSnippets)
+      .map((violation) => ({
+        file: violation.file,
+        line: violation.reference.line,
+        column: violation.reference.column,
+        text: `${order[violation.from]} -> ${order[violation.to]}: ${IMPORT_VERBS[violation.reference.kind]} ${violation.reference.specifier}`,
+        count: 1,
+      })),
     durationMs: elapsed(startedAt),
   };
 }

@@ -99,6 +99,21 @@ export {
 } from './polyglot.js';
 export type { ModuleLanguage } from './polyglot.js';
 
+export {
+  buildGraph,
+  candidates,
+  cyclicComponents,
+  edgeKey,
+  isGraphFile,
+  resolveReference,
+  stronglyConnected,
+  witness,
+} from './graph.js';
+export type { GraphInput, GraphScope, ImportGraph, Resolution, Unresolved } from './graph.js';
+
+export { checkLayers, layerMatcher } from './layers.js';
+export type { LayerInput, LayerReport, LayerViolation } from './layers.js';
+
 export { lineStarts, locate, maskRanges } from './text.js';
 
 export { maskCode, parseAttributes, parseDirectives, parseStatus, INACTIVE_STATUSES } from './parser.js';

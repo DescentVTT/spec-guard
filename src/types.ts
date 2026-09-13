@@ -7,13 +7,15 @@ import type { ScopeLedger, ScopePolicy } from './scope.js';
  *   parser -> Directive[]  ->  runner (+ engine) -> AssertionResult[]  ->  reporter
  */
 
-/** The three assertion kinds understood by the parser. */
+/** Every assertion kind the parser understands. */
 export type DirectiveKind =
   | 'assert-absence'
   | 'assert-count'
   | 'assert-present'
   | 'assert-import-absence'
-  | 'assert-import-count';
+  | 'assert-import-count'
+  | 'assert-import-cycle'
+  | 'assert-layers';
 
 /** Extra scope carried by the import assertions. */
 export interface ImportQuery {
@@ -218,6 +220,11 @@ export interface Assertion {
   search?: SearchOptions;
   /** Present on the import assertions. */
   imports?: ImportQuery;
+  /**
+   * The layer patterns of `@assert-layers`, from the layer everything may depend
+   * on to the layer that may depend on everything. See ADR-0011.
+   */
+  layers?: string[];
   /**
    * Known violations that do not count. Empty when the directive declared none.
    *

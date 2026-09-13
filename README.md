@@ -344,6 +344,84 @@ assertion fails rather than passing on an empty analysis.
 [ADR-0005](docs/adr/0005-import-assertions.md) has the measurements and the
 reasoning behind each boundary.
 
+### `@assert-layers` - dependencies point one way
+
+"Domain must not depend on infrastructure" across three layers is three
+import rules, and across five it is ten - a triangle nobody writes down, and
+the row somebody forgets when a layer is added. One directive states the order:
+
+```md
+<!-- @assert-layers target="src" order="src/domain, src/application, src/infrastructure" -->
+```
+
+**Order runs from the layer everything may depend on to the layer that may
+depend on everything.** A file may import from its own layer and from any layer
+listed before it; importing from a layer listed after it is a violation, and
+the report says which way it went:
+
+```text
+✖ docs/architecture.md:12  @assert-layers
+    src must keep its layers in order, src/domain < src/application < src/infrastructure
+    expected no violating files, found 1
+      src/domain/user.ts:3:1  src/domain -> src/infrastructure: import ../infrastructure/db.js
+```
+
+A layer is a pattern in the same language as `module=` and `exclude`, which is
+why this works in all five languages above: `src/domain` is anchored at the
+root, and a bare `domain` matches that segment anywhere - in `src/domain/user.ts`,
+in Python's `app.domain.user`, in Rust's `crate::domain::user`. A layer may also
+be a single file; `order="src/parser.ts, src/cli.ts"` understands that
+`./parser.js` is `src/parser.ts`.
+
+The unit is files, and `max`, `types`, `exclude` and `baseline` mean what they
+mean on `@assert-import-absence`. Three things fail rather than pass, because
+each is a rule that would otherwise check less than it says: a layer that
+matches no file (`order="domain, aplication"`), a file two layers both claim,
+and a target that does not exist. Files that no layer claims are left alone and
+counted, so a directory nobody assigned shows up as a number rather than as
+silence.
+
+### `@assert-import-cycle` - no file depends on itself
+
+```md
+<!-- @assert-import-cycle target="src" types="ignore" -->
+```
+
+A cycle is reported as one concrete loop, with the line of every import on it:
+
+```text
+✖ docs/architecture.md:20  @assert-import-cycle
+    src must have no import cycles (type-only imports ignored)
+    expected no import cycles, found 1
+      src/orders/cart.ts:4:1  src/orders/cart.ts:4 -> src/billing/invoice.ts:2 -> src/orders/cart.ts
+```
+
+The count is **knots, not loops**: a set of files each reachable from the others
+counts once however many routes run around it, so adding an import inside a
+tangle that already exists does not move the number. `max="2"` adopts the rule
+on a codebase that already has two, and fails on the third.
+
+`types="ignore"` asks the runtime question - erased imports create no load-order
+cycle - and the default asks the coupling one. This repository needs both: its
+`src/` has exactly one cycle, and it is type-only.
+
+**Cycles are JavaScript and TypeScript only**, because a cycle needs to know that
+`./b.js` *is* `src/b.ts`, and in the other four languages an import names a
+module, package or namespace rather than a file. A scope with no JavaScript or
+TypeScript in it fails instead of reporting no cycles. The resolver is a short,
+fixed table - the TypeScript source of an emitted `.js`, the path as written,
+the path with each extension, the directory's `index` - checked against files
+the walk already found, never against the disk.
+
+It says what it could not follow. An import that should have become an edge and
+did not - a relative path matching no file, or an alias like `@/db` or
+`#internal/db` that cannot be a package - is reported, and fails the run under
+`--strict`. An alias spelled like a real package, `@app/db` through `tsconfig`
+paths, is the one thing it cannot see and cannot report: that would mean
+reading `tsconfig.json`, which is the resolver
+[ADR-0011](docs/adr/0011-layers-and-cycles.md) declines to become, for the
+reasons it gives.
+
 ### `@assert-present` - this file exists
 
 ```md
@@ -368,11 +446,12 @@ Passes when every listed path exists relative to `--root`. Directories count.
 | `word` | absence, count | Require word boundaries, so `Primary` does not match `PrimaryButton` |
 | `ignore-case` | absence, count | Case-insensitive matching |
 | `comments` | absence, count | `ignore` (default) or `include` for matches inside comments |
-| `module` | import assertions | Which dependency, matched like `exclude` |
-| `types` | import assertions | `include` (default) or `ignore` for `import type` |
-| `allow-empty` | absence, count, import assertions | Tolerate a scope that holds no files. Off by default - see below |
-| `baseline` | absence, import-absence | Known violations that do not count: `path` or `path:count` |
-| `ratchet` | absence, import-absence | `two-sided` (default) or `one-way` - see below |
+| `module` | import-absence, import-count | Which dependency, matched like `exclude` |
+| `order` | layers | The layers, from the one everything may depend on to the one that may depend on everything |
+| `types` | import assertions, layers, cycles | `include` (default) or `ignore` for `import type` |
+| `allow-empty` | absence, count, import assertions, layers, cycles | Tolerate a scope that holds no files, or a layer that matches none. Off by default - see below |
+| `baseline` | absence, import-absence, layers | Known violations that do not count: `path` or `path:count` |
+| `ratchet` | absence, import-absence, layers | `two-sided` (default) or `one-way` - see below |
 | `reason` | all | Human-readable justification, printed on failure |
 
 Unknown attributes are an error, not a shrug: `expct="1"` fails the run instead

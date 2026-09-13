@@ -508,6 +508,16 @@ describe('the sarif document, in full', () => {
                   shortDescription: { text: 'A dependency count one part of the codebase must hold to.' },
                 },
                 {
+                  id: 'assert-import-cycle',
+                  name: 'assert-import-cycle',
+                  shortDescription: { text: 'A set of files that depend on each other, directly or through others.' },
+                },
+                {
+                  id: 'assert-layers',
+                  name: 'assert-layers',
+                  shortDescription: { text: 'A file importing from a layer the architecture places above it.' },
+                },
+                {
                   id: 'invalid-directive',
                   name: 'invalid-directive',
                   shortDescription: { text: 'A directive that could not be parsed, so nothing was checked.' },

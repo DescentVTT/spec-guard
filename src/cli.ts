@@ -101,6 +101,8 @@ Directives
   <!-- @assert-absence target="src/" symbol="LegacyGateway" exclude="src/legacy/**" -->
   <!-- @assert-count   target="src/" symbol="SessionManager" expected="1" -->
   <!-- @assert-present file="SECURITY.md" -->
+  <!-- @assert-import-cycle target="src/" types="ignore" -->
+  <!-- @assert-layers target="src/" order="domain, application, infrastructure" -->
 
   Matches inside comments do not count; add comments="include" to count them.
   An assertion whose scope holds no files fails; add allow-empty="true" to allow it.

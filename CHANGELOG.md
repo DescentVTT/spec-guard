@@ -5,6 +5,39 @@ All notable changes to this project are documented here. Versions follow
 may change in a minor release — each such change is listed under **Changed**
 with the flag that restores the previous behaviour.
 
+## Unreleased
+
+### Added
+
+- **`@assert-layers`** - one directive for a layered architecture.
+  `order="src/domain, src/application, src/infrastructure"` runs from the layer
+  everything may depend on to the layer that may depend on everything; a file
+  importing from a layer listed after its own is a violation, reported with both
+  layers and the import. Layers are patterns in the `module=` language, so a bare
+  `domain` holds Python, Go, Rust and C# code to the same order as TypeScript.
+  A layer that matches no file, a file two layers both claim, and a missing
+  target all fail rather than pass; files no layer claims are counted in a
+  warning. Takes `max`, `types`, `exclude`, `allow-empty` and a debt `baseline`.
+- **`@assert-import-cycle`** - import cycles, counted as strongly connected
+  components rather than simple cycles, so a second route around an existing
+  knot does not move the count. Each is shown as its shortest loop with the line
+  of every import on it. Found with an iterative Tarjan's algorithm: the
+  recursive form overflows Node's default stack at 10,000 files.
+  `types="ignore"` asks the runtime question. JavaScript and TypeScript only,
+  because a cycle needs to know which file an import *is*; imports that should
+  have become an edge and did not are reported, and fail under `--strict`.
+  See [ADR-0011](docs/adr/0011-layers-and-cycles.md) for the resolution table,
+  and for why the other four languages are not in the graph.
+- `buildGraph`, `resolveReference`, `stronglyConnected`, `cyclicComponents`,
+  `witness`, `checkLayers` and `referenceForms` are exported, with their types.
+
+### Changed
+
+- The SARIF fingerprint of an assertion that names neither a symbol nor a file
+  now includes its description. Only the two new kinds are affected; every
+  existing alert keeps its identity. Without it, two cycle rules on one target
+  would have been merged into one alert.
+
 ## 0.6.0
 
 ADRs have a life, and spec-guard now reads it. A proposed ADR can carry live

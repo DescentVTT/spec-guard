@@ -32,6 +32,8 @@ export const KINDS = new Set<string>([
   'assert-present',
   'assert-import-absence',
   'assert-import-count',
+  'assert-import-cycle',
+  'assert-layers',
 ]);
 
 /**
@@ -96,6 +98,21 @@ export const ALLOWED_ATTRIBUTES: Record<DirectiveKind, ReadonlySet<string>> = {
     'min',
     'max',
     'allow-empty',
+    'reason',
+  ]),
+  // No baseline: a baseline lists files, and a cycle is not a file. Exempting
+  // the files of today's cycle would exempt a new one among the same files.
+  'assert-import-cycle': new Set(['target', 'exclude', 'types', 'expected', 'max', 'allow-empty', 'reason']),
+  'assert-layers': new Set([
+    'target',
+    'order',
+    'exclude',
+    'types',
+    'expected',
+    'max',
+    'allow-empty',
+    'baseline',
+    'ratchet',
     'reason',
   ]),
 };

@@ -201,7 +201,11 @@ function formatPass(
   const detail =
     result.kind === 'assert-present'
       ? result.files.join(', ')
-      : `"${result.symbol}" ${paint(`(${countLabel(result.actual, 'match')})`, 'dim')} in ${result.targets.join(', ')}`;
+      : result.symbol === undefined
+        ? // A cycle or layer rule has no symbol to quote, and its description
+          // already says what it is about and where.
+          `${result.description} ${paint(`(${countLabel(result.actual, result.kind === 'assert-import-cycle' ? 'cycle' : 'violating file')})`, 'dim')}`
+        : `"${result.symbol}" ${paint(`(${countLabel(result.actual, 'match')})`, 'dim')} in ${result.targets.join(', ')}`;
   return `${paint(glyphs.pass, 'green')} ${paint(formatLocation(result), 'dim')}  ${paint(`@${result.kind}`, 'dim')} ${detail}`;
 }
 
@@ -431,6 +435,8 @@ const SARIF_RULES: ReadonlyArray<{ id: string; text: string }> = [
   { id: 'assert-present', text: 'A file or directory the specification says must exist.' },
   { id: 'assert-import-absence', text: 'A dependency one part of the codebase must not have.' },
   { id: 'assert-import-count', text: 'A dependency count one part of the codebase must hold to.' },
+  { id: 'assert-import-cycle', text: 'A set of files that depend on each other, directly or through others.' },
+  { id: 'assert-layers', text: 'A file importing from a layer the architecture places above it.' },
   { id: 'invalid-directive', text: 'A directive that could not be parsed, so nothing was checked.' },
 ];
 
@@ -516,7 +522,12 @@ export function formatSarif(report: RunResult, options: { version?: string } = {
         specGuardAssertion: fingerprint([
           result.location.relativeFile,
           result.kind,
-          result.symbol ?? result.files.join(','),
+          // The description only where there is nothing else to tell two
+          // assertions apart. A cycle or layer rule names no symbol and no
+          // file, so two on one target - `types="ignore"` beside the default -
+          // would share an identity and be merged into one alert. Every kind
+          // that has a symbol or a file list keeps the fingerprint it had.
+          result.symbol ?? (result.files.length > 0 ? result.files.join(',') : result.description),
           result.targets.join(','),
         ]),
       },

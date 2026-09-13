@@ -23,13 +23,15 @@ const context = { file: 'C:/repo/docs/a.md', relativeFile: 'docs/a.md' };
 /* ------------------------------------------------------------- the grammar */
 
 describe('the directive table', () => {
-  it('knows exactly these five directives', () => {
+  it('knows exactly these seven directives', () => {
     expect([...KINDS]).toEqual([
       'assert-absence',
       'assert-count',
       'assert-present',
       'assert-import-absence',
       'assert-import-count',
+      'assert-import-cycle',
+      'assert-layers',
     ]);
   });
 
@@ -92,6 +94,20 @@ describe('the directive table', () => {
         'allow-empty',
         'reason',
       ],
+      // No baseline and no min: see ADR-0011 for why a cycle is not a file.
+      'assert-import-cycle': ['target', 'exclude', 'types', 'expected', 'max', 'allow-empty', 'reason'],
+      'assert-layers': [
+        'target',
+        'order',
+        'exclude',
+        'types',
+        'expected',
+        'max',
+        'allow-empty',
+        'baseline',
+        'ratchet',
+        'reason',
+      ],
     };
 
     for (const [kind, names] of Object.entries(expected)) {
@@ -115,7 +131,7 @@ describe('the directive table', () => {
 
     expect(errors[0]?.message).toBe(
       'Unknown directive "@assert-nonsense". Expected one of: @assert-absence, @assert-count, ' +
-        '@assert-present, @assert-import-absence, @assert-import-count.',
+        '@assert-present, @assert-import-absence, @assert-import-count, @assert-import-cycle, @assert-layers.',
     );
   });
 
