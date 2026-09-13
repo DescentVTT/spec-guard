@@ -45,6 +45,16 @@ come in pairs. [ADR-0013](docs/adr/0013-structure-assertions.md).
   and `requiredEntryIssue` are exported, with their types. `walkPaths` takes an
   `onDirectory` callback.
 
+### Changed
+
+- **`executeAssertion` needs a `tree`** in its options: `createTreeIndex(root)`,
+  the run's directory listings, beside the `imports` and `hasFiles` caches it
+  already takes. Only code calling `executeAssertion` directly is affected;
+  `runSpecGuard` and the command line create it themselves.
+- The MCP server's instructions and the `get_architectural_rules` description
+  tell an agent that the rules for a path now include what it must be named and
+  the partner files it needs.
+
 ## 0.7.0
 
 Two things an architecture document could not do before. It can state the shape

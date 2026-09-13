@@ -826,7 +826,7 @@ so the feature would have shipped silently inert on a Windows checkout. No
 mutant would have found that - the code was correct about the fixtures it was
 given. It took pointing the thing at real files.
 
-### Unreleased: thirty-seven controls, and thirty-four survivors anyway
+### 0.7.0: thirty-seven controls, and thirty-four survivors anyway
 
 Layering and import cycles ([ADR-0011](0011-layers-and-cycles.md)) were built
 with this document's discipline applied in advance: thirty-seven negative
@@ -877,7 +877,7 @@ above. `graph.ts` is at 99.51% with Tarjan's stack as its only survivor,
 `layers.ts` holds the two cache lines and nothing else, and `runner.ts` is back
 to its eight.
 
-### Unreleased: query and MCP, and the code a sweep should delete
+### 0.7.0: query and MCP, and the code a sweep should delete
 
 CI settled it at **98.47% over 6,263 mutants** with **93 survivors**. That is the
 highest score this project has measured, and four fewer survivors than before
@@ -1015,11 +1015,35 @@ description joins only ever tested with one `glob` and one `exclude`. Both were
 replayed by hand after the test was widened, and both are killed.
 
 Then the listing cache was re-keyed by path from the root, for the cost ADR-0013
-measures, and the module was swept a third time: **100% over 404 mutants, with no
-survivors and one timeout**. The timeout was looked at rather than counted. It
-turns the walk's `|| '.'` into `&& '.'`, so every directory the walk reads
-answers with the root's entries, and the walk descends for ever. No assertion
-can fail before a clock does, so this is the one kind of timeout that is a kill.
+measures, and the module was swept a third time. That sweep reported **100% over
+404 mutants, with no survivors and one timeout**, and it was wrong by four.
+
+The timeout was looked at rather than counted, and it is real. It turns the
+walk's `|| '.'` into `&& '.'`, so every directory the walk reads answers with the
+root's entries, and the walk descends for ever. No assertion can fail before a
+clock does, so this is the one kind of timeout that is a kill.
+
+The kills were not looked at, because a kill is not supposed to need it. CI's
+full sweep of the pushed commit found four survivors in the re-keyed cache that
+the local sweep had scored as killed. Replayed by hand on the same machine, all
+four survived. So a local sweep's kills are no more certain than its count:
+- the cache key for the root spelled `""` instead of `.`, once from the walk and
+  once from a lookup. Either way the root is read twice, and nothing counted
+  reads with both a walk of the root and a lookup below it;
+- a failed listing answering `undefined` instead of `null`, where every test
+  reached `null` by an earlier return;
+- an unguarded lookup through the listing of a root that cannot be read.
+
+Two tests now cover them, and replaying each mutant fails exactly the test
+written for it.
+
+CI's sweep of that commit scored **98.57% over 6,939 mutants, with 96
+survivors**. Against the sweep 0.7.0 shipped on, every module matches survivor
+for survivor except two:
+- `structure.ts`, with the four above;
+- `glob.ts`, one fewer, because `indexOf(']', index - 1)` was scored as a
+  timeout. It survives in every sweep before, and its module's timeouts rose by
+  one. It is the drift the section before this one describes, not a kill.
 
 ## Consequences
 

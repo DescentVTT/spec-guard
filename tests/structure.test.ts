@@ -260,6 +260,32 @@ describe('createTreeIndex', () => {
     expect([...reads.keys()].sort()).toEqual(['.', 'src', 'src/deep']);
   });
 
+  it('reads the root once, whether a walk of the root or a lookup below it reaches it first', async () => {
+    const root = await tree({ 'src/a.ts': '' });
+    for (const order of ['walk first', 'lookup first']) {
+      const { reader, reads } = countingReader(root);
+      const index = createTreeIndex(root, reader);
+      if (order === 'walk first') {
+        await index.walk('.', DEFAULT_SCOPE);
+        await index.listing('src');
+      } else {
+        await index.listing('src');
+        await index.walk('.', DEFAULT_SCOPE);
+      }
+      expect(Object.fromEntries(reads), order).toEqual({ '.': 1, src: 1 });
+    }
+  });
+
+  it('answers null, and does not throw, for a directory it cannot list or one below it', async () => {
+    const root = await tree({ 'src/deep/a.ts': '' });
+    const locked = createTreeIndex(root, countingReader(root, ['src']).reader);
+    expect(await locked.listing('src')).toBeNull();
+    expect(await locked.listing('src/deep')).toBeNull();
+    const rootless = createTreeIndex(root, countingReader(root, ['.']).reader);
+    expect(await rootless.listing('.')).toBeNull();
+    expect(await rootless.listing('src')).toBeNull();
+  });
+
   it('answers null for a directory that is not there', async () => {
     const root = await tree({ 'a.ts': '' });
     const index = createTreeIndex(root);
