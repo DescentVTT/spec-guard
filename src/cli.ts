@@ -66,13 +66,19 @@ export interface CliOptions {
 
 export class UsageError extends Error {}
 
-export function version(): string {
+/**
+ * The installed version, or `0.0.0` when the manifest cannot say.
+ *
+ * The manifest is a parameter so the fallback can be tested: it is what a
+ * broken install reports instead of crashing, and a fallback nothing runs is a
+ * fallback nobody knows still works.
+ */
+export function version(manifest = '../package.json'): string {
   try {
     const require = createRequire(import.meta.url);
-    const pkg = require('../package.json') as { version?: string };
+    const pkg = require(manifest) as { version?: string };
     return pkg.version ?? '0.0.0';
   } catch {
-    /* c8 ignore next 2 -- only reachable from a broken install */
     return '0.0.0';
   }
 }

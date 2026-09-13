@@ -46,7 +46,10 @@ with the flag that restores the previous behaviour.
   resources `spec://rules` and `spec://doc/{+path}`. Serves clients that open
   with `initialize` (2024-10-07 to 2025-11-25) and clients on 2026-07-28 that
   version every request and probe with `server/discover`, classifying each
-  request the way the TypeScript SDK's own server does.
+  request the way the TypeScript SDK's own server does. Run end to end against
+  the official clients: `@modelcontextprotocol/sdk` 1.30.0, and
+  `@modelcontextprotocol/client` 2.0.0 pinned to 2026-07-28, probing, and on
+  the legacy handshake.
 - **`--spec <pattern>`**, repeatable: where `query` and `mcp` take their specs,
   and an alternative to positional patterns for a run.
 - `select` on `runSpecGuard`, to execute only some of the resolved assertions.
@@ -71,13 +74,16 @@ with the flag that restores the previous behaviour.
 
 ### Changed
 
-- **Mutation score 97.97%** over 5,078 mutants, up from 0.6.0's 97.77%. The two
-  new modules are at 99.51% (`graph.ts`) and 96.43% (`layers.ts`), and each of
-  their three survivors was shown equivalent by running the mutated build
-  against the real one on thousands of random inputs. The first sweep of this
-  work found 34 survivors that 37 hand-written negative controls had not; see
-  [ADR-0003](docs/adr/0003-mutation-testing.md) for how they were replayed from
-  the report and killed.
+- **Mutation score 98.39%** over 6,266 mutants, up from 0.6.0's 97.77%, with 95
+  survivors - two fewer than before the 1,188 mutants this release adds. The
+  layering and cycle modules are at 99.51% (`graph.ts`) and 98.21%
+  (`layers.ts`); their three original survivors were shown equivalent by running
+  the mutated build against the real one on thousands of random inputs. The query
+  and the server are at 100% (`query.ts`, `rules.ts`) and 99.84% (`mcp.ts`); the
+  survivors found on the way were mostly code nothing could observe, and was
+  deleted. See [ADR-0003](docs/adr/0003-mutation-testing.md) for both accounts.
+- `version(manifest?)` takes the manifest to read, so its fallback for a broken
+  install - `0.0.0` rather than a crash - is tested.
 - **Reading specs is several times faster**, which a query's budget made worth
   measuring. `maskCode` builds ranges instead of blanking a character array
   (7.8 ms to 1.1 ms over this repository's specs, identical output on 72 real

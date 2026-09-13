@@ -46,6 +46,11 @@ describe('the version it reports', () => {
     expect(version()).not.toBe('0.0.0');
   });
 
+  it('is 0.0.0 from a manifest that is missing or names no version, rather than a crash', () => {
+    expect(version('../tests/fixtures/does-not-exist.json')).toBe('0.0.0');
+    expect(version('../tests/fixtures/manifest-without-version.json')).toBe('0.0.0');
+  });
+
   it('reaches the sarif document', async () => {
     const { io, out } = createIO();
     await main(['docs/adr/0001-passing.md', '--format', 'sarif'], io);

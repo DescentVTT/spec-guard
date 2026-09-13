@@ -8,8 +8,9 @@
  * notice.
  */
 
+import { promises as fsp } from 'node:fs';
 import path from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { EXIT_ERROR, EXIT_OK, HELP, main, parseArgs, UsageError, type CliIO } from '../src/cli.js';
 import { parseDocument, parseTitle } from '../src/parser.js';
@@ -84,6 +85,34 @@ describe('reading the specs', () => {
     expect(specs.documents[2]).not.toHaveProperty('title');
     expect(specs.documents[2]).not.toHaveProperty('status');
   });
+
+  it('reads many specs together, but never more than 16 at once', async () => {
+    // The bound is what stands between 1,200 ADRs and EMFILE, and reading them
+    // all at once gives the same documents - so it is counted, not inferred.
+    const files = Object.fromEntries(Array.from({ length: 40 }, (_, index) => [`docs/many/${String(index).padStart(2, '0')}.md`, `# Spec ${index}\n`]));
+    const tree = await makeTempRepo(files);
+    const real = fsp.readFile.bind(fsp);
+    let inFlight = 0;
+    let most = 0;
+    const spy = vi.spyOn(fsp, 'readFile').mockImplementation((async (...args: Parameters<typeof fsp.readFile>) => {
+      inFlight += 1;
+      most = Math.max(most, inFlight);
+      try {
+        await new Promise((resolve) => setImmediate(resolve));
+        return await real(...args);
+      } finally {
+        inFlight -= 1;
+      }
+    }) as typeof fsp.readFile);
+    try {
+      const specs = await readSpecs(['docs/**/*.md'], tree);
+      expect(specs.documents.map((document) => document.title)).toEqual(Array.from({ length: 40 }, (_, index) => `Spec ${index}`));
+      expect(most).toBe(16);
+    } finally {
+      spy.mockRestore();
+      await removeTempRepo(tree);
+    }
+  });
 });
 
 describe('parseTitle', () => {
@@ -92,6 +121,11 @@ describe('parseTitle', () => {
     expect(parseTitle('   # Indented ###   \n')).toBe('Indented');
     expect(parseTitle('# C# is a language\n')).toBe('C# is a language');
     expect(parseTitle('#\tTabbed\n')).toBe('Tabbed');
+  });
+
+  it('takes any run of spaces after the hash and before a closing sequence, and keeps none of them', () => {
+    expect(parseTitle('#   Three  spaces in\n')).toBe('Three  spaces in');
+    expect(parseTitle('# Spaced close \t ###\n')).toBe('Spaced close');
   });
 
   it('is not a deeper heading, a heading without a space, one indented four spaces, or an empty one', () => {

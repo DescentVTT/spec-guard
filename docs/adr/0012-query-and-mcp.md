@@ -339,10 +339,35 @@ classification follows its server's code. Both were read for this ADR and are
 cited above.
 
 The suite drives the handler message by message, the stdio binding byte by byte,
-and the built binary over real pipes in both eras. It has **not** been run
-against a shipping client. Doing that means launching one, and that was left to
-the people who will configure one. If a client disagrees with what is here, this
-ADR names the documents the disagreement should be checked against.
+and the built binary over real pipes in both eras.
+
+Beyond the suite, the official clients were run against a live `spec-guard mcp`
+process from a scratch directory outside the project, so none of them is a
+dependency:
+
+- `@modelcontextprotocol/sdk` 1.30.0, whose newest revision is 2025-11-25;
+- `@modelcontextprotocol/client` 2.0.0 in each of its three negotiation modes:
+  - pinned to 2026-07-28, with no fallback;
+  - `auto`, which probes with `server/discover` and selected 2026-07-28;
+  - `legacy`, which negotiated 2025-11-25.
+
+Every session did the same things:
+- listed the tools;
+- called `get_architectural_rules` and read the layer out of its structured
+  content;
+- ran `check_architecture` on one path and on everything;
+- got a readable tool error for a path outside the root;
+- read a document resource, and had a missing one rejected.
+
+The 1.30.0 client validated each tool result against its own
+`CallToolResultSchema`, and 2.0.0 decodes each message by the revision in use.
+
+Two negative controls kept the passes honest. The same session pointed at no
+specs failed seven checks. The 2.0.0 client pinned to a revision the server
+does not serve, 2027-01-01, was refused with the server's own -32022.
+
+If a client still disagrees with what is here, this ADR names the documents the
+disagreement should be checked against.
 
 ### Security
 

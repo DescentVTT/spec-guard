@@ -877,6 +877,77 @@ above. `graph.ts` is at 99.51% with Tarjan's stack as its only survivor,
 `layers.ts` holds the two cache lines and nothing else, and `runner.ts` is back
 to its eight.
 
+### Unreleased: query and MCP, and the code a sweep should delete
+
+The first full sweep with ADR-0012 in it returned **98.39% over 6,266 mutants**.
+That is the highest this project has measured, with **95 survivors**, two fewer
+than before 1,188 new mutants arrived. `query.ts` and `rules.ts` are at 100%,
+`mcp.ts` at 99.84%, `specs.ts` at 97.62%.
+
+It got there because the survivors were dealt with before the push. A local
+sweep scoped to the new and changed lines came first, with static mutants left
+out: on a machine at full load each of those reruns the whole suite, and a
+timeout there is scored as a kill, as the 0.6.0 section explains. It found 1,647
+mutants, 35 survivors and 30 timeouts, and the timeouts were not taken as
+evidence of anything. Each survivor was replayed alone from the report, and they
+fell into three groups.
+
+**Code that could not be observed, and was removed rather than tested.** This was
+the largest group, and it is the one a mutation sweep is best at finding:
+
+- the stdio reader stripped a trailing `\r`, which `JSON.parse` already accepts as
+  whitespace;
+- it called `setEncoding('utf8')`, and Node reads an empty encoding name as UTF-8
+  too, so it now decodes with a `TextDecoder`, whose `stream` flag the
+  split-character test does kill;
+- `key !== undefined` guarded sets that can never hold a key a cancellation names;
+- a `typeof` check sat before `includes` on a list of strings;
+- a pool of readers shared a cursor whose `next--` mutant still read every file.
+  It is now plain batches;
+- an arithmetic slice and an empty-string guard became `path.posix.relative`;
+- a conditional `data` spread produced a member `JSON.stringify` drops anyway;
+- and, after CI, the one survivor in `mcp.ts`: a `?? true` repeating a default
+  `loadRuleSet` already applies.
+
+**Tests that were missing.**
+
+- Handler options were only ever exercised with `run` present.
+- `includeSpecs` and `defaultSkips` were only ever exercised on the check, never
+  on the query.
+- Four joins were only ever tested with one element: the scope line, the startup
+  line, the baseline list and the withheld list.
+- Cancellation was opened in an order in which a broken tracking key was
+  invisible.
+- A server that resolved as soon as it had answered everything so far went
+  unnoticed.
+
+After CI, three more:
+
+- `specs.ts`'s survivor. `files.slice(...)` mutated to `files` reads every spec at
+  once and returns the same documents, so the bound of 16 - the only thing between
+  1,200 ADRs and `EMFILE` - is now counted by a test that watches reads in flight.
+- Two quantifiers in the title pattern.
+- The three `NoCoverage` mutants in `cli.ts`, which predate this work: the same
+  three appear in the previous run. They are `version()`'s fallback for a broken
+  install, behind a `c8 ignore`. The manifest is now a parameter and the fallback
+  is tested.
+
+Every one of these was checked by applying the mutant by hand and watching the
+suite fail.
+
+**Two old gaps, on lines the sweep happened to cover.** A second fenced block in
+one document had never been tested, so a mutant that stopped masking every fence
+after the first survived. And `walkFiles` had never been asked about a file it
+could not stat with no `onSkip` callback passed.
+
+Three survivors are equivalent and stay:
+
+| Survivor | Why it cannot be observed |
+| --- | --- |
+| fence check `open.index >= s` to `>` | no later fence can begin where a consumed range begins |
+| fence check `open.index < e` to `<=` | a consumed range ends at the end of a line, where no fence can begin |
+| `matches: []` in the result of searching nothing | with no file counts, the baseline filter shows no match whatever the array holds |
+
 ## Consequences
 
 Whoever bumps vitest to 5 will fail CI on the assertion above, and land on this

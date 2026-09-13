@@ -281,8 +281,10 @@ export function createMcpHandler(options: McpServerOptions): (message: unknown) 
   const ruleSetOptions = {
     patterns: options.patterns,
     root: options.root,
-    includeSpecs: options.run?.includeSpecs ?? false,
-    defaultSkips: options.run?.defaultSkips ?? true,
+    // No defaults of their own: loadRuleSet has them, and a second copy here
+    // could never disagree with it in a way anything could see.
+    includeSpecs: options.run?.includeSpecs,
+    defaultSkips: options.run?.defaultSkips,
   };
 
   const noSpecs = (): ToolOutcome =>
