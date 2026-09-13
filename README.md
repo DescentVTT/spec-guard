@@ -422,6 +422,99 @@ reading `tsconfig.json`, which is the resolver
 [ADR-0011](docs/adr/0011-layers-and-cycles.md) declines to become, for the
 reasons it gives.
 
+### `@assert-structure` - what files are called, and what comes with them
+
+Architecture documents state conventions over sets of files rather than naming
+files one by one. Each directive makes exactly one of three claims:
+
+```md
+<!-- @assert-structure target="src/domain" exclude="*.test.ts" pattern="*.entity.ts, index.ts" -->
+<!-- @assert-structure target="packages" dirs="*" required="package.json, README.md" -->
+<!-- @assert-structure target="src/handlers" exclude="*.test.ts" partner="[name].test.ts" -->
+```
+
+- **`pattern`** - every file in scope is named by one of the patterns. They are
+  globs, read like `glob=`: without a `/` against the file name, with one
+  against the path from the root.
+- **`required`** - every directory holds every entry. Without `dirs` the
+  directories are the targets; `dirs="*"` means their immediate children and
+  `dirs="**"` every directory below them. An entry may be a path
+  (`src/index.ts`), may end in a glob (`*.csproj`), and must be a directory
+  when it ends in `/`.
+- **`partner`** - every file has a partner, named by a template.
+
+Each failure names the file or directory, since there is no line to point at:
+
+```text
+✖ docs/architecture.md:3  @assert-structure
+    files in src/domain must be named *.entity.ts or index.ts (excluding *.test.ts)
+    expected no misnamed files, found 1
+      src/domain/helpers.ts  matches none of *.entity.ts, index.ts
+
+✖ docs/architecture.md:4  @assert-structure
+    directories matching * under packages must contain package.json, README.md
+    expected no directories missing an entry, found 2
+      packages/billing  missing README.md
+      packages/web  missing package.json, README.md
+
+✖ docs/architecture.md:5  @assert-structure
+    files in src/handlers must each have a partner [name].test.ts (excluding *.test.ts)
+    expected no files without a partner, found 1
+      src/handlers/refund.ts  has no partner src/handlers/refund.test.ts
+```
+
+A partner template has three placeholders and nothing else - no regular
+expressions, no conditionals - so a reader can expand one by eye:
+
+| Placeholder | For `src/api/user.handler.ts`, `target="src"` |
+| --- | --- |
+| `[name]` | `user.handler` - the file name up to its last dot |
+| `[ext]` | `ts` - what follows that dot |
+| `[dir]` | `api` - the file's directory below the target, empty at the top |
+
+A template without a `/` names a file beside it. One with a `/` is a path from
+the root, which is how a mirrored test tree is written:
+`partner="tests/[dir]/test_[name].py"`. A comma-separated list gives
+alternatives, any one of which will do.
+
+The partners themselves are in scope unless `exclude` says otherwise. Forgetting
+to exclude them is loud rather than silent, and says what probably happened:
+
+```text
+      src/handlers/order.test.ts  has no partner src/handlers/order.test.test.ts (it is the partner of src/handlers/order.ts - exclude it?)
+```
+
+Some things fail rather than pass, because each is a rule that would otherwise
+check nothing:
+- a scope holding no files, or selecting no directories (`allow-empty` as
+  everywhere else);
+- a template that names the file itself (`partner="[name].[ext]"`);
+- a `required` target that is a file.
+
+**Names are compared exactly, on every platform.** Whether `README.md` exists is
+decided by reading its directory, never by asking the filesystem for the path.
+That lookup finds `Readme.md` on Windows and macOS and does not find it on Linux,
+and the same rule would pass on a laptop and fail in CI.
+
+A structure rule reads names, never contents. It walks with the run's usual
+skips, follows no symbolic link, and counts the spec files - which every other
+rule leaves out, and which a naming rule about `docs/adr` is about. `max`,
+`baseline` and `ratchet` work as they do on `@assert-absence`, and a baseline
+lists files or directories. `spec-guard query` shows what a rule asks of a file
+that does not exist yet:
+
+```text
+src/handlers/invoice.ts (does not exist yet)
+  1 rule from 1 document
+
+  Architecture  (docs/architecture.md)
+    :5 @assert-structure  files in src/handlers must each have a partner [name].test.ts (excluding *.test.ts)
+      partner: src/handlers/invoice.test.ts
+```
+
+[ADR-0013](docs/adr/0013-structure-assertions.md) has the design and what it
+costs.
+
 ### `@assert-present` - this file exists
 
 ```md
@@ -435,23 +528,27 @@ Passes when every listed path exists relative to `--root`. Directories count.
 
 | Attribute | Applies to | Meaning |
 | --- | --- | --- |
-| `target` | absence, count | Comma-separated paths to search, relative to `--root`. Default `.` |
+| `target` | all but present | Comma-separated paths, relative to `--root`. Default `.` |
 | `symbol` | absence, count | The literal string to search for (or a regex with `regex="true"`) |
 | `file` | present | Comma-separated paths that must exist |
-| `expected` | absence, count | Upper bound for absence; exact count for count |
-| `min` / `max` | count (`max` also on absence) | Inclusive bounds |
-| `glob` | absence, count | Include-only file filters, e.g. `*.ts,*.tsx` (ripgrep `-g` semantics) |
-| `exclude` | absence, count | Paths to leave out, gitignore-style: `src/config/**`, `tests`, `*.test.ts` |
+| `expected` | all but present | Exact count for count; an upper bound everywhere else |
+| `min` / `max` | count (`max` on all but present) | Inclusive bounds |
+| `glob` | absence, count, structure | Include-only file filters, e.g. `*.ts,*.tsx` (ripgrep `-g` semantics) |
+| `exclude` | all but present | Paths to leave out, gitignore-style: `src/config/**`, `tests`, `*.test.ts` |
 | `regex` | absence, count | Treat `symbol` as a regular expression |
 | `word` | absence, count | Require word boundaries, so `Primary` does not match `PrimaryButton` |
 | `ignore-case` | absence, count | Case-insensitive matching |
 | `comments` | absence, count | `ignore` (default) or `include` for matches inside comments |
 | `module` | import-absence, import-count | Which dependency, matched like `exclude` |
 | `order` | layers | The layers, from the one everything may depend on to the one that may depend on everything |
+| `pattern` | structure | The names every file in scope must match one of |
+| `required` | structure | The entries every chosen directory must hold; a trailing `/` means a directory |
+| `dirs` | structure, with `required` | Which directories below each target: `*` for children, `**` for all |
+| `partner` | structure | Partner templates, any one of which must exist: `[name].test.[ext]` |
 | `types` | import assertions, layers, cycles | `include` (default) or `ignore` for `import type` |
-| `allow-empty` | absence, count, import assertions, layers, cycles | Tolerate a scope that holds no files, or a layer that matches none. Off by default - see below |
-| `baseline` | absence, import-absence, layers | Known violations that do not count: `path` or `path:count` |
-| `ratchet` | absence, import-absence, layers | `two-sided` (default) or `one-way` - see below |
+| `allow-empty` | all but present | Tolerate a scope that holds no files, a layer that matches none, or no chosen directories. Off by default - see below |
+| `baseline` | absence, import-absence, layers, structure | Known violations that do not count: `path` or `path:count` |
+| `ratchet` | absence, import-absence, layers, structure | `two-sided` (default) or `one-way` - see below |
 | `reason` | all | Human-readable justification, printed on failure |
 
 Unknown attributes are an error, not a shrug: `expct="1"` fails the run instead

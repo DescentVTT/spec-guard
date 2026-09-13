@@ -518,6 +518,11 @@ describe('the sarif document, in full', () => {
                   shortDescription: { text: 'A file importing from a layer the architecture places above it.' },
                 },
                 {
+                  id: 'assert-structure',
+                  name: 'assert-structure',
+                  shortDescription: { text: 'A file or directory that breaks a naming or layout convention.' },
+                },
+                {
                   id: 'invalid-directive',
                   name: 'invalid-directive',
                   shortDescription: { text: 'A directive that could not be parsed, so nothing was checked.' },

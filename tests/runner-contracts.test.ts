@@ -29,6 +29,7 @@ import {
 } from '../src/runner.js';
 import { createImportIndex } from '../src/imports.js';
 import { DEFAULT_SCOPE } from '../src/scope.js';
+import { createTreeIndex } from '../src/structure.js';
 import type { Assertion, Bounds, Directive, DirectiveKind } from '../src/types.js';
 import { DEMO_REPO, makeTempRepo, removeTempRepo, searchOptions, wideTree } from './helpers.js';
 
@@ -355,6 +356,8 @@ describe('an assertion with no bounds at all', () => {
       maxSnippets: DEFAULT_MAX_SNIPPETS,
       imports: createImportIndex(),
       hasFiles: createScopeProbe(),
+
+      tree: createTreeIndex(DEMO_REPO),
     });
     return { ok: result.ok, message: result.message };
   }

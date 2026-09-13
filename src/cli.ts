@@ -124,6 +124,7 @@ Directives
   <!-- @assert-present file="SECURITY.md" -->
   <!-- @assert-import-cycle target="src/" types="ignore" -->
   <!-- @assert-layers target="src/" order="domain, application, infrastructure" -->
+  <!-- @assert-structure target="src/" exclude="*.test.ts" partner="[name].test.ts" -->
 
   Matches inside comments do not count; add comments="include" to count them.
   An assertion whose scope holds no files fails; add allow-empty="true" to allow it.

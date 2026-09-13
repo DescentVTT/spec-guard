@@ -2,12 +2,13 @@
 
 ## Status
 
-Proposed.
+Accepted.
 
-The directives below are shown in fences, not written live. ADR-0010 validates
-the directives of a document that is not in force, so a live `@assert-structure`
-in this document would be an unknown-directive error until the kind exists. On
-acceptance the examples that describe this repository become live rules.
+Proposed first, with every example in a fence: ADR-0010 validates the directives
+of a document that is not in force, so a live `@assert-structure` would have
+been an unknown-directive error until the kind existed. The examples about other
+codebases stay in fences. The rules about this one are live, under
+[What this repository asserts](#what-this-repository-asserts).
 
 ## Context
 
@@ -92,11 +93,16 @@ The target itself is never selected by `dirs`; leave `dirs` out for that.
 
 Each entry in `required` is a path relative to the directory:
 - its last segment may be a glob (`*.csproj`), in which case at least one match
-  satisfies it;
-- a trailing `/` means the entry must be a directory.
+  satisfies it, and no other segment may be;
+- a trailing `/` means the entry must be a directory, and without one it must be
+  a file. `required="README.md"` is not satisfied by a directory of that name.
 
 A violation is the directory, reported with every entry it lacks:
 `packages/billing  missing README.md`.
+
+A `required` target that is a file fails, whatever `--allow-missing-targets`
+says. A file holds nothing, and a rule that quietly skipped it would be a rule
+about one directory fewer than it names.
 
 **Directories are enumerated, not inferred from files.** Deriving directories
 from the files a walk finds is cheaper, and it cannot see an empty directory. An
@@ -132,8 +138,16 @@ empty `[dir]` leaves no stray separator: `tests/[dir]/x` at the top is
 of them existing satisfies the rule.
 
 That is the whole grammar. There are no other placeholders, no regular
-expressions, no conditionals and no escaping. A template naming any other
-`[...]` is a directive error, as is a template that would leave the root.
+expressions, no conditionals and no escaping. These are directive errors:
+- a template naming any other `[...]`;
+- a template holding `*`, `?`, `{` or `}` - a partner is one name, and a glob is
+  many;
+- a template with an empty, `.` or `..` segment, which is how one would leave the
+  root.
+
+When two targets overlap, a file is held to the rule once, from the first target
+listed that reaches it, and `[dir]` is measured from that target. The query
+measures it the same way.
 
 **Not `from=".ts" to=".test.ts"`.** Suffix replacement is the smallest possible
 grammar, and it cannot say two things real projects say:
@@ -175,15 +189,27 @@ unchanged: with every target gone, nothing is left and the scope is empty.
 These are directive errors, because each makes the rule meaningless before a
 file is read:
 - an empty `pattern`, `required` or `partner`;
-- a `required` entry of `.` or `..`;
-- `dirs` given without `required`.
+- a `required` entry with an empty, `.` or `..` segment;
+- `dirs` given without `required`, or given empty;
+- `glob` given with `required`, which is about directories. It would otherwise
+  be read and ignored, and a rule that says more than it checks is the thing
+  this whole ADR is about.
 
 ### Scope, counting and the rest
 
 - **Names only.** A structure rule never reads a file's contents. It walks with
   the run's scope policy: `.git`, `.hg`, `.svn` and `node_modules` are skipped
-  unless `--no-default-skips`, and symbolic links are not followed. A directory
-  it cannot list is a gap in the scope ledger, and fails under `--strict`.
+  unless `--no-default-skips`. A directory it cannot list is a gap in the scope
+  ledger, and fails under `--strict`.
+- **Names all the way down.** Targets are found the way entries are, by name in
+  their parent's listing, so `target="Src"` does not find `src/` on Windows
+  either. A path is looked up one directory at a time from the root, and every
+  directory on the way has to be listed as one.
+- **No symbolic link is followed**, in either direction. A link is not a file or
+  directory in scope, it does not satisfy a required entry or a partner, and a
+  target that is a link is not found. Each of those fails loudly; the other
+  choice, following links for existence but not for the walk, would make a rule
+  answer differently depending on which question reached the link first.
 - **Spec files are in scope.** Every other rule leaves out the spec files so a
   text rule does not find its own directive. A structure rule reads no text,
   and the specs are exactly the files a naming rule about `docs/adr` is about.
@@ -195,30 +221,52 @@ file is read:
   does for every other rule. This is how a convention is adopted on a codebase
   that does not follow it yet.
 - **Reports** show a file or directory rather than a line; a violation has no
-  line to point at. In SARIF, a naming or partner violation is annotated at the
-  top of the offending file. A missing entry has no file to annotate, so it sits
-  at the directive, with the directory in the message.
+  line to point at. A match carries `line: 0` and `column: 0` to say so, and the
+  JSON result carries `claim`, because the claim decides whether a match is a
+  file or a directory. In SARIF, a naming or partner violation is annotated at
+  the top of the offending file. A missing entry has no file to annotate, so it
+  sits at the directive, with each directory and what it lacks in the message.
 - **The query and the MCP server know the kind.** `get_architectural_rules` on
   `src/domain/new.ts` says what the file must be called and what partner it
-  needs. That is exactly what an agent wants to know before creating a file. The
-  arithmetic behind it joins ADR-0012's equivalence test: a pattern nothing
-  matches turns every file in scope into a reported violation.
+  needs. That is exactly what an agent wants to know before creating a file:
+  - a naming rule reports `named`, whether the path's name is allowed;
+  - a partner rule reports `partners`, the paths that would satisfy it;
+  - a `required` rule governs a file when the directory it sits in is one the
+    rule holds, since creating `packages/new/index.ts` creates a package that
+    needs its `package.json`. A directory is governed when it is held, holds a
+    target, or could hold a selected directory.
 
-### What this repository will assert
+  The arithmetic behind it joins ADR-0012's equivalence test. A structure rule
+  reads nothing a marker could reveal, so its claim is the marker: a pattern no
+  name matches, a partner no file has and an entry no directory holds make every
+  subject in scope a reported violation. For `required`, the query is asked about
+  a file that does not exist in every directory of the tree, which is asking
+  whether the rule holds that directory.
 
-On acceptance, at least these become live, and both have already been checked
-against the tree by hand:
+### What this repository asserts
 
-```md
 <!-- @assert-structure target="docs/adr" pattern="[0-9][0-9][0-9][0-9]-*.md" reason="ADRs are numbered, so a reference to ADR-0011 names one file" -->
 <!-- @assert-structure target="src" exclude="index.ts, types.ts" partner="tests/[name].test.ts" reason="every module has a test file of its own name" -->
-```
 
-The first holds today. The second does not. `src/specs.ts` has no
-`tests/specs.test.ts`, because its tests live in `tests/query.test.ts`, and it
-would be the rule's first finding. Accepting the rule means deciding whether to
-move those tests or record `baseline="src/specs.ts"`, and that is a decision the
-rule forces into the open.
+The second rule did not hold when this ADR was proposed. `src/specs.ts` had no
+`tests/specs.test.ts`, because its tests lived in `tests/query.test.ts`, and a
+rule that is adopted has to decide between moving them and a baseline. They were
+moved, with no baseline. The rule then found one more file before any test did:
+`src/structure.ts` itself, written before its test file existed.
+
+Two rules hold the implementation to the promise that existence is decided by
+name. The listings go through the walk's own directory reader, which is also
+what lets a run read each directory once:
+
+<!-- @assert-import-absence target="src/structure.ts" module="node:fs, node:fs/promises" reason="names come from the walk's directory reader, never from asking the filesystem about a path" -->
+<!-- @assert-absence target="src/structure.ts" symbol="statOrNull" reason="a lookup by path finds Readme.md for README.md on Windows and macOS" -->
+
+And the structure rules stay in the test that holds the query to the run, one
+claim at a time:
+
+<!-- @assert-count target="tests/query-equivalence.test.ts" symbol='pattern="NONE"' min="1" reason="naming rules are held to the walk" -->
+<!-- @assert-count target="tests/query-equivalence.test.ts" symbol='partner="' min="1" reason="partner rules are held to the walk" -->
+<!-- @assert-count target="tests/query-equivalence.test.ts" symbol='required="NONE"' min="1" reason="required-entry rules are held to the directories a run selects" -->
 
 ## Consequences
 
@@ -246,6 +294,41 @@ The `tests` figures include leftover scratch repositories under
 - **Structure rules over the same scope share one walk per run.** The listings
   are cached for the run as well, as the import index and the scope probe
   already are.
+
+### Cost, measured again once it was built
+
+The same trees through `runSpecGuard` on the built package, a whole run each, in
+a fresh process per claim, median of seven runs after one to warm up, on
+Windows at about 20% CPU load. `tests` has 62 files now that the scratch
+repositories are gone.
+
+| Tree | Naming | Partners | Required, `dirs="**"` | All three in one run |
+| --- | --- | --- | --- | --- |
+| `src`, 20 files | 1.7 ms | 1.7 ms | 1.5 ms | 1.9 ms |
+| `tests`, 62 files | 3.7 ms | 4.3 ms | 4.2 ms | 4.4 ms |
+| `node_modules`, 10,073 files | 179 ms | 283 ms | 195 ms | 283 ms |
+
+- **All three claims cost the most expensive one.** Over `node_modules`, three
+  rules in one run take what the partner rule takes alone, because they share the
+  walk and every listing.
+- **Partners came in at 283 ms against the prototype's 490 ms.** Not at first:
+  the first build measured 460 to 530 ms, and a CPU profile put most of it in
+  joining an absolute Windows path for every directory on the way to every
+  partner, just to use as a cache key. The listings are keyed by the path from
+  the root instead.
+- **An earlier measurement said 364 ms for naming, and it was wrong.** It ran
+  every configuration in one long-lived process, which drifts. The profile of a
+  fresh process disagreed, so every number above comes from a fresh one.
+
+### Held to the mutation bar before it was pushed
+
+A local sweep scoped to `structure.ts` and the changed lines elsewhere scored
+98.07% over 1,089 mutants, with 21 survivors. Fourteen were tests that were
+missing, five were code no test could observe, which was changed rather than
+tested, and two were in older code the line ranges happened to cover. After those fixes a second sweep scored 99.72%, and a third, after
+the listing cache was re-keyed, scored 100% over 404 mutants.
+[ADR-0003](0003-mutation-testing.md) has each survivor, and CI's full sweep has
+the last word.
 
 ### What is deliberately not in it
 

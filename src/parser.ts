@@ -34,6 +34,7 @@ export const KINDS = new Set<string>([
   'assert-import-count',
   'assert-import-cycle',
   'assert-layers',
+  'assert-structure',
 ]);
 
 /**
@@ -108,6 +109,22 @@ export const ALLOWED_ATTRIBUTES: Record<DirectiveKind, ReadonlySet<string>> = {
     'order',
     'exclude',
     'types',
+    'expected',
+    'max',
+    'allow-empty',
+    'baseline',
+    'ratchet',
+    'reason',
+  ]),
+  // No `types` or `comments`: a structure rule reads names, never contents.
+  'assert-structure': new Set([
+    'target',
+    'pattern',
+    'required',
+    'partner',
+    'dirs',
+    'glob',
+    'exclude',
     'expected',
     'max',
     'allow-empty',

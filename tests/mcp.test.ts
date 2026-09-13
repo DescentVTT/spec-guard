@@ -375,6 +375,7 @@ describe('tools/list', () => {
         'Architectural rules for a path',
         'Lists the architecture rules in force for a file or directory, grouped by the ADR or spec that states them: ' +
           'modules it must not import, the layer it belongs to and the layers it must not depend on, import cycles, ' +
+          'what it must be named and the partner files it needs, ' +
           'and text or symbols it must not contain, each with the reason the document gives. ' +
           'Answers from the specs without reading the codebase, so it works for a file that does not exist yet. ' +
           'Rules in documents that are not in force are counted and named but not listed unless include_inactive is true.',
@@ -389,7 +390,7 @@ describe('tools/list', () => {
     expect(INSTRUCTIONS).toBe(
       "spec-guard enforces the architecture decisions written in this project's Markdown specs and ADRs. " +
         'Before creating or changing a file, call get_architectural_rules with its path to learn the rules in force there: ' +
-        'imports it must not make, the layer it belongs to, text it must not contain. ' +
+        'imports it must not make, the layer it belongs to, what it must be named and the files it needs beside it, text it must not contain. ' +
         'After changing files, call check_architecture with their paths to find violations before CI does. ' +
         'Rules in draft, proposed, rejected, deprecated or superseded documents are not in force and are only counted.',
     );

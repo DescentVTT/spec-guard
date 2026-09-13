@@ -181,7 +181,8 @@ function formatFailure(
 
   const shown = result.matches.slice(0, maxSnippets);
   for (const match of shown) {
-    const where = paint(`${match.file}:${match.line}:${match.column}`, 'cyan');
+    // A structure violation is a path, not a place in one; a line of 0 says so.
+    const where = paint(match.line === 0 ? match.file : `${match.file}:${match.line}:${match.column}`, 'cyan');
     lines.push(`      ${where}  ${paint(match.text.trim(), 'gray')}`);
   }
 
@@ -204,7 +205,7 @@ function formatPass(
       : result.symbol === undefined
         ? // A cycle or layer rule has no symbol to quote, and its description
           // already says what it is about and where.
-          `${result.description} ${paint(`(${countLabel(result.actual, result.kind === 'assert-import-cycle' ? 'cycle' : 'violating file')})`, 'dim')}`
+          `${result.description} ${paint(`(${countLabel(result.actual, result.kind === 'assert-import-cycle' ? 'cycle' : result.kind === 'assert-structure' ? 'violation' : 'violating file')})`, 'dim')}`
         : `"${result.symbol}" ${paint(`(${countLabel(result.actual, 'match')})`, 'dim')} in ${result.targets.join(', ')}`;
   return `${paint(glyphs.pass, 'green')} ${paint(formatLocation(result), 'dim')}  ${paint(`@${result.kind}`, 'dim')} ${detail}`;
 }
@@ -384,6 +385,7 @@ export function formatJson(report: RunResult): string {
         targets: result.targets,
         files: result.files,
         bounds: result.bounds,
+        claim: result.claim,
         actual: result.actual,
         matches: result.matches,
         warnings: result.warnings,
@@ -437,6 +439,7 @@ const SARIF_RULES: ReadonlyArray<{ id: string; text: string }> = [
   { id: 'assert-import-count', text: 'A dependency count one part of the codebase must hold to.' },
   { id: 'assert-import-cycle', text: 'A set of files that depend on each other, directly or through others.' },
   { id: 'assert-layers', text: 'A file importing from a layer the architecture places above it.' },
+  { id: 'assert-structure', text: 'A file or directory that breaks a naming or layout convention.' },
   { id: 'invalid-directive', text: 'A directive that could not be parsed, so nothing was checked.' },
 ];
 
@@ -506,14 +509,20 @@ export function formatSarif(report: RunResult, options: { version?: string } = {
       result.location.column,
       'the assertion that failed',
     );
-    const matches = result.matches.map((match) =>
-      sarifLocation(match.file, match.line, match.column, match.text.trim()),
+    // A directory missing an entry has no file to annotate, so it is named in
+    // the message and the result sits at the directive. A misnamed or
+    // partnerless file has no line, and is annotated at its top.
+    const directories = result.claim === 'required' ? result.matches : [];
+    const matches = (directories.length > 0 ? [] : result.matches).map((match) =>
+      sarifLocation(match.file, Math.max(match.line, 1), Math.max(match.column, 1), match.text.trim()),
     );
 
     results.push({
       ruleId: result.kind,
       level: SARIF_LEVEL,
-      message: { text: `${result.description}: ${result.message}` },
+      message: {
+        text: [`${result.description}: ${result.message}`, ...directories.map((match) => `${match.file}  ${match.text}`)].join('\n'),
+      },
       // A failure with no match - a missing target, an empty scope, a stale
       // baseline - is anchored on the directive, which is where its fix goes.
       locations: [matches[0] ?? spec],

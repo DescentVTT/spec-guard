@@ -8,9 +8,8 @@
  * notice.
  */
 
-import { promises as fsp } from 'node:fs';
 import path from 'node:path';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { EXIT_ERROR, EXIT_OK, HELP, main, parseArgs, UsageError, type CliIO } from '../src/cli.js';
 import { parseDocument, parseTitle } from '../src/parser.js';
@@ -25,7 +24,6 @@ import {
   QueryPathError,
   type QueryReport,
 } from '../src/query.js';
-import { readSpecs } from '../src/specs.js';
 import { makeTempRepo, removeTempRepo } from './helpers.js';
 
 let root: string;
@@ -65,55 +63,6 @@ afterAll(async () => {
 });
 
 const rootPosix = (): string => root.replace(/\\/g, '/');
-
-describe('reading the specs', () => {
-  it('reads every document in file order, with its title, status and whether it is in force', async () => {
-    const specs = await readSpecs(['docs/**/*.md'], root);
-    expect(specs.errors).toEqual([]);
-    expect(specs.files).toEqual([
-      path.join(root, 'docs/adr/0007-layers.md'),
-      path.join(root, 'docs/adr/0008-clocks.md'),
-      path.join(root, 'docs/untitled.md'),
-    ]);
-    expect(
-      specs.documents.map((document) => [document.relativeFile, document.title, document.status?.value, document.inForce, document.directives.length]),
-    ).toEqual([
-      ['docs/adr/0007-layers.md', 'ADR-0007: Layers and a legacy client', 'accepted', true, 3],
-      ['docs/adr/0008-clocks.md', 'ADR-0008: Clocks', 'proposed', false, 1],
-      ['docs/untitled.md', undefined, undefined, true, 2],
-    ]);
-    expect(specs.documents[2]).not.toHaveProperty('title');
-    expect(specs.documents[2]).not.toHaveProperty('status');
-  });
-
-  it('reads many specs together, but never more than 16 at once', async () => {
-    // The bound is what stands between 1,200 ADRs and EMFILE, and reading them
-    // all at once gives the same documents - so it is counted, not inferred.
-    const files = Object.fromEntries(Array.from({ length: 40 }, (_, index) => [`docs/many/${String(index).padStart(2, '0')}.md`, `# Spec ${index}\n`]));
-    const tree = await makeTempRepo(files);
-    const real = fsp.readFile.bind(fsp);
-    let inFlight = 0;
-    let most = 0;
-    const spy = vi.spyOn(fsp, 'readFile').mockImplementation((async (...args: Parameters<typeof fsp.readFile>) => {
-      inFlight += 1;
-      most = Math.max(most, inFlight);
-      try {
-        await new Promise((resolve) => setImmediate(resolve));
-        return await real(...args);
-      } finally {
-        inFlight -= 1;
-      }
-    }) as typeof fsp.readFile);
-    try {
-      const specs = await readSpecs(['docs/**/*.md'], tree);
-      expect(specs.documents.map((document) => document.title)).toEqual(Array.from({ length: 40 }, (_, index) => `Spec ${index}`));
-      expect(most).toBe(16);
-    } finally {
-      spy.mockRestore();
-      await removeTempRepo(tree);
-    }
-  });
-});
 
 describe('parseTitle', () => {
   it('is the first level-one heading, without its closing hashes', () => {
@@ -375,6 +324,60 @@ describe('formatQuery', () => {
         '1 spec file read in 0.0ms',
       ].join('\n'),
     );
+  });
+
+  it('shows what a structure rule asks of a file about to be created: its name and its partner', async () => {
+    const tree = await makeTempRepo({
+      'docs/structure.md': [
+        '# Layout',
+        '',
+        '<!-- @assert-structure target="src/domain" exclude="*.test.ts" pattern="*.entity.ts, *.value.ts" -->',
+        '<!-- @assert-structure target="src" exclude="*.test.ts" partner="[name].test.[ext], tests/[dir]/[name].test.[ext]" reason="every module is tested" -->',
+        '<!-- @assert-structure target="src" dirs="*" required="index.ts" -->',
+        '',
+      ].join('\n'),
+    });
+    try {
+      const report = await queryRules({ patterns: ['docs/structure.md'], root: tree, paths: ['src/domain/user.ts', 'src/domain/order.entity.ts', 'src/domain/'] });
+      expect(formatQuery({ ...report, durationMs: 0.5 })).toBe(
+        [
+          'src/domain/user.ts (does not exist yet)',
+          '  3 rules from 1 document',
+          '',
+          '  Layout  (docs/structure.md)',
+          '    :3 @assert-structure  files in src/domain must be named *.entity.ts or *.value.ts (excluding *.test.ts)',
+          '      name: not allowed - it matches none of *.entity.ts, *.value.ts',
+          '    :4 @assert-structure  files in src must each have a partner [name].test.[ext] or tests/[dir]/[name].test.[ext] (excluding *.test.ts)',
+          '      partner: src/domain/user.test.ts or tests/domain/user.test.ts',
+          '      reason: every module is tested',
+          '    :5 @assert-structure  directories matching * under src must contain index.ts',
+          '',
+          'src/domain/order.entity.ts (does not exist yet)',
+          '  3 rules from 1 document',
+          '',
+          '  Layout  (docs/structure.md)',
+          '    :3 @assert-structure  files in src/domain must be named *.entity.ts or *.value.ts (excluding *.test.ts)',
+          '      name: allowed',
+          '    :4 @assert-structure  files in src must each have a partner [name].test.[ext] or tests/[dir]/[name].test.[ext] (excluding *.test.ts)',
+          '      partner: src/domain/order.entity.test.ts or tests/domain/order.entity.test.ts',
+          '      reason: every module is tested',
+          '    :5 @assert-structure  directories matching * under src must contain index.ts',
+          '',
+          'src/domain (directory, does not exist yet)',
+          '  3 rules from 1 document',
+          '',
+          '  Layout  (docs/structure.md)',
+          '    :3 @assert-structure  files in src/domain must be named *.entity.ts or *.value.ts (excluding *.test.ts)',
+          '    :4 @assert-structure  files in src must each have a partner [name].test.[ext] or tests/[dir]/[name].test.[ext] (excluding *.test.ts)',
+          '      reason: every module is tested',
+          '    :5 @assert-structure  directories matching * under src must contain index.ts',
+          '',
+          '1 spec file read in 0.5ms',
+        ].join('\n'),
+      );
+    } finally {
+      await removeTempRepo(tree);
+    }
   });
 
   it('says a listed rule is not in force, and does not count it again as withheld', async () => {

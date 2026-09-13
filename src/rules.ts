@@ -17,11 +17,12 @@
 
 import path from 'node:path';
 
-import { createExcludeMatcher, createGlobMatcher } from './glob.js';
+import { createExcludeMatcher, createGlobMatcher, globToRegExp } from './glob.js';
 import { isGraphFile } from './graph.js';
 import { ANALYSABLE_EXTENSIONS } from './imports.js';
 import { layerMatcher } from './layers.js';
-import type { Assertion, BaselineEntry, Bounds, DirectiveKind, SearchOptions } from './types.js';
+import { expandPartner } from './structure.js';
+import type { Assertion, BaselineEntry, Bounds, DirectiveKind, SearchOptions, StructureClaim } from './types.js';
 
 /** Whether a query is about one file or everything under a directory. */
 export type PathShape = 'file' | 'directory';
@@ -80,6 +81,28 @@ export function governs(assertion: Assertion, query: QueryPath): boolean {
 
   const options = assertion.search as SearchOptions;
   const excluded = createExcludeMatcher(options.excludeGlobs);
+  const structure = assertion.structure;
+
+  // A required-entries rule is about directories, and a file is governed by it
+  // when the directory it sits in is one the rule holds to its entries: that is
+  // what someone creating the file needs to know about its neighbours.
+  if (structure?.claim === 'required') {
+    const dirs = structure.dirs === undefined ? null : globToRegExp(structure.dirs);
+    const selects = (directory: string): boolean =>
+      !excluded(directory) &&
+      assertion.targets.some((target) =>
+        dirs === null
+          ? directory === target
+          : directory !== target &&
+            within(directory, target) &&
+            !skippedOnTheWay(target, directory, options, false) &&
+            dirs.test(path.posix.relative(target, directory)),
+      );
+    if (query.shape === 'file') return selects(path.posix.dirname(query.path));
+    // Without `dirs` nothing below a target is selected, so a directory is
+    // governed only when it is a target or holds one.
+    if (dirs === null) return assertion.targets.some((target) => within(target, query.path) && !excluded(target));
+  }
 
   if (query.shape === 'file') {
     return (
@@ -157,6 +180,17 @@ export interface RuleView {
   modules?: string[];
   types?: 'include' | 'ignore';
   order?: string[];
+  /** The structure rules: which claim, and its list under the claim's own name. */
+  claim?: StructureClaim;
+  pattern?: string[];
+  required?: string[];
+  /** The glob choosing directories for `required`, or null for the targets themselves. */
+  dirs?: string | null;
+  partner?: string[];
+  /** For a naming rule asked about a file: whether its name is allowed. */
+  named?: boolean;
+  /** For a partner rule asked about a file: the paths that would satisfy it. */
+  partners?: string[];
   /** Files exempted by a baseline - for a query, only those at or under the path. */
   baseline?: readonly BaselineEntry[];
   /** For `@assert-layers` asked about a path: where the path sits. */
@@ -208,6 +242,31 @@ export function viewRule(assertion: Assertion, document: DocumentView, query?: Q
   const options = assertion.search as SearchOptions;
   const baseline = query ? assertion.baseline.filter((entry) => within(entry.path, query.path)) : assertion.baseline;
   const scoped: RuleView = { ...view, targets: assertion.targets, exclude: options.excludeGlobs };
+
+  const structure = assertion.structure;
+  if (structure?.claim === 'required') {
+    return { ...scoped, claim: 'required', required: structure.values, dirs: structure.dirs ?? null, baseline };
+  }
+  if (structure !== undefined) {
+    const file = query?.shape === 'file' ? query.path : undefined;
+    // The target `[dir]` is measured from is the first one whose walk reaches
+    // the file, as it is in a run.
+    const target =
+      file === undefined
+        ? undefined
+        : assertion.targets.find((candidate) => within(file, candidate) && !skippedOnTheWay(candidate, file, options, true));
+    return {
+      ...scoped,
+      glob: options.globs,
+      claim: structure.claim,
+      [structure.claim]: structure.values,
+      baseline,
+      ...(file !== undefined && structure.claim === 'pattern' ? { named: createGlobMatcher(structure.values)(file) } : {}),
+      ...(target !== undefined && structure.claim === 'partner'
+        ? { partners: structure.values.map((template) => expandPartner(template, file as string, target)) }
+        : {}),
+    };
+  }
 
   if (assertion.imports === undefined) {
     return {

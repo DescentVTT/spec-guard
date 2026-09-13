@@ -961,6 +961,66 @@ Three survivors are equivalent and stay:
 | fence check `open.index < e` to `<=` | a consumed range ends at the end of a line, where no fence can begin |
 | `matches: []` in the result of searching nothing | with no file counts, the baseline filter shows no match whatever the array holds |
 
+### Unreleased: structure assertions, swept before they were pushed
+
+[ADR-0013](0013-structure-assertions.md) followed the same order as ADR-0012.
+First, a local sweep scoped to the new module and the changed lines of seven
+others, with static mutants left out. Then each survivor was replayed by hand
+and dealt with. CI's full sweep has the last word.
+
+The first sweep scored **98.07% over 1,089 mutants, with 21 survivors and 14
+timeouts**. Three groups again.
+
+**Tests that were missing: fourteen, and one older.**
+
+- A list joined with `, ` that was only ever tested with one element: the name
+  patterns in the query.
+- A file literally named `.git`, which a git worktree has. Asking about it tells
+  a file from a skipped directory of the same name.
+- `dirs` normalised by a leading `./` alone and by every trailing slash, not by
+  `./` anywhere or by one slash.
+- An empty warnings list on a structure result with every target present, and
+  the missing targets recorded on the assertion, as every other kind records
+  them.
+- `--max-snippets` on the new list of violations.
+- A directory that cannot be listed on the way to a target, where an unguarded
+  lookup would throw.
+- A required glob under a directory that is not there.
+- A placeholder beside a bracket, `[[name]]`, where what is left after the
+  placeholders are removed decides the message.
+- Violations in path order across two targets and two depths. Walk order puts
+  `src/a/x.ts` before `src/a.ts`, and a missing sort survived that.
+- The partner hint naming the *first* file in path order when two expect the
+  same partner.
+- And one older gap on a line the sweep happened to cover: `@assert-count` was
+  never tested with both `expected` and `max`, only with `expected` and `min`.
+
+**Code no test could observe, which was changed rather than tested.**
+
+- The walk's directory reader threw its own error for a failed listing, and
+  copied the entries because the walk sorts them. The index now keeps the
+  reader's own promise beside the lookup it builds from it, so the walk sees the
+  original failure. And the sort is in place on a list that is already sorted
+  the second time.
+- `kindOf` returned `'directory'` to a caller that only tested for `null` and
+  `'file'`. The caller now tests for `'directory'` too.
+- A required entry's trailing `/` was sliced off before `path.posix.basename` and
+  `dirname`, both of which already ignore it.
+
+**Equivalent, and older than this work:** `glob.ts`'s `realpath` fallback when
+following symbolic links, which structure rules never do.
+
+The second sweep scored **99.72%**, with two survivors that were real, both
+description joins only ever tested with one `glob` and one `exclude`. Both were
+replayed by hand after the test was widened, and both are killed.
+
+Then the listing cache was re-keyed by path from the root, for the cost ADR-0013
+measures, and the module was swept a third time: **100% over 404 mutants, with no
+survivors and one timeout**. The timeout was looked at rather than counted. It
+turns the walk's `|| '.'` into `&& '.'`, so every directory the walk reads
+answers with the root's entries, and the walk descends for ever. No assertion
+can fail before a clock does, so this is the one kind of timeout that is a kill.
+
 ## Consequences
 
 Whoever bumps vitest to 5 will fail CI on the assertion above, and land on this

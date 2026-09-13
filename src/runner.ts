@@ -47,6 +47,13 @@ import {
   EMPTY_LEDGER,
   type ScopePolicy,
 } from "./scope.js";
+import {
+  checkStructure,
+  createTreeIndex,
+  partnerTemplateIssue,
+  requiredEntryIssue,
+  type TreeIndex,
+} from "./structure.js";
 import type {
   Assertion,
   AssertionResult,
@@ -62,6 +69,8 @@ import type {
   SearchResult,
   SpecStatus,
   StaleBaselineEntry,
+  StructureClaim,
+  StructureQuery,
 } from "./types.js";
 
 export const DEFAULT_MAX_SNIPPETS = 5;
@@ -489,10 +498,25 @@ export function resolveDirective(
     // itself and names no subject; layers name theirs in `order`.
     const graphKind = kind === "assert-import-cycle" || kind === "assert-layers";
     const isImportKind = perModule || graphKind;
-    const subject =
-      kind === "assert-layers" ? "order" : perModule ? "module" : "symbol";
+    // ADR-0013: a structure rule names its subject by naming its claim, and
+    // names exactly one. Two claims in one directive would count two different
+    // things in one number.
+    const structureKind = kind === "assert-structure";
+    const claims = STRUCTURE_CLAIMS.filter((claim) => attributes[claim] !== undefined);
+    if (structureKind && claims.length !== 1) {
+      return fail(
+        claims.length === 0
+          ? '@assert-structure requires one of pattern="...", required="..." or partner="...".'
+          : `@assert-structure makes one claim per directive, got ${claims.join(" and ")}.`,
+      );
+    }
+    const subject = structureKind
+      ? (claims[0] as StructureClaim)
+      : kind === "assert-layers" ? "order" : perModule ? "module" : "symbol";
     const symbol = attributes[subject] ?? "";
-    if (kind !== "assert-import-cycle" && symbol.length === 0) {
+    // A list attribute is empty when it lists nothing, whatever its length; a
+    // symbol of one space is a symbol.
+    if (kind !== "assert-import-cycle" && (structureKind ? splitList(symbol).length : symbol.length) === 0) {
       return fail(`@${kind} requires a non-empty ${subject}="..." attribute.`);
     }
 
@@ -525,7 +549,7 @@ export function resolveDirective(
     );
 
     const bounds: Bounds = {};
-    if (kind === "assert-absence" || kind === "assert-import-absence" || graphKind) {
+    if (kind === "assert-absence" || kind === "assert-import-absence" || graphKind || structureKind) {
       if (
         attributes["expected"] !== undefined &&
         attributes["max"] !== undefined
@@ -578,6 +602,17 @@ export function resolveDirective(
           );
         }
       }
+    }
+
+    if (structureKind) {
+      return resolveStructure(directive, subject as StructureClaim, splitList(symbol), {
+        targets,
+        bounds,
+        allowEmpty,
+        baseline,
+        ratchet,
+        scope: context.scope ?? DEFAULT_SCOPE,
+      });
     }
 
     if (isImportKind) {
@@ -700,6 +735,92 @@ export function resolveDirective(
   }
 }
 
+const STRUCTURE_CLAIMS: readonly StructureClaim[] = ["pattern", "required", "partner"];
+
+/** What each structure claim counts. */
+const STRUCTURE_UNITS: Record<StructureClaim, Unit> = {
+  pattern: { one: "misnamed file", many: "misnamed files" },
+  required: { one: "directory missing an entry", many: "directories missing an entry" },
+  partner: { one: "file without a partner", many: "files without a partner" },
+};
+
+/**
+ * The rest of an `@assert-structure` directive, once what every rule shares is
+ * read. Throws for a directive that cannot mean what it says, which
+ * `resolveDirective` reports as the directive's error.
+ */
+function resolveStructure(
+  directive: Directive,
+  claim: StructureClaim,
+  values: string[],
+  shared: Pick<Assertion, "targets" | "bounds" | "allowEmpty" | "baseline" | "ratchet"> & { scope: ScopePolicy },
+): { assertion: Assertion } {
+  const { attributes } = directive;
+  const required = claim === "required";
+  const globs = splitList(attributes["glob"]);
+  const excludeGlobs = splitList(attributes["exclude"]);
+
+  // Two attributes that would otherwise be read and ignored, which is a rule
+  // saying something it does not check.
+  if (attributes["dirs"] !== undefined && !required) {
+    throw new Error(`Attribute "dirs" chooses the directories of required="...", and this directive claims ${claim}="...".`);
+  }
+  if (required && globs.length > 0) {
+    throw new Error(`Attribute "glob" chooses files, and required="..." is about directories; dirs="..." chooses those.`);
+  }
+  const dirs = attributes["dirs"]?.trim().replace(/^\.\//, "").replace(/\/+$/, "");
+  if (dirs === "") throw new Error(`Attribute "dirs" must not be empty.`);
+
+  const issue = values
+    .map((value) => (required ? requiredEntryIssue(value) : claim === "partner" ? partnerTemplateIssue(value) : null))
+    .find((found) => found !== null);
+  if (issue) throw new Error(issue);
+
+  const scope = shared.targets.join(", ");
+  const matching = globs.length > 0 ? ` matching ${globs.join(", ")}` : "";
+  const claimed =
+    claim === "pattern"
+      ? `files in ${scope}${matching} must be named ${values.join(" or ")}`
+      : claim === "partner"
+        ? `files in ${scope}${matching} must each have a partner ${values.join(" or ")}`
+        : dirs === undefined
+          ? `${scope} must contain ${values.join(", ")}`
+          : `directories matching ${dirs} under ${scope} must contain ${values.join(", ")}`;
+  const allowance = shared.bounds.max === 0 ? "" : `, with ${describeBounds(shared.bounds, STRUCTURE_UNITS[claim])}`;
+  const except = excludeGlobs.length > 0 ? ` (excluding ${excludeGlobs.join(", ")})` : "";
+
+  return {
+    assertion: {
+      kind: directive.kind,
+      location: directive.location,
+      description: `${claimed}${allowance}${except}`,
+      reason: attributes["reason"],
+      targets: shared.targets,
+      files: [],
+      bounds: shared.bounds,
+      search: {
+        regex: false,
+        word: false,
+        ignoreCase: false,
+        globs,
+        excludeGlobs,
+        // Nothing is read, so there is no comment to leave out.
+        ignoreComments: false,
+        scope: shared.scope,
+        // The spec files are in scope. Every other rule leaves them out so a
+        // text rule does not find its own directive, and a structure rule reads
+        // no text - while a rule about what the ADRs are called is about them.
+        excludeFiles: new Set(),
+      },
+      structure: dirs === undefined ? { claim, values } : { claim, values, dirs },
+      missingTargets: [],
+      allowEmpty: shared.allowEmpty,
+      baseline: shared.baseline,
+      ratchet: shared.ratchet,
+    },
+  };
+}
+
 /**
  * The spec files a search must not count, as absolute paths.
  *
@@ -725,6 +846,8 @@ export interface ExecuteOptions {
   imports: ImportIndex;
   /** Per-run cache for "is there anything in this scope". */
   hasFiles: (request: SearchRequest) => Promise<boolean>;
+  /** Per-run directory listings and walks, for the structure rules. */
+  tree: TreeIndex;
 }
 
 /**
@@ -761,6 +884,7 @@ async function prepareAssertion(
     targets: assertion.targets,
     files: assertion.files,
     bounds: assertion.bounds,
+    claim: assertion.structure?.claim,
     warnings,
     commentMatches: 0,
     unclassifiedFiles: 0,
@@ -800,6 +924,10 @@ async function prepareAssertion(
     );
   }
 
+  if (assertion.structure) {
+    return executeStructureAssertion(assertion, assertion.structure, options, base, warnings, startedAt);
+  }
+
   const existingTargets: string[] = [];
   for (const target of assertion.targets) {
     if (await pathExists(path.resolve(options.root, target)))
@@ -807,18 +935,15 @@ async function prepareAssertion(
     else assertion.missingTargets.push(target);
   }
 
-  if (assertion.missingTargets.length > 0) {
-    warnings.push(
-      `target path${assertion.missingTargets.length === 1 ? "" : "s"} not found: ${assertion.missingTargets.join(", ")}`,
-    );
-  }
+  const notFound = missingTargets(assertion.missingTargets);
+  if (assertion.missingTargets.length > 0) warnings.push(notFound.warning);
 
   if (!options.allowMissingTargets && assertion.missingTargets.length > 0) {
     return {
       ...base,
       ok: false,
       actual: 0,
-      message: `target path${assertion.missingTargets.length === 1 ? " does" : "s do"} not exist: ${assertion.missingTargets.join(", ")}`,
+      message: notFound.failure,
       matches: [],
       durationMs: elapsed(startedAt),
     };
@@ -892,6 +1017,96 @@ async function prepareAssertion(
   return nothingLeft ? finish(NOTHING_SEARCHED) : { request, finish };
 }
 
+/**
+ * What a report says about targets that are not there: a warning always, and a
+ * failure unless `--allow-missing-targets` tolerates it. One place for the
+ * words, since every kind of rule that has a target says them.
+ */
+function missingTargets(missing: readonly string[]): { warning: string; failure: string } {
+  const one = missing.length === 1;
+  return {
+    warning: `target path${one ? "" : "s"} not found: ${missing.join(", ")}`,
+    failure: `target path${one ? " does" : "s do"} not exist: ${missing.join(", ")}`,
+  };
+}
+
+/**
+ * Holds a structure rule to the tree, by name. ADR-0013.
+ *
+ * Four things fail before any count is read, because each is a rule that would
+ * otherwise pass without checking what it says: a missing target, a `required`
+ * target that is a file, a partner template that names the file itself, and a
+ * scope holding nothing.
+ */
+async function executeStructureAssertion(
+  assertion: Assertion,
+  query: StructureQuery,
+  options: Omit<ExecuteOptions, "engine">,
+  base: ImportBase,
+  warnings: string[],
+  startedAt: number,
+): Promise<AssertionResult> {
+  const search = assertion.search as SearchOptions;
+  const check = await checkStructure(
+    query,
+    {
+      targets: assertion.targets,
+      globs: search.globs,
+      excludeGlobs: search.excludeGlobs,
+      scope: search.scope,
+    },
+    options.tree,
+  );
+
+  assertion.missingTargets.push(...check.missing);
+  const notFound = missingTargets(check.missing);
+  if (check.missing.length > 0) warnings.push(notFound.warning);
+
+  const files = check.notDirectories;
+  const self = check.selfPartner;
+  const failure =
+    !options.allowMissingTargets && check.missing.length > 0
+      ? notFound.failure
+      : files.length > 0
+        ? `required="..." is about directories, and ${files.length === 1 ? "this target is a file" : "these targets are files"}: ${files.join(", ")}`
+        : self !== undefined
+          ? `partner template ${self.template} names ${self.file} itself, so every file would be its own partner`
+          : check.inspected === 0 && !options.allowEmptyScope && !assertion.allowEmpty
+            ? `no ${query.claim === "required" ? "directories were selected" : "files were inspected"}, so this assertion verified nothing (${EMPTY_SCOPE_HINT})`
+            : null;
+
+  const fileCounts = new Map(check.violations.map((violation) => [violation.path, 1]));
+  const { excluded, stale, shows } = applyBaseline(assertion.baseline, fileCounts);
+  const staleFailure = assertion.ratchet === "two-sided" && stale.length > 0;
+  const gaps = check.scope.skipped.length;
+  const strictFailure = options.strictTargets && gaps > 0;
+  const actual = check.violations.length - excluded;
+
+  return {
+    ...base,
+    ok: failure === null && satisfies(actual, assertion.bounds) && !staleFailure && !strictFailure,
+    actual,
+    message:
+      failure ??
+      describeOutcome(
+        assertion.bounds,
+        actual,
+        { excluded, stale: staleFailure ? stale : [], gaps: strictFailure ? gaps : 0 },
+        STRUCTURE_UNITS[query.claim],
+      ),
+    baselinedMatches: excluded,
+    staleBaseline: stale,
+    fileMatches: [...fileCounts].map(([file, count]) => ({ file, count })),
+    // No line and no column: what is wrong is the path itself.
+    matches: check.violations
+      .filter((violation) => shows(violation.path))
+      .slice(0, options.maxSnippets)
+      .map((violation) => ({ file: violation.path, line: 0, column: 0, text: violation.text, count: 1 })),
+    scope: check.scope,
+    durationMs: elapsed(startedAt),
+  };
+}
+
 /** The result of a search that had no files to look at, and so ran no engine. */
 type Unsearched = Omit<SearchResult, "engine"> & { engine?: undefined };
 
@@ -939,11 +1154,8 @@ async function executeImportAssertion(
     else assertion.missingTargets.push(target);
   }
 
-  if (assertion.missingTargets.length > 0) {
-    warnings.push(
-      `target path${assertion.missingTargets.length === 1 ? "" : "s"} not found: ${assertion.missingTargets.join(", ")}`,
-    );
-  }
+  const notFound = missingTargets(assertion.missingTargets);
+  if (assertion.missingTargets.length > 0) warnings.push(notFound.warning);
 
   // No symbol: an import assertion never runs a text search, and the walk does
   // not depend on one. This used to pass `symbol: ""`, an invented value that
@@ -965,7 +1177,7 @@ async function executeImportAssertion(
   // its scope is empty - which is true, and not the thing to fix.
   const missing =
     !options.allowMissingTargets && assertion.missingTargets.length > 0
-      ? `target path${assertion.missingTargets.length === 1 ? " does" : "s do"} not exist: ${assertion.missingTargets.join(", ")}`
+      ? notFound.failure
       : null;
 
   // A cycle needs files the resolver can name, which today means JavaScript
@@ -1374,6 +1586,7 @@ export async function runSpecGuard(options: RunOptions): Promise<RunResult> {
     maxSnippets,
     imports: createImportIndex(),
     hasFiles: createScopeProbe(),
+    tree: createTreeIndex(root),
   };
   const results: AssertionResult[] = [];
 

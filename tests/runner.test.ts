@@ -4,6 +4,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { resetRipgrepProbe } from '../src/engine.js';
 import { createImportIndex } from '../src/imports.js';
 import { EMPTY_LEDGER } from '../src/scope.js';
+import { createTreeIndex } from '../src/structure.js';
 import { createScopeProbe, executeAssertion, resolveDirective, runSpecGuard } from '../src/runner.js';
 import type { Directive, DirectiveKind } from '../src/types.js';
 import { DEMO_REPO, findTestRipgrep, makeTempRepo, removeTempRepo } from './helpers.js';
@@ -87,6 +88,7 @@ describe('resolveDirective', () => {
   it.each([
     [{ symbol: 'X' }, 'requires expected'],
     [{ symbol: 'X', expected: '1', min: '1' }, 'not both'],
+    [{ symbol: 'X', expected: '1', max: '2' }, 'not both'],
     [{ symbol: 'X', min: '3', max: '1' }, 'greater than'],
     [{ symbol: 'X', expected: 'many' }, 'non-negative integer'],
     [{ symbol: 'X', expected: '-1' }, 'non-negative integer'],
@@ -422,6 +424,7 @@ describe('executeAssertion', () => {
       maxSnippets: 5,
       imports: createImportIndex(),
       hasFiles: createScopeProbe(),
+      tree: createTreeIndex(DEMO_REPO),
     });
 
     expect(result).toMatchObject({ ok: true, actual: 2, message: 'all 2 referenced paths exist' });
@@ -441,6 +444,7 @@ describe('executeAssertion', () => {
       maxSnippets: 5,
       imports: createImportIndex(),
       hasFiles: createScopeProbe(),
+      tree: createTreeIndex(DEMO_REPO),
     });
 
     expect(result).toMatchObject({ ok: true, message: 'all 1 referenced path exists' });

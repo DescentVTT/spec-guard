@@ -69,6 +69,7 @@ describe('the document', () => {
       'assert-import-count',
       'assert-import-cycle',
       'assert-layers',
+      'assert-structure',
       'invalid-directive',
     ]);
   });

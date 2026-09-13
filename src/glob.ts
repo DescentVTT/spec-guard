@@ -200,6 +200,14 @@ export interface WalkOptions {
    */
   onSkip?: (relativePath: string, reason: SkipReason) => void;
   /**
+   * Called for every directory the walk enters, below the one it started in.
+   *
+   * For the rules about directories (ADR-0013). Deriving directories from the
+   * files a walk yields cannot see an empty one, and an empty package is the
+   * clearest case of a package missing its manifest.
+   */
+  onDirectory?: (relativePath: string) => void;
+  /**
    * Directory reader, defaulting to `fs.readdir`.
    *
    * This exists because the ordering guarantee below is otherwise untestable on
@@ -301,6 +309,7 @@ export async function* walkPaths(root: string, options: WalkOptions = {}): Async
         const real = followSymlinks ? await fs.realpath(absolutePath).catch(() => absolutePath) : absolutePath;
         if (seen.has(real)) continue;
         seen.add(real);
+        options.onDirectory?.(relativePath);
         yield* visit(absolutePath, relativePath);
         continue;
       }

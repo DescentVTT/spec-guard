@@ -23,7 +23,7 @@ const context = { file: 'C:/repo/docs/a.md', relativeFile: 'docs/a.md' };
 /* ------------------------------------------------------------- the grammar */
 
 describe('the directive table', () => {
-  it('knows exactly these seven directives', () => {
+  it('knows exactly these eight directives', () => {
     expect([...KINDS]).toEqual([
       'assert-absence',
       'assert-count',
@@ -32,6 +32,7 @@ describe('the directive table', () => {
       'assert-import-count',
       'assert-import-cycle',
       'assert-layers',
+      'assert-structure',
     ]);
   });
 
@@ -108,6 +109,22 @@ describe('the directive table', () => {
         'ratchet',
         'reason',
       ],
+      // No types and no comments: a structure rule reads names, never contents.
+      'assert-structure': [
+        'target',
+        'pattern',
+        'required',
+        'partner',
+        'dirs',
+        'glob',
+        'exclude',
+        'expected',
+        'max',
+        'allow-empty',
+        'baseline',
+        'ratchet',
+        'reason',
+      ],
     };
 
     for (const [kind, names] of Object.entries(expected)) {
@@ -131,7 +148,7 @@ describe('the directive table', () => {
 
     expect(errors[0]?.message).toBe(
       'Unknown directive "@assert-nonsense". Expected one of: @assert-absence, @assert-count, ' +
-        '@assert-present, @assert-import-absence, @assert-import-count, @assert-import-cycle, @assert-layers.',
+        '@assert-present, @assert-import-absence, @assert-import-count, @assert-import-cycle, @assert-layers, @assert-structure.',
     );
   });
 

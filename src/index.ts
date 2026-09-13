@@ -115,6 +115,9 @@ export type { GraphInput, GraphScope, ImportGraph, Resolution, Unresolved } from
 export { checkLayers, layerMatcher } from './layers.js';
 export type { LayerInput, LayerReport, LayerViolation } from './layers.js';
 
+export { checkStructure, createTreeIndex, expandPartner, partnerTemplateIssue, requiredEntryIssue } from './structure.js';
+export type { Listing, StructureCheck, StructureRequest, StructureViolation, Tree, TreeIndex } from './structure.js';
+
 export { lineStarts, locate, maskRanges } from './text.js';
 
 export { maskCode, parseAttributes, parseDirectives, parseDocument, parseStatus, parseTitle, INACTIVE_STATUSES } from './parser.js';
@@ -190,4 +193,6 @@ export type {
   SourceLocation,
   SpecStatus,
   StaleBaselineEntry,
+  StructureClaim,
+  StructureQuery,
 } from './types.js';

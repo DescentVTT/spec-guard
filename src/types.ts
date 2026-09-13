@@ -15,7 +15,27 @@ export type DirectiveKind =
   | 'assert-import-absence'
   | 'assert-import-count'
   | 'assert-import-cycle'
-  | 'assert-layers';
+  | 'assert-layers'
+  | 'assert-structure';
+
+/** What an `@assert-structure` directive claims. Exactly one per directive; see ADR-0013. */
+export type StructureClaim = 'pattern' | 'required' | 'partner';
+
+/** The claim of an `@assert-structure` directive, resolved. */
+export interface StructureQuery {
+  claim: StructureClaim;
+  /**
+   * The claim's list, as written: the name patterns every file must match, the
+   * entries every directory must hold, or the partner templates of which one
+   * must exist.
+   */
+  values: string[];
+  /**
+   * For `required`, the glob choosing directories below each target. Absent
+   * when the rule is about the targets themselves.
+   */
+  dirs?: string;
+}
 
 /** Extra scope carried by the import assertions. */
 export interface ImportQuery {
@@ -167,9 +187,12 @@ export interface Bounds {
 export interface MatchLocation {
   /** Path relative to root, forward slashes. */
   file: string;
-  /** 1-based line number. */
+  /**
+   * 1-based line number, or 0 when the match is the path as a whole - a file
+   * with the wrong name, or a directory missing an entry, has no line.
+   */
   line: number;
-  /** 1-based column of the first match on that line. */
+  /** 1-based column of the first match on that line; 0 alongside a line of 0. */
   column: number;
   /** Trimmed line content, truncated for display. */
   text: string;
@@ -225,6 +248,8 @@ export interface Assertion {
    * on to the layer that may depend on everything. See ADR-0011.
    */
   layers?: string[];
+  /** Present on `@assert-structure`. */
+  structure?: StructureQuery;
   /**
    * Known violations that do not count. Empty when the directive declared none.
    *
@@ -260,6 +285,14 @@ export interface AssertionResult {
   targets: string[];
   files: string[];
   bounds: Bounds;
+  /**
+   * The claim of an `@assert-structure` result.
+   *
+   * Carried because it decides what a match is: a file for `pattern` and
+   * `partner`, a directory for `required` - and a directory is not something a
+   * code-scanning annotation can be placed on.
+   */
+  claim?: StructureClaim;
   /** Observed count: matches for searches, existing files for `assert-present`. */
   actual: number;
   /** Short "expected X, found Y" style explanation. */

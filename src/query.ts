@@ -218,6 +218,10 @@ function ruleDetails(rule: RuleView): string[] {
       if (mustNotImport.length > 0) lines.push(`must not import: ${mustNotImport.join(', ')}`);
     }
   }
+  if (rule.named !== undefined) {
+    lines.push(rule.named ? 'name: allowed' : `name: not allowed - it matches none of ${(rule.pattern as string[]).join(', ')}`);
+  }
+  if (rule.partners) lines.push(`partner: ${rule.partners.join(' or ')}`);
   if (rule.baseline && rule.baseline.length > 0) {
     lines.push(`baseline: ${rule.baseline.map((entry) => `${entry.path} (${entry.declared})`).join(', ')}`);
   }

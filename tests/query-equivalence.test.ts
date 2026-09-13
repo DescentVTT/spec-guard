@@ -53,11 +53,21 @@ function directoriesOf(files: readonly string[]): string[] {
   return [...directories].sort();
 }
 
-/** The files a finished run looked at, read off its report. */
+/**
+ * The files a finished run looked at, read off its report - or, for a rule
+ * about directories, the directories it held to their entries.
+ *
+ * A structure rule reads no contents, so its marker is its claim: a pattern no
+ * name matches, a partner no file has and an entry no directory holds make
+ * every subject in scope a violation, and the violations are the scope.
+ */
 function observed(result: AssertionResult): string[] {
   if (result.kind === 'assert-import-cycle') return result.matches.map((match) => match.file).sort();
   return result.fileMatches.map((entry) => entry.file).sort();
 }
+
+/** A file that does not exist: asking about one is asking about its directory. */
+const PROBE = 'probe-that-is-not-there';
 
 async function compare(files: readonly string[], directives: readonly string[], engine: 'javascript' | 'ripgrep'): Promise<number> {
   const tree: Record<string, string> = Object.fromEntries(files.map((file) => [file, marked(file)]));
@@ -85,11 +95,14 @@ async function compare(files: readonly string[], directives: readonly string[], 
     const seen = observed(result);
     const query = (relative: string, shape: QueryPath['shape']): QueryPath => ({ path: relative, shape, absolutePath: path.resolve(root, relative) });
 
-    const governed = all.filter((file) => governs(assertion, query(file, 'file'))).sort();
+    const governed =
+      assertion.structure?.claim === 'required'
+        ? directoriesOf(all).filter((directory) => governs(assertion, query(path.posix.join(directory, PROBE), 'file')))
+        : all.filter((file) => governs(assertion, query(file, 'file'))).sort();
     expect(governed, `${engine}: ${assertion.description}`).toEqual(seen);
 
     for (const directory of directoriesOf(all)) {
-      const holdsASeenFile = seen.some((file) => directory === '.' || file.startsWith(`${directory}/`));
+      const holdsASeenFile = seen.some((file) => directory === '.' || file === directory || file.startsWith(`${directory}/`));
       if (holdsASeenFile) expect(governs(assertion, query(directory, 'directory')), `${engine}: ${assertion.description} on ${directory}/`).toBe(true);
     }
     checked += 1;
@@ -138,6 +151,18 @@ const DIRECTIVES = [
   '<!-- @assert-import-count target="lib, src/legacy" module="mark" max="0" -->',
   '<!-- @assert-import-cycle max="0" -->',
   '<!-- @assert-import-cycle target="src" exclude="src/deep" max="0" -->',
+  '<!-- @assert-structure pattern="NONE" -->',
+  '<!-- @assert-structure target="src, lib" glob="*.ts, *.go" exclude="legacy" pattern="NONE" -->',
+  '<!-- @assert-structure target="docs, src/index.ts" pattern="NONE" -->',
+  '<!-- @assert-structure target="src/index.ts, src/app.tsx, lib" exclude="index.ts" pattern="NONE" -->',
+  '<!-- @assert-structure target="src" exclude="src/deep/**/*.test.ts" partner="[name].none" -->',
+  '<!-- @assert-structure target="node_modules/pkg, missing" partner="tests/[dir]/[name].none" -->',
+  '<!-- @assert-structure required="NONE" -->',
+  '<!-- @assert-structure target="src, lib" required="NONE" -->',
+  '<!-- @assert-structure target="src" dirs="*" required="NONE" -->',
+  '<!-- @assert-structure target="src, lib" dirs="**" exclude="legacy" required="NONE" -->',
+  '<!-- @assert-structure dirs="*/node_modules" required="NONE" -->',
+  '<!-- @assert-structure target="node_modules" dirs="**" exclude="dep" required="NONE" -->',
 ];
 
 describe('a query against the walk it stands in for', () => {
@@ -183,14 +208,20 @@ describe('a query against the walk it stands in for', () => {
         const targets = Array.from({ length: random(3) }, () => Array.from({ length: 1 + random(2) }, () => pick(segments)).join('/'));
         const target = targets.length > 0 ? ` target="${targets.join(', ')}"` : '';
         const exclude = random(2) === 0 ? ` exclude="${pick(excludes)}"` : '';
-        const kind = random(3);
+        const kind = random(5);
+        const glob = random(2) === 0 ? ` glob="${pick(globs)}"` : '';
         if (kind === 0) {
-          const glob = random(2) === 0 ? ` glob="${pick(globs)}"` : '';
           directives.push(`<!-- @assert-absence${target} symbol="MARK" comments="include"${exclude}${glob} -->`);
         } else if (kind === 1) {
           directives.push(`<!-- @assert-import-absence${target} module="mark"${exclude} -->`);
-        } else {
+        } else if (kind === 2) {
           directives.push(`<!-- @assert-import-cycle${target}${exclude} max="0" -->`);
+        } else if (kind === 3) {
+          const claim = random(2) === 0 ? 'pattern="NONE"' : 'partner="tests/[dir]/[name].none"';
+          directives.push(`<!-- @assert-structure${target}${exclude}${glob} ${claim} -->`);
+        } else {
+          const dirs = random(3) === 0 ? '' : ` dirs="${pick(['*', '**', '*/*', 'src', '**/web', 'lib/*'])}"`;
+          directives.push(`<!-- @assert-structure${target}${exclude}${dirs} required="NONE" -->`);
         }
       }
 

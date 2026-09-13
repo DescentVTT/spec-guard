@@ -152,6 +152,7 @@ describe('every allowed attribute is actually allowed', () => {
     'assert-import-count': ['target', 'module', 'exclude', 'types', 'expected', 'min', 'max', 'reason'],
     'assert-import-cycle': ['target', 'exclude', 'types', 'expected', 'max', 'allow-empty', 'reason'],
     'assert-layers': ['target', 'order', 'exclude', 'types', 'expected', 'max', 'allow-empty', 'baseline', 'ratchet', 'reason'],
+    'assert-structure': ['target', 'pattern', 'required', 'partner', 'dirs', 'glob', 'exclude', 'expected', 'max', 'allow-empty', 'baseline', 'ratchet', 'reason'],
   };
 
   for (const [kind, attributes] of Object.entries(allowed)) {

@@ -5,6 +5,46 @@ All notable changes to this project are documented here. Versions follow
 may change in a minor release — each such change is listed under **Changed**
 with the flag that restores the previous behaviour.
 
+## Unreleased
+
+An architecture document can now state conventions about names and layout: what
+the files in a directory are called, what every package holds, and which files
+come in pairs. [ADR-0013](docs/adr/0013-structure-assertions.md).
+
+### Added
+
+- **`@assert-structure`**, with exactly one of three claims per directive:
+  - `pattern="*.entity.ts, index.ts"` - every file in scope is named by one of
+    the patterns;
+  - `required="package.json, README.md"` - every directory holds each entry.
+    The directories are the targets, or with `dirs="*"` their children and with
+    `dirs="**"` every directory below them, empty ones included. An entry may be
+    a path, may end in a glob, and must be a directory when it ends in `/`;
+  - `partner="[name].test.[ext], tests/[dir]/test_[name].py"` - every file has
+    one of its partners. Three placeholders and no other grammar: `[name]` and
+    `[ext]` split the file name at its last dot, and `[dir]` is the file's
+    directory below its target.
+
+  Names are compared exactly from directory listings, never by looking a path
+  up, so `Readme.md` does not satisfy `README.md` on Windows or macOS any more
+  than it does on Linux. A scope with no files or no directories fails, as does
+  a partner template naming the file itself and a `required` target that is a
+  file. When a file has no partner because it *is* one, the report says so and
+  suggests the `exclude`. Takes `glob`, `exclude`, `max`, `allow-empty`,
+  `baseline` and `ratchet`. Spec files are in scope, and symbolic links are not
+  followed. All structure rules in a run share one walk per target and read
+  each directory once.
+- `spec-guard query` and the MCP server show what a structure rule asks of a
+  path: whether a file's name is allowed, the partners it needs, and - for a
+  file in a directory a `required` rule holds - that rule.
+- The JSON report carries `claim` on structure results. A match with `line: 0`
+  is a path rather than a place in one, and SARIF annotates a misnamed or
+  partnerless file at its first line, and a directory missing an entry at the
+  directive, with the directory in the message.
+- `checkStructure`, `createTreeIndex`, `expandPartner`, `partnerTemplateIssue`
+  and `requiredEntryIssue` are exported, with their types. `walkPaths` takes an
+  `onDirectory` callback.
+
 ## 0.7.0
 
 Two things an architecture document could not do before. It can state the shape
