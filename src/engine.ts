@@ -498,6 +498,37 @@ interface CandidateFile {
   relativePath: string;
 }
 
+/** What one file's scan found, for every pattern of a pass. */
+interface FileScan {
+  tallies: Map<string, Tally>;
+  binary: boolean;
+  /**
+   * Whether the file's comments could be told from its code, or undefined when
+   * no pattern matched and so nobody asked.
+   */
+  classified: boolean | undefined;
+}
+
+/**
+ * Scans one file's bytes for every pattern of a pass.
+ *
+ * A pure function of the bytes, the path (which decides the comment syntax),
+ * the patterns and how they match.
+ */
+function scanFile(buffer: Buffer, relativePath: string, regexps: ReadonlyMap<string, RegExp>, ignoreComments: boolean): FileScan {
+  const content = buffer.toString('utf8');
+  let mask: CommentMask | undefined;
+  const getMask = ignoreComments ? (): CommentMask => (mask ??= createCommentMask(content, relativePath)) : undefined;
+
+  const tallies = new Map<string, Tally>();
+  for (const [pattern, regexp] of regexps) {
+    tallies.set(pattern, scanContent(content, relativePath, regexp, getMask));
+  }
+  // Read after the loop, where every pattern has had its chance to ask.
+  const built = mask as CommentMask | undefined;
+  return { tallies, binary: isBinary(buffer), classified: built?.classified };
+}
+
 class JavaScriptEngine implements Engine {
   readonly name: EngineName = 'javascript';
 
@@ -536,30 +567,34 @@ class JavaScriptEngine implements Engine {
   ): Promise<SearchResult[]> {
     const [first] = requests;
     if (!first) return [];
-    const ledger = new LedgerBuilder();
-    for (const entry of skipped) ledger.add(entry.path, entry.reason, entry.matches);
-    for (const entry of unreadable) ledger.add(entry, 'unreadable');
     const patterns = [...new Set(requests.map((request) => request.symbol))];
     const regexps = new Map(patterns.map((pattern) => [pattern, buildJsRegExp(pattern, first.options)]));
     const tallies = new Map<string, Tally>(patterns.map((pattern) => [pattern, emptyTally()]));
-
+    // One ledger and one count of unclassified files per pattern, not one for
+    // the pass. A pass answers every rule over the same scope at once, and a
+    // binary file holding one rule's symbol is not a gap in another rule's
+    // answer - yet a shared ledger reported it against every rule in the pass,
+    // with all their matches added up, and --strict failed rules over a file
+    // that did not hold their symbol. Found by holding ADR-0014's watch
+    // session, which runs each rule alone, to a plain run.
+    const ledgers = new Map(patterns.map((pattern) => [pattern, new LedgerBuilder()]));
+    const unclassified = new Map(patterns.map((pattern) => [pattern, 0]));
+    for (const ledger of ledgers.values()) {
+      // What every rule shares: what the walk could not list, and what ripgrep
+      // could not read.
+      for (const entry of skipped) ledger.add(entry.path, entry.reason, entry.matches);
+      for (const entry of unreadable) ledger.add(entry, 'unreadable');
+    }
     // No floor of 1: an empty file list starts no readers, and a loop that
     // never runs produces the same empty tallies as one that runs once and
     // finds nothing. The guard was defending against an outcome it shared.
     const concurrency = readConcurrency(files.length);
     let cursor = 0;
-    const perFile = new Map<string, Map<string, Tally>>();
-    // What a reader could not inspect, by file. Kept here and entered in the
-    // ledger in walk order below, rather than by each reader as its read ends:
-    // that was the order reads happened to finish in, which differed between two
-    // runs of one tree - and past the ledger's cap, so did which paths it named.
-    // A watch session held to a fresh run found it (ADR-0014).
-    const gaps = new Map<string, { reason: 'unreadable' | 'binary'; matches?: number }>();
-    // Per pattern, how many matches each file holds. Only files that matched
-    // appear, so this is smaller than perFile, which already holds an entry for
-    // every file scanned - there is no new memory shape here.
-    const byFile = new Map<string, Map<string, number>>(patterns.map((pattern) => [pattern, new Map()]));
-    let unclassifiedFiles = 0;
+    // What each reader found, by file. Entered in the ledgers and the tallies
+    // in walk order below, rather than by each reader as its read ends: that
+    // was the order reads happened to finish in, which differed between two
+    // runs of one tree - and past a ledger's cap, so did which paths it named.
+    const scans = new Map<string, FileScan | null>();
 
     const worker = async (): Promise<void> => {
       while (cursor < files.length) {
@@ -567,24 +602,30 @@ class JavaScriptEngine implements Engine {
         /* c8 ignore next -- cursor is bounded by files.length */
         if (!file) return;
         const buffer = await this.io.readFile(file.absolutePath).catch(() => null);
-        if (!buffer) {
-          // A file we cannot open might hold anything, so it is recorded rather
-          // than passed over as though it had been read and found clean.
-          gaps.set(file.relativePath, { reason: 'unreadable' });
-          continue;
-        }
-        const content = buffer.toString('utf8');
-        let mask: CommentMask | undefined;
-        const getMask = first.options.ignoreComments
-          ? (): CommentMask => (mask ??= createCommentMask(content, file.relativePath))
-          : undefined;
+        // A file we cannot open might hold anything, so it is recorded rather
+        // than passed over as though it had been read and found clean.
+        scans.set(
+          file.relativePath,
+          buffer === null
+            ? null
+            : scanFile(buffer, file.relativePath, regexps, first.options.ignoreComments),
+        );
+      }
+    };
 
-        const scanned = new Map<string, Tally>();
-        for (const [pattern, regexp] of regexps) {
-          scanned.set(pattern, scanContent(content, file.relativePath, regexp, getMask));
-        }
+    await Promise.all(Array.from({ length: concurrency }, worker));
 
-        if (isBinary(buffer)) {
+    // Merge in walk order so snippets come out sorted by path, like ripgrep's,
+    // and so do the ledgers.
+    const byFile = new Map<string, Map<string, number>>(patterns.map((pattern) => [pattern, new Map()]));
+    for (const file of files) {
+      const scan = scans.get(file.relativePath) as FileScan | null;
+      if (scan === null) {
+        for (const ledger of ledgers.values()) ledger.add(file.relativePath, 'unreadable');
+        continue;
+      }
+      for (const [pattern, tally] of scan.tallies) {
+        if (scan.binary) {
           // Searched, but not counted. Skipping binary files silently was a way
           // to pass an assertion by never looking; searching them and saying
           // what was found leaves the decision with the reader.
@@ -594,28 +635,16 @@ class JavaScriptEngine implements Engine {
           // found clean - and leaving it out is also what keeps the two engines
           // reporting the same thing, since ripgrep only ever hands the scanner
           // files that matched.
-          const found = [...scanned.values()].reduce((total, tally) => total + tally.count, 0);
-          if (found > 0) gaps.set(file.relativePath, { reason: 'binary', matches: found });
+          if (tally.count > 0) (ledgers.get(pattern) as LedgerBuilder).add(file.relativePath, 'binary', tally.count);
           continue;
         }
-        // A mask exists only if some pattern matched, since that is the only
-        // thing that calls getMask - so reaching here already means this file
-        // matched and its language was not understood.
-        if (mask && !mask.classified) unclassifiedFiles += 1;
-        perFile.set(file.relativePath, scanned);
-      }
-    };
-
-    await Promise.all(Array.from({ length: concurrency }, worker));
-
-    // Merge in walk order so snippets come out sorted by path, like ripgrep's,
-    // and so does the ledger.
-    for (const file of files) {
-      const gap = gaps.get(file.relativePath);
-      if (gap) ledger.add(file.relativePath, gap.reason, gap.matches);
-      const scanned = perFile.get(file.relativePath);
-      if (!scanned) continue;
-      for (const [pattern, tally] of scanned) {
+        // A mask is built only once some pattern has matched, and a file this
+        // pattern did not match is not one whose comments it counted as code.
+        // No comment count here: a file whose comments cannot be told from its
+        // code has none, so every match it holds is in the count.
+        if (scan.classified === false && tally.count > 0) {
+          unclassified.set(pattern, (unclassified.get(pattern) as number) + 1);
+        }
         const total = tallies.get(pattern) as Tally;
         total.count += tally.count;
         total.commentCount += tally.commentCount;
@@ -626,16 +655,15 @@ class JavaScriptEngine implements Engine {
       }
     }
 
-    const scope = ledger.build();
     return requests.map((request) => {
-      const tally = tallies.get(request.symbol) ?? emptyTally();
+      const tally = tallies.get(request.symbol) as Tally;
       return {
         count: tally.count,
         commentMatches: tally.commentCount,
-        unclassifiedFiles,
+        unclassifiedFiles: unclassified.get(request.symbol) as number,
         matches: tally.locations,
-        fileCounts: byFile.get(request.symbol) ?? new Map<string, number>(),
-        scope,
+        fileCounts: byFile.get(request.symbol) as Map<string, number>,
+        scope: (ledgers.get(request.symbol) as LedgerBuilder).build(),
         engine: this.name,
       };
     });

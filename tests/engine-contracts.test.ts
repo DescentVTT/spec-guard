@@ -753,6 +753,72 @@ describe('the order of what the scanner could not inspect', () => {
   });
 });
 
+describe('a binary file in one pass shared by several rules', () => {
+  it('is a gap only for the rules whose symbol it holds, counted in their matches alone', async () => {
+    // Found by holding a watch session, which runs each rule alone, to a plain
+    // run, which scans every rule over one scope in a single pass. The pass
+    // kept one ledger for all of them, so a binary file holding one rule's
+    // symbol was reported against every rule in the pass, with every rule's
+    // matches added up - and --strict failed a rule over a file that did not
+    // hold its symbol at all.
+    const root = path.resolve('/spec-guard-virtual-root');
+    const io = memoryIo(root, { 'a.bin': 'Widget Widget Gadget\u0000', 'b.bin': 'Widget\u0000', 'c.bin': 'nothing\u0000' });
+    const ask = (symbol: string): SearchRequest => ({ root, symbol, targets: [], options: searchOptions() });
+    const [widget, gadget, gizmo] = await createJavaScriptEngine(io).searchBatch([ask('Widget'), ask('Gadget'), ask('Gizmo')]);
+
+    expect(widget?.scope.skipped).toEqual([
+      { path: 'a.bin', reason: 'binary', matches: 2 },
+      { path: 'b.bin', reason: 'binary', matches: 1 },
+    ]);
+    expect(gadget?.scope.skipped).toEqual([{ path: 'a.bin', reason: 'binary', matches: 1 }]);
+    expect(gizmo?.scope.skipped).toEqual([]);
+  });
+
+  it('counts a file whose comments it cannot tell from code only for the rules that matched in it', async () => {
+    // The same leak, in the other number a pass shared: a rule is told that
+    // comments counted as code in files where its symbol never appeared.
+    const root = path.resolve('/spec-guard-virtual-root');
+    const io = memoryIo(root, { 'notes.unknownlang': 'Widget\n', 'both.unknownlang': 'Widget Gadget\n', 'a.ts': '// Gadget\nGadget\n' });
+    const ask = (symbol: string): SearchRequest => ({ root, symbol, targets: [], options: searchOptions({ ignoreComments: true }) });
+    const [widget, gadget, gizmo] = await createJavaScriptEngine(io).searchBatch([ask('Widget'), ask('Gadget'), ask('Gizmo')]);
+    expect(widget).toMatchObject({ count: 2, unclassifiedFiles: 2 });
+    expect(gadget).toMatchObject({ count: 2, commentMatches: 1, unclassifiedFiles: 1 });
+    expect(gizmo).toMatchObject({ count: 0, unclassifiedFiles: 0 });
+
+    // And each is what a pass of its own says.
+    for (const [symbol, together] of [['Widget', widget], ['Gadget', gadget], ['Gizmo', gizmo]] as const) {
+      const [alone] = await createJavaScriptEngine(io).searchBatch([ask(symbol)]);
+      expect(together, symbol).toEqual(alone);
+    }
+  });
+
+  it('leaves what every rule shares - a directory or file nobody could read - on every rule', async () => {
+    const root = path.resolve('/spec-guard-virtual-root');
+    const memory = memoryIo(root, { 'a.ts': 'Widget', 'locked.ts': 'Widget' });
+    const io = {
+      ...memory,
+      readFile: async (file: string) => (file.endsWith('locked.ts') ? Promise.reject(new Error('EACCES')) : memory.readFile(file)),
+    };
+    const ask = (symbol: string): SearchRequest => ({ root, symbol, targets: [], options: searchOptions() });
+    const results = await createJavaScriptEngine(io).searchFiles(
+      [
+        { absolutePath: path.join(root, 'a.ts'), relativePath: 'a.ts' },
+        { absolutePath: path.join(root, 'locked.ts'), relativePath: 'locked.ts' },
+      ],
+      [ask('Widget'), ask('Gadget')],
+      ['from-ripgrep.ts'],
+      [{ path: 'walked/unlistable', reason: 'unreadable' }],
+    );
+    for (const result of results) {
+      expect(result.scope.skipped).toEqual([
+        { path: 'walked/unlistable', reason: 'unreadable' },
+        { path: 'from-ripgrep.ts', reason: 'unreadable' },
+        { path: 'locked.ts', reason: 'unreadable' },
+      ]);
+    }
+  });
+});
+
 describe('createCachedEngine', () => {
   it('records no fallback when the javascript engine is the one that failed', async () => {
     // There is nothing to fall back to, so a fallback note would be a claim
