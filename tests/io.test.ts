@@ -8,6 +8,7 @@
  * went to the disk instead would find nothing at that root and change a result.
  */
 
+import { EventEmitter } from 'node:events';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -15,7 +16,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { createCachedEngine, createJavaScriptEngine, enumerateCandidates } from '../src/engine.js';
 import { expandSpecPatterns, walkFiles } from '../src/glob.js';
 import { createImportIndex } from '../src/imports.js';
-import { nodeIo, readText, type Io } from '../src/io.js';
+import { nodeIo, readText, watchTree, type Io } from '../src/io.js';
 import { resolveQueryPath } from '../src/query.js';
 import {
   createScopeProbe,
@@ -209,5 +210,71 @@ describe('every read goes through the door', () => {
 
     expect(await resolveQueryPath('src/domain', VIRTUAL, io)).toMatchObject({ shape: 'directory', exists: true });
     expect(await resolveQueryPath('src/gone.ts', VIRTUAL, io)).toMatchObject({ shape: 'file', exists: false });
+  });
+});
+
+describe('watchTree', () => {
+  /** A stand-in for Node's watch, recording how it was asked and handing back an emitter. */
+  function fake(): { start: Parameters<typeof watchTree>[3]; calls: unknown[][]; emitter: EventEmitter & { close(): void; closed: boolean }; listener: () => (type: string, filename: unknown) => void } {
+    const calls: unknown[][] = [];
+    const emitter = Object.assign(new EventEmitter(), {
+      closed: false,
+      close(): void {
+        emitter.closed = true;
+      },
+    });
+    let given: (type: string, filename: unknown) => void = () => {};
+    const start = ((root: string, options: unknown, listener: (type: string, filename: unknown) => void) => {
+      calls.push([root, options]);
+      given = listener;
+      return emitter;
+    }) as unknown as Parameters<typeof watchTree>[3];
+    return { start, calls, emitter, listener: () => given };
+  }
+
+  it('watches the whole tree with one recursive watcher, and passes each event on', () => {
+    const { start, calls, emitter, listener } = fake();
+    const seen: unknown[][] = [];
+    const errors: Error[] = [];
+    const watcher = watchTree('/repo', (type, filename) => seen.push([type, filename]), (error) => errors.push(error), start);
+
+    expect(calls).toEqual([['/repo', { recursive: true }]]);
+    listener()('change', `src${path.sep}a.ts`);
+    listener()('rename', null);
+    expect(seen).toEqual([
+      ['change', `src${path.sep}a.ts`],
+      ['rename', null],
+    ]);
+
+    const failure = new Error('EPERM');
+    emitter.emit('error', failure);
+    expect(errors).toEqual([failure]);
+
+    watcher.close();
+    expect(emitter.closed).toBe(true);
+  });
+
+  it('reports a filename Node could not give as null, not as undefined', () => {
+    const { start, listener } = fake();
+    const seen: unknown[] = [];
+    watchTree('/repo', (_type, filename) => seen.push(filename), () => {}, start);
+    listener()('change', undefined);
+    expect(seen).toEqual([null]);
+  });
+
+  it('hears a real change under a real directory', async () => {
+    const root = await makeTempRepo({ 'src/a.ts': 'a' });
+    temporary.push(root);
+    const seen: string[] = [];
+    const watcher = watchTree(root, (_type, filename) => seen.push(String(filename)), () => {});
+    try {
+      for (let attempt = 0; attempt < 100 && !seen.some((name) => name.endsWith('b.ts')); attempt++) {
+        if (attempt % 20 === 0) await fs.writeFile(path.join(root, 'src/b.ts'), String(attempt));
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    } finally {
+      watcher.close();
+    }
+    expect(seen.some((name) => name.endsWith('b.ts'))).toBe(true);
   });
 });

@@ -59,6 +59,7 @@ export const INVOCATION_OPTIONS: ReadonlySet<string> = new Set([
   'failFast',
   'printBaseline',
   'allowEmpty',
+  'watch',
 ]);
 
 /** A configuration that cannot be used, with the words to say why. */

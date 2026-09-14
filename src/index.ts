@@ -62,8 +62,17 @@ export {
 } from './glob.js';
 export type { WalkedFile, WalkedPath, WalkOptions } from './glob.js';
 
-export { nodeIo, readText } from './io.js';
-export type { DirectoryReader, Io } from './io.js';
+export { nodeIo, readText, watchTree } from './io.js';
+export type { DirectoryReader, Io, TreeListener, TreeWatcher } from './io.js';
+
+export { contentHash, createMemo, NO_MEMO } from './memo.js';
+export type { Memo, SessionMemo } from './memo.js';
+
+export { createFactCache, FACT_POLICY } from './facts.js';
+export type { FactCache, FactKey, FactKind, FactPolicy, Outcome, WatchEvent } from './facts.js';
+
+export { createSession, describeWatchError, identity, ruleCaches, runWatch, systemClock, EXIT_INTERRUPTED, MAX_WAIT_MS, QUIET_MS } from './watch.js';
+export type { Clock, RuleCaches, Session, SessionOptions, SessionRun, SessionRunOptions, SessionSettings, WatchOptions } from './watch.js';
 
 export {
   createScope,

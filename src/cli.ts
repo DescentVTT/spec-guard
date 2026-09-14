@@ -12,11 +12,12 @@ import path from 'node:path';
 import type { Readable } from 'node:stream';
 
 import { CONFIG_KEYS, ConfigError, engineNamed, loadConfig, type ConfigKey, type ProjectConfig } from './config.js';
-import { nodeIo, readText } from './io.js';
+import { nodeIo, readText, watchTree } from './io.js';
 import { createMcpHandler, serveStdio } from './mcp.js';
 import { formatQuery, formatQueryJson, queryRules } from './query.js';
 import { formatBaselines, formatJson, formatReport, formatSarif, shouldUseAscii, shouldUseColor } from './reporter.js';
 import { DEFAULT_CONCURRENCY, DEFAULT_MAX_SNIPPETS, runSpecGuard, type RunOptions } from './runner.js';
+import { createSession, runWatch } from './watch.js';
 import type { EnginePreference } from './engine.js';
 import type { ConfigUse } from './types.js';
 
@@ -30,8 +31,17 @@ export interface CliIO {
   env: NodeJS.ProcessEnv;
   cwd: string;
   isTTY: boolean;
-  /** Where `spec-guard mcp` reads its messages. Only that command reads input. */
+  /**
+   * Where `spec-guard mcp` reads its messages, and where a watch session hears
+   * Enter. Nothing else reads input.
+   */
   stdin?: Readable;
+  /** Writes to stdout as it is, with no newline added: a watch session redraws. */
+  write?: (text: string) => void;
+  /** Starts a recursive watch on a directory; a test passes one it drives itself. */
+  watch?: typeof watchTree;
+  /** Registers what Ctrl+C and SIGTERM do, and returns how to unregister it. */
+  onInterrupt?: (handler: () => void) => () => void;
 }
 
 /** What the command line asked for: a run, a query, or a server. */
@@ -63,6 +73,8 @@ export interface CliOptions {
   maxSnippets: number;
   concurrency: number;
   color?: boolean;
+  /** Re-run as the tree changes, until stopped. ADR-0014. */
+  watch: boolean;
   help: boolean;
   version: boolean;
   /**
@@ -110,6 +122,7 @@ Options
   -r, --root <path>       Codebase root that assertions are resolved against (default: cwd)
       --spec <pattern>    A spec glob or path; repeatable (default: "docs/**/*.md")
   -v, --verbose           Print passing assertions too
+      --watch             Run again as the tree changes, until Ctrl+C (human output only)
       --fail-fast         Stop at the first failing assertion
       --json              Emit a machine-readable JSON report (same as --format json)
       --format <name>     human | json | sarif  (sarif uploads to GitHub code scanning)
@@ -153,7 +166,8 @@ for a file that does not exist yet. mcp offers the same answer, and a check,
 as the tools get_architectural_rules and check_architecture.
 
 Exit codes
-  0 all assertions passed   1 an assertion failed   2 spec-guard could not run`;
+  0 all assertions passed   1 an assertion failed   2 spec-guard could not run
+  130 a --watch session was stopped`;
 
 /**
  * Takes the next argv element as a value.
@@ -185,6 +199,7 @@ function positiveInteger(name: string, value: string): number {
 const NOT_FOR: Record<Exclude<Command, 'check'>, ReadonlySet<string>> = {
   query: new Set([
     '--verbose',
+    '--watch',
     '--fail-fast',
     '--engine',
     '--strict',
@@ -200,9 +215,24 @@ const NOT_FOR: Record<Exclude<Command, 'check'>, ReadonlySet<string>> = {
     '--color',
     '--no-color',
   ]),
-  mcp: new Set(['--verbose', '--fail-fast', '--json', '--format', '--print-baseline', '--allow-empty', '--color', '--no-color']),
+  mcp: new Set(['--verbose', '--watch', '--fail-fast', '--json', '--format', '--print-baseline', '--allow-empty', '--color', '--no-color']),
 };
 
+/**
+ * Options a watch session refuses, and why.
+ *
+ * Each makes sense only for one run whose output or exit code something reads:
+ * a session prints for a person, never exits on its own, and scans in-process
+ * so it can see what each rule read (ADR-0014).
+ */
+const NOT_WITH_WATCH: ReadonlyArray<[option: string, reason: string]> = [
+  ['--json', 'a session prints reports for a person, not one document'],
+  ['--format', 'a session prints reports for a person, not one document'],
+  ['--print-baseline', 'it prints once and exits'],
+  ['--fail-fast', 'a session runs every rule, so each report can be compared with the last'],
+  ['--allow-empty', 'a session has no exit code to relax'],
+  ['--engine', 'a session always scans in-process, where it can see what each rule reads'],
+];
 
 /** The long name of an option, whichever way it was spelled. */
 const LONG_NAMES: Readonly<Record<string, string>> = { '-v': '--verbose' };
@@ -231,11 +261,14 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
     allowEmpty: false,
     maxSnippets: DEFAULT_MAX_SNIPPETS,
     concurrency: DEFAULT_CONCURRENCY,
+    watch: false,
     help: false,
     version: false,
     fromCommandLine: new Set(),
   };
   const set = options.fromCommandLine;
+  /** Every option given, by its long name, for the refusals that depend on another option. */
+  const given = new Set<string>();
 
   let onlyPositional = false;
 
@@ -264,6 +297,7 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
     if (command !== 'check' && NOT_FOR[command].has(LONG_NAMES[name] ?? name)) {
       throw new UsageError(`Option ${name} does not apply to spec-guard ${command}.`);
     }
+    given.add(LONG_NAMES[name] ?? name);
 
     switch (name) {
       case '-h':
@@ -276,6 +310,9 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
       case '-v':
       case '--verbose':
         options.verbose = true;
+        break;
+      case '--watch':
+        options.watch = true;
         break;
       case '--fail-fast':
         options.failFast = true;
@@ -368,6 +405,14 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
     }
   }
 
+  if (options.watch) {
+    for (const [option, reason] of NOT_WITH_WATCH) {
+      if (given.has(option) && !(option === '--format' && options.format === 'human')) {
+        throw new UsageError(`Option ${option} does not apply to spec-guard --watch: ${reason}.`);
+      }
+    }
+  }
+
   options.patterns.push(...specs);
   if (options.patterns.length > 0) set.add('specs');
   if (options.patterns.length === 0) options.patterns = ['docs/**/*.md'];
@@ -420,7 +465,8 @@ const SETTERS: { [Key in ConfigKey]-?: (options: CliOptions, value: NonNullable<
  *
  * A key the command does not read is neither applied nor overridden: `strict`
  * is written for the runs, and a query that ignores it has not been told
- * anything about strictness. Returns nothing when the configuration had
+ * anything about strictness. A watch session scans in-process, so `engine` is
+ * not one of its keys either. Returns nothing when the configuration had
  * nothing to say to this command, so a report says nothing about it.
  */
 export function applyConfig(options: CliOptions, config: ProjectConfig, file = 'package.json'): ConfigUse | undefined {
@@ -429,7 +475,7 @@ export function applyConfig(options: CliOptions, config: ProjectConfig, file = '
   for (const key of CONFIG_KEYS) {
     const value = config[key];
     if (value === undefined) continue;
-    if (options.command === 'query' && !QUERY_KEYS.has(key)) continue;
+    if (options.command === 'query' ? !QUERY_KEYS.has(key) : options.watch && key === 'engine') continue;
     if (options.fromCommandLine.has(key)) {
       overridden.push(key);
       continue;
@@ -469,7 +515,8 @@ function runOptionsOf(options: CliOptions): Omit<RunOptions, 'patterns' | 'root'
   };
 }
 
-function defaultIO(): CliIO {
+/** The process's own streams, signals and filesystem watcher. */
+export function defaultIO(): CliIO {
   return {
     stdout: (text) => process.stdout.write(`${text}\n`),
     stderr: (text) => process.stderr.write(`${text}\n`),
@@ -477,7 +524,67 @@ function defaultIO(): CliIO {
     cwd: process.cwd(),
     isTTY: Boolean(process.stdout.isTTY),
     stdin: process.stdin,
+    write: (text) => process.stdout.write(text),
+    watch: watchTree,
+    // Unregistered as soon as a session starts to stop, so a second Ctrl+C
+    // meets Node's own handler and ends the process at once.
+    onInterrupt: (handler) => {
+      process.on('SIGINT', handler);
+      process.on('SIGTERM', handler);
+      return () => {
+        process.off('SIGINT', handler);
+        process.off('SIGTERM', handler);
+      };
+    },
   };
+}
+
+/**
+ * `spec-guard --watch`: a session over the root until Ctrl+C. ADR-0014.
+ *
+ * Each run reads the configuration again, through the session's door, from the
+ * options as the command line left them - so an edit to package.json is a
+ * changed fact like any other, and the command line still wins.
+ */
+async function runWatchSession(commandLine: CliOptions, io: CliIO): Promise<number> {
+  const session = createSession({
+    root: commandLine.root,
+    settings: async (door) => {
+      const options: CliOptions = { ...commandLine, patterns: [...commandLine.patterns] };
+      const config = applyConfig(options, await loadConfig(commandLine.root, (file) => readText(door, file)));
+      return { patterns: options.patterns, run: runOptionsOf(options), config };
+    },
+  });
+  const stdin = io.stdin;
+  return runWatch({
+    root: commandLine.root,
+    session,
+    watch: (listener, onError) => (io.watch ?? watchTree)(commandLine.root, (type, filename) => listener({ type, filename }), onError),
+    write: io.write ?? ((text) => io.stdout(text.replace(/\n$/, ''))),
+    isTTY: io.isTTY,
+    reporter: {
+      color: shouldUseColor({ isTTY: io.isTTY }, commandLine.color, io.env),
+      verbose: commandLine.verbose,
+      ascii: shouldUseAscii(io.env),
+    },
+    onInterrupt: io.onInterrupt ?? (() => () => {}),
+    ...(stdin === undefined
+      ? {}
+      : {
+          onLine: (handler: () => void) => {
+            const listener = (chunk: Buffer | string): void => {
+              if (String(chunk).includes('\n')) handler();
+            };
+            stdin.on('data', listener);
+            return () => {
+              stdin.off('data', listener);
+              // Paused, so a stdin that is a terminal stops holding the process
+              // open once the session is over.
+              stdin.pause();
+            };
+          },
+        }),
+  });
 }
 
 /** `spec-guard query`: prints the rules governing each path. */
@@ -570,6 +677,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2), io: 
 
   if (options.command === 'query') return runQuery(options, io, use);
   if (options.command === 'mcp') return runMcp(options, commandLine, io, use);
+  if (options.watch) return runWatchSession(commandLine, io);
 
   let report;
   try {

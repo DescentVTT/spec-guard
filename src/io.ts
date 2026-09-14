@@ -9,7 +9,7 @@
  * since changed. ADR-0014 asserts that nothing else imports `node:fs`.
  */
 
-import { promises as fs, type Dirent, type Stats } from 'node:fs';
+import { promises as fs, watch, type Dirent, type Stats } from 'node:fs';
 
 /** Reads one directory's entries, in whatever order the filesystem returns them. */
 export type DirectoryReader = (directory: string) => Promise<Dirent[]>;
@@ -39,6 +39,29 @@ export const nodeIo: Io = {
   readFile: (file) => fs.readFile(file),
   realpath: (target) => fs.realpath(target),
 };
+
+/** A watch on a directory tree, until it is closed. */
+export interface TreeWatcher {
+  close(): void;
+}
+
+/** Reports that something under a watched root changed, or that it cannot tell what. */
+export type TreeListener = (type: 'rename' | 'change', filename: string | null) => void;
+
+/**
+ * Watches everything under a directory, with one recursive watcher on it.
+ *
+ * One, not one per directory. A watcher holds its directory open, and on Windows
+ * that makes renaming a directory above it fail with EPERM - which is what
+ * `git checkout` and an editor's folder rename both do. ADR-0014 measured it.
+ * Setting up the watch can throw, and a watch that fails later reports to
+ * `onError`. Node's `watch` is a parameter so a test can make it fail.
+ */
+export function watchTree(root: string, listener: TreeListener, onError: (error: Error) => void, start: typeof watch = watch): TreeWatcher {
+  const watcher = start(root, { recursive: true }, (type, filename) => listener(type, filename ?? null));
+  watcher.on('error', onError);
+  return { close: () => watcher.close() };
+}
 
 /** Reads a file as UTF-8 text through a door. */
 export async function readText(io: Io, file: string): Promise<string> {

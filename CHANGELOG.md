@@ -5,6 +5,80 @@ All notable changes to this project are documented here. Versions follow
 may change in a minor release — each such change is listed under **Changed**
 with the flag that restores the previous behaviour.
 
+## Unreleased
+
+A project's policy can live in its `package.json`, and `spec-guard --watch`
+reports again as the tree changes, re-executing only the rules a change
+affected. [ADR-0014](docs/adr/0014-configuration-and-watch.md).
+
+### Added
+
+- **Options in `package.json`, under `"specGuard"`:** `specs`, `engine`,
+  `strict`, `allowMissingTargets`, `allowEmptyScope`, `ignoreStatus`,
+  `includeSpecs`, `defaultSkips`, `maxSnippets` and `concurrency`.
+  - Read from the root's `package.json` only, never a parent directory's.
+  - Validated before anything runs. An unknown key, an option that belongs to one
+    invocation (`format`, `verbose`, `watch`, ...), a string where a boolean goes
+    or a count out of range is exit 2, naming the file and the key. `--help` and
+    `--version` still work under a broken `package.json`.
+  - The command line wins: patterns replace `specs`, and every on/off option the
+    file can set gained its opposite - `--no-strict`,
+    `--no-allow-missing-targets`, `--no-allow-empty-scope`, `--no-ignore-status`,
+    `--no-include-specs` and `--default-skips`.
+  - A report that took anything from the file names it in a line above its
+    summary, with what the command line overrode; the JSON report carries
+    `config`.
+  - `query` applies the keys a query reads. The MCP server reads the file again
+    for every request, as it reads the specs.
+- **`spec-guard --watch`.** Reports, then reports again whenever something under
+  the root changes, until Ctrl+C, which exits 130.
+  - Saves are batched: 50 ms of quiet, or 500 ms after the first change. Enter
+    re-runs everything. A change no rule reads updates the status line only.
+  - Only the rules whose directive or inputs changed are re-executed. On this
+    repository a save in `src` re-executes 21 of 60 rules in a median of 21 ms -
+    over the 15 ms it was built to, as ADR-0014 reports - and a save elsewhere
+    takes 2-3 ms.
+  - One recursive `fs.watch` on the root, and no dependency.
+  - Refuses `--engine` - it scans in-process, where it sees what each rule reads -
+    and `--json`, `--format json|sarif`, `--print-baseline`, `--fail-fast` and
+    `--allow-empty`.
+  - A test changes trees at random and requires every report a session gives to
+    equal a fresh run's, however the change is reported, and six deliberately
+    broken sessions have to fail it.
+- **One door for every read** (`Io`, `nodeIo`, `readText`, `watchTree`), and the
+  session behind watch mode (`createSession`, `runWatch`, `createFactCache`,
+  `createMemo`) in the programmatic API. `runSpecGuard` is `planRun`, an
+  execution and `reportRun`, and those two are exported.
+  `createJavaScriptEngine(io, memo)` builds a scanner over a door, and
+  `createCachedEngine(engine, fallback)` names what it falls back to.
+- `scripts/bench-watch.mjs`, which measures a session on a copy of this
+  repository.
+
+### Changed
+
+- **API:** `defaultDirectoryReader` and `statOrNull` are gone for `nodeIo`.
+  `WalkOptions.readDirectory` is `WalkOptions.io`, `enumerateCandidates` takes an
+  `Io` as its third argument, and `createTreeIndex(root, io)` takes a whole door.
+  `Assertion.missingTargets` is gone: only execution ever wrote to it.
+- This repository keeps its specs in `package.json`, and its selfcheck, CI run
+  and SARIF upload run `spec-guard` without patterns.
+
+### Fixed
+
+- **A binary file was a gap for every rule sharing its pass.** A plain run scans
+  every rule over one scope together, and kept one ledger for them: a binary file
+  holding one rule's symbol was reported against all of them with their matches
+  summed, so `--strict` failed rules over files that did not hold their symbol.
+  The count of files whose comments could not be classified leaked the same way.
+  Each rule now has its own.
+- **Two runs of one tree could list skipped files in different orders**, and past
+  the ledger's cap of 100, name different ones: files entered the ledger as their
+  reads finished. They now enter in walk order.
+- Executing one resolved assertion twice named each missing target twice. Nothing
+  did so before watch mode.
+- A test of the MCP server's durations that failed about one run in 53, on
+  floating-point error in the test.
+
 ## 0.8.0
 
 An architecture document can now state conventions about names and layout: what

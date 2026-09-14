@@ -25,6 +25,7 @@ import path from 'node:path';
 import { createCommentMask, type CommentMask } from './comments.js';
 import { createExcludeMatcher, createGlobMatcher, toPosix, walkFiles, type WalkOptions } from './glob.js';
 import { nodeIo, type Io } from './io.js';
+import { NO_MEMO, type Memo } from './memo.js';
 import { isBinary, LedgerBuilder, UNCERTAIN_REASONS, type SkippedPath } from './scope.js';
 import { lineStarts, locate } from './text.js';
 import type { EngineName, MatchLocation, SearchOptions, SearchResult } from './types.js';
@@ -513,7 +514,8 @@ interface FileScan {
  * Scans one file's bytes for every pattern of a pass.
  *
  * A pure function of the bytes, the path (which decides the comment syntax),
- * the patterns and how they match.
+ * the patterns and how they match, which is what lets a watch session remember
+ * it (ADR-0014).
  */
 function scanFile(buffer: Buffer, relativePath: string, regexps: ReadonlyMap<string, RegExp>, ignoreComments: boolean): FileScan {
   const content = buffer.toString('utf8');
@@ -532,7 +534,10 @@ function scanFile(buffer: Buffer, relativePath: string, regexps: ReadonlyMap<str
 class JavaScriptEngine implements Engine {
   readonly name: EngineName = 'javascript';
 
-  constructor(private readonly io: Io) {}
+  constructor(
+    private readonly io: Io,
+    private readonly memo: Memo,
+  ) {}
 
   async search(request: SearchRequest): Promise<SearchResult> {
     const [result] = await this.searchBatch([request]);
@@ -585,6 +590,12 @@ class JavaScriptEngine implements Engine {
       for (const entry of skipped) ledger.add(entry.path, entry.reason, entry.matches);
       for (const entry of unreadable) ledger.add(entry, 'unreadable');
     }
+    // Everything a file's scan depends on besides its bytes and its path, which
+    // decides its comment syntax. See memo.ts for why a missing input here is
+    // the one defect a memo can have.
+    const { regex, word, ignoreCase, ignoreComments } = first.options;
+    const scanInputs = [JSON.stringify([regex, word, ignoreCase, ignoreComments]), JSON.stringify(patterns)];
+
     // No floor of 1: an empty file list starts no readers, and a loop that
     // never runs produces the same empty tallies as one that runs once and
     // finds nothing. The guard was defending against an outcome it shared.
@@ -608,7 +619,7 @@ class JavaScriptEngine implements Engine {
           file.relativePath,
           buffer === null
             ? null
-            : scanFile(buffer, file.relativePath, regexps, first.options.ignoreComments),
+            : this.memo.remember(buffer, [...scanInputs, file.relativePath], () => scanFile(buffer, file.relativePath, regexps, ignoreComments)),
         );
       }
     };
@@ -860,13 +871,15 @@ export type BatchEngine = Engine &
   };
 
 /**
- * A scanner that reads through the given door.
+ * A scanner that reads through the given door, and remembers its scans in the
+ * given memo.
  *
  * One per watch session rule, so the session sees what each rule read
- * (ADR-0014). A plain run shares the one below, which reads the filesystem.
+ * (ADR-0014). A plain run shares the one below, which reads the filesystem and
+ * remembers nothing.
  */
-export function createJavaScriptEngine(io: Io = nodeIo): BatchEngine {
-  return new JavaScriptEngine(io);
+export function createJavaScriptEngine(io: Io = nodeIo, memo: Memo = NO_MEMO): BatchEngine {
+  return new JavaScriptEngine(io, memo);
 }
 
 export const javascriptEngine: BatchEngine = createJavaScriptEngine();

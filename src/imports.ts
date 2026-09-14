@@ -23,7 +23,8 @@
 import path from 'node:path';
 
 import { toPosix } from './glob.js';
-import { nodeIo, readText, type Io } from './io.js';
+import { nodeIo, type Io } from './io.js';
+import { NO_MEMO, type Memo } from './memo.js';
 import { analyzePolyglot, languageFor, normalizeModule, POLYGLOT_EXTENSIONS } from './polyglot.js';
 
 /** Extensions the JavaScript tokenizer below reads. */
@@ -572,8 +573,11 @@ export interface ImportIndex {
  * Several assertions in one document routinely point at the same directory, and
  * tokenizing is the most expensive thing spec-guard does. Without this the cost
  * would be the tree multiplied by the number of import assertions.
+ *
+ * A watch session passes a memo too, which keeps an analysis across runs for as
+ * long as the file's bytes and its path are the same (ADR-0014).
  */
-export function createImportIndex(io: Io = nodeIo): ImportIndex {
+export function createImportIndex(io: Io = nodeIo, memo: Memo = NO_MEMO): ImportIndex {
   const cache = new Map<string, Promise<FileImports>>();
 
   return {
@@ -583,8 +587,9 @@ export function createImportIndex(io: Io = nodeIo): ImportIndex {
     analyze(absolutePath: string, relativePath: string): Promise<FileImports> {
       let pending = cache.get(absolutePath);
       if (!pending) {
-        pending = readText(io, absolutePath)
-          .then((source) => analyzeSource(source, relativePath))
+        pending = io
+          .readFile(absolutePath)
+          .then((bytes) => memo.remember(bytes, [relativePath], () => analyzeSource(bytes.toString('utf8'), relativePath)))
           .catch(
             (error: unknown): FileImports => ({
               references: [],

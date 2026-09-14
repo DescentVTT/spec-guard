@@ -758,6 +758,7 @@ sources they follow, and what is deliberately not implemented.
 
 ```bash
 spec-guard [patterns...] [options]     # execute the directives
+spec-guard --watch [patterns...]       # execute them again whenever the tree changes
 spec-guard query <paths...> [options]  # the rules in force for files or directories
 spec-guard mcp [options]               # serve the rules over MCP on stdio
 ```
@@ -767,17 +768,18 @@ spec-guard mcp [options]               # serve the rules over MCP on stdio
 | `-r, --root <path>` | Codebase root that assertions resolve against (default: cwd) |
 | `--spec <pattern>` | A spec glob or path, repeatable. `query` and `mcp` take their specs only from here |
 | `-v, --verbose` | Print passing assertions too |
+| `--watch` | Report, then report again as the tree changes, until Ctrl+C |
 | `--fail-fast` | Stop at the first failing assertion |
 | `--json` | Machine-readable report on stdout (same as `--format json`) |
 | `--format <human\|json\|sarif>` | Output format. `sarif` uploads to GitHub code scanning |
 | `--engine <auto\|rg\|js>` | Search engine (default `auto`: scanner for small trees, ripgrep for big ones) |
-| `--strict` | Treat analysis that could not be completed as a failure |
-| `--allow-missing-targets` | Warn instead of failing when a `target` path does not exist |
-| `--allow-empty-scope` | Warn instead of failing when an assertion inspects no files |
+| `--strict` / `--no-strict` | Treat analysis that could not be completed as a failure |
+| `--allow-missing-targets` / `--no-allow-missing-targets` | Warn instead of failing when a `target` path does not exist |
+| `--allow-empty-scope` / `--no-allow-empty-scope` | Warn instead of failing when an assertion inspects no files |
 | `--print-baseline` | Print the `baseline="..."` that would exempt today's violations, and exit |
-| `--no-default-skips` | Search `.git`, `.hg`, `.svn` and `node_modules` too |
-| `--ignore-status` | Execute directives in draft, proposed and superseded documents too |
-| `--include-specs` | Also count matches inside the spec files themselves |
+| `--no-default-skips` / `--default-skips` | Search `.git`, `.hg`, `.svn` and `node_modules` too |
+| `--ignore-status` / `--no-ignore-status` | Execute directives in draft, proposed and superseded documents too |
+| `--include-specs` / `--no-include-specs` | Also count matches inside the spec files themselves |
 | `--max-snippets <n>` | Failure snippets per assertion (default 5) |
 | `--concurrency <n>` | Search passes in flight at once (default 8) |
 | `--allow-empty` | Exit 0 when no spec file matched the patterns (about the run, not an assertion) |
@@ -785,6 +787,93 @@ spec-guard mcp [options]               # serve the rules over MCP on stdio
 
 Patterns are expanded by spec-guard itself, so quoted globs behave identically
 on Windows, macOS and Linux. A directory expands to the Markdown files in it.
+The second form of each on/off option exists to override a configuration.
+
+### Configuration
+
+The options that are a project's policy can live in `package.json`, under
+`"specGuard"`, so CI, a pre-commit hook and the MCP server an agent starts all
+hold the same rules the same way:
+
+```json
+{
+  "specGuard": {
+    "specs": ["docs/**/*.md", "README.md"],
+    "strict": true
+  }
+}
+```
+
+| Key | Command line | Value |
+| --- | --- | --- |
+| `specs` | patterns, `--spec` | a non-empty array of globs |
+| `engine` | `--engine` | `"auto"`, `"rg"` or `"js"` |
+| `strict`, `allowMissingTargets`, `allowEmptyScope`, `ignoreStatus`, `includeSpecs`, `defaultSkips` | the flag of that name | `true` or `false` |
+| `maxSnippets` | `--max-snippets` | an integer, 0 or more |
+| `concurrency` | `--concurrency` | an integer, 1 or more |
+
+- **Only the root's `package.json`** is read: the `--root` directory, or the
+  working directory. Nothing is inherited from a parent directory.
+- **The command line wins, both ways.** Patterns replace `specs`, and
+  `--no-strict` beats `"strict": true`.
+- **A malformed configuration is exit 2, before anything runs**, naming the file
+  and the key: an unknown key, `"true"` where `true` goes, or an option that
+  belongs to one invocation, such as `format` or `verbose`.
+- **Every report says what it took from the file**: a line above the summary
+  such as `options from package.json: specs, strict`, and a `config` field in
+  JSON. An
+  option nobody can see should never decide a result.
+- `query` applies what a query reads, and the MCP server reads the file again
+  for every request.
+
+### Watch mode
+
+```bash
+spec-guard --watch
+```
+
+Prints the report, then prints it again whenever something under the root
+changes, until Ctrl+C. Saves are batched: a batch starts after 50 ms without a
+new change, or 500 ms after its first. On a terminal the screen is redrawn;
+otherwise each report is appended under the time. A change that no rule reads
+updates the status line and nothing else:
+
+```text
+watching 15 specs · 1 change · 21 of 60 rules re-executed · 21 ms · Enter re-runs everything, Ctrl+C stops
+```
+
+A session re-executes only the rules whose directive or inputs changed. Every
+filesystem read goes through one module, so the session can record which rule
+read what. A watcher's event only evicts what it may have changed, and the
+evicted facts are read again and compared, so noise costs one directory read,
+and a renamed directory's contents need no events of their own. Work that is a
+pure function of a file's bytes - tokenizing, comment masking, scanning - is
+remembered by the bytes' hash. Each of those is a way to report a tree that no
+longer exists, so a test changes trees at random and requires every report a
+session gives to equal a fresh run's, with six deliberately broken sessions
+that it has to catch. [ADR-0014](docs/adr/0014-configuration-and-watch.md) has
+the design, the measurements and the limits.
+
+On this repository, from a change to the report, in the quietest of four runs
+(a plain warm run took 69 ms in it):
+
+| Edit | Rules re-executed | Median |
+| --- | --- | --- |
+| a file in `src` | 21 of 60 | 21 ms |
+| a test file | 1 of 60 | 3.3 ms |
+| a file no rule reads | 0 | 2.0 ms |
+| an ADR's prose | 0 | 2.4 ms |
+
+The 15 ms this was built to is missed for a save in `src`, which re-executes the
+two layer rules and every text rule over `src`; ADR-0014 says where the time
+goes.
+
+`--watch` scans in-process, where it can see what each rule reads, so it refuses
+`--engine`, and `--json`, `--format json|sarif`, `--print-baseline`,
+`--fail-fast` and `--allow-empty`, which each describe a single run. It exits
+130 when stopped, since a session is neither a pass nor a failure. What it
+cannot see: a change the operating system never reports, a change behind a
+symbolic link, and anything outside the root. CI stays the authority.
 
 ### Exit codes
 
@@ -792,7 +881,8 @@ on Windows, macOS and Linux. A directory expands to the Markdown files in it.
 | --- | --- |
 | `0` | Every assertion held |
 | `1` | An assertion failed, or a directive was malformed |
-| `2` | spec-guard could not run: bad usage, no spec files matched, `--engine rg` with no ripgrep |
+| `2` | spec-guard could not run: bad usage, a malformed configuration, no spec files matched, `--engine rg` with no ripgrep, a watch that could not start |
+| `130` | A `--watch` session was stopped |
 
 ## CI integration
 
@@ -854,9 +944,10 @@ spec-guard's claims are about a whole repository - "this symbol appears nowhere
 in `src`" - and a language server is handed one buffer at a time. Answering a
 repository-wide question on every keystroke means rescanning the tree on every
 keystroke; the alternative is answering a smaller question and calling it the
-same one. The CLI does a full run of this repository in about 130 ms, so a
-pre-commit hook or a watch loop already closes the feedback gap without a
-daemon, an extension per editor, or a protocol version matrix.
+same one. `--watch` re-evaluates this repository in milliseconds after a save
+by re-executing only what the save affected, and a pre-commit hook closes the
+rest of the gap, without a daemon, an extension per editor, or a protocol
+version matrix.
 
 ## How it works
 

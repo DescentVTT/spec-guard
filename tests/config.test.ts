@@ -103,7 +103,7 @@ describe('parseConfig', () => {
   });
 
   it('refuses each option that belongs to one invocation, by name', () => {
-    expect([...INVOCATION_OPTIONS]).toEqual(['root', 'format', 'json', 'verbose', 'color', 'failFast', 'printBaseline', 'allowEmpty']);
+    expect([...INVOCATION_OPTIONS]).toEqual(['root', 'format', 'json', 'verbose', 'color', 'failFast', 'printBaseline', 'allowEmpty', 'watch']);
     for (const key of INVOCATION_OPTIONS) {
       expect(refusal(manifest({ [key]: true }))).toBe(`package.json: "specGuard.${key}" is chosen on the command line, not in package.json.`);
     }
@@ -321,10 +321,17 @@ describe('applyConfig', () => {
     expect(applyConfig(parseArgs(['query', 'src', '--spec', 'x.md'], cwd), { specs: ['y.md'], strict: true })).toEqual({ file: 'package.json', applied: [], overridden: ['specs'] });
   });
 
+  it('applies to a watch session everything but the engine, which it does not use', () => {
+    const options = parseArgs(['--watch'], cwd);
+    const use = applyConfig(options, everything);
+    expect(use?.applied).toEqual(CONFIG_KEYS.filter((key) => key !== 'engine'));
+    expect(options.engine).toBe('auto');
+  });
 
   it('says nothing when a configuration had nothing for this command', () => {
     expect(applyConfig(parseArgs([], cwd), {})).toBeUndefined();
     expect(applyConfig(parseArgs(['query', 'src'], cwd), { strict: true, engine: 'javascript' })).toBeUndefined();
+    expect(applyConfig(parseArgs(['--watch'], cwd), { engine: 'javascript' })).toBeUndefined();
   });
 });
 
@@ -488,11 +495,39 @@ describe('an MCP server under a configuration', () => {
   });
 
   it('will not start under a malformed configuration', async () => {
-    const root = await repo({ 'package.json': manifest({ verbose: true }) });
+    const root = await repo({ 'package.json': manifest({ watch: true }) });
     const { cli, out, err } = io(root, new PassThrough());
     expect(await main(['mcp'], cli)).toBe(EXIT_ERROR);
     expect(out).toEqual([]);
-    expect(err).toEqual(['spec-guard: package.json: "specGuard.verbose" is chosen on the command line, not in package.json.']);
+    expect(err).toEqual(['spec-guard: package.json: "specGuard.watch" is chosen on the command line, not in package.json.']);
   });
 });
 
+/* ------------------------------------------------------------------ --watch */
+
+describe('--watch on the command line', () => {
+  it('is a check, and neither a query nor a server', () => {
+    expect(parseArgs(['--watch'], process.cwd()).watch).toBe(true);
+    expect(parseArgs([], process.cwd()).watch).toBe(false);
+    expect(() => parseArgs(['query', 'src', '--watch'], process.cwd())).toThrow(new UsageError('Option --watch does not apply to spec-guard query.'));
+    expect(() => parseArgs(['mcp', '--watch'], process.cwd())).toThrow(new UsageError('Option --watch does not apply to spec-guard mcp.'));
+  });
+
+  it.each([
+    [['--json'], 'Option --json does not apply to spec-guard --watch: a session prints reports for a person, not one document.'],
+    [['--format', 'json'], 'Option --format does not apply to spec-guard --watch: a session prints reports for a person, not one document.'],
+    [['--format=sarif'], 'Option --format does not apply to spec-guard --watch: a session prints reports for a person, not one document.'],
+    [['--print-baseline'], 'Option --print-baseline does not apply to spec-guard --watch: it prints once and exits.'],
+    [['--fail-fast'], 'Option --fail-fast does not apply to spec-guard --watch: a session runs every rule, so each report can be compared with the last.'],
+    [['--allow-empty'], 'Option --allow-empty does not apply to spec-guard --watch: a session has no exit code to relax.'],
+    [['--engine', 'js'], 'Option --engine does not apply to spec-guard --watch: a session always scans in-process, where it can see what each rule reads.'],
+  ])('refuses %j, before or after --watch', (flags, message) => {
+    expect(() => parseArgs(['--watch', ...flags], process.cwd())).toThrow(new UsageError(message));
+    expect(() => parseArgs([...flags, '--watch'], process.cwd())).toThrow(new UsageError(message));
+    expect(() => parseArgs(flags, process.cwd())).not.toThrow();
+  });
+
+  it('accepts the human format by name, since that is what it prints', () => {
+    expect(parseArgs(['--watch', '--format', 'human', '--verbose', '--strict', '--max-snippets', '2'], process.cwd())).toMatchObject({ watch: true, format: 'human' });
+  });
+});

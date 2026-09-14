@@ -13,7 +13,8 @@ import path from 'node:path';
 
 import { MAX_CONCURRENT_READS } from './engine.js';
 import { expandSpecPatterns, toPosix } from './glob.js';
-import { nodeIo, readText, type Io } from './io.js';
+import { nodeIo, type Io } from './io.js';
+import { NO_MEMO, type Memo } from './memo.js';
 import { parseDocument } from './parser.js';
 import type { Directive, DirectiveError, SpecStatus } from './types.js';
 
@@ -55,7 +56,7 @@ export function specPath(root: string, file: string): string {
 }
 
 /** Expands the patterns and reads every document they match. */
-export async function readSpecs(patterns: readonly string[], root: string, io: Io = nodeIo): Promise<SpecSet> {
+export async function readSpecs(patterns: readonly string[], root: string, io: Io = nodeIo, memo: Memo = NO_MEMO): Promise<SpecSet> {
   const files = await expandSpecPatterns(patterns, root, undefined, io);
   const documents: SpecDocument[] = [];
   const errors: DirectiveError[] = [];
@@ -66,15 +67,15 @@ export async function readSpecs(patterns: readonly string[], root: string, io: I
   // limit of 1,024 open descriptors. Batches rather than a pool of readers
   // sharing a cursor, because a cursor that is advanced wrongly still reads
   // every file - which is a defect no test can see.
-  const sources: Array<string | Error> = [];
+  const sources: Array<Buffer | Error> = [];
   while (sources.length < files.length) {
     const batch = files.slice(sources.length, sources.length + MAX_CONCURRENT_READS);
-    sources.push(...(await Promise.all(batch.map((file) => readText(io, file).catch((error: unknown) => error as Error)))));
+    sources.push(...(await Promise.all(batch.map((file) => io.readFile(file).catch((error: unknown) => error as Error)))));
   }
 
   files.forEach((file, index) => {
     const relativeFile = specPath(root, file);
-    const source = sources[index] as string | Error;
+    const source = sources[index] as Buffer | Error;
     if (source instanceof Error) {
       errors.push({
         location: { file, relativeFile, line: 1, column: 1 },
@@ -84,7 +85,7 @@ export async function readSpecs(patterns: readonly string[], root: string, io: I
       return;
     }
 
-    const parsed = parseDocument(source, { file, relativeFile });
+    const parsed = memo.remember(source, [file, relativeFile], () => parseDocument(source.toString('utf8'), { file, relativeFile }));
     errors.push(...parsed.errors);
     documents.push({
       file,

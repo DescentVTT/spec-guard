@@ -245,3 +245,83 @@ describe.skipIf(!built)('spec-guard query, as a process', () => {
     expect(result.stderr).toContain('is outside the root');
   });
 });
+
+/**
+ * The one test of watch mode with the operating system's own watcher in it
+ * (ADR-0014). Everything else about a session is driven by fakes; this is where
+ * Windows, macOS and Linux each get to report real changes their own way, and
+ * the last report a session prints has to be the report a fresh run prints.
+ */
+describe.skipIf(!built)('spec-guard --watch, with a real watcher', () => {
+  const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+  /** A report without its timings, which are the one thing two runs may differ in. */
+  const untimed = (text: string): string => text.replace(/ · \d+(?:ms|\.\d+s)$/m, '').trim();
+
+  it('reports again after real changes, ends on what a fresh run says, and exits 130 on SIGINT', async () => {
+    const root = await makeTempRepo({
+      'docs/rules.md': [
+        '# Rules',
+        '',
+        '<!-- @assert-absence target="src" symbol="Legacy" -->',
+        '<!-- @assert-structure target="src" glob="*.ts" partner="[name].md" -->',
+        '<!-- @assert-present file="README.md" -->',
+        '<!-- @assert-import-absence target="src" module="lodash" -->',
+        '',
+      ].join('\n'),
+      'src/a.ts': 'export const a = 1;\n',
+      'src/a.md': '',
+      'README.md': '',
+    });
+    temporary.push(root);
+
+    const child = spawn(process.execPath, [BIN, '--watch', '--root', root], { cwd: root, env: { ...process.env, NO_COLOR: '1' }, windowsHide: true });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk: string) => (stdout += chunk));
+    child.stderr.on('data', (chunk: string) => (stderr += chunk));
+    const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => child.on('exit', (code, signal) => resolve({ code, signal })));
+
+    try {
+      const waitFor = async (what: string, predicate: () => boolean): Promise<void> => {
+        for (let tries = 0; !predicate(); tries++) {
+          if (tries > 1200) throw new Error(`timed out waiting for ${what}\nstdout:\n${stdout}\nstderr:\n${stderr}`);
+          await sleep(50);
+        }
+      };
+      await waitFor('the first run', () => stdout.includes('· first run ·'));
+      expect(stdout).toContain('4 passed');
+
+      // An in-place edit, a new file, an import, and a deletion.
+      await fs.writeFile(path.join(root, 'src/a.ts'), "import _ from 'lodash';\nexport const a = Legacy;\n");
+      await fs.mkdir(path.join(root, 'src/deep'));
+      await fs.writeFile(path.join(root, 'src/deep/b.ts'), '');
+      await fs.rm(path.join(root, 'README.md'));
+
+      await waitFor('a report of all four changes', () => stdout.includes('0 passed · 4 failed'));
+      // Then quiet: nothing more for a while, so the last report is the last.
+      for (let quiet = 0, seen = stdout.length; quiet < 15; ) {
+        await sleep(100);
+        if (stdout.length === seen) quiet += 1;
+        else [seen, quiet] = [stdout.length, 0];
+      }
+
+      const reports = stdout.split(/^--- \d\d:\d\d:\d\d ---$/m).filter((segment) => segment.includes('spec-guard '));
+      const last = (reports.at(-1) as string).split('\n\nwatching ')[0] as string;
+      const fresh = await run(['--root', root, '--engine', 'js'], { cwd: root });
+      expect(fresh.code).toBe(1);
+      expect(untimed(last)).toBe(untimed(fresh.stdout));
+    } finally {
+      if (process.platform === 'win32') {
+        // Windows has no SIGINT to send another process; kill() ends it outright.
+        child.kill();
+        await exited;
+      } else {
+        child.kill('SIGINT');
+        expect(await exited).toEqual({ code: 130, signal: null });
+      }
+    }
+  }, 120_000);
+});

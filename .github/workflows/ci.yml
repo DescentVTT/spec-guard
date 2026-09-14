@@ -40,9 +40,11 @@ jobs:
         run: npm test
 
       # spec-guard executes its own ADRs. If the code drifts from the
-      # documentation, this step fails with the line number of the claim.
+      # documentation, this step fails with the line number of the claim. Which
+      # specs is package.json's to say (ADR-0014), so this step, the selfcheck
+      # script and an agent's MCP server all read the same ones.
       - name: Execute this repository's own specs
-        run: node ./bin/spec-guard.js "docs/**/*.md" "README.md" --verbose
+        run: node ./bin/spec-guard.js --verbose
 
   # Dogfooding the SARIF output: this is the surface that puts a broken
   # architecture rule on the offending line of a pull request, so it should be
@@ -68,7 +70,7 @@ jobs:
       # `|| true` because the point of this job is the upload. A failing
       # assertion is already a red tick on the test job above; here it is input.
       - name: Produce a SARIF report
-        run: node ./bin/spec-guard.js "docs/**/*.md" "README.md" --format sarif > spec-guard.sarif || true
+        run: node ./bin/spec-guard.js --format sarif > spec-guard.sarif || true
 
       - name: Upload to code scanning
         uses: github/codeql-action/upload-sarif@v3
