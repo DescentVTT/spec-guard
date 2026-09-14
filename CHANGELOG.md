@@ -62,6 +62,17 @@ affected. [ADR-0014](docs/adr/0014-configuration-and-watch.md).
   `Assertion.missingTargets` is gone: only execution ever wrote to it.
 - This repository keeps its specs in `package.json`, and its selfcheck, CI run
   and SARIF upload run `spec-guard` without patterns.
+- **Mutation testing in CI runs in three parallel shards.** The full sweep took
+  42m39s against a 45-minute job limit, and a slower runner was cancelled on the
+  same source. Hosted runners vary by a fifth or more on identical work.
+  - Each shard mutates its own files, balanced on per-file minutes read from the
+    last unsplit sweep's log (`scripts/mutation-timeline.mjs`).
+  - A final job merges the reports (`scripts/mutation-shards.mjs`). It refuses a
+    missing shard, a file mutated twice or by the wrong shard, and shards that ran
+    different tests, then applies the 97% gate to the merged score.
+  - Every shard runs every test: Stryker's vitest runner now has `related: false`.
+  - No mutants were left out, the per-mutant timeout is unchanged, and the gate
+    is unchanged. [ADR-0003](docs/adr/0003-mutation-testing.md).
 
 ### Fixed
 

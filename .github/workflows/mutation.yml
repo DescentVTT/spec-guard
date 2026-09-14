@@ -1,12 +1,12 @@
 name: Mutation
 
-# Mutation testing in two tiers.
+# Mutation testing in two tiers, with the full sweep split into shards.
 #
 # The full sweep is the number that counts, and it is not cheap: 15m51s at
-# 3,493 mutants before 0.5.0, growing with every module. Running it on every
-# push to every branch was affordable when the suite was 2,118 mutants and
-# 6m54s; it is the kind of cost that stops being affordable quietly, and by then
-# the usual response is to lower the gate.
+# 3,493 mutants before 0.5.0, 42m39s at 7,763 in 0.9.0, growing with every
+# module. Running it on every push to every branch was affordable when the suite
+# was 2,118 mutants and 6m54s; it is the kind of cost that stops being
+# affordable quietly, and by then the usual response is to lower the gate.
 #
 # So: branches and pull requests run Stryker in incremental mode, which reuses
 # the verdicts for mutants whose source and covering tests are both unchanged.
@@ -20,6 +20,15 @@ name: Mutation
 # branch cannot get worse unnoticed - and every push to main re-derives the
 # score from scratch, so nothing stays merged on a cached verdict for longer
 # than one run.
+#
+# Both tiers run in shards. One runner stopped finishing the full sweep: 42m39s
+# against a 45-minute limit on f83a743, and the same source on a slower runner
+# was cancelled at 45 minutes with 7,044 of 7,763 mutants tested. Runners vary
+# by a fifth or more on identical work, so a sweep near the limit fails about as
+# often as it passes. The limit was not raised; the sweep was split. Each shard
+# mutates its own files (scripts/mutation-shards.mjs) with every test, and a
+# final job merges the reports, refuses anything that is not exactly one sweep,
+# and applies the gate to the merged score. ADR-0003 has the measurements.
 #
 # There is no paths filter. A dependency bump can move the score as easily as a
 # source edit can (vitest itself is pinned for exactly that reason - see
@@ -45,22 +54,28 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  stryker:
+  shard:
     # The name says which tier ran, so a green tick in the checks list cannot be
     # mistaken for an authority it does not have.
-    name: ${{ (github.ref == 'refs/heads/main' || github.event_name == 'schedule' || inputs.full) && 'stryker (full)' || 'stryker (incremental)' }}
+    name: stryker (${{ (github.ref == 'refs/heads/main' || github.event_name == 'schedule' || inputs.full) && 'full' || 'incremental' }}, shard ${{ matrix.shard }} of ${{ strategy.job-total }})
     runs-on: ubuntu-latest
-    # Headroom for a bad day, not a budget: on a per-push workflow a hung job
-    # should fail fast. Raised from 30 after the 0.5.0 sweep took 24m42s at
-    # 4,515 mutants - 15m51s at 3,493 was the previous measurement, and 5
-    # minutes of headroom is not headroom. The tiering above is what stops this
-    # number needing to be raised again every release; if a *full* sweep ever
-    # approaches 45, the answer is to look at what the suite is doing, not to
-    # raise it a third time.
-    timeout-minutes: 45
+    # Headroom for a bad day, not a budget. A shard takes about 15 minutes, and
+    # the slowest runner measured so far would make that 20. If a shard's sweep
+    # passes 20 minutes, move files between shards or add one; the history of
+    # this number (30, then 45, then a coin flip at 45) is why it is not raised.
+    timeout-minutes: 30
+
+    strategy:
+      # One broken shard should not hide what the others found. The merge
+      # refuses to score a sweep with a shard missing either way.
+      fail-fast: false
+      matrix:
+        # One entry per shard in scripts/mutation-shards.mjs; a test checks.
+        shard: [1, 2, 3]
 
     env:
       FULL: ${{ github.ref == 'refs/heads/main' || github.event_name == 'schedule' || inputs.full }}
+      MUTATION_SHARD: ${{ matrix.shard }}
 
     steps:
       - uses: actions/checkout@v5
@@ -74,7 +89,8 @@ jobs:
 
       # A branch starts from whatever main last published. The restore-keys
       # fallback matters more than the exact key: a branch that finds nothing
-      # simply does a full run and is correct, only slower.
+      # simply does a full run and is correct, only slower. The file holds the
+      # whole sweep; each shard reads the part it mutates.
       - name: Restore the incremental file
         uses: actions/cache/restore@v4
         with:
@@ -88,11 +104,51 @@ jobs:
       # process of its own, so oversubscribing here makes the run slower.
       - name: Mutation test
         run: |
+          started=$SECONDS
           if [ "$FULL" = "true" ]; then
-            npx stryker run --concurrency 4 --incremental --force
+            npx stryker run stryker.shard.config.mjs --concurrency 4 --incremental --force
           else
-            npx stryker run --concurrency 4 --incremental
+            npx stryker run stryker.shard.config.mjs --concurrency 4 --incremental
           fi
+          echo "{\"seconds\": $((SECONDS - started))}" > "reports/mutation/shard-$MUTATION_SHARD.timing.json"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: mutation-shard-${{ matrix.shard }}
+          path: reports/mutation/shard-${{ matrix.shard }}*.json
+          if-no-files-found: error
+          retention-days: 7
+
+  score:
+    name: mutation score (${{ (github.ref == 'refs/heads/main' || github.event_name == 'schedule' || inputs.full) && 'full' || 'incremental' }})
+    needs: shard
+    # Runs when a shard failed too, so the failure is reported as an incomplete
+    # sweep rather than as a skipped check.
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      FULL: ${{ github.ref == 'refs/heads/main' || github.event_name == 'schedule' || inputs.full }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: npm
+
+      # The merge scores with Stryker's own metrics library.
+      - run: npm ci
+
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: mutation-shard-*
+          path: reports/shards
+
+      - name: Merge the shards and apply the gate
+        run: node scripts/mutation-shards.mjs merge reports/shards
 
       # Only a full sweep publishes a cache. An incremental run's file is
       # derived from a cache rather than from the code, and feeding that back in
@@ -118,5 +174,7 @@ jobs:
         if: always()
         with:
           name: mutation-report
-          path: reports/mutation/
+          path: |
+            reports/mutation/index.html
+            reports/mutation/mutation.json
           if-no-files-found: ignore

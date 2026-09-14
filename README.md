@@ -1190,7 +1190,7 @@ npm install
 npm run build      # tsc -> dist/
 npm test           # vitest
 npm run test:coverage
-npm run test:mutation  # stryker (~16 min in CI; over two hours locally)
+npm run test:mutation  # stryker (three ~15 min jobs in CI; hours locally)
 npm run lint       # tsc --noEmit
 npm run selfcheck  # run spec-guard on its own docs
 ```
@@ -1249,13 +1249,19 @@ quoted above; a full sweep is also what publishes the cache the branches start
 from, so an incremental verdict can never be built on another incremental
 verdict.
 
-The full sweep was 6m54s at 2,118 mutants, 15m51s at 3,493, and is 17m at
-4,299. That growth is why the tiers exist: a check that gets quietly more
-expensive every release is a check somebody eventually proposes lowering.
+The full sweep was 6m54s at 2,118 mutants, 15m51s at 3,493, and 42m39s at 7,763.
+That growth is why the tiers exist: a check that gets quietly more expensive
+every release is a check somebody eventually proposes lowering. It is also why
+both tiers now run in three parallel shards of about 15 minutes each. One runner
+could no longer finish the full sweep reliably inside the job's limit, and the
+answer was to split the sweep rather than raise the limit or drop mutants.
+Each shard mutates its own files against every test, and a final job merges the
+reports. The merge refuses anything that is not exactly one sweep, and applies
+the 97% gate to the merged score with the same library Stryker's gate uses.
 
 Run it locally with `npm run test:mutation` if you like, but do not calibrate
 anything on the result: on the Windows machine this was developed on the same
-suite takes over two hours against 21 minutes hosted, and it scores *higher*,
+suite takes hours against 43 minutes of hosted time, and it scores *higher*,
 because far more mutants hang there and Stryker counts a hang as a kill. Linux
 CI is the measurement.
 

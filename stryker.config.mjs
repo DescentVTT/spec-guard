@@ -17,7 +17,15 @@ export default {
   // The e2e suite is excluded: it spawns `node bin/spec-guard.js`, which loads
   // the built dist/ rather than the mutated source, so it can never kill a
   // mutant and would only add process-spawn time to every run.
-  vitest: { configFile: 'vitest.mutation.config.ts' },
+  //
+  // `related: false` runs the whole suite in the initial test run, where
+  // vitest's default runs only the test files that import a mutated file. With
+  // every file mutated at once that is nearly the same thing, but the full
+  // sweep runs in shards (scripts/mutation-shards.mjs), and "related" would
+  // then depend on which files a shard holds: a test that reaches a file other
+  // than through its imports could drop out of one shard and not the unsplit
+  // run. Coverage still narrows each mutant to the tests that reach it.
+  vitest: { configFile: 'vitest.mutation.config.ts', related: false },
 
   // perTest is what makes this practical: ~12 relevant tests per mutant
   // instead of all 248.

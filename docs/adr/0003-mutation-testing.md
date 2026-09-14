@@ -1063,6 +1063,123 @@ measured, and one fewer survivor than 0.7.0 before 676 new mutants arrived:
 - `glob.ts` has six, less the adjacent-class hang;
 - every other module has exactly the survivors it had in 0.7.0.
 
+### 0.9.0: the sweep in three parallel shards
+
+The full sweep of 820f261 was cancelled at the job's 45-minute limit with 7,044
+of 7,763 mutants tested. The commit before it, f83a743, had the same source and
+finished in 42m39s. The workflow's own comment had said what to do next: if a
+full sweep approaches 45, look at what the suite is doing rather than raise the
+limit a third time.
+
+It was doing nothing wrong. The full sweeps of 0.9.0's commits:
+
+| commit | mutants | sweep | timeouts |
+| --- | --- | --- | --- |
+| 9f62192 (0.8.0) | 6,939 | 36m26s | 128 |
+| 6bd6216 | 7,237 | 30m41s | 129 |
+| a0372d0 | 7,247 | 36m37s | 127 |
+| f83a743 | 7,763 | 42m39s | 134 |
+| 820f261 | 7,763 | cancelled at 45m | 131 so far |
+
+Timeouts held at 127-134 throughout, so no mutant had started hanging, and the
+time grew with the mutants. What the table also shows is the runners. 6bd6216
+and a0372d0 differ by ten mutants and by six minutes. 820f261's initial test
+run took 10.2 seconds of test time against f83a743's 7.7, for the same suite
+plus one test. With the hosted runners varying by a fifth or more on identical
+work, a sweep that takes 43 minutes on a good one is a coin flip against a limit
+of 45.
+
+Three ways out were turned down:
+- **Raise the limit again.** It buys a release or two at this rate, and it is
+  the move the comment ruled out.
+- **`ignoreStatic`.** Stryker's own warning estimated, through a0372d0, that its
+  static mutants take 52-53% of the test time. There are 780 of them, 10% of
+  the sweep, 8 of them survivors. Leaving them out would lower the gate while
+  appearing to keep it.
+- **A shorter `timeoutMS`.** The 0.2.0 section above is about that dial.
+
+So the sweep was split. That needs to know where its minutes go, and Stryker's
+reports carry no timings. Its log does. The progress reporter prints a
+timestamped count every few seconds, and the order Stryker tests mutants in is
+fixed by its source: uncovered mutants first, then the rest file by file,
+alphabetically, with static mutants sorted to the end because they need the
+test environment reloaded. Each file owns a known stretch of the count, and the
+log says when that stretch began and ended.
+
+That order is read from source, not observed, so it was checked. The timeouts
+the log counted inside each file's stretch match the report's timeouts for that
+file within two, for 18 of the 23 files: glob 16 and 16, polyglot 17 and 17,
+imports 30 and 32. The five files from `runner.ts` to `text.ts` disagree by up
+to eight, so their stretches are off by some dozens of mutants and their minutes
+are the least certain. `scripts/mutation-timeline.mjs` does all of this, and
+prints the check beside the minutes.
+
+The minutes, from f83a743's sweep: `runner.ts` 5.8, `engine.ts` 4.9, `cli.ts`
+4.2, `graph.ts` 4.2, `parser.ts` 3.5, `watch.ts` 3.3, `mcp.ts` 2.8, `imports.ts`
+2.5, `glob.ts` 2.4, `comments.ts` 2.0, `polyglot.ts` 1.9, `reporter.ts` 1.3,
+and 3.2 for the other eleven together. The count of mutants is a poor guide.
+`graph.ts` has 203 mutants and takes 4.2 minutes, 19 of them timeouts that each
+hold a worker for a minute. `parser.ts` spends 2.1 of its 3.5 minutes on its 181
+static mutants, each of which runs the whole suite. Three shards:
+
+| shard | files | minutes |
+| --- | --- | --- |
+| 1 | `runner.ts`, `graph.ts`, `comments.ts`, `polyglot.ts` | 13.9 |
+| 2 | `engine.ts`, `parser.ts`, `mcp.ts`, `glob.ts` | 13.6 |
+| 3 | everything else the configuration mutates | 14.5 |
+
+The last shard is written as the base patterns less the listed files, not as a
+list. A file added later is then mutated without anyone remembering to assign
+it, at the price of every new file landing in shard 3.
+
+**What a shard must not change.** The merged sweep has to be the sweep one
+runner would have done, and four things could make it something else.
+
+1. **Which tests run.** Vitest's `related` option, on by default, limits the
+   initial test run to test files that import a mutated file. With every file
+   mutated at once that is nearly the whole suite: f83a743 ran 2,350 tests.
+   With a third of the files it depends on the third. A test that reaches a
+   file other than through its imports would drop out of one shard and not out
+   of the unsplit run. The option is now off, so every shard runs every test,
+   and each mutant is still narrowed to the tests that cover it.
+2. **Which mutants exist.** The merge refuses a missing shard, a shard reported
+   twice, a file mutated by two shards or by a shard it does not belong to, a
+   listed file its shard did not mutate (a rename), and a shard that ran with
+   patterns other than its own.
+3. **What the verdicts mean.** Stryker numbers tests afresh in every run, so a
+   test id means nothing outside its own report. The merge keys tests by file
+   and name. It refuses shards that ran different tests, and names that are not
+   unique within a file.
+4. **The score.** Each shard runs with the break threshold off, because one
+   holding the hardest files can sit under the gate while the sweep clears it.
+   The merge scores the merged report with `mutation-testing-metrics`, the
+   library Stryker's gate uses, and applies the same comparison: an unrounded
+   score below 97 fails.
+
+`tests/mutation-shards.test.ts` splits a report the way Stryker would write the
+shards: ids renumbered and tests listed in an order of their own, so a merge
+that trusted an id across reports would attach the wrong tests. The merge must
+reproduce every verdict, every test by name, and the metrics. Each refusal above
+has a test, and each of 24 defects put into the merge one at a time made the
+tests fail.
+
+Two checks on real output before the first sharded sweep:
+- **f83a743's report**, all 7,763 mutants, cut into the three shards that way
+  and put back by the merge command. Every verdict came back identical, and so
+  did the metrics and the per-file table CI printed. The page decodes back to
+  the same report.
+- **Real Stryker runs** over `memo.ts` and `io.ts` as two shards, merged, against
+  one run over both files: 38 mutants, the same 2,369 tests, the same status,
+  static flag and covering tests for every mutant, the same metrics. Only
+  `killedBy` differed, for 19 of them. With bail on, it names whichever
+  covering test failed first. Vitest orders test files by timings it caches
+  from the previous run and rewrites after every run, so the first failure can
+  differ between any two runs, split or not. It is not part of the score.
+
+<!-- @assert-present file="scripts/mutation-shards.mjs,scripts/mutation-timeline.mjs,stryker.shard.config.mjs,tests/mutation-shards.test.ts" reason="the sweep is only one sweep if the merge that checks it exists" -->
+<!-- @assert-count target="stryker.config.mjs" symbol="related: false }" expected="1" reason="with related tests on, which tests a shard runs depends on the files it holds; see 0.9.0 in this ADR" -->
+<!-- @assert-absence target=".github/workflows" symbol="--ignoreStatic" reason="780 static mutants are 10% of the sweep; leaving them out lowers the gate" -->
+
 ## Consequences
 
 Whoever bumps vitest to 5 will fail CI on the assertion above, and land on this
