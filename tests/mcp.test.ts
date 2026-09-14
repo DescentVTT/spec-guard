@@ -612,7 +612,10 @@ describe('check_architecture', () => {
 
     expect(check).toBeGreaterThan(0);
     expect(check).toBeLessThanOrEqual(between - before);
-    expect(Math.round(check * 1000)).toBe(check * 1000);
+    // Rounded to microseconds means rounding again changes nothing. Comparing
+    // `check * 1000` with its own rounding was the test's arithmetic, not the
+    // server's: 4.057 * 1000 is 4057.0000000000005 in floating point.
+    expect(Math.round(check * 1000) / 1000).toBe(check);
     expect(rules).toBeGreaterThan(0);
     expect(rules).toBeLessThanOrEqual(after - between);
   });
