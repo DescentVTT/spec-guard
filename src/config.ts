@@ -171,10 +171,12 @@ export async function findConfig(root: string, read: (file: string) => Promise<s
   // Joined by hand rather than with node:path, which would be this module's
   // only import: a root with either separator at its end is still one root.
   const base = root.replace(/[\\/]+$/, '');
-  const manifest = await readIfPresent(read, `${base}/package.json`, 'package.json', `its "${CONFIG_KEY}" options`);
+  // No package.json holds no options, as one without "specGuard" does. A test
+  // for the difference could observe nothing: CI's sweep of it survived.
+  const manifest = (await readIfPresent(read, `${base}/package.json`, 'package.json', `its "${CONFIG_KEY}" options`)) ?? '{}';
   const standalone = await readIfPresent(read, `${base}/${CONFIG_FILE}`, CONFIG_FILE, 'its options');
 
-  const fromManifest = manifest === null ? undefined : manifestOptions(manifest, 'package.json');
+  const fromManifest = manifestOptions(manifest, 'package.json');
   if (standalone === null) {
     return { config: fromManifest === undefined ? {} : checkOptions(fromManifest, 'package.json', true), file: 'package.json' };
   }
