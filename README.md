@@ -1205,10 +1205,13 @@ prebuilt binary and is never a runtime dependency.
 
 Coverage says a line ran. It does not say an assertion would notice if the line
 behaved differently. This repository measures the difference: line coverage is
-**100%**, and **97.65%** of 4,299 mutants are killed in CI, with no file below
-95%. The second number is the one worth reading - and it is the ceiling, not a
-way-point: every surviving mutant has been checked individually and the 101 that
-are left produce byte-identical output.
+**100%**, and **98.84%** of 7,763 mutants are killed in CI, with 87 survivors and
+no file below 95%. The second number is the one worth reading, and what was done
+about the survivors matters more than the score. At 0.5.1 every surviving mutant
+was checked individually, and the 101 left then produced byte-identical output.
+Each release since has replayed the survivors its own code added before it
+shipped: they were killed, deleted as dead code, or shown equivalent and
+recorded in [ADR-0003](docs/adr/0003-mutation-testing.md) with the evidence.
 
 That gap is the point. The first run scored 77.23%, and the weakest file was the
 reporter at 65.48% - not because it lacked tests, but because its tests were

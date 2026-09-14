@@ -5,7 +5,7 @@ All notable changes to this project are documented here. Versions follow
 may change in a minor release — each such change is listed under **Changed**
 with the flag that restores the previous behaviour.
 
-## Unreleased
+## 0.9.0
 
 A project's policy can live in its `package.json`, and `spec-guard --watch`
 reports again as the tree changes, re-executing only the rules a change
