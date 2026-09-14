@@ -13,6 +13,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   ASSIGNED,
+  cacheFor,
   checkAssignment,
   formatTable,
   gate,
@@ -130,6 +131,9 @@ function split(report: Report): { shard: number; report: Report }[] {
   });
 }
 
+const CARRIED =
+  " A shard started from an incremental file that holds other shards' files reports their old verdicts as its own; see cacheFor.";
+
 const merge = (shards: { shard: number; report: Report }[]) =>
   mergeReports(shards, { base: BASE, thresholds: THRESHOLDS, assigned: ASSIGNMENT });
 
@@ -180,6 +184,30 @@ describe('mutateFor', () => {
     );
     expect(() => checkAssignment(BASE, [['lib/a.ts']])).toThrow('lib/a.ts is assigned to shard 1');
     expect(checkAssignment(['src/**/*.ts', '!src/x/**', 'src/x/keep.ts'], [['src/x/keep.ts']]).get('src/x/keep.ts')).toBe(1);
+  });
+});
+
+describe('cacheFor', () => {
+  it('gives each shard every test and only its own files, and nobody a file the configuration does not mutate', () => {
+    const cache = unsplit();
+    cache.files['src/types.ts'] = { mutants: [] };
+    const parts = [1, 2, 3].map((shard) => cacheFor(cache, mutateFor(BASE, shard, ASSIGNMENT)));
+
+    expect(parts.map((part) => Object.keys(part.files))).toEqual([['src/b.ts', 'src/d.ts'], ['src/a.ts'], ['src/c.ts', 'src/e/f.ts']]);
+    for (const part of parts) {
+      expect(part.testFiles).toBe(cache.testFiles);
+      expect({ ...part, files: undefined }).toEqual({ ...cache, files: undefined });
+    }
+    expect(Object.keys(cache.files)).toContain('src/types.ts');
+  });
+
+  it('leaves nothing to carry over: the merge takes shards started from their parts', () => {
+    const original = unsplit();
+    const shards = split(original).map(({ shard, report }) => ({
+      shard,
+      report: { ...report, files: { ...cacheFor(original, mutateFor(BASE, shard, ASSIGNMENT)).files, ...report.files } },
+    }));
+    expect(verdicts(merge(shards))).toEqual(verdicts(original));
   });
 });
 
@@ -236,14 +264,26 @@ describe('mergeReports', () => {
   it('refuses a file mutated by two shards', () => {
     const shards = split(unsplit());
     shards[2]!.report.files['src/a.ts'] = shards[1]!.report.files['src/a.ts']!;
-    expect(refused(shards)).toBe('src/a.ts was mutated by shards 2 and 3.');
+    expect(refused(shards)).toBe(`src/a.ts was mutated by shards 2 and 3.${CARRIED}`);
   });
 
-  it('refuses a file mutated by a shard it does not belong to', () => {
+  it('refuses a file reported by a shard it does not belong to', () => {
     const shards = split(unsplit());
     shards[0]!.report.files['src/c.ts'] = shards[2]!.report.files['src/c.ts']!;
     delete shards[2]!.report.files['src/c.ts'];
-    expect(refused(shards)).toBe('src/c.ts belongs to shard 3, but shard 1 mutated it.');
+    expect(refused(shards)).toBe(`src/c.ts belongs to shard 3, but shard 1 reported it.${CARRIED}`);
+  });
+
+  // What the first sharded sweep on CI did: every shard started from the whole
+  // sweep's incremental file, so Stryker reported the other shards' files too,
+  // with the old verdicts it had carried over.
+  it('refuses shards that carried the other shards\' verdicts over from an incremental file', () => {
+    const original = unsplit();
+    const shards = split(original).map(({ shard, report }) => ({
+      shard,
+      report: { ...report, files: { ...original.files, ...report.files } },
+    }));
+    expect(refused(shards)).toBe(`src/a.ts belongs to shard 2, but shard 1 reported it.${CARRIED}`);
   });
 
   it('refuses a listed file its shard did not mutate, as a renamed file would be', () => {

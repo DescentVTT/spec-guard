@@ -15,6 +15,7 @@
  * merged report with the library Stryker's own gate uses, and compares it the
  * way that gate does.
  *
+ *   node scripts/mutation-shards.mjs cache <shard>
  *   node scripts/mutation-shards.mjs merge <directory holding the shard reports>
  */
 
@@ -27,22 +28,25 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 // replaces, and a separately pinned copy could drift from it.
 import { calculateMutationTestMetrics } from 'mutation-testing-metrics';
 
-// Minutes each file took in the last unsplit sweep, f83a743 (42m39s), read off
-// its progress log with scripts/mutation-timeline.mjs:
+// Minutes each file took in the first sharded sweep, 68a4da5, read off each
+// shard's log with scripts/mutation-timeline.mjs (ADR-0003 has the unsplit
+// sweep's minutes these shards were first cut on):
 //
-//   runner 5.8   engine 4.9   cli 4.2   graph 4.2   parser 3.5   watch 3.3
-//   mcp 2.8   imports 2.5   glob 2.4   comments 2.0   polyglot 1.9
-//   reporter 1.3   the other eleven files 3.2 between them
+//   runner 7.6   engine 5.3   cli 5.1   parser 4.3   graph 3.7   watch 3.6
+//   mcp 3.5   imports 3.5   polyglot 2.6   glob 2.5   comments 2.4
+//   reporter 2.4   structure 0.9   the other ten files 4.1 between them
 //
-// The first shards are listed. The last mutates everything else the base
+// Runners differ by a fifth or more, so these are only good to a minute or so,
+// and a shard's minutes are best compared after scaling by its initial test
+// run. The first shards are listed. The last mutates everything else the base
 // configuration mutates, so a file added later is still mutated without anyone
 // remembering to list it here; the price is that new files all land in one
 // shard. When a shard's sweep passes 20 minutes, re-measure and move files or
 // add a shard (and add it to the workflow's matrix, which the merge checks).
 export const ASSIGNED = [
-  ['src/runner.ts', 'src/graph.ts', 'src/comments.ts', 'src/polyglot.ts'], // 13.9
-  ['src/engine.ts', 'src/parser.ts', 'src/mcp.ts', 'src/glob.ts'], // 13.6
-]; // and the rest: 14.5
+  ['src/runner.ts', 'src/graph.ts', 'src/polyglot.ts', 'src/comments.ts', 'src/specs.ts', 'src/text.ts'], // 17.5
+  ['src/engine.ts', 'src/parser.ts', 'src/mcp.ts', 'src/glob.ts'], // 15.6
+]; // and the rest: 18.6, on a runner that was a seventh slower than shard 2's
 
 export const SHARD_COUNT = ASSIGNED.length + 1;
 
@@ -92,6 +96,18 @@ function shardNumber(value, count) {
   return shard;
 }
 
+// Stryker keeps the verdicts an incremental file holds for files a run does
+// not mutate, so that a partial run does not forget them. A shard started from
+// the whole sweep's file would report every other shard's files too, with
+// verdicts from the last sweep rather than this one. Each shard starts from
+// its own part: every test, and only the files it mutates.
+export function cacheFor(report, patterns) {
+  return {
+    ...report,
+    files: Object.fromEntries(Object.entries(report.files).filter(([file]) => mutates(patterns, file))),
+  };
+}
+
 export function mutateFor(base, shard, assigned = ASSIGNED) {
   const number = shardNumber(shard, assigned.length + 1);
   checkAssignment(base, assigned);
@@ -121,6 +137,9 @@ const describeTest = (key) => {
   const [file, name] = JSON.parse(key);
   return `"${name}" in ${file}`;
 };
+
+const CARRIED =
+  " A shard started from an incremental file that holds other shards' files reports their old verdicts as its own; see cacheFor.";
 
 export function mergeReports(shards, { base, thresholds, assigned = ASSIGNED }) {
   const count = assigned.length + 1;
@@ -152,11 +171,11 @@ export function mergeReports(shards, { base, thresholds, assigned = ASSIGNED }) 
     }
     for (const file of Object.keys(report.files)) {
       if (mutatedBy.has(file)) {
-        throw new ShardError(`${file} was mutated by shards ${mutatedBy.get(file)} and ${shard}.`);
+        throw new ShardError(`${file} was mutated by shards ${mutatedBy.get(file)} and ${shard}.${CARRIED}`);
       }
       mutatedBy.set(file, shard);
       const owner = owners.get(file) ?? count;
-      if (owner !== shard) throw new ShardError(`${file} belongs to shard ${owner}, but shard ${shard} mutated it.`);
+      if (owner !== shard) throw new ShardError(`${file} belongs to shard ${owner}, but shard ${shard} reported it.${CARRIED}`);
     }
   }
   for (const [file, shard] of owners) {
@@ -305,12 +324,31 @@ updateTheme();
 const minutes = (seconds) => `${Math.floor(seconds / 60)}m${String(Math.round(seconds % 60)).padStart(2, '0')}s`;
 
 async function main(argv) {
-  const [command, directory] = argv;
-  if (command !== 'merge' || directory === undefined) {
-    console.error('usage: node scripts/mutation-shards.mjs merge <directory holding the shard reports>');
+  const [command, argument] = argv;
+  if (!['cache', 'merge'].includes(command) || argument === undefined) {
+    console.error('usage: node scripts/mutation-shards.mjs cache <shard> | merge <directory holding the shard reports>');
     return 2;
   }
   const { default: config } = await import(pathToFileURL(path.resolve('stryker.config.mjs')).href);
+  const incrementalFile = config.incrementalFile ?? 'reports/stryker-incremental.json';
+
+  if (command === 'cache') {
+    const patterns = mutateFor(config.mutate, argument);
+    let report;
+    try {
+      report = JSON.parse(readFileSync(incrementalFile, 'utf8'));
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+      console.log(`No incremental file at ${incrementalFile}: shard ${argument} tests every mutant.`);
+      return 0;
+    }
+    const kept = cacheFor(report, patterns);
+    writeFileSync(incrementalFile, JSON.stringify(kept));
+    console.log(`Shard ${argument} starts from ${Object.keys(kept.files).length} of the ${Object.keys(report.files).length} files in ${incrementalFile}.`);
+    return 0;
+  }
+
+  const directory = argument;
 
   const shards = [];
   const seconds = new Map();
@@ -346,7 +384,7 @@ async function main(argv) {
   const outputs = [
     ['reports/mutation/mutation.json', JSON.stringify(merged)],
     [config.htmlReporter?.fileName ?? 'reports/mutation/index.html', reportHtml(merged, elements)],
-    [config.incrementalFile ?? 'reports/stryker-incremental.json', JSON.stringify(merged, null, 2)],
+    [incrementalFile, JSON.stringify(merged, null, 2)],
   ];
   for (const [file, content] of outputs) {
     mkdirSync(path.dirname(file), { recursive: true });

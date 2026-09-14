@@ -40,6 +40,7 @@ export declare const SHARD_COUNT: number;
 export declare class ShardError extends Error {}
 export declare function checkAssignment(base: string[], assigned?: string[][]): Map<string, number>;
 export declare function mutateFor(base: string[], shard: unknown, assigned?: string[][]): string[];
+export declare function cacheFor(report: Report, patterns: string[]): Report;
 export declare function mergeReports(
   shards: { shard: number; report: Report }[],
   options: { base: string[]; thresholds: Thresholds; assigned?: string[][] },

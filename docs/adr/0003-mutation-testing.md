@@ -1120,7 +1120,7 @@ The minutes, from f83a743's sweep: `runner.ts` 5.8, `engine.ts` 4.9, `cli.ts`
 and 3.2 for the other eleven together. The count of mutants is a poor guide.
 `graph.ts` has 203 mutants and takes 4.2 minutes, 19 of them timeouts that each
 hold a worker for a minute. `parser.ts` spends 2.1 of its 3.5 minutes on its 181
-static mutants, each of which runs the whole suite. Three shards:
+static mutants, each of which runs the whole suite. Three shards, as first cut:
 
 | shard | files | minutes |
 | --- | --- | --- |
@@ -1175,6 +1175,48 @@ Two checks on real output before the first sharded sweep:
   covering test failed first. Vitest orders test files by timings it caches
   from the previous run and rewrites after every run, so the first failure can
   differ between any two runs, split or not. It is not part of the score.
+
+**The first sharded sweep was refused by its own merge,** and rightly. Every shard
+started from main's incremental file, as the unsplit sweep had, and ran
+`--incremental --force`. Each shard tested exactly its own mutants: "0 of 2570
+mutant result(s) are reused" in shard 1, 1,840 in shard 2, 3,353 in shard 3.
+But each shard's report also held all 23 files, and each printed a table for all
+of them. Stryker keeps the verdicts an incremental file holds for files a run
+does not mutate, so that a partial run does not forget them, and reports them
+as its own. The merge stopped at the first: "src/engine.ts belongs to shard 2,
+but shard 1 mutated it". Without that check, a merge that took each file from
+wherever it appeared would have scored verdicts from the previous sweep as this
+one's, and nothing in the number would have shown it.
+
+Two changes followed:
+- **A full sweep now starts from no incremental file at all.** It ran with
+  `--force` anyway, so the file had only ever been a source of carried-over
+  verdicts.
+- **A branch shard starts from its own part of main's file** (`cacheFor`):
+  every test, and only the files it mutates. That fails safe both ways. A file
+  wrongly left out is only tested again. A file wrongly kept is carried over,
+  and the merge refuses it, now with a message that names the likely cause.
+
+Two real Stryker runs over `memo.ts` alone checked it:
+- **started from the whole file:** the report held all 23 files, and scored the
+  previous sweep's 98.83%;
+- **started from its part:** the report held `memo.ts` and nothing else, with
+  all 20 of its verdicts reused.
+
+The shards' own tables, which included the files they did test, already said
+something about the result. `watch.ts` came out at 234 killed and no survivors:
+the `clearTimeout` survivor that 820f261's test was written for is dead.
+
+The sweep itself took 16m49s, 16m04s and 20m25s. Its logs gave per-file minutes
+on hosted runners, now with the timeout check agreeing for 20 of 23 files. The
+shards' initial test runs took 8.5, 8.0 and 9.2 seconds of test time, against
+7.7 for f83a743's single runner. Scaled to a common runner, the shards were
+about 15.3, 15.6 and 17.3 minutes. Together that is roughly a tenth more than the
+unsplit sweep, the price of three initial runs and three environments for
+static mutants. Shard 3 was the heaviest by about two minutes, so `specs.ts` and
+`text.ts` moved to shard 1. Both are small files whose timeouts hold a worker
+for a minute each. That makes the shards about 16.3, 15.6 and 16.3 on a common
+runner. Runner variance is still larger than that difference.
 
 <!-- @assert-present file="scripts/mutation-shards.mjs,scripts/mutation-timeline.mjs,stryker.shard.config.mjs,tests/mutation-shards.test.ts" reason="the sweep is only one sweep if the merge that checks it exists" -->
 <!-- @assert-count target="stryker.config.mjs" symbol="related: false }" expected="1" reason="with related tests on, which tests a shard runs depends on the files it holds; see 0.9.0 in this ADR" -->

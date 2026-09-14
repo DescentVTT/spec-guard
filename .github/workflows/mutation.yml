@@ -59,10 +59,11 @@ jobs:
     # mistaken for an authority it does not have.
     name: stryker (${{ (github.ref == 'refs/heads/main' || github.event_name == 'schedule' || inputs.full) && 'full' || 'incremental' }}, shard ${{ matrix.shard }} of ${{ strategy.job-total }})
     runs-on: ubuntu-latest
-    # Headroom for a bad day, not a budget. A shard takes about 15 minutes, and
-    # the slowest runner measured so far would make that 20. If a shard's sweep
-    # passes 20 minutes, move files between shards or add one; the history of
-    # this number (30, then 45, then a coin flip at 45) is why it is not raised.
+    # Headroom for a bad day, not a budget. The first sharded sweep took 16m49s,
+    # 16m04s and 20m25s, the last on a slow runner, and was rebalanced after it.
+    # If shards keep passing 20 minutes, move files between them or add one;
+    # the history of this number (30, then 45, then a coin flip at 45) is why it
+    # is not raised.
     timeout-minutes: 30
 
     strategy:
@@ -89,15 +90,24 @@ jobs:
 
       # A branch starts from whatever main last published. The restore-keys
       # fallback matters more than the exact key: a branch that finds nothing
-      # simply does a full run and is correct, only slower. The file holds the
-      # whole sweep; each shard reads the part it mutates.
+      # simply does a full run and is correct, only slower. A full sweep
+      # restores nothing: it re-derives every verdict from the code.
       - name: Restore the incremental file
+        if: env.FULL != 'true'
         uses: actions/cache/restore@v4
         with:
           path: reports/stryker-incremental.json
           key: stryker-incremental-${{ github.sha }}
           restore-keys: |
             stryker-incremental-
+
+      # The file holds the whole sweep, and Stryker reports the verdicts it
+      # holds for files a run does not mutate as though the run had produced
+      # them. The first sharded sweep did exactly that, and the merge refused
+      # it. So each shard keeps only the files it mutates, and every test.
+      - name: Keep this shard's part of the incremental file
+        if: env.FULL != 'true'
+        run: node scripts/mutation-shards.mjs cache "$MUTATION_SHARD"
 
       # The config's concurrency of 8 is tuned for a developer machine.
       # Hosted runners have 4 vCPUs, and each Stryker worker drives a vitest
@@ -106,7 +116,7 @@ jobs:
         run: |
           started=$SECONDS
           if [ "$FULL" = "true" ]; then
-            npx stryker run stryker.shard.config.mjs --concurrency 4 --incremental --force
+            npx stryker run stryker.shard.config.mjs --concurrency 4
           else
             npx stryker run stryker.shard.config.mjs --concurrency 4 --incremental
           fi
