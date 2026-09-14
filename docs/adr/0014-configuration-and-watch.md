@@ -266,8 +266,9 @@ Windows. How recursion behaves elsewhere was not measured here:
 
 The design below does not depend on a platform reporting a directory's contents,
 or one event per change. It depends on one thing about event types, which is
-stated where it is used. The macOS and Linux CI runners are where both claims
-are tested.
+stated where it is used. The process test with a real watcher, and SIGINT's exit
+130, passed on the macOS and Linux CI runners on both Node versions, as well as
+on Windows.
 
 <!-- @assert-absence target="src" symbol="watchFile" reason="fs.watchFile polls with stat; watch mode waits for events" -->
 <!-- @assert-absence target="src" symbol="setInterval" reason="nothing in spec-guard polls" -->
@@ -607,6 +608,12 @@ during this work.
   checked twice, and plumbing nothing drove. The fingerprint became a serialised
   observation, the duplicate guards went, and tests were written for the rest.
   A second sweep left four, and they were killed too.
+- **The whole package, on CI's full sweep of the watch commit: 98.83%** over
+  7,538 mutants, against 98.74% for the commit before it and 0.8.0's 98.63%.
+  `config.ts`, `facts.ts`, `io.ts` and `memo.ts` are at 100%. The full sweep
+  found one survivor the scoped ones had not: the real clock's `clearTimeout`,
+  which every scheduler test replaced with a fake. It has a test of its own now.
+  The one survivor in `cli.ts` is `main`'s default `argv`, older than this ADR.
 - **A session holds the contents of what its rules read**, measured above.
 - **Rules run unbatched in a session.** A plain run's shared pass was, by the
   runner's own account, where most of its speed came from. In a session, facts

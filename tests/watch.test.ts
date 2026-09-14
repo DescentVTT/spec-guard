@@ -24,6 +24,7 @@ import {
   MAX_WAIT_MS,
   QUIET_MS,
   runWatch,
+  systemClock,
   type Clock,
   type Session,
   type SessionRun,
@@ -762,5 +763,17 @@ describe('defaultIO', () => {
     expect(heard).toBe(2);
     unregister();
     expect({ int: process.listenerCount('SIGINT'), term: process.listenerCount('SIGTERM') }).toEqual(before);
+  });
+});
+
+describe('systemClock', () => {
+  it('reads the time, sets a timer, and clears one before it fires', async () => {
+    const before = Date.now();
+    expect(systemClock.now()).toBeGreaterThanOrEqual(before);
+    let fired = 0;
+    systemClock.clearTimeout(systemClock.setTimeout(() => (fired += 10), 5));
+    systemClock.setTimeout(() => (fired += 1), 5);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(fired).toBe(1);
   });
 });
