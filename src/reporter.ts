@@ -10,7 +10,7 @@
 import { createHash } from 'node:crypto';
 
 import { mergeLedgers, tallyLedger, type ScopeLedger } from './scope.js';
-import type { AssertionResult, DirectiveError } from './types.js';
+import type { AssertionResult, ConfigUse, DirectiveError } from './types.js';
 import type { RunResult } from './runner.js';
 
 export interface ReporterOptions {
@@ -223,6 +223,20 @@ function formatError(
   return lines;
 }
 
+/**
+ * The line that says which options came from a project's configuration.
+ *
+ * Unpainted, in every report that took any: an option in a file nobody is
+ * looking at is the one kind of setting a reader cannot infer from the command
+ * they typed. Keys the command line set as well are named too, since a reader
+ * who finds `"strict": false` in the file needs to know it lost. ADR-0014.
+ */
+export function formatConfigUse(use: ConfigUse): string {
+  const applied = use.applied.length === 0 ? 'none' : use.applied.join(', ');
+  const overridden = use.overridden.length === 0 ? '' : `; overridden on the command line: ${use.overridden.join(', ')}`;
+  return `options from ${use.file}: ${applied}${overridden}`;
+}
+
 /** Renders the full human-readable report. */
 export function formatReport(report: RunResult, options: ReporterOptions, maxSnippets = 5): string {
   const paint = createPainter(options.color);
@@ -299,6 +313,11 @@ export function formatReport(report: RunResult, options: ReporterOptions, maxSni
     lines.push(paint(`${glyphs.skip} ${spec.file} is ${spec.label} - ${detail}`, 'dim'));
   }
   if (report.inactiveSpecs.length > 0) lines.push('');
+
+  if (report.config !== undefined) {
+    lines.push(formatConfigUse(report.config));
+    lines.push('');
+  }
 
   const parts = [
     paint(`${report.summary.passed} passed`, 'green'),
@@ -409,6 +428,9 @@ export function formatJson(report: RunResult): string {
       })),
       warnings: report.warnings,
       inactiveSpecs: report.inactiveSpecs,
+      // Left out, not null, when nothing came from a configuration: a key that
+      // appears only when it means something is a key no reader has to test.
+      config: report.config,
     },
     null,
     2,

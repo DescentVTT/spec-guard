@@ -346,6 +346,22 @@ export interface RunSummary {
   inactive: number;
 }
 
+/**
+ * What a command took from a project's configuration, by key. ADR-0014.
+ *
+ * Carried on a report because an option in a file nobody is looking at is an
+ * option nobody knows is in force - and `allowEmptyScope` there weakens every
+ * rule in the project.
+ */
+export interface ConfigUse {
+  /** The file the options came from, relative to the root. */
+  file: string;
+  /** Keys whose values were used. */
+  applied: string[];
+  /** Keys the command line set too, and won. */
+  overridden: string[];
+}
+
 export interface RunReport {
   ok: boolean;
   root: string;
@@ -366,4 +382,6 @@ export interface RunReport {
    * tool exists to prevent.
    */
   inactiveSpecs: InactiveSpec[];
+  /** What the command line took from the project's configuration, when it took anything. */
+  config?: ConfigUse;
 }

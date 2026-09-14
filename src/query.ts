@@ -13,11 +13,12 @@ import path from 'node:path';
 import { comparePaths } from './engine.js';
 import { toPosix } from './glob.js';
 import { nodeIo, type Io } from './io.js';
+import { formatConfigUse } from './reporter.js';
 import { elapsed, resolveDirective, specExclusions } from './runner.js';
 import { createScope } from './scope.js';
 import { governs, viewRule, within, type DocumentView, type QueryPath, type RuleView } from './rules.js';
 import { readSpecs, specPath, type SpecDocument } from './specs.js';
-import type { Assertion, DirectiveError } from './types.js';
+import type { Assertion, ConfigUse, DirectiveError } from './types.js';
 
 export interface RuleSetOptions {
   /** Globs or paths of the Markdown specs. */
@@ -145,6 +146,8 @@ export interface QueryReport {
   documents: DocumentView[];
   errors: Array<{ file: string; line: number; message: string }>;
   durationMs: number;
+  /** What the command line took from the project's configuration, when it took anything. */
+  config?: ConfigUse;
 }
 
 export interface QueryOptions extends RuleSetOptions {
@@ -276,6 +279,8 @@ export function formatQuery(report: QueryReport): string {
     for (const error of report.errors) out.push(`  ${error.file}:${error.line} ${error.message}`);
     out.push('');
   }
+
+  if (report.config !== undefined) out.push(formatConfigUse(report.config), '');
 
   out.push(`${plural(report.specFiles.length, 'spec file', 'spec files')} read in ${report.durationMs.toFixed(1)}ms`);
   return out.join('\n');

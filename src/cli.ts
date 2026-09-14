@@ -11,11 +11,14 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import type { Readable } from 'node:stream';
 
+import { CONFIG_KEYS, ConfigError, engineNamed, loadConfig, type ConfigKey, type ProjectConfig } from './config.js';
+import { nodeIo, readText } from './io.js';
 import { createMcpHandler, serveStdio } from './mcp.js';
 import { formatQuery, formatQueryJson, queryRules } from './query.js';
 import { formatBaselines, formatJson, formatReport, formatSarif, shouldUseAscii, shouldUseColor } from './reporter.js';
-import { DEFAULT_CONCURRENCY, DEFAULT_MAX_SNIPPETS, runSpecGuard } from './runner.js';
+import { DEFAULT_CONCURRENCY, DEFAULT_MAX_SNIPPETS, runSpecGuard, type RunOptions } from './runner.js';
 import type { EnginePreference } from './engine.js';
+import type { ConfigUse } from './types.js';
 
 export const EXIT_OK = 0;
 export const EXIT_FAILED = 1;
@@ -62,6 +65,14 @@ export interface CliOptions {
   color?: boolean;
   help: boolean;
   version: boolean;
+  /**
+   * The configurable options the command line set, either way.
+   *
+   * A configuration fills in only what is not here, so a flag always wins - and
+   * `--strict` given alongside `"strict": true` is still reported as the command
+   * line's doing, not the file's.
+   */
+  fromCommandLine: Set<ConfigKey>;
 }
 
 export class UsageError extends Error {}
@@ -118,6 +129,12 @@ Options
   -h, --help              Show this help
       --version           Print the version
 
+Configuration
+  package.json in the root can hold specs, engine, strict, allowMissingTargets,
+  allowEmptyScope, ignoreStatus, includeSpecs, defaultSkips, maxSnippets and
+  concurrency under "specGuard". A flag wins over the file, and every on/off
+  option there also takes its opposite (--no-strict, --default-skips, ...).
+
 Directives
   <!-- @assert-absence target="src/" symbol="LegacyGateway" exclude="src/legacy/**" -->
   <!-- @assert-count   target="src/" symbol="SessionManager" expected="1" -->
@@ -137,15 +154,6 @@ as the tools get_architectural_rules and check_architecture.
 
 Exit codes
   0 all assertions passed   1 an assertion failed   2 spec-guard could not run`;
-
-const ENGINE_ALIASES: Record<string, EnginePreference> = {
-  auto: 'auto',
-  rg: 'ripgrep',
-  ripgrep: 'ripgrep',
-  js: 'javascript',
-  javascript: 'javascript',
-  node: 'javascript',
-};
 
 /**
  * Takes the next argv element as a value.
@@ -180,8 +188,11 @@ const NOT_FOR: Record<Exclude<Command, 'check'>, ReadonlySet<string>> = {
     '--fail-fast',
     '--engine',
     '--strict',
+    '--no-strict',
     '--allow-missing-targets',
+    '--no-allow-missing-targets',
     '--allow-empty-scope',
+    '--no-allow-empty-scope',
     '--print-baseline',
     '--allow-empty',
     '--max-snippets',
@@ -191,6 +202,7 @@ const NOT_FOR: Record<Exclude<Command, 'check'>, ReadonlySet<string>> = {
   ]),
   mcp: new Set(['--verbose', '--fail-fast', '--json', '--format', '--print-baseline', '--allow-empty', '--color', '--no-color']),
 };
+
 
 /** The long name of an option, whichever way it was spelled. */
 const LONG_NAMES: Readonly<Record<string, string>> = { '-v': '--verbose' };
@@ -221,7 +233,9 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
     concurrency: DEFAULT_CONCURRENCY,
     help: false,
     version: false,
+    fromCommandLine: new Set(),
   };
+  const set = options.fromCommandLine;
 
   let onlyPositional = false;
 
@@ -283,25 +297,37 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
         break;
       }
       case '--strict':
-        options.strictTargets = true;
+      case '--no-strict':
+        options.strictTargets = name === '--strict';
+        set.add('strict');
         break;
       case '--allow-missing-targets':
-        options.allowMissingTargets = true;
+      case '--no-allow-missing-targets':
+        options.allowMissingTargets = name === '--allow-missing-targets';
+        set.add('allowMissingTargets');
         break;
       case '--allow-empty-scope':
-        options.allowEmptyScope = true;
+      case '--no-allow-empty-scope':
+        options.allowEmptyScope = name === '--allow-empty-scope';
+        set.add('allowEmptyScope');
         break;
       case '--print-baseline':
         options.printBaseline = true;
         break;
+      case '--default-skips':
       case '--no-default-skips':
-        options.defaultSkips = false;
+        options.defaultSkips = name === '--default-skips';
+        set.add('defaultSkips');
         break;
       case '--ignore-status':
-        options.ignoreStatus = true;
+      case '--no-ignore-status':
+        options.ignoreStatus = name === '--ignore-status';
+        set.add('ignoreStatus');
         break;
       case '--include-specs':
-        options.includeSpecs = true;
+      case '--no-include-specs':
+        options.includeSpecs = name === '--include-specs';
+        set.add('includeSpecs');
         break;
       case '--allow-empty':
         options.allowEmpty = true;
@@ -321,18 +347,21 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
         break;
       case '--engine': {
         const value = nextValue().toLowerCase();
-        const engine = ENGINE_ALIASES[value];
-        if (!engine) {
-          throw new UsageError(`Unknown engine "${value}". Expected auto, rg or js.`);
+        try {
+          options.engine = engineNamed(value);
+        } catch (error) {
+          throw new UsageError((error as ConfigError).message);
         }
-        options.engine = engine;
+        set.add('engine');
         break;
       }
       case '--max-snippets':
         options.maxSnippets = positiveInteger(name, nextValue());
+        set.add('maxSnippets');
         break;
       case '--concurrency':
         options.concurrency = Math.max(1, positiveInteger(name, nextValue()));
+        set.add('concurrency');
         break;
       default:
         throw new UsageError(`Unknown option "${name}". Run spec-guard --help.`);
@@ -340,11 +369,104 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
   }
 
   options.patterns.push(...specs);
+  if (options.patterns.length > 0) set.add('specs');
   if (options.patterns.length === 0) options.patterns = ['docs/**/*.md'];
   if (command === 'query' && options.paths.length === 0 && !options.help && !options.version) {
     throw new UsageError('spec-guard query needs a path to ask about, e.g. spec-guard query src/domain/user.ts.');
   }
   return options;
+}
+
+/** The configurable options a query reads; the rest are about running rules. */
+const QUERY_KEYS: ReadonlySet<ConfigKey> = new Set<ConfigKey>(['specs', 'ignoreStatus', 'includeSpecs', 'defaultSkips']);
+
+/** Where each key of a configuration lands on the command line's options. */
+const SETTERS: { [Key in ConfigKey]-?: (options: CliOptions, value: NonNullable<ProjectConfig[Key]>) => void } = {
+  specs: (options, value) => {
+    options.patterns = [...value];
+  },
+  engine: (options, value) => {
+    options.engine = value;
+  },
+  strict: (options, value) => {
+    options.strictTargets = value;
+  },
+  allowMissingTargets: (options, value) => {
+    options.allowMissingTargets = value;
+  },
+  allowEmptyScope: (options, value) => {
+    options.allowEmptyScope = value;
+  },
+  ignoreStatus: (options, value) => {
+    options.ignoreStatus = value;
+  },
+  includeSpecs: (options, value) => {
+    options.includeSpecs = value;
+  },
+  defaultSkips: (options, value) => {
+    options.defaultSkips = value;
+  },
+  maxSnippets: (options, value) => {
+    options.maxSnippets = value;
+  },
+  concurrency: (options, value) => {
+    options.concurrency = value;
+  },
+};
+
+/**
+ * Fills in what the command line left unset from a configuration, and says what
+ * it took.
+ *
+ * A key the command does not read is neither applied nor overridden: `strict`
+ * is written for the runs, and a query that ignores it has not been told
+ * anything about strictness. Returns nothing when the configuration had
+ * nothing to say to this command, so a report says nothing about it.
+ */
+export function applyConfig(options: CliOptions, config: ProjectConfig, file = 'package.json'): ConfigUse | undefined {
+  const applied: ConfigKey[] = [];
+  const overridden: ConfigKey[] = [];
+  for (const key of CONFIG_KEYS) {
+    const value = config[key];
+    if (value === undefined) continue;
+    if (options.command === 'query' && !QUERY_KEYS.has(key)) continue;
+    if (options.fromCommandLine.has(key)) {
+      overridden.push(key);
+      continue;
+    }
+    (SETTERS[key] as (target: CliOptions, given: unknown) => void)(options, value);
+    applied.push(key);
+  }
+  return applied.length + overridden.length === 0 ? undefined : { file, applied, overridden };
+}
+
+/** Reads the root's configuration from disk and applies it, or says why it cannot. */
+async function configure(options: CliOptions, io: CliIO): Promise<{ use: ConfigUse | undefined } | null> {
+  try {
+    return { use: applyConfig(options, await loadConfig(options.root, (file) => readText(nodeIo, file))) };
+  } catch (error) {
+    // Everything loadConfig throws is a ConfigError: a read that fails is turned
+    // into one, and parsing throws nothing else. A test for any other kind of
+    // error would be a test of a branch no input can reach.
+    io.stderr(`spec-guard: ${(error as Error).message}`);
+    return null;
+  }
+}
+
+/** The run a set of command-line options asks for. */
+function runOptionsOf(options: CliOptions): Omit<RunOptions, 'patterns' | 'root' | 'select'> {
+  return {
+    engine: options.engine,
+    failFast: options.failFast,
+    allowMissingTargets: options.allowMissingTargets,
+    allowEmptyScope: options.allowEmptyScope,
+    defaultSkips: options.defaultSkips,
+    ignoreStatus: options.ignoreStatus,
+    strictTargets: options.strictTargets,
+    includeSpecs: options.includeSpecs,
+    concurrency: options.concurrency,
+    maxSnippets: options.maxSnippets,
+  };
 }
 
 function defaultIO(): CliIO {
@@ -359,17 +481,20 @@ function defaultIO(): CliIO {
 }
 
 /** `spec-guard query`: prints the rules governing each path. */
-async function runQuery(options: CliOptions, io: CliIO): Promise<number> {
+async function runQuery(options: CliOptions, io: CliIO, use: ConfigUse | undefined): Promise<number> {
   let report;
   try {
-    report = await queryRules({
-      patterns: options.patterns,
-      root: options.root,
-      paths: options.paths,
-      includeInactive: options.ignoreStatus,
-      includeSpecs: options.includeSpecs,
-      defaultSkips: options.defaultSkips,
-    });
+    report = {
+      ...(await queryRules({
+        patterns: options.patterns,
+        root: options.root,
+        paths: options.paths,
+        includeInactive: options.ignoreStatus,
+        includeSpecs: options.includeSpecs,
+        defaultSkips: options.defaultSkips,
+      })),
+      config: use,
+    };
   } catch (error) {
     io.stderr(`spec-guard: ${error instanceof Error ? error.message : String(error)}`);
     return EXIT_ERROR;
@@ -385,8 +510,15 @@ async function runQuery(options: CliOptions, io: CliIO): Promise<number> {
   return EXIT_OK;
 }
 
-/** `spec-guard mcp`: serves until the client closes stdin. */
-async function runMcp(options: CliOptions, io: CliIO): Promise<number> {
+/**
+ * `spec-guard mcp`: serves until the client closes stdin.
+ *
+ * The configuration is read again for every request, from the options as the
+ * command line left them. ADR-0012 refused to cache the rules in the server,
+ * and a cached configuration is a cached rule: `"ignoreStatus": true` added
+ * while an agent's session is open has to reach the next answer it gets.
+ */
+async function runMcp(options: CliOptions, commandLine: CliOptions, io: CliIO, use: ConfigUse | undefined): Promise<number> {
   if (!io.stdin) {
     io.stderr('spec-guard: mcp needs a readable stdin.');
     return EXIT_ERROR;
@@ -395,20 +527,16 @@ async function runMcp(options: CliOptions, io: CliIO): Promise<number> {
     root: options.root,
     patterns: options.patterns,
     version: version(),
-    run: {
-      engine: options.engine,
-      allowMissingTargets: options.allowMissingTargets,
-      allowEmptyScope: options.allowEmptyScope,
-      defaultSkips: options.defaultSkips,
-      ignoreStatus: options.ignoreStatus,
-      strictTargets: options.strictTargets,
-      includeSpecs: options.includeSpecs,
-      concurrency: options.concurrency,
-      maxSnippets: options.maxSnippets,
+    run: runOptionsOf(options),
+    settings: async () => {
+      const fresh: CliOptions = { ...commandLine, patterns: [...commandLine.patterns] };
+      applyConfig(fresh, await loadConfig(options.root, (file) => readText(nodeIo, file)));
+      return { patterns: fresh.patterns, run: runOptionsOf(fresh) };
     },
   });
   // stderr is the one channel the stdio binding leaves free for people.
-  io.stderr(`spec-guard ${version()}: MCP server on stdio, rules from ${options.patterns.join(', ')} under ${options.root}`);
+  const from = use === undefined || use.applied.length === 0 ? '' : `, options from ${use.file}: ${use.applied.join(', ')}`;
+  io.stderr(`spec-guard ${version()}: MCP server on stdio, rules from ${options.patterns.join(', ')} under ${options.root}${from}`);
   await serveStdio(io.stdin, io.stdout, handler);
   return EXIT_OK;
 }
@@ -433,25 +561,24 @@ export async function main(argv: readonly string[] = process.argv.slice(2), io: 
     io.stdout(version());
     return EXIT_OK;
   }
-  if (options.command === 'query') return runQuery(options, io);
-  if (options.command === 'mcp') return runMcp(options, io);
+  // Read after --help and --version, which must work in a project whose
+  // package.json is broken, and before anything that runs a rule.
+  const commandLine: CliOptions = { ...options, patterns: [...options.patterns] };
+  const configured = await configure(options, io);
+  if (configured === null) return EXIT_ERROR;
+  const { use } = configured;
+
+  if (options.command === 'query') return runQuery(options, io, use);
+  if (options.command === 'mcp') return runMcp(options, commandLine, io, use);
 
   let report;
   try {
-    report = await runSpecGuard({
-      patterns: options.patterns,
-      root: options.root,
-      engine: options.engine,
-      failFast: options.failFast,
-      allowMissingTargets: options.allowMissingTargets,
-      allowEmptyScope: options.allowEmptyScope,
-      defaultSkips: options.defaultSkips,
-      ignoreStatus: options.ignoreStatus,
-      strictTargets: options.strictTargets,
-      includeSpecs: options.includeSpecs,
-      concurrency: options.concurrency,
-      maxSnippets: options.maxSnippets,
-    });
+    report = {
+      ...(await runSpecGuard({ ...runOptionsOf(options), patterns: options.patterns, root: options.root })),
+      // Undefined when nothing came from a configuration, which every report
+      // reads as "say nothing" and JSON leaves out.
+      config: use,
+    };
   } catch (error) {
     io.stderr(`spec-guard: ${error instanceof Error ? error.message : String(error)}`);
     return EXIT_ERROR;

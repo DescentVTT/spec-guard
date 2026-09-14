@@ -247,6 +247,14 @@ export interface McpServerOptions {
    * `get_architectural_rules` list rules from documents not in force by default.
    */
   run?: Omit<RunOptions, 'patterns' | 'root' | 'select'>;
+  /**
+   * The specs and run settings for one request, when they can change while the
+   * server runs. The command line passes one that reads the project's
+   * configuration afresh (ADR-0014); without it, `patterns` and `run` hold for
+   * every request. A settings function that throws fails the request with its
+   * message.
+   */
+  settings?: () => Promise<{ patterns: readonly string[]; run: Omit<RunOptions, 'patterns' | 'root' | 'select'> }>;
   /** Reads a spec document. Injected so an unreadable one can be tested. */
   readFile?: (file: string) => Promise<string>;
 }
@@ -279,18 +287,21 @@ export function createMcpHandler(options: McpServerOptions): (message: unknown) 
   const serverInfo = { name: SERVER_NAME, version: options.version };
   const capabilities = { tools: {}, resources: {} };
   const readFile = options.readFile ?? ((file: string) => readText(nodeIo, file));
-  const ruleSetOptions = {
-    patterns: options.patterns,
+  /** The settings a request is answered under, read when the request arrives. */
+  const current = async (): Promise<{ patterns: readonly string[]; run: McpServerOptions['run'] }> =>
+    options.settings ? options.settings() : { patterns: options.patterns, run: options.run };
+  const ruleSetOptions = ({ patterns, run }: { patterns: readonly string[]; run: McpServerOptions['run'] }) => ({
+    patterns,
     root: options.root,
     // No defaults of their own: loadRuleSet has them, and a second copy here
     // could never disagree with it in a way anything could see.
-    includeSpecs: options.run?.includeSpecs,
-    defaultSkips: options.run?.defaultSkips,
-  };
+    includeSpecs: run?.includeSpecs,
+    defaultSkips: run?.defaultSkips,
+  });
 
-  const noSpecs = (): ToolOutcome =>
+  const noSpecs = (patterns: readonly string[]): ToolOutcome =>
     toolError(
-      `No spec files matched ${options.patterns.map((pattern) => `"${pattern}"`).join(', ')} under ${options.root}. ` +
+      `No spec files matched ${patterns.map((pattern) => `"${pattern}"`).join(', ')} under ${options.root}. ` +
         'Start the server with --spec <glob> or --root <dir> pointing at the project.',
     );
 
@@ -298,13 +309,14 @@ export function createMcpHandler(options: McpServerOptions): (message: unknown) 
     const unknown = unknownArguments(args, ['path', 'include_inactive']);
     if (unknown) return unknown;
     if (typeof args['path'] !== 'string') return toolError('"path" is required and must be a string.');
-    const includeInactive = args['include_inactive'] ?? options.run?.ignoreStatus ?? false;
+    const settings = await current();
+    const includeInactive = args['include_inactive'] ?? settings.run?.ignoreStatus ?? false;
     if (typeof includeInactive !== 'boolean') return toolError('"include_inactive" must be true or false.');
 
     const startedAt = performance.now();
     const query = await resolveQueryPath(args['path'], options.root);
-    const ruleSet = await loadRuleSet(ruleSetOptions);
-    if (ruleSet.specFiles.length === 0) return noSpecs();
+    const ruleSet = await loadRuleSet(ruleSetOptions(settings));
+    if (ruleSet.specFiles.length === 0) return noSpecs(settings.patterns);
     const report = { ...answerQuery(ruleSet, [query], includeInactive), durationMs: elapsed(startedAt) };
     return { text: formatQuery(report), structured: { ...report } };
   }
@@ -319,17 +331,18 @@ export function createMcpHandler(options: McpServerOptions): (message: unknown) 
     const paths: QueryPath[] | undefined =
       rawPaths === undefined ? undefined : await Promise.all((rawPaths as string[]).map((entry) => resolveQueryPath(entry, options.root)));
 
+    const settings = await current();
     let inForce = 0;
     const report = await runSpecGuard({
-      ...options.run,
-      patterns: options.patterns,
+      ...settings.run,
+      patterns: settings.patterns,
       root: options.root,
       select: (assertion) => {
         inForce += 1;
         return paths === undefined || paths.some((query) => governs(assertion, query));
       },
     });
-    if (report.summary.specs === 0) return noSpecs();
+    if (report.summary.specs === 0) return noSpecs(settings.patterns);
 
     const scope =
       paths === undefined
@@ -364,7 +377,7 @@ export function createMcpHandler(options: McpServerOptions): (message: unknown) 
       warnings: report.warnings,
       durationMs: Math.round(report.durationMs * 1000) / 1000,
     };
-    const text = `Checked ${scope}.\n\n${formatReport(report, { color: false, verbose: false, ascii: true }, options.run?.maxSnippets)}`;
+    const text = `Checked ${scope}.\n\n${formatReport(report, { color: false, verbose: false, ascii: true }, settings.run?.maxSnippets)}`;
     return { text, structured };
   }
 
@@ -393,7 +406,7 @@ export function createMcpHandler(options: McpServerOptions): (message: unknown) 
   }
 
   async function listResources(): Promise<JsonObject> {
-    const ruleSet = await loadRuleSet(ruleSetOptions);
+    const ruleSet = await loadRuleSet(ruleSetOptions(await current()));
     return {
       resources: [
         {
@@ -438,7 +451,7 @@ export function createMcpHandler(options: McpServerOptions): (message: unknown) 
   async function readResource(params: JsonObject, era: Era): Promise<JsonObject> {
     const uri = params['uri'];
     if (typeof uri !== 'string') throw new ProtocolError(INVALID_PARAMS, 'resources/read needs a uri.');
-    const ruleSet = await loadRuleSet(ruleSetOptions);
+    const ruleSet = await loadRuleSet(ruleSetOptions(await current()));
     if (uri === RULES_URI) {
       return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(rulesResource(ruleSet), null, 2) }] };
     }

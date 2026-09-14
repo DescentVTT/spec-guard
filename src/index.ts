@@ -12,8 +12,11 @@
  * ```
  */
 
-export { main, parseArgs, version, HELP, UsageError, EXIT_OK, EXIT_FAILED, EXIT_ERROR } from './cli.js';
+export { applyConfig, main, parseArgs, version, HELP, UsageError, EXIT_OK, EXIT_FAILED, EXIT_ERROR } from './cli.js';
 export type { CliIO, CliOptions, Command, OutputFormat } from './cli.js';
+
+export { engineNamed, loadConfig, parseConfig, ConfigError, CONFIG_KEY, CONFIG_KEYS, INVOCATION_OPTIONS } from './config.js';
+export type { ConfigKey, ProjectConfig } from './config.js';
 
 export {
   buildJsRegExp,
@@ -174,7 +177,7 @@ export {
 } from './runner.js';
 export type { ExecuteOptions, ResolveContext, RunOptions, RunPlan, RunResult } from './runner.js';
 
-export { createPainter, formatBaselines, formatJson, formatReport, formatSarif, shouldUseAscii, shouldUseColor } from './reporter.js';
+export { createPainter, formatBaselines, formatConfigUse, formatJson, formatReport, formatSarif, shouldUseAscii, shouldUseColor } from './reporter.js';
 export type { ReporterOptions } from './reporter.js';
 
 export type {
@@ -182,6 +185,7 @@ export type {
   AssertionResult,
   BaselineEntry,
   Bounds,
+  ConfigUse,
   Directive,
   DirectiveError,
   DirectiveKind,
