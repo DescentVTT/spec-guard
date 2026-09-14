@@ -84,6 +84,7 @@ function fixture(overrides: Partial<RunResult> = {}): RunResult {
     errors: [],
     warnings: [],
     inactiveSpecs: [],
+    exclude: [],
     results: [passingResult, failingResult],
     ...overrides,
   };
@@ -130,6 +131,38 @@ describe('exact rendered output', () => {
         '✔ every spec assertion holds',
       ].join('\n'),
     );
+  });
+
+  it('names the exclusions a run was held to just above its summary, from a file or from the command line', () => {
+    const passing = fixture({
+      ok: true,
+      summary: { specs: 1, total: 1, passed: 1, failed: 0, skipped: 0, inactive: 0 },
+      results: [passingResult],
+      exclude: ['target', 'bin', 'obj', 'dist'],
+    });
+    const lines = (report: RunResult) => formatReport(report, { color: false, verbose: false }).split('\n');
+
+    expect(lines(passing)).toEqual([
+      'spec-guard 1 spec · 1 assertion · ripgrep',
+      '',
+      'exclude from the command line: target, bin, obj, dist',
+      '',
+      '1 passed · 12ms',
+      '✔ every spec assertion holds',
+    ]);
+    expect(lines({ ...passing, config: { file: '.spec-guard.json', applied: ['specs', 'exclude'], overridden: [] } }).slice(2, 4)).toEqual([
+      'options from .spec-guard.json: specs, exclude (target, bin, obj, dist)',
+      '',
+    ]);
+    // Neither line, and no blank line for them, when nothing set either.
+    expect(lines({ ...passing, exclude: [] }).slice(2)).toEqual(['1 passed · 12ms', '✔ every spec assertion holds']);
+  });
+
+  it('carries the exclusions into JSON, as an empty list when there were none', () => {
+    expect(JSON.parse(formatJson(fixture({ exclude: ['dist'] }))).exclude).toEqual(['dist']);
+    const parsed = JSON.parse(formatJson(fixture())) as Record<string, unknown>;
+    expect(parsed.exclude).toEqual([]);
+    expect(Object.keys(parsed).slice(-2)).toEqual(['inactiveSpecs', 'exclude']);
   });
 
   it('renders an assert-present pass by listing its files', () => {

@@ -90,6 +90,7 @@ function report(options: { passed?: number; failed?: number; specs?: number; spe
     errors: [],
     warnings: [],
     inactiveSpecs: [],
+    exclude: [],
     specFiles: options.specFiles ?? Array.from({ length: specs }, (_, index) => `docs/${index}.md`),
   };
 }

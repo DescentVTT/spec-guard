@@ -399,6 +399,7 @@ describe('formatQuery', () => {
     const report: QueryReport = {
       root: '/r',
       specFiles: ['a.md', 'b.md'],
+      exclude: [],
       documents: [
         { file: 'b.md', title: null, status: 'draft', label: 'Draft', inForce: false },
         { file: 'c.md', title: null, status: 'superseded', label: 'Superseded', inForce: false },
@@ -426,6 +427,7 @@ describe('formatQuery', () => {
             },
           ],
           withheld: { rules: 2, documents: ['b.md', 'c.md'] },
+          excluded: { project: [], rules: [] },
         },
       ],
       errors: [

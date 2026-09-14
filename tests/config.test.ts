@@ -25,7 +25,7 @@ import {
   parseStandaloneConfig,
   type ProjectConfig,
 } from '../src/config.js';
-import { formatConfigUse } from '../src/reporter.js';
+import { formatConfigUse, formatOptionLines } from '../src/reporter.js';
 import { makeTempRepo, removeTempRepo } from './helpers.js';
 
 const temporary: string[] = [];
@@ -135,6 +135,21 @@ describe('parseConfig', () => {
       expect(refusal(manifest({ exclude })), JSON.stringify(exclude)).toMatch(/^package\.json: "specGuard\.exclude" must be a list of paths or globs to exclude, got /);
     }
     expect(refusal(manifest({ exclude: 'target' }))).toBe('package.json: "specGuard.exclude" must be a list of paths or globs to exclude, got "target".');
+  });
+
+  // A list pasted from .gitignore kept "build" and silently dropped the "!"
+  // line re-including one file, so the exclusion was wider than it read.
+  it('refuses an exclude pattern that could never exclude anything, naming the first', () => {
+    expect(refusal(manifest({ exclude: ['build', '!build/generated/needed.ts', '../shared'] }))).toBe(
+      'package.json: "specGuard.exclude" has an invalid exclude pattern "!build/generated/needed.ts": negation patterns are not supported in exclude.',
+    );
+    expect(refusal(manifest({ exclude: ['../shared'] }))).toBe(
+      'package.json: "specGuard.exclude" has an invalid exclude pattern "../shared": ".." leads out of the root, and only paths inside it are searched.',
+    );
+    expect(() => parseStandaloneConfig(JSON.stringify({ exclude: ['target', 'C:/repo/bin'] }))).toThrow(
+      new ConfigError('.spec-guard.json: "exclude" has an invalid exclude pattern "C:/repo/bin": exclusions are relative to the root, and a drive path is not.'),
+    );
+    expect(parseConfig(manifest({ exclude: ['/target', './bin', 'obj/', 'src\\gen'] }))).toEqual({ exclude: ['/target', './bin', 'obj/', 'src\\gen'] });
   });
 
   it('refuses an engine that is not a string, or not an engine, in the flag\'s own words', () => {
@@ -360,6 +375,15 @@ describe('flags that a configuration can set', () => {
     expect(parseArgs(['query', 'src', '--exclude', 'target'], process.cwd()).exclude).toEqual(['target']);
   });
 
+  it('refuses an --exclude pattern that could never exclude anything, whichever list it is in', () => {
+    expect(() => parseArgs(['--exclude', 'target', '--exclude', 'build, !build/keep.ts'], process.cwd())).toThrow(
+      new UsageError('Option --exclude has an invalid exclude pattern "!build/keep.ts": negation patterns are not supported in exclude.'),
+    );
+    expect(() => parseArgs(['query', 'src', '--exclude=../vendor'], process.cwd())).toThrow(
+      new UsageError('Option --exclude has an invalid exclude pattern "../vendor": ".." leads out of the root, and only paths inside it are searched.'),
+    );
+  });
+
   it('documents both files, exclude, and the opposites in the help', () => {
     expect(HELP).toContain("--exclude <globs>   Paths no assertion looks at, beside each directive's exclude; repeatable");
     expect(HELP).toContain('maxSnippets and concurrency under "specGuard"; a root with no package.json can');
@@ -469,6 +493,40 @@ describe('formatConfigUse', () => {
       'options from package.json: specs; overridden on the command line: engine, strict',
     );
     expect(formatConfigUse({ file: 'package.json', applied: [], overridden: ['strict'] })).toBe('options from package.json: none; overridden on the command line: strict');
+  });
+
+  it('names the exclusions in force beside exclude, wherever the key is listed', () => {
+    expect(formatConfigUse({ file: '.spec-guard.json', applied: ['exclude'], overridden: [] }, ['target', 'bin', 'obj', 'dist'])).toBe(
+      'options from .spec-guard.json: exclude (target, bin, obj, dist)',
+    );
+    expect(formatConfigUse({ file: 'package.json', applied: ['specs'], overridden: ['exclude', 'strict'] }, ['dist'])).toBe(
+      'options from package.json: specs; overridden on the command line: exclude (dist), strict',
+    );
+    expect(formatConfigUse({ file: 'package.json', applied: [], overridden: ['exclude'] }, [])).toBe(
+      'options from package.json: none; overridden on the command line: exclude (none)',
+    );
+    // Not told the patterns, it names the key alone, as it always did.
+    expect(formatConfigUse({ file: 'package.json', applied: ['exclude'], overridden: [] })).toBe('options from package.json: exclude');
+  });
+});
+
+describe('formatOptionLines', () => {
+  const use = (applied: string[], overridden: string[] = []) => ({ file: '.spec-guard.json', applied, overridden });
+
+  it('says nothing when there was no configuration and no exclusion', () => {
+    expect(formatOptionLines(undefined, [])).toEqual([]);
+  });
+
+  it('names exclusions from the command line on a line of their own when no configuration accounts for them', () => {
+    expect(formatOptionLines(undefined, ['dist', 'build'])).toEqual(['exclude from the command line: dist, build']);
+    expect(formatOptionLines(use(['specs']), ['dist'])).toEqual(['options from .spec-guard.json: specs', 'exclude from the command line: dist']);
+    expect(formatOptionLines(use(['specs']), [])).toEqual(['options from .spec-guard.json: specs']);
+  });
+
+  it('names them once, in the configuration line, when the file set them or the command line overrode them', () => {
+    expect(formatOptionLines(use(['specs', 'exclude']), ['target'])).toEqual(['options from .spec-guard.json: specs, exclude (target)']);
+    expect(formatOptionLines(use([], ['exclude']), ['dist'])).toEqual(['options from .spec-guard.json: none; overridden on the command line: exclude (dist)']);
+    expect(formatOptionLines(use([], ['exclude']), [])).toEqual(['options from .spec-guard.json: none; overridden on the command line: exclude (none)']);
   });
 });
 
@@ -633,17 +691,24 @@ describe('an MCP server under a configuration', () => {
     const { cli, out, err } = io(root, stdin);
     const exit = main(['mcp', '--engine', 'js'], cli);
 
-    expect((await ask(stdin, out, 1, 'check_architecture'))['structuredContent']).toMatchObject({ ok: true });
-    expect((await ask(stdin, out, 2, 'get_architectural_rules', { path: 'target/gen.ts' }))['structuredContent']).toMatchObject({
-      results: [{ rules: [] }],
+    const config = { file: '.spec-guard.json', applied: ['specs', 'exclude'], overridden: [] };
+    const check = await ask(stdin, out, 1, 'check_architecture');
+    expect(check['structuredContent']).toMatchObject({ ok: true, exclude: ['target'], config });
+    expect((check['content'] as Array<{ text: string }>)[0]?.text).toContain('\noptions from .spec-guard.json: specs, exclude (target)\n');
+    const excluded = await ask(stdin, out, 2, 'get_architectural_rules', { path: 'target/gen.ts' });
+    expect(excluded['structuredContent']).toMatchObject({
+      exclude: ['target'],
+      config,
+      results: [{ rules: [], excluded: { project: ['target'], rules: [] } }],
     });
+    expect((excluded['content'] as Array<{ text: string }>)[0]?.text).toContain("no rules in force govern this path: the project's exclude leaves it out (target)");
     expect((await ask(stdin, out, 3, 'get_architectural_rules', { path: 'src/a.ts' }))['structuredContent']).toMatchObject({
-      results: [{ rules: [{}] }],
+      results: [{ rules: [{}], excluded: { project: [], rules: [] } }],
     });
 
     stdin.end();
     expect(await exit).toBe(EXIT_OK);
-    expect(err).toEqual([`spec-guard ${version()}: MCP server on stdio, rules from rules/a.md under ${root}, options from .spec-guard.json: specs, exclude`]);
+    expect(err).toEqual([`spec-guard ${version()}: MCP server on stdio, rules from rules/a.md under ${root}, options from .spec-guard.json: specs, exclude (target)`]);
   });
 
   it('will not start under a malformed configuration', async () => {

@@ -11,12 +11,12 @@
 import path from 'node:path';
 
 import { comparePaths } from './engine.js';
-import { toPosix } from './glob.js';
+import { createExcludeMatcher, toPosix } from './glob.js';
 import { nodeIo, type Io } from './io.js';
-import { formatConfigUse } from './reporter.js';
-import { elapsed, resolveDirective, specExclusions } from './runner.js';
+import { formatOptionLines } from './reporter.js';
+import { checkProjectExcludes, elapsed, resolveDirective, specExclusions } from './runner.js';
 import { createScope } from './scope.js';
-import { governs, viewRule, within, type DocumentView, type QueryPath, type RuleView } from './rules.js';
+import { governs, leftOutByOwnExclude, viewRule, within, type DocumentView, type QueryPath, type RuleView } from './rules.js';
 import { readSpecs, specPath, type SpecDocument } from './specs.js';
 import type { Assertion, ConfigUse, DirectiveError } from './types.js';
 
@@ -42,6 +42,8 @@ export interface RuleSet {
   rules: Array<{ assertion: Assertion; document: DocumentView }>;
   /** Unreadable specs, malformed directives and directives that do not resolve. */
   errors: DirectiveError[];
+  /** The project's exclusions every rule was resolved with. */
+  exclude: string[];
 }
 
 export function viewDocument(document: SpecDocument): DocumentView {
@@ -61,12 +63,13 @@ export function viewDocument(document: SpecDocument): DocumentView {
  * what a directive means - including about which directives are errors.
  */
 export async function loadRuleSet(options: RuleSetOptions): Promise<RuleSet> {
+  const exclude = checkProjectExcludes(options.exclude);
   const specs = await readSpecs(options.patterns, options.root);
   const context = {
     root: options.root,
     excludeFiles: specExclusions(specs.files, options.includeSpecs ?? false),
     scope: createScope(options.defaultSkips ?? true),
-    exclude: options.exclude,
+    exclude,
   };
   const rules: RuleSet['rules'] = [];
   const errors = [...specs.errors];
@@ -92,6 +95,7 @@ export async function loadRuleSet(options: RuleSetOptions): Promise<RuleSet> {
     documents: specs.documents,
     rules,
     errors,
+    exclude,
   };
 }
 
@@ -139,13 +143,32 @@ export interface PathRules {
    * been told something false by omission.
    */
   withheld: { rules: number; documents: string[] };
+  /**
+   * The exclusions that keep rules off the path.
+   *
+   * "No rules govern this path" read the same for a path nothing was written
+   * about and for one the project had set aside, and those call for different
+   * things: writing a rule, or checking the exclusion is meant. The same
+   * argument as `withheld` - a rule that does not reach a path must say why.
+   */
+  excluded: {
+    /** The project's patterns that match the path itself, which no rule taking `exclude` then reads. */
+    project: string[];
+    /**
+     * Rules whose scope reaches the path but for their own `exclude="..."`,
+     * listed as `rules` are.
+     */
+    rules: RuleView[];
+  };
 }
 
 export interface QueryReport {
   root: string;
   specFiles: string[];
+  /** The project's exclusions, from a configuration or `--exclude`, and empty when there were none. */
+  exclude: string[];
   results: PathRules[];
-  /** The documents behind the listed rules and the withheld counts, by path. */
+  /** The documents behind the listed rules, the withheld counts and the rules excluded, by path. */
   documents: DocumentView[];
   errors: Array<{ file: string; line: number; message: string }>;
   durationMs: number;
@@ -168,6 +191,10 @@ export function answerQuery(ruleSet: RuleSet, paths: ReadonlyArray<QueryPath & {
     const listed = governing.filter(({ document }) => document.inForce || includeInactive);
     for (const { document } of governing) cited.set(document.file, document);
     const withheld = governing.filter(({ document }) => !document.inForce);
+    const ownExclusions = ruleSet.rules.filter(
+      ({ assertion, document }) => (document.inForce || includeInactive) && leftOutByOwnExclude(assertion, query, ruleSet.exclude),
+    );
+    for (const { document } of ownExclusions) cited.set(document.file, document);
     return {
       path: query.path,
       shape: query.shape,
@@ -177,12 +204,17 @@ export function answerQuery(ruleSet: RuleSet, paths: ReadonlyArray<QueryPath & {
         rules: withheld.length,
         documents: [...new Set(withheld.map(({ document }) => document.file))],
       },
+      excluded: {
+        project: ruleSet.exclude.filter((pattern) => createExcludeMatcher([pattern])(query.path)),
+        rules: ownExclusions.map(({ assertion, document }) => viewRule(assertion, document, query)),
+      },
     };
   });
 
   return {
     root: toPosix(ruleSet.root),
     specFiles: ruleSet.specFiles,
+    exclude: ruleSet.exclude,
     results,
     documents: [...cited.values()].sort((a, b) => comparePaths(a.file, b.file)),
     errors: ruleSet.errors.map((error) => ({
@@ -248,10 +280,18 @@ export function formatQuery(report: QueryReport): string {
     const byDocument = new Map<string, RuleView[]>();
     for (const rule of result.rules) byDocument.set(rule.document, [...(byDocument.get(rule.document) ?? []), rule]);
 
+    // When nothing governs the path, why: an exclusion is a decision someone
+    // made about it, and "no rules" alone reads as nobody having written one.
+    const { project, rules: leftOut } = result.excluded;
+    const none = 'no rules in force govern this path';
     out.push(
-      result.rules.length === 0
-        ? '  no rules in force govern this path'
-        : `  ${plural(result.rules.length, 'rule', 'rules')} from ${plural(byDocument.size, 'document', 'documents')}`,
+      result.rules.length > 0
+        ? `  ${plural(result.rules.length, 'rule', 'rules')} from ${plural(byDocument.size, 'document', 'documents')}`
+        : project.length > 0
+          ? `  ${none}: the project's exclude leaves it out (${project.join(', ')})`
+          : leftOut.length > 0
+            ? `  ${none}: exclude="..." leaves it out of ${plural(leftOut.length, 'rule', 'rules')}`
+            : `  ${none}`,
     );
 
     for (const [file, rules] of byDocument) {
@@ -274,6 +314,15 @@ export function formatQuery(report: QueryReport): string {
         `  ${plural(unlisted, 'more rule', 'more rules')} would govern this path if ${where} were in force; --ignore-status lists ${unlisted === 1 ? 'it' : 'them'}`,
       );
     }
+    // Only a rule that takes no exclude, @assert-present, can govern a path the
+    // project excludes, and the line above then says nothing about exclusion.
+    if (result.rules.length > 0 && project.length > 0) {
+      out.push('', `  the project's exclude leaves this path out of every rule that takes one (${project.join(', ')})`);
+    }
+    if (leftOut.length > 0) {
+      out.push('', '  left out by exclude="...":');
+      for (const rule of leftOut) out.push(`    ${rule.document}:${rule.line} @${rule.kind}  ${rule.description}`);
+    }
     out.push('');
   }
 
@@ -283,7 +332,8 @@ export function formatQuery(report: QueryReport): string {
     out.push('');
   }
 
-  if (report.config !== undefined) out.push(formatConfigUse(report.config), '');
+  const optionLines = formatOptionLines(report.config, report.exclude);
+  if (optionLines.length > 0) out.push(...optionLines, '');
 
   out.push(`${plural(report.specFiles.length, 'spec file', 'spec files')} read in ${report.durationMs.toFixed(1)}ms`);
   return out.join('\n');

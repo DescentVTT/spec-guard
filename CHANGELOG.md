@@ -5,6 +5,81 @@ All notable changes to this project are documented here. Versions follow
 may change in a minor release — each such change is listed under **Changed**
 with the flag that restores the previous behaviour.
 
+## Unreleased
+
+Fixes from running 0.10.0 over a large monorepo, and from testing each exclude
+shape under both engines while making them.
+[ADR-0014](docs/adr/0014-configuration-and-watch.md).
+
+### Fixed
+
+- **The two engines disagreed about five shapes of exclude pattern.** Before
+  this release, ripgrep was given each pattern as written, while the scanner
+  normalised it first. Because `auto` picks ripgrep only for a large tree, the
+  same rule could give a different count once the tree grew past that size.
+  - `/target` excluded the root's `target` under ripgrep, and nothing under the
+    scanner.
+  - `/**/tests` excluded every `tests` under ripgrep, and nothing under the
+    scanner.
+  - `./build` excluded nothing under ripgrep, and every `build` under the
+    scanner.
+  - `src\gen` excluded nothing under ripgrep, and `src/gen` under the scanner.
+  - `tests/` excluded only directories under ripgrep, and a file named `tests`
+    too under the scanner.
+
+  Both engines are now given one normalised pattern, and a leading `/` anchors
+  to the root under both, as in `.gitignore`. Include globs had the same gap:
+  `glob="./src/*.ts"` and `glob="src/"` matched nothing under ripgrep, and now
+  match under both. Every one of these shapes is in the parity matrix. Layer
+  `order` and import `module` patterns are read by the same matcher, so a
+  leading `/` anchors there too, where it used to match nothing.
+- **An exclude pattern that could never exclude anything was accepted
+  silently.** Such patterns are now refused: exit 2 in the configuration or
+  `--exclude`, and an invalid directive in `exclude="..."`.
+  - `!`, which `.gitignore` uses to re-include a path. In
+    `["build", "!build/generated/needed.ts"]`, `build` excluded the whole
+    directory and the `!` line was ignored, so the exclusion was wider than it
+    read.
+  - `..`, which leads out of the root, where nothing is searched.
+  - A drive path, such as `C:/repo/dist`.
+  - `.` or `/`, which name the root itself.
+
+  The message is `invalid exclude pattern "!build/generated/needed.ts":
+  negation patterns are not supported in exclude`, after the file and key, the
+  option or the attribute. A caller of the API gets the same message thrown.
+
+### Changed
+
+- **Reports name the exclusions in force.** The options line lists `exclude`
+  with its patterns, as `options from .spec-guard.json: exclude (target, bin,
+  obj, dist)`, applied or overridden. `--exclude=` shows as `exclude (none)`.
+  Exclusions given only on the command line used to leave no trace, and now get
+  a line of their own: `exclude from the command line: dist`.
+- **JSON reports carry `exclude`**, the patterns in force, always present and
+  empty when there are none, beside `config`, which says whether they came from
+  a file.
+- **`query` says why no rule governs a path** when an exclusion is the reason,
+  rather than only `no rules in force govern this path`.
+  - The project's exclude: `no rules in force govern this path: the project's
+    exclude leaves it out (target)`.
+  - A rule's own exclude: `exclude="..." leaves it out of 2 rules`, followed by
+    those rules.
+  - A path an `@assert-present` still governs gets a note that the project's
+    exclude leaves it out of every other rule.
+  - In JSON, each path has `excluded: { project, rules }`, and the report has
+    `exclude`.
+- **The MCP server's answers carry the options line**, and both tools'
+  structured content carries `exclude` and `config`. Its startup line names the
+  patterns too.
+- **API:**
+  - `RunReport`, `RunPlan`, `RuleSet` and `QueryReport` have a required
+    `exclude`, and `PathRules` a required `excluded`.
+  - `formatConfigUse` takes the patterns as an optional second argument.
+  - New: `formatOptionLines`, `normalizeExclude`, `normalizeGlob`,
+    `excludePatternError`, `excludeListError`, `checkProjectExcludes` and
+    `leftOutByOwnExclude`.
+  - `McpServerOptions.settings` may return `config`.
+
 ## 0.10.0
 
 Improvements from running 0.9.2 over a large polyglot monorepo: a

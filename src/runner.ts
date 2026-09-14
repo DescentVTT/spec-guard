@@ -21,7 +21,7 @@ import {
   type EnginePreference,
   type SearchRequest,
 } from "./engine.js";
-import { createExcludeMatcher, toPosix } from "./glob.js";
+import { createExcludeMatcher, excludeListError, toPosix } from "./glob.js";
 import { nodeIo, type Io } from "./io.js";
 import {
   buildGraph,
@@ -560,6 +560,12 @@ export function resolveDirective(
         `Attribute "comments" must be ignore or include, got "${attributes["comments"]}".`,
       );
     }
+
+    // Refused here, before any kind reads it, as the configuration and
+    // --exclude refuse the same patterns: each would exclude nothing and say so
+    // nowhere.
+    const excludeError = excludeListError(splitList(attributes["exclude"]));
+    if (excludeError !== null) return fail(`Attribute "exclude" has an ${excludeError}.`);
 
     const rawTargets = splitList(attributes["target"]);
     const targets = (rawTargets.length > 0 ? rawTargets : ROOT_TARGETS).map((target) =>
@@ -1570,6 +1576,21 @@ export interface RunPlan {
   /** Parse and resolution errors, in the order they were found. */
   errors: DirectiveError[];
   inactiveSpecs: InactiveSpec[];
+  /** The project's exclusions every rule was resolved with. */
+  exclude: string[];
+}
+
+/**
+ * Throws for a project exclusion that can never exclude anything.
+ *
+ * The command line and the configuration refuse these before a run starts, with
+ * the option or file named. This is for a caller of the API, which would
+ * otherwise get the same silent no-op they refuse.
+ */
+export function checkProjectExcludes(exclude: readonly string[] | undefined): string[] {
+  const error = excludeListError(exclude ?? []);
+  if (error !== null) throw new Error(`${error}.`);
+  return [...(exclude ?? [])];
 }
 
 /**
@@ -1583,6 +1604,7 @@ export function planRun(
   root: string,
   options: Pick<RunOptions, "includeSpecs" | "defaultSkips" | "ignoreStatus" | "select" | "exclude">,
 ): RunPlan {
+  const exclude = checkProjectExcludes(options.exclude);
   const scope = createScope(options.defaultSkips ?? true);
   const excludeFiles = specExclusions(specs.files, options.includeSpecs ?? false);
 
@@ -1614,7 +1636,7 @@ export function planRun(
 
   const assertions: Assertion[] = [];
   for (const directive of directives) {
-    const resolved = resolveDirective(directive, { root, excludeFiles, scope, exclude: options.exclude });
+    const resolved = resolveDirective(directive, { root, excludeFiles, scope, exclude });
     if ("error" in resolved) errors.push(resolved.error);
     // Selection happens after resolution, so a directive that is not selected
     // is still held to being well-formed - the same bargain ADR-0010 strikes
@@ -1627,11 +1649,11 @@ export function planRun(
   // written rather than on the day the ADR is accepted - which is the day
   // everyone has already agreed the rule is right and stopped looking at it.
   for (const directive of withheld) {
-    const resolved = resolveDirective(directive, { root, excludeFiles, scope, exclude: options.exclude });
+    const resolved = resolveDirective(directive, { root, excludeFiles, scope, exclude });
     if ("error" in resolved) errors.push(resolved.error);
   }
 
-  return { root, specFiles: specs.files, assertions, withheld: withheld.length, errors, inactiveSpecs };
+  return { root, specFiles: specs.files, assertions, withheld: withheld.length, errors, inactiveSpecs, exclude };
 }
 
 /**
@@ -1676,6 +1698,7 @@ export function reportRun(
     errors,
     warnings,
     inactiveSpecs: plan.inactiveSpecs,
+    exclude: plan.exclude,
     specFiles: plan.specFiles.map((file) => specPath(plan.root, file)),
   };
 }

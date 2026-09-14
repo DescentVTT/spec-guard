@@ -23,7 +23,7 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 
 import { createCommentMask, type CommentMask } from './comments.js';
-import { createExcludeMatcher, createGlobMatcher, toPosix, walkFiles, type WalkOptions } from './glob.js';
+import { createExcludeMatcher, createGlobMatcher, normalizeExclude, normalizeGlob, toPosix, walkFiles, type WalkOptions } from './glob.js';
 import { nodeIo, type Io } from './io.js';
 import { NO_MEMO, type Memo } from './memo.js';
 import { isBinary, LedgerBuilder, UNCERTAIN_REASONS, type SkippedPath } from './scope.js';
@@ -320,10 +320,14 @@ export function buildRipgrepArgs(request: SearchRequest, patterns: readonly stri
   if (!options.regex) args.push('--fixed-strings');
   if (options.word) args.push('--word-regexp');
   if (options.ignoreCase) args.push('--ignore-case');
-  for (const glob of options.globs) args.push('--glob', glob);
+  // Normalised as the scanner normalises them, rather than as written: ripgrep
+  // read `./src/*.ts`, `src/`, `./build`, `src\build` and `build/` differently,
+  // and the same rule counted differently on either side of the size at which
+  // `auto` changes engine. ADR-0014.
+  for (const glob of options.globs) args.push('--glob', normalizeGlob(glob));
   // ripgrep reads a leading "!" as an exclusion, with gitignore semantics that
   // createExcludeMatcher mirrors for the JavaScript engine.
-  for (const glob of options.excludeGlobs) args.push('--glob', `!${glob}`);
+  for (const glob of options.excludeGlobs) args.push('--glob', `!${normalizeExclude(glob)}`);
   for (const name of options.scope.skippedDirectories.keys()) args.push('--glob', `!${name}/`);
   for (const pattern of patterns) args.push('--regexp', pattern);
   args.push('--');

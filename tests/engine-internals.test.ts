@@ -76,6 +76,12 @@ describe('buildRipgrepArgs', () => {
     expect(args.indexOf('*.ts')).toBeLessThan(args.indexOf('!node_modules/'));
   });
 
+  it('hands ripgrep each glob and exclusion as the scanner reads it, not as written', () => {
+    const options = searchOptions({ globs: ['./src/*.ts', 'lib/'], excludeGlobs: ['./build', 'src\\gen', 'dist/', '/target'] });
+    const globs = buildRipgrepArgs(request({ options })).filter((_, index, args) => args[index - 1] === '--glob');
+    expect(globs.slice(0, 6)).toEqual(['src/*.ts', 'lib/**', '!build', '!src/gen', '!dist', '!/target']);
+  });
+
   it('passes the search flags an assertion asked for', () => {
     const options = searchOptions({ regex: true, word: true, ignoreCase: true });
     const args = buildRipgrepArgs(request({ options }));

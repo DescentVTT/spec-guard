@@ -128,6 +128,27 @@ export function governs(assertion: Assertion, query: QueryPath): boolean {
   });
 }
 
+/**
+ * Whether an assertion's own `exclude="..."` is what keeps it off a path its
+ * scope would otherwise reach, whether or not the project's exclusions do too.
+ *
+ * Asked by governing with no exclusions and then with only the directive's.
+ * Nothing more is needed: leaving a pattern out never makes a path governed
+ * less, so an assertion that governs the path with every exclusion governs it
+ * with only its own, and is not reported. `@assert-present` takes no `exclude`. A pattern the directive
+ * and the project both list is one entry once resolved, and counts as the
+ * project's, since resolution keeps no record that the directive wrote it too.
+ */
+export function leftOutByOwnExclude(assertion: Assertion, query: QueryPath, project: readonly string[]): boolean {
+  const search = assertion.search as SearchOptions;
+  const withExcludes = (excludeGlobs: string[]): Assertion => ({ ...assertion, search: { ...search, excludeGlobs } });
+  return (
+    assertion.kind !== 'assert-present' &&
+    governs(withExcludes([]), query) &&
+    !governs(withExcludes(search.excludeGlobs.filter((pattern) => !project.includes(pattern))), query)
+  );
+}
+
 /* ---------------------------------------------------------------- the views */
 
 /** A spec document, as a rule's reader needs to see it. */

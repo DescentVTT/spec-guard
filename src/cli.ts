@@ -12,10 +12,11 @@ import path from 'node:path';
 import type { Readable } from 'node:stream';
 
 import { CONFIG_KEYS, ConfigError, engineNamed, findConfig, type ConfigKey, type ProjectConfig } from './config.js';
+import { excludeListError } from './glob.js';
 import { nodeIo, readText, watchTree } from './io.js';
 import { createMcpHandler, serveStdio } from './mcp.js';
 import { formatQuery, formatQueryJson, queryRules } from './query.js';
-import { formatBaselines, formatJson, formatReport, formatSarif, shouldUseAscii, shouldUseColor } from './reporter.js';
+import { formatBaselines, formatConfigUse, formatJson, formatReport, formatSarif, shouldUseAscii, shouldUseColor } from './reporter.js';
 import { DEFAULT_CONCURRENCY, DEFAULT_MAX_SNIPPETS, runSpecGuard, splitList, type RunOptions } from './runner.js';
 import { createSession, runWatch } from './watch.js';
 import type { EnginePreference } from './engine.js';
@@ -366,10 +367,14 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
         break;
       // Repeatable, each value a list as exclude="..." takes one. Given at all, it
       // replaces the configuration's list, and --exclude= with nothing clears it.
-      case '--exclude':
-        options.exclude.push(...splitList(nextValue()));
+      case '--exclude': {
+        const patterns = splitList(nextValue());
+        const error = excludeListError(patterns);
+        if (error !== null) throw new UsageError(`Option --exclude has an ${error}.`);
+        options.exclude.push(...patterns);
         set.add('exclude');
         break;
+      }
       case '--ignore-status':
       case '--no-ignore-status':
         options.ignoreStatus = name === '--ignore-status';
@@ -658,12 +663,13 @@ async function runMcp(options: CliOptions, commandLine: CliOptions, io: CliIO, u
     run: runOptionsOf(options),
     settings: async () => {
       const fresh: CliOptions = { ...commandLine, patterns: [...commandLine.patterns] };
-      applyConfig(fresh, (await findConfig(options.root, (file) => readText(nodeIo, file))).config);
-      return { patterns: fresh.patterns, run: runOptionsOf(fresh) };
+      const found = await findConfig(options.root, (file) => readText(nodeIo, file));
+      const config = applyConfig(fresh, found.config, found.file);
+      return { patterns: fresh.patterns, run: runOptionsOf(fresh), config };
     },
   });
   // stderr is the one channel the stdio binding leaves free for people.
-  const from = use === undefined || use.applied.length === 0 ? '' : `, options from ${use.file}: ${use.applied.join(', ')}`;
+  const from = use === undefined || use.applied.length === 0 ? '' : `, ${formatConfigUse({ ...use, overridden: [] }, options.exclude)}`;
   io.stderr(`spec-guard ${version()}: MCP server on stdio, rules from ${options.patterns.join(', ')} under ${options.root}${from}`);
   await serveStdio(io.stdin, io.stdout, handler);
   return EXIT_OK;

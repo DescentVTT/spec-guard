@@ -230,11 +230,35 @@ function formatError(
  * looking at is the one kind of setting a reader cannot infer from the command
  * they typed. Keys the command line set as well are named too, since a reader
  * who finds `"strict": false` in the file needs to know it lost. ADR-0014.
+ *
+ * Given the exclusions in force, `exclude` is named with its patterns, applied
+ * or overridden: a key alone said paths were left out without saying which.
  */
-export function formatConfigUse(use: ConfigUse): string {
-  const applied = use.applied.length === 0 ? 'none' : use.applied.join(', ');
-  const overridden = use.overridden.length === 0 ? '' : `; overridden on the command line: ${use.overridden.join(', ')}`;
+export function formatConfigUse(use: ConfigUse, exclude?: readonly string[]): string {
+  const name = (key: string): string => (key === 'exclude' && exclude !== undefined ? `exclude (${patternList(exclude)})` : key);
+  const applied = use.applied.length === 0 ? 'none' : use.applied.map(name).join(', ');
+  const overridden = use.overridden.length === 0 ? '' : `; overridden on the command line: ${use.overridden.map(name).join(', ')}`;
   return `options from ${use.file}: ${applied}${overridden}`;
+}
+
+/** Patterns as a report names them, and `none` for a list emptied with `--exclude=`. */
+function patternList(patterns: readonly string[]): string {
+  return patterns.length === 0 ? 'none' : patterns.join(', ');
+}
+
+/**
+ * The lines naming what a report ran under that its command may not show: the
+ * options it took from a configuration, and the project's exclusions.
+ *
+ * Exclusions no configuration accounts for are the command line's, which is
+ * where every command spec-guard ships takes them from. Without this line a
+ * run under `--exclude` looked exactly like one without it.
+ */
+export function formatOptionLines(config: ConfigUse | undefined, exclude: readonly string[]): string[] {
+  const lines = config === undefined ? [] : [formatConfigUse(config, exclude)];
+  const named = config !== undefined && [...config.applied, ...config.overridden].includes('exclude');
+  if (!named && exclude.length > 0) lines.push(`exclude from the command line: ${exclude.join(', ')}`);
+  return lines;
 }
 
 /** Renders the full human-readable report. */
@@ -319,10 +343,8 @@ export function formatReport(report: RunResult, options: ReporterOptions, maxSni
   }
   if (report.inactiveSpecs.length > 0) lines.push('');
 
-  if (report.config !== undefined) {
-    lines.push(formatConfigUse(report.config));
-    lines.push('');
-  }
+  const optionLines = formatOptionLines(report.config, report.exclude);
+  if (optionLines.length > 0) lines.push(...optionLines, '');
 
   const parts = [
     paint(`${report.summary.passed} passed`, 'green'),
@@ -433,6 +455,9 @@ export function formatJson(report: RunResult): string {
       })),
       warnings: report.warnings,
       inactiveSpecs: report.inactiveSpecs,
+      // Always present, as every other list is: an audit records "no project
+      // exclusions" as surely as it records which.
+      exclude: report.exclude,
       // Left out, not null, when nothing came from a configuration: a key that
       // appears only when it means something is a key no reader has to test.
       config: report.config,

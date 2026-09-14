@@ -63,10 +63,14 @@ export {
   compareDirents,
   createExcludeMatcher,
   createGlobMatcher,
+  excludeListError,
+  excludePatternError,
   expandSpecPatterns,
   globBase,
   globToRegExp,
   isGlob,
+  normalizeExclude,
+  normalizeGlob,
   toPosix,
   walkFiles,
   walkPaths,
@@ -152,7 +156,7 @@ export type { ParseContext, ParsedDocument } from './parser.js';
 export { readSpecs, specPath } from './specs.js';
 export type { SpecDocument, SpecSet } from './specs.js';
 
-export { governs, layerPosition, viewRule, within } from './rules.js';
+export { governs, layerPosition, leftOutByOwnExclude, viewRule, within } from './rules.js';
 export type { DocumentView, LayerPosition, PathShape, QueryPath, RuleView } from './rules.js';
 
 export {
@@ -185,6 +189,7 @@ export type { Era, McpServerOptions, OutgoingMessage } from './mcp.js';
 
 export {
   applyBaseline,
+  checkProjectExcludes,
   createScopeProbe,
   executeAssertion,
   planRun,
@@ -197,7 +202,17 @@ export {
 } from './runner.js';
 export type { ExecuteOptions, ResolveContext, RunOptions, RunPlan, RunResult } from './runner.js';
 
-export { createPainter, formatBaselines, formatConfigUse, formatJson, formatReport, formatSarif, shouldUseAscii, shouldUseColor } from './reporter.js';
+export {
+  createPainter,
+  formatBaselines,
+  formatConfigUse,
+  formatJson,
+  formatOptionLines,
+  formatReport,
+  formatSarif,
+  shouldUseAscii,
+  shouldUseColor,
+} from './reporter.js';
 export type { ReporterOptions } from './reporter.js';
 
 export type {

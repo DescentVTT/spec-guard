@@ -137,6 +137,7 @@ hand-maintained list of every directory that is not `src/config`.
 | Pattern | Excludes |
 | --- | --- |
 | `tests` | any directory or file named `tests`, at any depth, and everything under it |
+| `/tests` | only the `tests` at the root, and everything under it |
 | `src/config` | that directory and everything under it |
 | `src/config/**` | the same, written explicitly |
 | `*.test.ts` | any file with that name shape, at any depth |
@@ -145,6 +146,18 @@ The difference is deliberate. `glob="*.ts"` filters files, so basename matching
 is what you want; `exclude="tests"` means the directory, because that is what
 people mean when they write it - and it is what `rg -g '!tests'` does. Both
 engines implement the same rule, and a parity matrix asserts they agree on it.
+
+A leading `./` and a trailing `/` are dropped, so `./tests` and `tests/` are
+`tests`, and a backslash is a separator. Four shapes are refused, because they
+can never exclude anything:
+- **`!`**, which in `.gitignore` re-includes a path. Pasted from one, it was
+  silently dropped and the exclusion left wider than it read.
+- **`..`**, since nothing outside the root is searched.
+- **a drive path** such as `C:/repo/dist`.
+- **`.` or `/`**, the root itself.
+
+In a directive a refused pattern is an invalid directive; in the configuration
+or `--exclude` it is exit 2.
 
 List attributes accept commas or whitespace, so both of these work:
 
@@ -720,6 +733,23 @@ a file that does not exist yet. A directory lists every rule that could reach a
 file under it. `--json` is the same answer for a script. Rules in documents that
 are not in force are counted and named, never silently left out.
 
+A path that no rule governs because something excluded it says so, since
+"nobody wrote a rule" and "somebody set this aside" call for different things:
+
+```text
+target/debug/build.rs
+  no rules in force govern this path: the project's exclude leaves it out (target)
+
+src/legacy/generated/api.ts
+  no rules in force govern this path: exclude="..." leaves it out of 1 rule
+
+  left out by exclude="...":
+    docs/adr/0004-legacy.md:12 @assert-absence  "LegacyClient" must not appear in src (excluding src/legacy)
+```
+
+In JSON, each path carries `excluded.project`, the project patterns that match
+it, and `excluded.rules`, the rules whose own `exclude` leaves it out.
+
 The arithmetic that decides whether a rule governs a path is tested against the
 walk a real run makes, file for file, under both engines and on randomly
 generated trees. [ADR-0012](docs/adr/0012-query-and-mcp.md) lists the three
@@ -837,7 +867,7 @@ same options, at the top level, in `.spec-guard.json`:
 | Key | Command line | Value |
 | --- | --- | --- |
 | `specs` | patterns, `--spec` | a non-empty array of globs |
-| `exclude` | `--exclude` | an array of paths, gitignore-style, left out of every assertion that takes `exclude` |
+| `exclude` | `--exclude` | an array of paths, gitignore-style, left out of every assertion that takes `exclude`; no `!`, `..`, drive path or root |
 | `engine` | `--engine` | `"auto"`, `"rg"` or `"js"` |
 | `strict`, `allowMissingTargets`, `allowEmptyScope`, `ignoreStatus`, `includeSpecs`, `defaultSkips` | the flag of that name | `true` or `false` |
 | `maxSnippets` | `--max-snippets` | an integer, 0 or more |
@@ -857,14 +887,23 @@ same options, at the top level, in `.spec-guard.json`:
   names its files and is unaffected. A rule's description names only its own
   exclusions; the project's appear in the options line below.
 - **A malformed configuration is exit 2, before anything runs**, naming the file
-  and the key: an unknown key, `"true"` where `true` goes, or an option that
-  belongs to one invocation, such as `format` or `verbose`.
+  and the key: an unknown key, `"true"` where `true` goes, an option that
+  belongs to one invocation, such as `format` or `verbose`, or an exclude
+  pattern that can never exclude anything:
+
+  ```text
+  spec-guard: .spec-guard.json: "exclude" has an invalid exclude pattern "!build/generated/needed.ts": negation patterns are not supported in exclude.
+  ```
 - **Every report says what it took from the file**: a line above the summary
-  such as `options from package.json: specs, strict`, and a `config` field in
-  JSON. An
-  option nobody can see should never decide a result.
+  such as `options from .spec-guard.json: specs, exclude (target, bin, obj)`,
+  and a `config` field in JSON. `exclude` is named with its patterns, and
+  exclusions given only on the command line get a line of their own,
+  `exclude from the command line: dist`. JSON always carries the patterns in
+  force as `exclude`, an empty list when there are none. An option nobody can see
+  should never decide a result.
 - `query` applies what a query reads, and the MCP server reads the file again
-  for every request.
+  for every request. Both tools' answers carry the options line, and their
+  structured content carries `exclude` and `config`.
 
 ### Watch mode
 

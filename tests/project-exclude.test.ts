@@ -13,9 +13,9 @@
 
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
-import { EXIT_ERROR, EXIT_OK, main, type CliIO } from '../src/cli.js';
+import { EXIT_ERROR, EXIT_OK, HELP, main, type CliIO } from '../src/cli.js';
 import { resetRipgrepProbe } from '../src/engine.js';
-import { queryRules } from '../src/query.js';
+import { formatQuery, queryRules } from '../src/query.js';
 import { resolveDirective, runSpecGuard } from '../src/runner.js';
 import type { Directive } from '../src/types.js';
 import { findTestRipgrep, makeTempRepo, removeTempRepo } from './helpers.js';
@@ -162,6 +162,40 @@ describe('resolving a directive under the project exclusions', () => {
     expect(resolved({}, ['target']).description).toBe('"X" must not appear in .');
     expect(resolved({}).search?.excludeGlobs).toEqual([]);
   });
+
+  it("refuses a directive's own exclude pattern that could never exclude anything, for every kind that takes one", () => {
+    const refused = (kind: Directive['kind'], attributes: Record<string, string>) => {
+      const outcome = resolveDirective({ ...directive(attributes), kind }, { root: '/repo', excludeFiles: new Set() });
+      return 'error' in outcome ? outcome.error.message : 'resolved';
+    };
+
+    expect(refused('assert-absence', { exclude: 'build !build/keep.ts' })).toBe(
+      'Attribute "exclude" has an invalid exclude pattern "!build/keep.ts": negation patterns are not supported in exclude.',
+    );
+    expect(refused('assert-import-cycle', { exclude: '../vendor' })).toBe(
+      'Attribute "exclude" has an invalid exclude pattern "../vendor": ".." leads out of the root, and only paths inside it are searched.',
+    );
+    expect(refused('assert-structure', { pattern: '*.ts', exclude: './' })).toBe(
+      'Attribute "exclude" has an invalid exclude pattern "./": it names the root itself rather than a path under it.',
+    );
+    expect(refused('assert-absence', { exclude: '/build ./dist src\\gen' })).toBe('resolved');
+  });
+});
+
+describe('the project exclusions through the API', () => {
+  it('are on every report, and empty when there were none', async () => {
+    const root = await repo({ 'docs/a.md': '<!-- @assert-absence symbol="LegacyClient" -->\n', 'src/a.ts': 'export {};\n' });
+    expect((await runSpecGuard({ patterns: ['docs/*.md'], root, engine: 'javascript' })).exclude).toEqual([]);
+    expect((await runSpecGuard({ patterns: ['docs/*.md'], root, engine: 'javascript', exclude: ['target', 'dist'] })).exclude).toEqual(['target', 'dist']);
+    expect((await queryRules({ patterns: ['docs/*.md'], root, paths: ['src/a.ts'] })).exclude).toEqual([]);
+  });
+
+  it('refuse a pattern that could never exclude anything, as the command line does', async () => {
+    const root = await repo({ 'docs/a.md': '<!-- @assert-absence symbol="LegacyClient" -->\n' });
+    const message = 'invalid exclude pattern "!dist/keep.js": negation patterns are not supported in exclude.';
+    await expect(runSpecGuard({ patterns: ['docs/*.md'], root, exclude: ['dist', '!dist/keep.js'] })).rejects.toThrow(message);
+    await expect(queryRules({ patterns: ['docs/*.md'], root, paths: ['dist'], exclude: ['!dist/keep.js'] })).rejects.toThrow(message);
+  });
 });
 
 describe('a query under the project exclusions', () => {
@@ -171,6 +205,110 @@ describe('a query under the project exclusions', () => {
 
     expect((await ask()).results[0]?.rules).toHaveLength(1);
     expect((await ask(['target'])).results[0]?.rules).toEqual([]);
+  });
+});
+
+describe('a query, saying why nothing governs a path', () => {
+  const RULES = [
+    '# Rules',
+    '',
+    '<!-- @assert-absence target="src" symbol="LegacyClient" exclude="src/legacy" -->',
+    '<!-- @assert-layers target="src" order="src/domain, src/legacy" exclude="src/legacy/generated" -->',
+    '<!-- @assert-present file="dist/index.js" -->',
+    '',
+  ].join('\n');
+  const DRAFT = '# Draft\n\n**Status:** draft\n\n<!-- @assert-absence target="src" symbol="Date.now" exclude="src/legacy" -->\n';
+
+  async function ask(paths: string[], options: { exclude?: string[]; includeInactive?: boolean } = {}) {
+    const root = await repo({ 'docs/rules.md': RULES, 'docs/draft.md': DRAFT });
+    return queryRules({ patterns: ['docs/*.md'], root, paths, ...options });
+  }
+
+  it("names the project's patterns that match the path, and no others", async () => {
+    const report = await ask(['dist/assets/app.js', 'dist', 'src/a.ts', '.'], { exclude: ['target', 'dist', '*.map'] });
+    expect(report.results.map((result) => [result.path, result.excluded.project])).toEqual([
+      ['dist/assets/app.js', ['dist']],
+      ['dist', ['dist']],
+      ['src/a.ts', []],
+      ['.', []],
+    ]);
+  });
+
+  it("lists the rules whose own exclude leaves the path out, as a query lists rules, and only those in force unless asked", async () => {
+    const report = await ask(['src/legacy/generated/api.ts']);
+    expect(report.results[0]?.rules).toEqual([]);
+    expect(report.results[0]?.excluded.rules.map((rule) => [rule.document, rule.line, rule.kind, rule.inForce])).toEqual([
+      ['docs/rules.md', 3, 'assert-absence', true],
+      ['docs/rules.md', 4, 'assert-layers', true],
+    ]);
+    expect(report.documents.map((document) => document.file)).toEqual(['docs/rules.md']);
+
+    const withDrafts = await ask(['src/legacy/a.ts'], { includeInactive: true });
+    expect(withDrafts.results[0]?.excluded.rules.map((rule) => [rule.document, rule.line])).toEqual([
+      ['docs/draft.md', 5],
+      ['docs/rules.md', 3],
+    ]);
+    // The layer rule governs src/legacy/a.ts: only src/legacy/generated is its exclusion.
+    expect(withDrafts.results[0]?.rules.map((rule) => rule.line)).toEqual([4]);
+  });
+
+  it("counts a pattern the project lists as the project's, even when the directive lists it too", async () => {
+    const report = await ask(['src/legacy/a.ts'], { exclude: ['src/legacy'] });
+    expect(report.results[0]?.excluded).toEqual({ project: ['src/legacy'], rules: [] });
+  });
+
+  it('says why in the human answer: the project, a rule of its own, or nothing at all', async () => {
+    const report = await ask(['target/out.ts', 'src/legacy/generated/api.ts', 'dist/index.js', 'lib/x.ts'], { exclude: ['target', 'dist'] });
+    expect(formatQuery({ ...report, durationMs: 1 })).toBe(
+      [
+        'target/out.ts (does not exist yet)',
+        "  no rules in force govern this path: the project's exclude leaves it out (target)",
+        '',
+        'src/legacy/generated/api.ts (does not exist yet)',
+        '  no rules in force govern this path: exclude="..." leaves it out of 2 rules',
+        '',
+        '  left out by exclude="...":',
+        '    docs/rules.md:3 @assert-absence  "LegacyClient" must not appear in src (excluding src/legacy)',
+        '    docs/rules.md:4 @assert-layers  src must keep its layers in order, src/domain < src/legacy (excluding src/legacy/generated)',
+        '',
+        'dist/index.js (does not exist yet)',
+        '  1 rule from 1 document',
+        '',
+        '  Rules  (docs/rules.md)',
+        '    :5 @assert-present  dist/index.js must exist',
+        '',
+        "  the project's exclude leaves this path out of every rule that takes one (dist)",
+        '',
+        'lib/x.ts (does not exist yet)',
+        '  no rules in force govern this path',
+        '',
+        'exclude from the command line: target, dist',
+        '',
+        '2 spec files read in 1.0ms',
+      ].join('\n'),
+    );
+  });
+
+  it('names one rule in the singular, and a rule of its own under the project headline', async () => {
+    // A layer rule reads no plain text, so only the text rule would reach this file.
+    const report = await ask(['src/legacy/generated/notes.txt']);
+    expect(formatQuery({ ...report, durationMs: 1 }).split('\n').slice(0, 6)).toEqual([
+      'src/legacy/generated/notes.txt (does not exist yet)',
+      '  no rules in force govern this path: exclude="..." leaves it out of 1 rule',
+      '',
+      '  left out by exclude="...":',
+      '    docs/rules.md:3 @assert-absence  "LegacyClient" must not appear in src (excluding src/legacy)',
+      '',
+    ]);
+    const excludedOnce = await ask(['src/legacy/generated/api.ts'], { exclude: ['src/legacy/generated'] });
+    expect(formatQuery({ ...excludedOnce, durationMs: 1 }).split('\n').slice(0, 6)).toEqual([
+      'src/legacy/generated/api.ts (does not exist yet)',
+      "  no rules in force govern this path: the project's exclude leaves it out (src/legacy/generated)",
+      '',
+      '  left out by exclude="...":',
+      '    docs/rules.md:3 @assert-absence  "LegacyClient" must not appear in src (excluding src/legacy)',
+      '',
+    ]);
   });
 });
 
@@ -194,11 +332,59 @@ describe('.spec-guard.json, from the command line', () => {
 
     expect(await main(['--engine', 'js'], cli)).toBe(EXIT_OK);
     expect(err).toEqual([]);
-    expect(out.join('\n')).toMatch(/\noptions from \.spec-guard\.json: specs, exclude\n\n1 passed/);
+    expect(out.join('\n')).toMatch(/\noptions from \.spec-guard\.json: specs, exclude \(target\)\n\n1 passed/);
 
     const cleared = io(root);
     expect(await main(['--engine', 'js', '--exclude='], cleared.cli)).toBe(1);
-    expect(cleared.out.join('\n')).toContain('options from .spec-guard.json: specs; overridden on the command line: exclude');
+    expect(cleared.out.join('\n')).toMatch(/\noptions from \.spec-guard\.json: specs; overridden on the command line: exclude \(none\)\n\n0 passed/);
+  });
+
+  it('names the exclusions in a JSON report, from a file, the command line, or nowhere', async () => {
+    const root = await repo({ ...PROJECT, '.spec-guard.json': JSON.stringify({ specs: ['rules/*.md'], exclude: ['target'] }) });
+    const json = async (...args: string[]) => {
+      const { cli, out } = io(root);
+      await main(['--engine', 'js', '--json', ...args], cli);
+      return JSON.parse(out.join('\n')) as { exclude: string[]; config?: unknown };
+    };
+
+    expect(await json()).toMatchObject({ exclude: ['target'], config: { file: '.spec-guard.json', applied: ['specs', 'exclude'], overridden: [] } });
+    expect(await json('--exclude', 'target, dist')).toMatchObject({ exclude: ['target', 'dist'], config: { applied: ['specs'], overridden: ['exclude'] } });
+    expect(await json('--exclude=')).toMatchObject({ exclude: [] });
+  });
+
+  it('names exclusions given only on the command line, which used to leave no trace in the report', async () => {
+    const root = await repo(PROJECT);
+    const { cli, out, err } = io(root);
+
+    expect(await main(['--engine', 'js', '--spec', 'rules/*.md', '--exclude', 'target'], cli)).toBe(EXIT_OK);
+    expect(err).toEqual([]);
+    expect(out.join('\n')).toMatch(/\n\nexclude from the command line: target\n\n1 passed/);
+
+    const plain = io(root);
+    expect(await main(['--engine', 'js', '--spec', 'rules/*.md'], plain.cli)).toBe(1);
+    expect(plain.out.join('\n')).not.toContain('exclude from');
+
+    const query = io(root);
+    expect(await main(['query', 'target/debug/build.rs', '--spec', 'rules/*.md', '--exclude', 'target'], query.cli)).toBe(EXIT_OK);
+    expect(query.out.join('\n')).toMatch(
+      /^target\/debug\/build\.rs\n {2}no rules in force govern this path: the project's exclude leaves it out \(target\)\n\nexclude from the command line: target\n\n1 spec file read in/,
+    );
+  });
+
+  it('exits 2 for an exclude pattern that could never exclude anything, before reading a spec', async () => {
+    const root = await repo(PROJECT);
+    const { cli, out, err } = io(root);
+
+    expect(await main(['--spec', 'rules/*.md', '--exclude', 'target, !target/keep.rs'], cli)).toBe(EXIT_ERROR);
+    expect(out).toEqual([]);
+    expect(err).toEqual(['Option --exclude has an invalid exclude pattern "!target/keep.rs": negation patterns are not supported in exclude.', '', HELP]);
+
+    const configured = await repo({ ...PROJECT, '.spec-guard.json': JSON.stringify({ specs: ['rules/*.md'], exclude: ['../target'] }) });
+    const fromFile = io(configured);
+    expect(await main(['query', 'src/main.rs'], fromFile.cli)).toBe(EXIT_ERROR);
+    expect(fromFile.err).toEqual([
+      'spec-guard: .spec-guard.json: "exclude" has an invalid exclude pattern "../target": ".." leads out of the root, and only paths inside it are searched.',
+    ]);
   });
 
   it('refuses a root with options in package.json and .spec-guard.json both', async () => {
@@ -222,7 +408,7 @@ describe('.spec-guard.json, from the command line', () => {
 
     expect(await main(['query', 'target/debug/build.rs'], cli)).toBe(EXIT_OK);
     const text = out.join('\n');
-    expect(text).toContain('no rules in force govern this path');
-    expect(text).toContain('options from .spec-guard.json: specs, exclude');
+    expect(text).toContain("  no rules in force govern this path: the project's exclude leaves it out (target)\n");
+    expect(text).toContain('\noptions from .spec-guard.json: specs, exclude (target)\n');
   });
 });

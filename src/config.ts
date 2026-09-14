@@ -10,6 +10,7 @@
  */
 
 import type { EnginePreference } from './engine.js';
+import { excludeListError } from './glob.js';
 
 /** The name the options sit under in `package.json`. */
 export const CONFIG_KEY = 'specGuard';
@@ -118,10 +119,15 @@ function checkValue(key: ConfigKey, value: unknown): string | null {
       return Array.isArray(value) && value.length > 0 && value.every((entry) => typeof entry === 'string' && entry.trim() !== '')
         ? null
         : `must be a non-empty list of spec globs, got ${describe(value)}`;
-    case 'exclude':
-      return Array.isArray(value) && value.every((entry) => typeof entry === 'string' && entry.trim() !== '')
-        ? null
-        : `must be a list of paths or globs to exclude, got ${describe(value)}`;
+    case 'exclude': {
+      if (!(Array.isArray(value) && value.every((entry) => typeof entry === 'string' && entry.trim() !== ''))) {
+        return `must be a list of paths or globs to exclude, got ${describe(value)}`;
+      }
+      // A list copied from .gitignore is the usual source: its "!" lines would
+      // otherwise be dropped, and the exclusion left wider than it reads.
+      const error = excludeListError(value as string[]);
+      return error === null ? null : `has an ${error}`;
+    }
     case 'engine':
       return typeof value === 'string' ? null : `must be a string, got ${describe(value)}`;
     case 'maxSnippets':
@@ -168,8 +174,8 @@ async function readIfPresent(read: (file: string) => Promise<string>, path: stri
  * lost would be a configuration somebody wrote and nothing reads.
  */
 export async function findConfig(root: string, read: (file: string) => Promise<string>): Promise<FoundConfig> {
-  // Joined by hand rather than with node:path, which would be this module's
-  // only import: a root with either separator at its end is still one root.
+  // Joined by hand rather than with node:path, which nothing else here needs: a
+  // root with either separator at its end is still one root.
   const base = root.replace(/[\\/]+$/, '');
   // No package.json holds no options, as one without "specGuard" does. A test
   // for the difference could observe nothing: CI's sweep of it survived.

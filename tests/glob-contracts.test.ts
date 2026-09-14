@@ -18,8 +18,12 @@ import { describe, expect, it } from 'vitest';
 import {
   createExcludeMatcher,
   createGlobMatcher,
+  excludeListError,
+  excludePatternError,
   expandSpecPatterns,
   globToRegExp,
+  normalizeExclude,
+  normalizeGlob,
   walkFiles,
 } from '../src/glob.js';
 import type { DirectoryReader } from '../src/io.js';
@@ -137,6 +141,20 @@ describe('the exclude matcher', () => {
     expect(createExcludeMatcher(['src/./a.ts'])('src/a.ts')).toBe(false);
   });
 
+  it('anchors a pattern with a leading slash to the root, as .gitignore and ripgrep do', () => {
+    const excluded = createExcludeMatcher(['/tests']);
+    expect(excluded('tests')).toBe(true);
+    expect(excluded('tests/a.ts')).toBe(true);
+    expect(excluded('src/tests/a.ts')).toBe(false);
+    expect(createExcludeMatcher(['/src/config'])('src/config/a.ts')).toBe(true);
+    expect(createExcludeMatcher(['/**/tests'])('src/tests/a.ts')).toBe(true);
+  });
+
+  it('reads a backslash as a separator', () => {
+    expect(createExcludeMatcher(['src\\config'])('src/config/a.ts')).toBe(true);
+    expect(createExcludeMatcher(['src\\config'])('other/src/config/a.ts')).toBe(false);
+  });
+
   it('never tests the empty prefix of a path', () => {
     // The ancestor loop stops at depth 1, because the empty string is not an
     // ancestor of anything. Running it to depth 0 tests `''`, and a pattern
@@ -149,6 +167,73 @@ describe('the exclude matcher', () => {
 
     expect(excluded('dist/a.js')).toBe(true);
     expect(excluded('src/a.ts')).toBe(false);
+  });
+});
+
+/* ----------------------------------------------- one pattern for both engines */
+
+describe('the patterns both engines are given', () => {
+  it.each([
+    ['./src/*.ts', 'src/*.ts'],
+    ['src/', 'src/**'],
+    ['src\\*.ts', 'src/*.ts'],
+    // Only a leading ./ goes, and only one.
+    ['src/./a.ts', 'src/./a.ts'],
+    ['././a.ts', './a.ts'],
+    ['*.ts', '*.ts'],
+  ])('include glob %s is %s', (pattern, normalized) => {
+    expect(normalizeGlob(pattern)).toBe(normalized);
+  });
+
+  it.each([
+    ['./build', 'build'],
+    ['build/', 'build'],
+    ['build//', 'build'],
+    ['src\\gen\\', 'src/gen'],
+    // A leading slash anchors, so it stays for ripgrep to read.
+    ['/target', '/target'],
+    ['src/./a.ts', 'src/./a.ts'],
+    ['./', ''],
+    ['/', ''],
+  ])('exclude pattern %s is %s', (pattern, normalized) => {
+    expect(normalizeExclude(pattern)).toBe(normalized);
+  });
+});
+
+describe('an exclude pattern that could never exclude anything', () => {
+  const NEGATION = 'negation patterns are not supported in exclude';
+  const OUTSIDE = '".." leads out of the root, and only paths inside it are searched';
+  const DRIVE = 'exclusions are relative to the root, and a drive path is not';
+  const ROOT = 'it names the root itself rather than a path under it';
+
+  it.each([
+    ['!build/generated/needed.ts', NEGATION],
+    ['!build', NEGATION],
+    ['./!build', NEGATION],
+    ['../shared', OUTSIDE],
+    ['..', OUTSIDE],
+    ['src/../lib', OUTSIDE],
+    ['src/..', OUTSIDE],
+    ['C:/repo/build', DRIVE],
+    ['d:\\repo\\build', DRIVE],
+    ['.', ROOT],
+    ['/', ROOT],
+    ['./', ROOT],
+  ])('refuses %s', (pattern, reason) => {
+    expect(excludePatternError(pattern)).toBe(`invalid exclude pattern "${pattern}": ${reason}`);
+  });
+
+  it.each([['build'], ['/build'], ['./build'], ['build/'], ['**'], ['*.test.ts'], ['src/**'], ['..hidden'], ['a..b/c'], ['src/C:/x'], ['C:build'], ['[!a]b'], ['a!b']])(
+    'accepts %s',
+    (pattern) => {
+      expect(excludePatternError(pattern)).toBeNull();
+    },
+  );
+
+  it('names the first of a list that cannot be used, or nothing', () => {
+    expect(excludeListError(['target', '!target/keep', '../x'])).toBe(`invalid exclude pattern "!target/keep": ${NEGATION}`);
+    expect(excludeListError(['target', 'dist'])).toBeNull();
+    expect(excludeListError([])).toBeNull();
   });
 });
 

@@ -46,6 +46,9 @@ function tree(): Promise<string> {
     'src/ui/widget.tsx': 'const e = process.env.TOKEN;\n',
     'tests/helper.ts': 'const f = process.env.TOKEN;\n',
     'src/tests/inner.ts': 'const g = process.env.TOKEN;\n',
+    // A file with a directory's name, for the trailing slash ripgrep used to
+    // read as "directories only".
+    'src/ui/tests': 'const h = process.env.TOKEN;\n',
   });
   return treeOnce;
 }
@@ -67,24 +70,35 @@ function request(root: string, excludeGlobs: string[], globs: string[] = []): Se
 }
 
 /** Every file in the tree contains exactly one match, so counts are file counts. */
-const TOTAL = 7;
+const TOTAL = 8;
 
 const cases: Array<{ name: string; exclude: string[]; globs?: string[]; expected: number }> = [
   { name: 'nothing excluded', exclude: [], expected: TOTAL },
-  // A bare name is a directory at any depth: both tests/ and src/tests/ go.
-  { name: 'bare directory name', exclude: ['tests'], expected: TOTAL - 2 },
+  // A bare name is a directory or file at any depth: tests/, src/tests/ and the
+  // file src/ui/tests all go.
+  { name: 'bare directory name', exclude: ['tests'], expected: TOTAL - 3 },
   // An anchored path takes the directory and everything under it.
   { name: 'anchored directory', exclude: ['src/config'], expected: TOTAL - 2 },
   { name: 'anchored directory with /**', exclude: ['src/config/**'], expected: TOTAL - 2 },
   { name: 'anchored directory with trailing slash', exclude: ['src/config/'], expected: TOTAL - 2 },
   { name: 'file extension anywhere', exclude: ['*.test.ts'], expected: TOTAL - 1 },
   { name: 'a single file', exclude: ['src/core/service.ts'], expected: TOTAL - 1 },
-  { name: 'several patterns at once', exclude: ['src/config', 'tests', '*.test.ts'], expected: TOTAL - 5 },
+  { name: 'several patterns at once', exclude: ['src/config', 'tests', '*.test.ts'], expected: TOTAL - 6 },
   { name: 'a pattern matching nothing', exclude: ['does/not/exist/**'], expected: TOTAL },
-  // *.ts matches six of the seven files (widget.tsx is not one), and excluding
-  // src/config removes two of those.
+  // *.ts matches six of the eight files (widget.tsx and the file named tests
+  // are not), and excluding src/config removes two of those.
   { name: 'exclude combined with an include glob', exclude: ['src/config'], globs: ['*.ts'], expected: 4 },
   { name: 'everything excluded', exclude: ['**'], expected: 0 },
+  // The shapes ripgrep once read differently from the scanner. ADR-0014.
+  { name: 'a leading slash, anchoring a name to the root', exclude: ['/tests'], expected: TOTAL - 1 },
+  { name: 'a leading slash on an anchored path', exclude: ['/src/config'], expected: TOTAL - 2 },
+  { name: 'a leading slash before **', exclude: ['/**/tests'], expected: TOTAL - 3 },
+  { name: 'a leading ./ on a bare name', exclude: ['./tests'], expected: TOTAL - 3 },
+  { name: 'a leading ./ on an anchored path', exclude: ['./src/config'], expected: TOTAL - 2 },
+  { name: 'backslashes', exclude: ['src\\config'], expected: TOTAL - 2 },
+  { name: 'a trailing slash on a name a file has too', exclude: ['tests/'], expected: TOTAL - 3 },
+  { name: 'an include glob with a leading ./', exclude: [], globs: ['./src/core/*.ts'], expected: 2 },
+  { name: 'an include glob with a trailing slash', exclude: [], globs: ['src/config/'], expected: 2 },
 ];
 
 describe.each(rgPath ? ['javascript', 'ripgrep'] : ['javascript'])('%s engine', (engineName) => {

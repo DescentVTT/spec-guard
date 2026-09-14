@@ -384,6 +384,16 @@ export interface RunReport {
    * tool exists to prevent.
    */
   inactiveSpecs: InactiveSpec[];
+  /**
+   * The project's exclusions, added to every rule that takes `exclude`, and
+   * empty when there were none.
+   *
+   * On the report whatever set them - a configuration, the command line, or a
+   * caller of the API - since a path left out of every rule changes every
+   * result, and a report that cannot say which paths those were cannot be
+   * audited. `config` says whether they came from a file.
+   */
+  exclude: string[];
   /** What the command line took from the project's configuration, when it took anything. */
   config?: ConfigUse;
 }

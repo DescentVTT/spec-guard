@@ -116,6 +116,11 @@ omission, which is the report ADR-0010 exists to prevent.
 A listed rule from such a document carries `inForce: false`, and its document's
 status. A query does not pretend `--ignore-status` changed what the document says.
 
+The same argument covers exclusions, since 0.10.1. A path that no rule governs
+because the project's `exclude`, or a rule's own, leaves it out says so and
+names them, rather than reading like a path nobody wrote a rule about.
+ADR-0014 has the shapes.
+
 ### Topology: a path's position in each layer order
 
 For `@assert-layers`, a query reports where the path sits:

@@ -12,7 +12,7 @@ import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import { parseDirectives } from '../src/parser.js';
-import { governs, layerPosition, viewRule, within, type DocumentView, type QueryPath } from '../src/rules.js';
+import { governs, layerPosition, leftOutByOwnExclude, viewRule, within, type DocumentView, type QueryPath } from '../src/rules.js';
 import { resolveDirective } from '../src/runner.js';
 import { DEFAULT_SCOPE, SCAN_EVERYTHING } from '../src/scope.js';
 import type { Assertion } from '../src/types.js';
@@ -214,6 +214,44 @@ describe('@assert-present', () => {
 
   it('governs a directory holding a file it names', () => {
     expect(governed(present(), [dir('.'), dir('docs'), dir('docs/guide'), dir('docs/other'), dir('doc')])).toEqual(['./', 'docs/', 'docs/guide/']);
+  });
+});
+
+describe('leftOutByOwnExclude', () => {
+  /** One rule, resolved under the project's exclusions. */
+  function under(project: string[], markdown: string): Assertion {
+    const [directive] = parseDirectives(markdown, { file: SPEC, relativeFile: 'docs/a.md' }).directives;
+    const resolved = resolveDirective(directive as NonNullable<typeof directive>, { root: ROOT, excludeFiles: new Set([SPEC]), exclude: project });
+    if ('error' in resolved) throw new Error(resolved.error.message);
+    return resolved.assertion;
+  }
+  const text = '<!-- @assert-absence target="src" symbol="X" exclude="src/legacy" -->';
+
+  it("is true where the rule's own exclude is what keeps it off the path", () => {
+    expect(leftOutByOwnExclude(under([], text), file('src/legacy/a.ts'), [])).toBe(true);
+    expect(leftOutByOwnExclude(under([], text), dir('src/legacy/deep'), [])).toBe(true);
+    // The project's exclusions do not hide the rule's own.
+    expect(leftOutByOwnExclude(under(['src'], text), file('src/legacy/a.ts'), ['src'])).toBe(true);
+  });
+
+  it('is false where the rule governs the path, would not reach it anyway, or only the project leaves it out', () => {
+    expect(leftOutByOwnExclude(under([], text), file('src/a.ts'), [])).toBe(false);
+    expect(leftOutByOwnExclude(under([], text), file('lib/legacy/a.ts'), [])).toBe(false);
+    expect(leftOutByOwnExclude(under(['src/gen'], text), file('src/gen/a.ts'), ['src/gen'])).toBe(false);
+    // Written by both, it is one entry, and counts as the project's.
+    expect(leftOutByOwnExclude(under(['src/legacy'], text), file('src/legacy/a.ts'), ['src/legacy'])).toBe(false);
+  });
+
+  it('is false for @assert-present, which takes no exclude, whether or not it governs the path', () => {
+    const present = under(['dist'], '<!-- @assert-present file="dist/index.js" -->');
+    expect(leftOutByOwnExclude(present, file('dist/index.js'), ['dist'])).toBe(false);
+    expect(leftOutByOwnExclude(present, file('dist/other.js'), ['dist'])).toBe(false);
+  });
+
+  it('reads a directory holding a target the rule excludes the way governs does', () => {
+    const excludedTarget = under([], '<!-- @assert-absence target="src/gen" symbol="X" exclude="src/gen" -->');
+    expect(leftOutByOwnExclude(excludedTarget, dir('src'), [])).toBe(true);
+    expect(governs(excludedTarget, dir('src'))).toBe(false);
   });
 });
 

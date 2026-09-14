@@ -76,6 +76,7 @@ function fixture(overrides: Partial<RunResult> = {}): RunResult {
     errors: [],
     warnings: [],
     inactiveSpecs: [],
+    exclude: [],
     results: [failing],
     ...overrides,
   };

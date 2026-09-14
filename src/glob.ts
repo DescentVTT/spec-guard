@@ -101,6 +101,64 @@ export function globToRegExp(pattern: string, options: { ignoreCase?: boolean } 
 }
 
 /**
+ * An include glob in the one form both engines are given: forward slashes, no
+ * leading `./`, and a trailing slash read as everything under the directory.
+ *
+ * ripgrep used to be handed the glob as written, and matched nothing for
+ * `./src/*.ts` or `src/` while the scanner matched the files. ADR-0014.
+ */
+export function normalizeGlob(pattern: string): string {
+  const normalized = toPosix(pattern).replace(/^\.\//, '');
+  return normalized.endsWith('/') ? `${normalized}**` : normalized;
+}
+
+/**
+ * An `exclude` pattern in the one form both engines are given: forward slashes,
+ * no leading `./` and no trailing slash. A leading `/` stays, because it means
+ * something: see `createExcludeMatcher`.
+ *
+ * ripgrep used to be handed the pattern as written, and read three shapes
+ * differently from the scanner. `./build` and `src\build` excluded nothing, and
+ * `build/` did not exclude a file named `build`. ADR-0014.
+ */
+export function normalizeExclude(pattern: string): string {
+  return toPosix(pattern).replace(/^\.\//, '').replace(/\/+$/, '');
+}
+
+/**
+ * Why an exclude pattern can never leave anything out, or null when it can.
+ *
+ * Each of these matched nothing under both engines, and nothing said so. The
+ * one that matters is `!`: in `.gitignore` it re-includes a path, and a list
+ * copied from one kept `build` and silently lost `!build/generated/needed.ts`,
+ * so the exclusion was wider than the list reads. A `..` or a drive path points
+ * outside the root, where nothing is searched, and `.` or `/` names the root
+ * itself, which no path under it is.
+ */
+export function excludePatternError(pattern: string): string | null {
+  const normalized = normalizeExclude(pattern);
+  const reason = normalized.startsWith('!')
+    ? 'negation patterns are not supported in exclude'
+    : normalized.split('/').includes('..')
+      ? '".." leads out of the root, and only paths inside it are searched'
+      : /^[a-zA-Z]:\//.test(normalized)
+        ? 'exclusions are relative to the root, and a drive path is not'
+        : normalized === '' || normalized === '.'
+          ? 'it names the root itself rather than a path under it'
+          : null;
+  return reason === null ? null : `invalid exclude pattern "${pattern}": ${reason}`;
+}
+
+/** The error for the first pattern in a list that can never exclude anything, or null. */
+export function excludeListError(patterns: readonly string[]): string | null {
+  for (const pattern of patterns) {
+    const error = excludePatternError(pattern);
+    if (error !== null) return error;
+  }
+  return null;
+}
+
+/**
  * Builds a predicate over root-relative POSIX paths.
  *
  * Following ripgrep's `-g` semantics, a pattern without a `/` is matched
@@ -111,8 +169,7 @@ export function createGlobMatcher(patterns: readonly string[]): (relativePath: s
   if (patterns.length === 0) return () => true;
 
   const matchers = patterns.map((pattern) => {
-    let normalized = toPosix(pattern).replace(/^\.\//, '');
-    if (normalized.endsWith('/')) normalized += '**';
+    const normalized = normalizeGlob(pattern);
     const basenameOnly = !normalized.includes('/');
     return { regexp: globToRegExp(normalized), basenameOnly };
   });
@@ -136,15 +193,20 @@ export function createGlobMatcher(patterns: readonly string[]): (relativePath: s
  * The rule is one line: a pattern without a slash is tested against every path
  * segment; a pattern with a slash is tested against the path and each of its
  * ancestor directories.
+ *
+ * A leading slash counts, as it does in `.gitignore`: `/build` is the `build`
+ * at the root, where `build` is one at any depth. ripgrep always read it that
+ * way, and the scanner used to match nothing for it, so a rule excluding
+ * `/target` gave a different count on a tree large enough for `auto` to pick
+ * ripgrep. The slash is not part of any path, so it is dropped once it has
+ * anchored the pattern.
  */
 export function createExcludeMatcher(patterns: readonly string[]): (relativePath: string) => boolean {
   if (patterns.length === 0) return () => false;
 
   const matchers = patterns.map((pattern) => {
-    const normalized = toPosix(pattern)
-      .replace(/^\.\//, '')
-      .replace(/\/+$/, '');
-    return { regexp: globToRegExp(normalized), anchored: normalized.includes('/') };
+    const normalized = normalizeExclude(pattern);
+    return { regexp: globToRegExp(normalized.replace(/^\//, '')), anchored: normalized.includes('/') };
   });
 
   return (relativePath: string): boolean => {

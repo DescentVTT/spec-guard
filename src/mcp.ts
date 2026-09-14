@@ -34,6 +34,7 @@ import {
   type RuleSet,
 } from './query.js';
 import { governs, viewRule, type QueryPath } from './rules.js';
+import type { ConfigUse } from './types.js';
 
 /* ----------------------------------------------------------------- protocol */
 
@@ -252,9 +253,11 @@ export interface McpServerOptions {
    * server runs. The command line passes one that reads the project's
    * configuration afresh (ADR-0014); without it, `patterns` and `run` hold for
    * every request. A settings function that throws fails the request with its
-   * message.
+   * message. What it took from a configuration is reported with each answer, as
+   * the command line reports it, so an agent can see which exclusions a file
+   * set.
    */
-  settings?: () => Promise<{ patterns: readonly string[]; run: Omit<RunOptions, 'patterns' | 'root' | 'select'> }>;
+  settings?: () => Promise<{ patterns: readonly string[]; run: Omit<RunOptions, 'patterns' | 'root' | 'select'>; config?: ConfigUse }>;
   /** Reads a spec document. Injected so an unreadable one can be tested. */
   readFile?: (file: string) => Promise<string>;
 }
@@ -288,7 +291,7 @@ export function createMcpHandler(options: McpServerOptions): (message: unknown) 
   const capabilities = { tools: {}, resources: {} };
   const readFile = options.readFile ?? ((file: string) => readText(nodeIo, file));
   /** The settings a request is answered under, read when the request arrives. */
-  const current = async (): Promise<{ patterns: readonly string[]; run: McpServerOptions['run'] }> =>
+  const current = async (): Promise<{ patterns: readonly string[]; run: McpServerOptions['run']; config?: ConfigUse }> =>
     options.settings ? options.settings() : { patterns: options.patterns, run: options.run };
   const ruleSetOptions = ({ patterns, run }: { patterns: readonly string[]; run: McpServerOptions['run'] }) => ({
     patterns,
@@ -318,7 +321,7 @@ export function createMcpHandler(options: McpServerOptions): (message: unknown) 
     const query = await resolveQueryPath(args['path'], options.root);
     const ruleSet = await loadRuleSet(ruleSetOptions(settings));
     if (ruleSet.specFiles.length === 0) return noSpecs(settings.patterns);
-    const report = { ...answerQuery(ruleSet, [query], includeInactive), durationMs: elapsed(startedAt) };
+    const report = { ...answerQuery(ruleSet, [query], includeInactive), durationMs: elapsed(startedAt), config: settings.config };
     return { text: formatQuery(report), structured: { ...report } };
   }
 
@@ -376,9 +379,11 @@ export function createMcpHandler(options: McpServerOptions): (message: unknown) 
       })),
       inactiveSpecs: report.inactiveSpecs,
       warnings: report.warnings,
+      exclude: report.exclude,
+      config: settings.config,
       durationMs: Math.round(report.durationMs * 1000) / 1000,
     };
-    const text = `Checked ${scope}.\n\n${formatReport(report, { color: false, verbose: false, ascii: true }, settings.run?.maxSnippets)}`;
+    const text = `Checked ${scope}.\n\n${formatReport({ ...report, config: settings.config }, { color: false, verbose: false, ascii: true }, settings.run?.maxSnippets)}`;
     return { text, structured };
   }
 

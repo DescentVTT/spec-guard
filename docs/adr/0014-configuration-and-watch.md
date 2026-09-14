@@ -260,6 +260,115 @@ is part of each rule it resolves.
   and a project that keeps docs under an excluded name should not lose them
   without being told.
 
+### 0.10.1: exclusions a report can show, and one pattern for both engines
+
+Running 0.10.0 over a large monorepo found four things.
+
+1. **A passing run hid which paths were excluded.** The report said
+   `options from .spec-guard.json: exclude` and never what `exclude` held.
+2. **`--exclude` on the command line left no trace.** Without a configuration
+   the report had no options line at all, so a run under `--exclude dist`
+   looked exactly like one without it.
+3. **A list pasted from `.gitignore` was wider than it read.** In
+   `["build", "!build/generated/needed.ts"]`, `build` excluded the directory,
+   and the `!` line, which `.gitignore` reads as a re-inclusion, matched no
+   path and changed nothing.
+4. **`query` said "no rules in force govern this path"** for a path the project
+   had set aside, in the same words as for a path nobody had written a rule
+   about.
+
+Before refusing patterns, each shape was run under both engines, over the same
+tree, with the rule's target at the root and then at `src`. Five exclude shapes
+and two include globs disagreed:
+
+| Pattern | Scanner excluded | ripgrep excluded |
+| --- | --- | --- |
+| `exclude="/build"` | nothing | the root's `build` |
+| `exclude="/**/build"` | nothing | every `build` |
+| `exclude="./build"` | every `build` | nothing |
+| `exclude="src\build"` | `src/build` | nothing |
+| `exclude="build/"` | a directory or a file named `build` | only a directory |
+| `glob="./src/*.ts"` | matched `src/*.ts` | matched nothing |
+| `glob="src/"` | matched everything under `src` | matched nothing |
+
+`!x`, `../x`, a drive path, `.` and `/` matched nothing under either. `auto`
+picks ripgrep only past a size, so a rule excluding `/target` - the form Cargo
+writes into `.gitignore` - counted differently once the tree grew. It had been
+so since `exclude` was added, for directives as well as for the configuration.
+The parity matrix had covered only the shapes people had thought to write.
+
+**Both engines are now given one pattern.** `normalizeGlob` and
+`normalizeExclude` turn backslashes into separators and drop a leading `./`.
+`normalizeGlob` reads a trailing `/` as everything under the directory, and
+`normalizeExclude` drops it. ripgrep is handed that form instead of what was
+written. A leading `/` is kept, and the scanner now reads it as ripgrep and
+`.gitignore` do, as anchoring the pattern to the root. Each change moved the
+engine that disagreed to the other engine's non-empty meaning, so neither lost
+an exclusion it already applied. The one choice that was not forced is
+`./build`. It keeps the scanner's meaning, any `build`, rather than becoming
+`/build`: that would have narrowed what the scanner had always excluded, and
+`/build` already says "the one at the root". Every shape in the table is now a
+case in the parity matrix. Layer orders and import modules use the same matcher,
+so a leading `/` anchors there too, where it matched nothing.
+
+<!-- @assert-absence target="src/engine.ts" symbol="push('--glob', glob)" reason="ripgrep is given the pattern the scanner reads, never the pattern as written" -->
+
+**Patterns that can never exclude anything are refused**, by `excludePatternError`,
+in four places:
+- the configuration, exit 2, naming the file and key;
+- `--exclude`, exit 2, as a usage error;
+- a directive's `exclude="..."`, as an invalid directive;
+- `runSpecGuard` and `loadRuleSet`, which throw for a caller of the API.
+
+```text
+.spec-guard.json: "exclude" has an invalid exclude pattern "!build/generated/needed.ts": negation patterns are not supported in exclude.
+Option --exclude has an invalid exclude pattern "../vendor": ".." leads out of the root, and only paths inside it are searched.
+Attribute "exclude" has an invalid exclude pattern "C:/repo/bin": exclusions are relative to the root, and a drive path is not.
+```
+
+The refused shapes are `!`, a `..` segment, a drive path, and `.` or `/`.
+- **A directive is refused too, in a patch release.** A directive that was
+  accepted in 0.10.0 can now be invalid and fail a run. Every such pattern
+  excluded nothing, so the only runs this fails are ones whose rule said
+  something it did not do.
+- **Negation is refused rather than supported.** `.gitignore` gives `!` ordered,
+  last-match-wins semantics. ripgrep's override globs read a glob without `!` as
+  "search only this", which is a different thing. The query arithmetic would
+  need the ordering as well. Refusing it is small, and says what is wrong.
+- **A POSIX absolute path is not refused.** `/home/me/repo/dist` reads as a
+  pattern anchored to the root, like `/dist`, and cannot be told apart from one.
+
+**Reports name the patterns.**
+- The options line lists them beside the key, applied or overridden:
+  `options from .spec-guard.json: specs, exclude (target, bin, obj, dist)`, and
+  `exclude (none)` after `--exclude=`.
+- Exclusions no configuration accounts for get their own line:
+  `exclude from the command line: dist`. The reporter cannot tell a command
+  line from a caller of the API, but every command spec-guard ships takes them
+  from the command line.
+- The MCP server used to discard what it took from the configuration. It now
+  passes it to both tools, so their text carries the same lines and their
+  structured content carries `exclude` and `config`.
+- `RunReport` and `QueryReport` carry `exclude` always, an empty list when there
+  is none, as `warnings` and `inactiveSpecs` are always present. An audit
+  records "no exclusions" as surely as it records which.
+
+**`query` says why.** Each path carries `excluded`:
+- `project`, the project's patterns that match the path itself;
+- `rules`, the rules whose scope reaches the path but for their own
+  `exclude="..."`.
+
+The headline names the reason when no rule governs the path: `the project's
+exclude leaves it out (target)`, or `exclude="..." leaves it out of 2 rules`,
+followed by those rules. A path an `@assert-present` still governs gets a note
+that the project's exclude leaves it out of every other rule.
+
+`leftOutByOwnExclude` asks `governs` twice: with no exclusions, and with only
+the directive's. Leaving a pattern out never makes a path governed less, so
+nothing more is needed. It cannot tell a pattern the directive and the project
+both list from one only the project lists, because resolution merges them into
+one entry, and so it counts the pattern as the project's.
+
 ### Watch mode: `spec-guard --watch`
 
 **It is a check.** `query --watch` and `mcp --watch` are refused.
