@@ -118,6 +118,41 @@ describe('@assert-import-cycle', () => {
     expect(coupling.ok).toBe(false);
   });
 
+  // From a real monorepo: a plugin loaded with import() closes a loop that no
+  // module's load order can deadlock on.
+  it('separates a lazy loop from a load-order one with dynamic="ignore"', async () => {
+    const lazy = {
+      'src/configuration.ts': "import { tier } from './lazy-tier.js';\nexport const configuration = tier;\n",
+      'src/lazy-tier.ts': "export const tier = () => import('./tier-boot.js');\n",
+      'src/tier-boot.ts': "import { configuration } from './configuration.js';\nexport const boot = configuration;\n",
+    };
+
+    const runtime = await only({ 'docs/a.md': '<!-- @assert-import-cycle target="src" dynamic="ignore" -->\n', ...lazy });
+    expect(runtime.ok).toBe(true);
+    expect(runtime.description).toBe('src must have no import cycles (dynamic imports ignored)');
+
+    const coupling = await only({ 'docs/a.md': '<!-- @assert-import-cycle target="src" -->\n', ...lazy });
+    expect(coupling.ok).toBe(false);
+    expect(coupling.matches[0]?.text).toBe(
+      'src/configuration.ts:1 -> src/lazy-tier.ts:1 -> src/tier-boot.ts:1 -> src/configuration.ts',
+    );
+
+    // A static import between the same two files keeps the loop, dynamic or not.
+    const eager = await only({
+      'docs/a.md': '<!-- @assert-import-cycle target="src" dynamic="ignore" -->\n',
+      ...lazy,
+      'src/lazy-tier.ts': "import './tier-boot.js';\nexport const tier = () => import('./tier-boot.js');\n",
+    });
+    expect(eager.ok).toBe(false);
+  });
+
+  it('takes dynamic="..." on a cycle rule only', async () => {
+    const report = await run(
+      await repo({ 'docs/a.md': '<!-- @assert-layers target="src" order="a, b" dynamic="ignore" -->\n', ...CYCLE }),
+    );
+    expect(report.errors[0]?.message).toContain('Unknown attribute "dynamic"');
+  });
+
   it('does not follow an import out of scope, and an exclude breaks a cycle through what it excludes', async () => {
     const outside = await only({ 'docs/a.md': '<!-- @assert-import-cycle target="src/a.ts" -->\n', ...CYCLE });
     expect(outside.ok).toBe(true);

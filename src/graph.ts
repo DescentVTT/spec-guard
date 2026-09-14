@@ -157,9 +157,16 @@ export function edgeKey(from: string, to: string): string {
  *
  * Type-only references are left out when `includeTypes` is false, which is the
  * difference between the coupling question and the runtime one - erased imports
- * create no load-order cycle.
+ * create no load-order cycle. `import('x')` is left out when `includeDynamic` is
+ * false, for the same reason with one exception the rule's author accepts by
+ * asking: a top-level `await import('x')` does run while the module loads.
  */
-export function buildGraph(inputs: readonly GraphInput[], scope: GraphScope, includeTypes: boolean): ImportGraph {
+export function buildGraph(
+  inputs: readonly GraphInput[],
+  scope: GraphScope,
+  includeTypes: boolean,
+  includeDynamic = true,
+): ImportGraph {
   const targets = new Map<string, Set<string>>();
   const via = new Map<string, ModuleReference>();
   const unresolved: Unresolved[] = [];
@@ -167,6 +174,7 @@ export function buildGraph(inputs: readonly GraphInput[], scope: GraphScope, inc
   for (const { file, references } of inputs) {
     for (const reference of references) {
       if (reference.typeOnly && !includeTypes) continue;
+      if (reference.kind === 'dynamic-import' && !includeDynamic) continue;
       const resolution = resolveReference(reference.specifier, file, scope);
       if (resolution.kind === 'unresolved') unresolved.push({ file, reference });
       if (resolution.kind !== 'edge') continue;

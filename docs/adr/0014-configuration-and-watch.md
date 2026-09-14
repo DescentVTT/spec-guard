@@ -173,7 +173,7 @@ true of only half the flags.
 the file and the key:
 
 ```text
-package.json: unknown option "stict" in "specGuard". Options are specs, engine, strict, allowMissingTargets, allowEmptyScope, ignoreStatus, includeSpecs, defaultSkips, maxSnippets, concurrency.
+package.json: unknown option "stict" in "specGuard". Options are specs, exclude, engine, strict, allowMissingTargets, allowEmptyScope, ignoreStatus, includeSpecs, defaultSkips, maxSnippets, concurrency.
 package.json: "specGuard.format" is chosen on the command line, not in package.json.
 package.json: "specGuard.strict" must be true or false, got "yes".
 package.json: "specGuard" must be an object, got an array.
@@ -196,8 +196,8 @@ must never do so where nobody can see it. ADR-0010 argued the same about
 withholding.
 
 **Every command reads it.**
-- `query` applies what a query uses: `specs`, `ignoreStatus`, `includeSpecs` and
-  `defaultSkips`.
+- `query` applies what a query uses: `specs`, `exclude`, `ignoreStatus`,
+  `includeSpecs` and `defaultSkips`.
 - `mcp` applies all of it. Like the specs, it is read afresh on every request:
   ADR-0012 refused to cache rules in the server, and a cached configuration is a
   cached rule.
@@ -212,6 +212,53 @@ other read (below).
 
 <!-- @assert-import-absence target="src/config.ts" module="src/io.js" reason="configuration is validated from a value; reading the file is the command line's job" -->
 <!-- @assert-present file="src/config.ts, tests/config.test.ts" reason="a configuration nobody can see being validated is a second grammar nobody reviews" -->
+
+### 0.10.0: `.spec-guard.json`, and a project's exclusions
+
+Two findings from running 0.9.2 over a polyglot monorepo.
+
+**A root with no `package.json` could hold no configuration.** A Rust, Go or .NET
+repository with a web frontend in a subdirectory has nowhere at its root to put
+`"specGuard"`. The same options can now sit, at the top level, in
+`.spec-guard.json` in the root. They are validated by the same checks, and the
+messages name that file and the bare key: `.spec-guard.json: "strict" must be
+true or false, got "yes".`
+
+**Both files holding options is exit 2**, including a `"specGuard": {}` that is
+empty:
+
+```text
+Options are set in both package.json ("specGuard") and .spec-guard.json. Keep them in one of the two, so that no option is written somewhere nothing reads.
+```
+
+The proposal was to read `.spec-guard.json` when `package.json` held no options,
+and otherwise to ignore it. That leaves a file of options that nothing reads,
+changing nothing, with nothing saying so. The report's options line names the
+file that was used. A `package.json` with no `"specGuard"` beside a
+`.spec-guard.json` is not a conflict: a frontend's manifest is not a place
+someone put spec-guard's options.
+
+**Build output had to be excluded by every rule.** `target`, `bin`, `obj` and
+`dist` took a whole-repository scan from 3,000 files to 37,000, and 8 seconds to
+60. The only remedy was repeating `exclude="target bin obj dist"` on each
+directive. `exclude` is now a key, a list in the directive's gitignore form. It
+is added to the `exclude` of every directive that takes one, when the directive
+is resolved. That is the one place every engine, walk, import graph, structure
+walk and `query` already take exclusions from, so none of them needed a second
+path. A watch session re-runs what an edit to the list affects, since the list
+is part of each rule it resolves.
+
+- **`@assert-present` is untouched.** It names its files, and a project that
+  excludes `dist` can still require `dist/index.js`.
+- **A rule's description names only its own exclusions.** The project's are
+  named once, in `options from .spec-guard.json: specs, exclude`, rather than
+  appended to every rule in the report.
+- **The command line wins here too.** `--exclude <globs>` is repeatable and
+  replaces the configuration's list, and `--exclude=` with nothing clears it. Every
+  key can be overridden from the command line, and a list has no `--no-` form.
+- **It is not applied to finding specs.** `specs` are globs chosen for that job,
+  and a project that keeps docs under an excluded name should not lose them
+  without being told.
 
 ### Watch mode: `spec-guard --watch`
 

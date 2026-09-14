@@ -103,7 +103,9 @@ export const ALLOWED_ATTRIBUTES: Record<DirectiveKind, ReadonlySet<string>> = {
   ]),
   // No baseline: a baseline lists files, and a cycle is not a file. Exempting
   // the files of today's cycle would exempt a new one among the same files.
-  'assert-import-cycle': new Set(['target', 'exclude', 'types', 'expected', 'max', 'allow-empty', 'reason']),
+  // `dynamic` only here: import('x') still points a layer the wrong way, but it
+  // creates no cycle in the order modules load.
+  'assert-import-cycle': new Set(['target', 'exclude', 'types', 'dynamic', 'expected', 'max', 'allow-empty', 'reason']),
   'assert-layers': new Set([
     'target',
     'order',

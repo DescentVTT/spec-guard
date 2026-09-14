@@ -96,7 +96,7 @@ describe('the directive table', () => {
         'reason',
       ],
       // No baseline and no min: see ADR-0011 for why a cycle is not a file.
-      'assert-import-cycle': ['target', 'exclude', 'types', 'expected', 'max', 'allow-empty', 'reason'],
+      'assert-import-cycle': ['target', 'exclude', 'types', 'dynamic', 'expected', 'max', 'allow-empty', 'reason'],
       'assert-layers': [
         'target',
         'order',

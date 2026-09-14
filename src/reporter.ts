@@ -271,12 +271,13 @@ export function formatReport(report: RunResult, options: ReporterOptions, maxSni
   // --verbose was passed. Nobody passes --verbose to a green run, which is when
   // they matter (ADR-0006). Its comment and scope notes are totalled below, and
   // are listed per assertion under --verbose.
-  for (const result of passes) {
-    const notes = options.verbose ? [...commentNotes(result), ...scopeNotes(result.scope), ...result.warnings] : result.warnings;
-    for (const note of notes) {
-      lines.push(`${paint(glyphs.warn, 'yellow')} ${paint(`${formatLocation(result)}  ${note}`, 'yellow')}`);
-    }
-  }
+  // Set off from what follows by a blank line, as every other block is.
+  const passNotes = passes.flatMap((result) =>
+    (options.verbose ? [...commentNotes(result), ...scopeNotes(result.scope), ...result.warnings] : result.warnings).map(
+      (note) => `${paint(glyphs.warn, 'yellow')} ${paint(`${formatLocation(result)}  ${note}`, 'yellow')}`,
+    ),
+  );
+  if (passNotes.length > 0) lines.push(...passNotes, '');
 
   for (const error of report.errors) {
     lines.push(...formatError(error, paint, glyphs));

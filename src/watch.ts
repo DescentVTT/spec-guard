@@ -40,7 +40,7 @@ import type { Assertion, AssertionResult, ConfigUse } from './types.js';
 /** The options a session's run takes: a run's, less the engine it never uses. */
 export type SessionRunOptions = Pick<
   RunOptions,
-  'allowMissingTargets' | 'strictTargets' | 'allowEmptyScope' | 'maxSnippets' | 'includeSpecs' | 'defaultSkips' | 'ignoreStatus' | 'concurrency'
+  'allowMissingTargets' | 'strictTargets' | 'allowEmptyScope' | 'maxSnippets' | 'includeSpecs' | 'defaultSkips' | 'ignoreStatus' | 'concurrency' | 'exclude'
 >;
 
 /** What one run of a session is asked to do. */

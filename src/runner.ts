@@ -116,6 +116,13 @@ export interface RunOptions {
    */
   defaultSkips?: boolean;
   /**
+   * Paths no assertion looks at, in the gitignore form `exclude="..."` takes,
+   * added to every directive that takes `exclude`. `@assert-present` names its
+   * files and takes none. Build output is the usual reason: `target`, `bin`,
+   * `obj`, `dist`.
+   */
+  exclude?: readonly string[];
+  /**
    * Execute every directive, whatever lifecycle status its document declares.
    *
    * The way to ask "would this draft pass if we accepted it today", and the
@@ -182,7 +189,7 @@ function parseCount(value: string, attribute: string): number {
  * a path containing a space cannot be expressed; that is documented, and no
  * separator choice avoids it without quoting rules this syntax does not have.
  */
-function splitList(value: string | undefined): string[] {
+export function splitList(value: string | undefined): string[] {
   if (value === undefined) return [];
   // Taking the items rather than splitting on the separators. Split needed a
   // `+` on the separator class, a trim and a length filter, and any two of the
@@ -453,6 +460,17 @@ export interface ResolveContext {
   excludeFiles: ReadonlySet<string>;
   /** Run-level scope policy. Defaults to DEFAULT_SCOPE when unset. */
   scope?: ScopePolicy;
+  /**
+   * A project's exclusions, added to those of every directive that takes
+   * `exclude`. A directive's description still names only its own: the
+   * project's are named once, in the line that says which options it took.
+   */
+  exclude?: readonly string[];
+}
+
+/** A directive's own exclusions and the project's, once each. */
+function withProjectExcludes(project: readonly string[] | undefined, own: readonly string[]): string[] {
+  return [...new Set([...(project ?? []), ...own])];
 }
 
 /** Turns one directive into an executable assertion, or an error. */
@@ -612,15 +630,16 @@ export function resolveDirective(
         baseline,
         ratchet,
         scope: context.scope ?? DEFAULT_SCOPE,
+        projectExcludes: context.exclude ?? [],
       });
     }
 
     if (isImportKind) {
       const scope = targets.join(", ");
-      const excludeGlobs = splitList(attributes["exclude"]);
+      const ownExcludes = splitList(attributes["exclude"]);
       const except =
-        excludeGlobs.length > 0
-          ? ` (excluding ${excludeGlobs.join(", ")})`
+        ownExcludes.length > 0
+          ? ` (excluding ${ownExcludes.join(", ")})`
           : "";
       const includeTypes =
         (attributes["types"] ?? "include").trim().toLowerCase() !== "ignore";
@@ -633,6 +652,11 @@ export function resolveDirective(
           `Attribute "types" must be include or ignore, got "${attributes["types"]}".`,
         );
       }
+      const dynamic = (attributes["dynamic"] ?? "include").trim().toLowerCase();
+      if (!["include", "ignore"].includes(dynamic)) {
+        return fail(`Attribute "dynamic" must be include or ignore, got "${attributes["dynamic"]}".`);
+      }
+      const includeDynamic = dynamic === "include";
       const layers = splitList(symbol);
       if (kind === "assert-layers") {
         if (layers.length < 2) {
@@ -646,9 +670,11 @@ export function resolveDirective(
         }
       }
       const typesNote = includeTypes ? "" : " (type-only imports ignored)";
+      const ignored = [...(includeTypes ? [] : ["type-only"]), ...(includeDynamic ? [] : ["dynamic"])];
+      const ignoredNote = ignored.length === 0 ? "" : ` (${ignored.join(" and ")} imports ignored)`;
       const description =
         kind === "assert-import-cycle"
-          ? `${scope} must have ${describeBounds(bounds, CYCLES)}${typesNote}${except}`
+          ? `${scope} must have ${describeBounds(bounds, CYCLES)}${ignoredNote}${except}`
           : kind === "assert-layers"
             ? `${scope} must keep its layers in order, ${layers.join(" < ")}${bounds.max === 0 ? "" : `, with ${describeBounds(bounds, VIOLATING_FILES)}`}${typesNote}${except}`
             : `${scope} ${describeImportExpectation(bounds)} "${symbol}"${except}`;
@@ -668,7 +694,7 @@ export function resolveDirective(
             word: false,
             ignoreCase: false,
             globs: [],
-            excludeGlobs,
+            excludeGlobs: withProjectExcludes(context.exclude, ownExcludes),
             // Inert here - these options only reach enumerateCandidates, never a
             // text search. It is set true because it is true: the tokenizer
             // reads imports, so a module named in a comment was never a match.
@@ -676,7 +702,7 @@ export function resolveDirective(
             scope: context.scope ?? DEFAULT_SCOPE,
             excludeFiles: context.excludeFiles,
           },
-          imports: { modules: perModule ? splitList(symbol) : [], includeTypes },
+          imports: { modules: perModule ? splitList(symbol) : [], includeTypes, includeDynamic },
           ...(kind === "assert-layers" ? { layers } : {}),
           allowEmpty,
           baseline,
@@ -690,7 +716,7 @@ export function resolveDirective(
       word: parseBoolean(attributes["word"], "word"),
       ignoreCase: parseBoolean(attributes["ignore-case"], "ignore-case"),
       globs: splitList(attributes["glob"]),
-      excludeGlobs: splitList(attributes["exclude"]),
+      excludeGlobs: withProjectExcludes(context.exclude, splitList(attributes["exclude"])),
       ignoreComments: comments !== "include",
       scope: context.scope ?? DEFAULT_SCOPE,
       excludeFiles: context.excludeFiles,
@@ -708,9 +734,10 @@ export function resolveDirective(
     }
 
     const scope = targets.join(", ");
+    const ownExcludes = splitList(attributes["exclude"]);
     const except =
-      search.excludeGlobs.length > 0
-        ? ` (excluding ${search.excludeGlobs.join(", ")})`
+      ownExcludes.length > 0
+        ? ` (excluding ${ownExcludes.join(", ")})`
         : "";
     return {
       assertion: {
@@ -751,12 +778,16 @@ function resolveStructure(
   directive: Directive,
   claim: StructureClaim,
   values: string[],
-  shared: Pick<Assertion, "targets" | "bounds" | "allowEmpty" | "baseline" | "ratchet"> & { scope: ScopePolicy },
+  shared: Pick<Assertion, "targets" | "bounds" | "allowEmpty" | "baseline" | "ratchet"> & {
+    scope: ScopePolicy;
+    projectExcludes: readonly string[];
+  },
 ): { assertion: Assertion } {
   const { attributes } = directive;
   const required = claim === "required";
   const globs = splitList(attributes["glob"]);
   const excludeGlobs = splitList(attributes["exclude"]);
+  const searchedExcludes = withProjectExcludes(shared.projectExcludes, excludeGlobs);
 
   // Two attributes that would otherwise be read and ignored, which is a rule
   // saying something it does not check.
@@ -801,7 +832,7 @@ function resolveStructure(
         word: false,
         ignoreCase: false,
         globs,
-        excludeGlobs,
+        excludeGlobs: searchedExcludes,
         // Nothing is read, so there is no comment to leave out.
         ignoreComments: false,
         scope: shared.scope,
@@ -1371,7 +1402,7 @@ function finishCycles(
       ),
   };
 
-  const graph = buildGraph(read.analysed, scope, query.includeTypes);
+  const graph = buildGraph(read.analysed, scope, query.includeTypes, query.includeDynamic);
   const loops = cyclicComponents(graph).map((component) => witness(component, graph.successors));
 
   if (graph.unresolved.length > 0) {
@@ -1550,7 +1581,7 @@ export interface RunPlan {
 export function planRun(
   specs: SpecSet,
   root: string,
-  options: Pick<RunOptions, "includeSpecs" | "defaultSkips" | "ignoreStatus" | "select">,
+  options: Pick<RunOptions, "includeSpecs" | "defaultSkips" | "ignoreStatus" | "select" | "exclude">,
 ): RunPlan {
   const scope = createScope(options.defaultSkips ?? true);
   const excludeFiles = specExclusions(specs.files, options.includeSpecs ?? false);
@@ -1583,7 +1614,7 @@ export function planRun(
 
   const assertions: Assertion[] = [];
   for (const directive of directives) {
-    const resolved = resolveDirective(directive, { root, excludeFiles, scope });
+    const resolved = resolveDirective(directive, { root, excludeFiles, scope, exclude: options.exclude });
     if ("error" in resolved) errors.push(resolved.error);
     // Selection happens after resolution, so a directive that is not selected
     // is still held to being well-formed - the same bargain ADR-0010 strikes
@@ -1596,7 +1627,7 @@ export function planRun(
   // written rather than on the day the ADR is accepted - which is the day
   // everyone has already agreed the rule is right and stopped looking at it.
   for (const directive of withheld) {
-    const resolved = resolveDirective(directive, { root, excludeFiles, scope });
+    const resolved = resolveDirective(directive, { root, excludeFiles, scope, exclude: options.exclude });
     if ("error" in resolved) errors.push(resolved.error);
   }
 

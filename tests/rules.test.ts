@@ -343,7 +343,10 @@ describe('viewRule', () => {
       targets: ['src'],
       exclude: [],
       types: 'include',
+      dynamic: 'include',
     });
+    const lazy = rule('<!-- @assert-import-cycle target="src" dynamic="ignore" -->');
+    expect(viewRule(lazy, accepted)).toMatchObject({ dynamic: 'ignore', types: 'include' });
   });
 
   it('shows a layer rule with its order, and with the position of a path when asked about one', () => {

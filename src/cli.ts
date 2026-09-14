@@ -11,12 +11,12 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import type { Readable } from 'node:stream';
 
-import { CONFIG_KEYS, ConfigError, engineNamed, loadConfig, type ConfigKey, type ProjectConfig } from './config.js';
+import { CONFIG_KEYS, ConfigError, engineNamed, findConfig, type ConfigKey, type ProjectConfig } from './config.js';
 import { nodeIo, readText, watchTree } from './io.js';
 import { createMcpHandler, serveStdio } from './mcp.js';
 import { formatQuery, formatQueryJson, queryRules } from './query.js';
 import { formatBaselines, formatJson, formatReport, formatSarif, shouldUseAscii, shouldUseColor } from './reporter.js';
-import { DEFAULT_CONCURRENCY, DEFAULT_MAX_SNIPPETS, runSpecGuard, type RunOptions } from './runner.js';
+import { DEFAULT_CONCURRENCY, DEFAULT_MAX_SNIPPETS, runSpecGuard, splitList, type RunOptions } from './runner.js';
 import { createSession, runWatch } from './watch.js';
 import type { EnginePreference } from './engine.js';
 import type { ConfigUse } from './types.js';
@@ -64,6 +64,8 @@ export interface CliOptions {
   engine: EnginePreference;
   allowMissingTargets: boolean;
   defaultSkips: boolean;
+  /** Paths no assertion looks at, beside each directive's own exclude. */
+  exclude: string[];
   ignoreStatus: boolean;
   strictTargets: boolean;
   allowEmptyScope: boolean;
@@ -133,6 +135,7 @@ Options
       --allow-empty-scope Tolerate assertions whose scope holds no files (they fail by default)
       --print-baseline    Print the baseline="..." that would exempt today's violations, and exit
       --no-default-skips  Search .git, .hg, .svn and node_modules too
+      --exclude <globs>   Paths no assertion looks at, beside each directive's exclude; repeatable
       --ignore-status     Execute directives in draft, proposed and superseded documents too
       --include-specs     Also count matches inside the spec files themselves
       --max-snippets <n>  Failure snippets per assertion (default: ${DEFAULT_MAX_SNIPPETS})
@@ -143,10 +146,12 @@ Options
       --version           Print the version
 
 Configuration
-  package.json in the root can hold specs, engine, strict, allowMissingTargets,
-  allowEmptyScope, ignoreStatus, includeSpecs, defaultSkips, maxSnippets and
-  concurrency under "specGuard". A flag wins over the file, and every on/off
-  option there also takes its opposite (--no-strict, --default-skips, ...).
+  package.json in the root can hold specs, exclude, engine, strict,
+  allowMissingTargets, allowEmptyScope, ignoreStatus, includeSpecs, defaultSkips,
+  maxSnippets and concurrency under "specGuard"; a root with no package.json can
+  keep them in .spec-guard.json instead, but not in both. A flag wins over the
+  file, every on/off option there also takes its opposite (--no-strict,
+  --default-skips, ...), and --exclude= with nothing clears exclude.
 
 Directives
   <!-- @assert-absence target="src/" symbol="LegacyGateway" exclude="src/legacy/**" -->
@@ -194,7 +199,10 @@ function positiveInteger(name: string, value: string): number {
  * Options that mean nothing to a command, by command.
  *
  * Refused rather than ignored: `spec-guard query --strict` accepting the flag
- * and doing nothing with it would tell someone their query was strict.
+ * and doing nothing with it would tell someone their query was strict. A query
+ * takes `--no-color`, which is true of its output already and is what a script
+ * passes to every command it runs; `--color` it refuses, since it would promise
+ * colour a query never prints.
  */
 const NOT_FOR: Record<Exclude<Command, 'check'>, ReadonlySet<string>> = {
   query: new Set([
@@ -213,7 +221,6 @@ const NOT_FOR: Record<Exclude<Command, 'check'>, ReadonlySet<string>> = {
     '--max-snippets',
     '--concurrency',
     '--color',
-    '--no-color',
   ]),
   mcp: new Set(['--verbose', '--watch', '--fail-fast', '--json', '--format', '--print-baseline', '--allow-empty', '--color', '--no-color']),
 };
@@ -253,6 +260,7 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
     engine: 'auto',
     allowMissingTargets: false,
     defaultSkips: true,
+    exclude: [],
     ignoreStatus: false,
     strictTargets: false,
     allowEmptyScope: false,
@@ -356,6 +364,12 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
         options.defaultSkips = name === '--default-skips';
         set.add('defaultSkips');
         break;
+      // Repeatable, each value a list as exclude="..." takes one. Given at all, it
+      // replaces the configuration's list, and --exclude= with nothing clears it.
+      case '--exclude':
+        options.exclude.push(...splitList(nextValue()));
+        set.add('exclude');
+        break;
       case '--ignore-status':
       case '--no-ignore-status':
         options.ignoreStatus = name === '--ignore-status';
@@ -423,12 +437,15 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
 }
 
 /** The configurable options a query reads; the rest are about running rules. */
-const QUERY_KEYS: ReadonlySet<ConfigKey> = new Set<ConfigKey>(['specs', 'ignoreStatus', 'includeSpecs', 'defaultSkips']);
+const QUERY_KEYS: ReadonlySet<ConfigKey> = new Set<ConfigKey>(['specs', 'exclude', 'ignoreStatus', 'includeSpecs', 'defaultSkips']);
 
 /** Where each key of a configuration lands on the command line's options. */
 const SETTERS: { [Key in ConfigKey]-?: (options: CliOptions, value: NonNullable<ProjectConfig[Key]>) => void } = {
   specs: (options, value) => {
     options.patterns = [...value];
+  },
+  exclude: (options, value) => {
+    options.exclude = [...value];
   },
   engine: (options, value) => {
     options.engine = value;
@@ -489,7 +506,8 @@ export function applyConfig(options: CliOptions, config: ProjectConfig, file = '
 /** Reads the root's configuration from disk and applies it, or says why it cannot. */
 async function configure(options: CliOptions, io: CliIO): Promise<{ use: ConfigUse | undefined } | null> {
   try {
-    return { use: applyConfig(options, await loadConfig(options.root, (file) => readText(nodeIo, file))) };
+    const found = await findConfig(options.root, (file) => readText(nodeIo, file));
+    return { use: applyConfig(options, found.config, found.file) };
   } catch (error) {
     // Everything loadConfig throws is a ConfigError: a read that fails is turned
     // into one, and parsing throws nothing else. A test for any other kind of
@@ -507,6 +525,7 @@ function runOptionsOf(options: CliOptions): Omit<RunOptions, 'patterns' | 'root'
     allowMissingTargets: options.allowMissingTargets,
     allowEmptyScope: options.allowEmptyScope,
     defaultSkips: options.defaultSkips,
+    exclude: options.exclude,
     ignoreStatus: options.ignoreStatus,
     strictTargets: options.strictTargets,
     includeSpecs: options.includeSpecs,
@@ -551,7 +570,8 @@ async function runWatchSession(commandLine: CliOptions, io: CliIO): Promise<numb
     root: commandLine.root,
     settings: async (door) => {
       const options: CliOptions = { ...commandLine, patterns: [...commandLine.patterns] };
-      const config = applyConfig(options, await loadConfig(commandLine.root, (file) => readText(door, file)));
+      const found = await findConfig(commandLine.root, (file) => readText(door, file));
+      const config = applyConfig(options, found.config, found.file);
       return { patterns: options.patterns, run: runOptionsOf(options), config };
     },
   });
@@ -599,6 +619,7 @@ async function runQuery(options: CliOptions, io: CliIO, use: ConfigUse | undefin
         includeInactive: options.ignoreStatus,
         includeSpecs: options.includeSpecs,
         defaultSkips: options.defaultSkips,
+        exclude: options.exclude,
       })),
       config: use,
     };
@@ -637,7 +658,7 @@ async function runMcp(options: CliOptions, commandLine: CliOptions, io: CliIO, u
     run: runOptionsOf(options),
     settings: async () => {
       const fresh: CliOptions = { ...commandLine, patterns: [...commandLine.patterns] };
-      applyConfig(fresh, await loadConfig(options.root, (file) => readText(nodeIo, file)));
+      applyConfig(fresh, (await findConfig(options.root, (file) => readText(nodeIo, file))).config);
       return { patterns: fresh.patterns, run: runOptionsOf(fresh) };
     },
   });

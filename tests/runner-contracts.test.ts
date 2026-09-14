@@ -244,6 +244,38 @@ describe('the types attribute', () => {
   });
 });
 
+describe('the dynamic attribute', () => {
+  it.each([
+    ['include', true],
+    ['ignore', false],
+    [' IGNORE ', false],
+  ])('reads %s as includeDynamic=%s on a cycle rule', (value, expected) => {
+    expect(assertionOf('assert-import-cycle', { dynamic: value }).imports?.includeDynamic).toBe(expected);
+  });
+
+  it('includes dynamic imports by default, on every import rule', () => {
+    expect(assertionOf('assert-import-cycle', {}).imports?.includeDynamic).toBe(true);
+    expect(assertionOf('assert-import-absence', { module: 'a/**' }).imports?.includeDynamic).toBe(true);
+    expect(assertionOf('assert-layers', { order: 'a, b' }).imports?.includeDynamic).toBe(true);
+  });
+
+  it('rejects anything else by name', () => {
+    expect(errorOf('assert-import-cycle', { dynamic: 'lazy' })).toBe('Attribute "dynamic" must be include or ignore, got "lazy".');
+  });
+
+  it('names what a cycle rule leaves out, one kind of import or both', () => {
+    expect(assertionOf('assert-import-cycle', { dynamic: 'ignore' }).description).toBe(
+      '. must have no import cycles (dynamic imports ignored)',
+    );
+    expect(assertionOf('assert-import-cycle', { dynamic: 'ignore', types: 'ignore' }).description).toBe(
+      '. must have no import cycles (type-only and dynamic imports ignored)',
+    );
+    expect(assertionOf('assert-layers', { order: 'a, b', types: 'ignore' }).description).toBe(
+      '. must keep its layers in order, a < b (type-only imports ignored)',
+    );
+  });
+});
+
 describe('allow-empty', () => {
   it('names itself when it is the attribute at fault', () => {
     expect(errorOf('assert-absence', { symbol: 'X', 'allow-empty': 'perhaps' })).toBe(

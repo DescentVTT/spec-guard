@@ -15,8 +15,19 @@
 export { applyConfig, main, parseArgs, version, HELP, UsageError, EXIT_OK, EXIT_FAILED, EXIT_ERROR } from './cli.js';
 export type { CliIO, CliOptions, Command, OutputFormat } from './cli.js';
 
-export { engineNamed, loadConfig, parseConfig, ConfigError, CONFIG_KEY, CONFIG_KEYS, INVOCATION_OPTIONS } from './config.js';
-export type { ConfigKey, ProjectConfig } from './config.js';
+export {
+  engineNamed,
+  findConfig,
+  loadConfig,
+  parseConfig,
+  parseStandaloneConfig,
+  ConfigError,
+  CONFIG_FILE,
+  CONFIG_KEY,
+  CONFIG_KEYS,
+  INVOCATION_OPTIONS,
+} from './config.js';
+export type { ConfigKey, FoundConfig, ProjectConfig } from './config.js';
 
 export {
   buildJsRegExp,

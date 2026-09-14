@@ -188,6 +188,25 @@ describe('building the graph', () => {
     expect(buildGraph(inputs, scope(nodes), false).successors.has('src/a.ts')).toBe(false);
   });
 
+  it('leaves dynamic imports out when asked to, and keeps an edge a static import also makes', () => {
+    const dynamic: ModuleReference = { ...ref('./b.js', 2), kind: 'dynamic-import' };
+    const inputs = [{ file: 'src/a.ts', references: [dynamic] }];
+
+    expect(buildGraph(inputs, scope(nodes), true).successors.get('src/a.ts')).toEqual(['src/b.ts']);
+    expect(buildGraph(inputs, scope(nodes), true, true).successors.get('src/a.ts')).toEqual(['src/b.ts']);
+    expect(buildGraph(inputs, scope(nodes), true, false).successors.has('src/a.ts')).toBe(false);
+
+    const both = buildGraph([{ file: 'src/a.ts', references: [dynamic, ref('./b.js', 5)] }], scope(nodes), true, false);
+    expect(both.successors.get('src/a.ts')).toEqual(['src/b.ts']);
+    expect(both.via.get(edgeKey('src/a.ts', 'src/b.ts'))?.line).toBe(5);
+  });
+
+  it('does not hold a dynamic import against the graph as unresolved when dynamic imports are ignored', () => {
+    const gone: ModuleReference = { ...ref('./gone.js'), kind: 'dynamic-import' };
+    expect(buildGraph([{ file: 'src/a.ts', references: [gone] }], scope(nodes), true, false).unresolved).toEqual([]);
+    expect(buildGraph([{ file: 'src/a.ts', references: [gone] }], scope(nodes), true).unresolved).toHaveLength(1);
+  });
+
   it('collects unresolved references and nothing else that failed to become an edge', () => {
     const graph = buildGraph(
       [{ file: 'src/a.ts', references: [ref('react'), ref('./gone.js', 4), ref('../outside.js'), ref('@/alias', 6)] }],

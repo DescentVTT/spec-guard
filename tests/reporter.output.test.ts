@@ -411,6 +411,7 @@ describe('comment exclusion notes', () => {
         '',
         '⚠ docs/a.md:3  2 matches inside comments were not counted; add comments="include" to count them',
         '⚠ docs/a.md:3  target path not found: src/gone',
+        '',
         '⚠ 2 matches inside comments were not counted; add comments="include" to count them',
         '',
         '1 passed · 12ms',
@@ -443,12 +444,38 @@ describe('comment exclusion notes', () => {
         '⚠ docs/a.md:3  1 module reference could not be resolved statically',
         '⚠ docs/a.md:3    src/cli.ts:102 require(manifest)',
         '⚠ docs/a.md:9  target path not found: src/gone',
+        '',
         '⚠ 2 matches inside comments were not counted; add comments="include" to count them',
         '',
         '2 passed · 12ms',
         '✔ every spec assertion holds',
       ].join('\n'),
     );
+  });
+
+  // Also from the monorepo run: with nothing else to print, the last warning ran
+  // straight into the summary line, and a failure straight into the warnings.
+  it("sets a passing assertion's warnings off from the summary and from a failure", () => {
+    const warned = { ...passingResult, warnings: ['target path not found: src/gone'] };
+    const alone = fixture({
+      ok: true,
+      summary: { specs: 1, total: 1, passed: 1, failed: 0, skipped: 0, inactive: 0 },
+      results: [warned],
+    });
+    expect(formatReport(alone, { color: false, verbose: false })).toBe(
+      [
+        'spec-guard 1 spec · 1 assertion · ripgrep',
+        '',
+        '⚠ docs/a.md:3  target path not found: src/gone',
+        '',
+        '1 passed · 12ms',
+        '✔ every spec assertion holds',
+      ].join('\n'),
+    );
+
+    const beside = formatReport(fixture({ results: [warned, failingResult] }), { color: false, verbose: false }).split('\n');
+    const at = beside.indexOf('⚠ docs/a.md:3  target path not found: src/gone');
+    expect(beside.slice(at + 1, at + 3)).toEqual(['', '✖ docs/a.md:4  @assert-absence']);
   });
 
   it('separates run-level warnings from what follows', () => {

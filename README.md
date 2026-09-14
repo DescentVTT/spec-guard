@@ -408,6 +408,16 @@ on a codebase that already has two, and fails on the third.
 cycle - and the default asks the coupling one. This repository needs both: its
 `src/` has exactly one cycle, and it is type-only.
 
+`dynamic="ignore"` asks it about `import()` too. A plugin that `configuration.ts`
+loads with `import('./tier-boot.ts')` can import `configuration.ts` back without
+any module waiting on another to load, so a loop closed only by `import()` is
+left out. A static import between the same two files keeps the loop. The one
+case this lets through is a **top-level `await import()`**, which does run while
+its module loads and can deadlock a cycle. It looks the same to a tokenizer as
+an `await import()` inside a function, so ignoring dynamic imports ignores both.
+`require()` always counts: whether it runs at load depends on where it is
+called.
+
 **Cycles are JavaScript and TypeScript only**, because a cycle needs to know that
 `./b.js` *is* `src/b.ts`, and in the other four languages an import names a
 module, package or namespace rather than a file. A scope with no JavaScript or
@@ -549,6 +559,7 @@ Passes when every listed path exists relative to `--root`. Directories count.
 | `dirs` | structure, with `required` | Which directories below each target: `*` for children, `**` for all |
 | `partner` | structure | Partner templates, any one of which must exist: `[name].test.[ext]` |
 | `types` | import assertions, layers, cycles | `include` (default) or `ignore` for `import type` |
+| `dynamic` | cycles | `include` (default) or `ignore` for `import('x')` |
 | `allow-empty` | all but present | Tolerate a scope that holds no files, a layer that matches none, or no chosen directories. Off by default - see below |
 | `baseline` | absence, import-absence, layers, structure | Known violations that do not count: `path` or `path:count` |
 | `ratchet` | absence, import-absence, layers, structure | `two-sided` (default) or `one-way` - see below |
@@ -781,6 +792,7 @@ spec-guard mcp [options]               # serve the rules over MCP on stdio
 | `--allow-empty-scope` / `--no-allow-empty-scope` | Warn instead of failing when an assertion inspects no files |
 | `--print-baseline` | Print the `baseline="..."` that would exempt today's violations, and exit |
 | `--no-default-skips` / `--default-skips` | Search `.git`, `.hg`, `.svn` and `node_modules` too |
+| `--exclude <globs>` | Paths no assertion looks at, beside each directive's own `exclude`. Repeatable; replaces the configuration's list, and `--exclude=` clears it |
 | `--ignore-status` / `--no-ignore-status` | Execute directives in draft, proposed and superseded documents too |
 | `--include-specs` / `--no-include-specs` | Also count matches inside the spec files themselves |
 | `--max-snippets <n>` | Failure snippets per assertion (default 5) |
@@ -791,6 +803,11 @@ spec-guard mcp [options]               # serve the rules over MCP on stdio
 Patterns are expanded by spec-guard itself, so quoted globs behave identically
 on Windows, macOS and Linux. A directory expands to the Markdown files in it.
 The second form of each on/off option exists to override a configuration.
+
+An option that means nothing to a command is refused rather than ignored, so
+`spec-guard query --strict` does not look like a strict query. `query` does take
+`--no-color`: its output never has colour, and scripts pass the flag to every
+command they run.
 
 ### Configuration
 
@@ -807,18 +824,38 @@ hold the same rules the same way:
 }
 ```
 
+A root with no `package.json` - a Rust, Go or .NET repository, say - keeps the
+same options, at the top level, in `.spec-guard.json`:
+
+```json
+{
+  "specs": ["docs/**/*.md"],
+  "exclude": ["target", "bin", "obj"]
+}
+```
+
 | Key | Command line | Value |
 | --- | --- | --- |
 | `specs` | patterns, `--spec` | a non-empty array of globs |
+| `exclude` | `--exclude` | an array of paths, gitignore-style, left out of every assertion that takes `exclude` |
 | `engine` | `--engine` | `"auto"`, `"rg"` or `"js"` |
 | `strict`, `allowMissingTargets`, `allowEmptyScope`, `ignoreStatus`, `includeSpecs`, `defaultSkips` | the flag of that name | `true` or `false` |
 | `maxSnippets` | `--max-snippets` | an integer, 0 or more |
 | `concurrency` | `--concurrency` | an integer, 1 or more |
 
-- **Only the root's `package.json`** is read: the `--root` directory, or the
-  working directory. Nothing is inherited from a parent directory.
-- **The command line wins, both ways.** Patterns replace `specs`, and
-  `--no-strict` beats `"strict": true`.
+- **Only the root's files** are read: the `--root` directory, or the working
+  directory. Nothing is inherited from a parent directory.
+- **One of the two, not both.** Options in `package.json` and in
+  `.spec-guard.json` are exit 2, since whichever lost would be options somebody
+  wrote and nothing reads. A `package.json` with no `"specGuard"` is fine beside
+  a `.spec-guard.json`.
+- **The command line wins, both ways.** Patterns replace `specs`, `--exclude`
+  replaces `exclude`, and `--no-strict` beats `"strict": true`.
+- **`exclude` is for what no rule should read**, such as build output, which can
+  turn a scan of 3,000 files into one of 37,000. It is added to each directive's
+  own `exclude`, and applies to a query as it does to a run. `@assert-present`
+  names its files and is unaffected. A rule's description names only its own
+  exclusions; the project's appear in the options line below.
 - **A malformed configuration is exit 2, before anything runs**, naming the file
   and the key: an unknown key, `"true"` where `true` goes, or an option that
   belongs to one invocation, such as `format` or `verbose`.

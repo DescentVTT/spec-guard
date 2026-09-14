@@ -1,5 +1,5 @@
 /**
- * Options in package.json, under "specGuard". ADR-0014.
+ * Options in package.json, under "specGuard", or in .spec-guard.json. ADR-0014.
  *
  * Two claims. A configuration is validated before anything runs, and every way
  * it can be malformed is refused in words naming the file and the key. And the
@@ -17,9 +17,12 @@ import {
   CONFIG_KEYS,
   ConfigError,
   engineNamed,
+  CONFIG_FILE,
+  findConfig,
   INVOCATION_OPTIONS,
   loadConfig,
   parseConfig,
+  parseStandaloneConfig,
   type ProjectConfig,
 } from '../src/config.js';
 import { formatConfigUse } from '../src/reporter.js';
@@ -63,6 +66,7 @@ describe('parseConfig', () => {
     expect(parseConfig(manifest({ strict: false }))).toEqual({ strict: false });
     const everything = {
       specs: ['docs/**/*.md', 'README.md'],
+      exclude: ['target', 'dist/**'],
       engine: 'js',
       strict: true,
       allowMissingTargets: false,
@@ -96,7 +100,7 @@ describe('parseConfig', () => {
 
   it('refuses an unknown key, and lists the keys there are', () => {
     expect(refusal(manifest({ stict: true }))).toBe(
-      'package.json: unknown option "stict" in "specGuard". Options are specs, engine, strict, allowMissingTargets, allowEmptyScope, ignoreStatus, includeSpecs, defaultSkips, maxSnippets, concurrency.',
+      'package.json: unknown option "stict" in "specGuard". Options are specs, exclude, engine, strict, allowMissingTargets, allowEmptyScope, ignoreStatus, includeSpecs, defaultSkips, maxSnippets, concurrency.',
     );
     // Not a way to reach an object's prototype, either.
     expect(refusal('{"specGuard": {"__proto__": {"strict": true}}}')).toMatch(/^package\.json: unknown option "__proto__"/);
@@ -124,6 +128,15 @@ describe('parseConfig', () => {
     expect(refusal(manifest({ specs: [] }))).toBe('package.json: "specGuard.specs" must be a non-empty list of spec globs, got an array.');
   });
 
+  it('reads exclude as a list of paths, which may be empty, and refuses anything else', () => {
+    expect(parseConfig(manifest({ exclude: ['target', 'bin', 'obj/**'] }))).toEqual({ exclude: ['target', 'bin', 'obj/**'] });
+    expect(parseConfig(manifest({ exclude: [] }))).toEqual({ exclude: [] });
+    for (const exclude of ['target', ['target', 3], [''], ['  '], null, { target: true }]) {
+      expect(refusal(manifest({ exclude })), JSON.stringify(exclude)).toMatch(/^package\.json: "specGuard\.exclude" must be a list of paths or globs to exclude, got /);
+    }
+    expect(refusal(manifest({ exclude: 'target' }))).toBe('package.json: "specGuard.exclude" must be a list of paths or globs to exclude, got "target".');
+  });
+
   it('refuses an engine that is not a string, or not an engine, in the flag\'s own words', () => {
     expect(refusal(manifest({ engine: 3 }))).toBe('package.json: "specGuard.engine" must be a string, got 3.');
     expect(refusal(manifest({ engine: 'rgg' }))).toBe('package.json: "specGuard.engine": Unknown engine "rgg". Expected auto, rg or js.');
@@ -142,6 +155,41 @@ describe('parseConfig', () => {
   it('names the file it was told it is reading', () => {
     expect(() => parseConfig('{"specGuard": 1}', 'packages/a/package.json')).toThrow('packages/a/package.json: "specGuard" must be an object, got 1.');
     expect(() => parseConfig('{"specGuard": {"root": "."}}', 'x.json')).toThrow('x.json: "specGuard.root" is chosen on the command line, not in x.json.');
+  });
+});
+
+describe('parseStandaloneConfig', () => {
+  const standalone = (text: string): string => {
+    try {
+      parseStandaloneConfig(text);
+    } catch (error) {
+      expect(error).toBeInstanceOf(ConfigError);
+      return (error as Error).message;
+    }
+    throw new Error('expected the configuration to be refused');
+  };
+
+  it('reads the options at the top level, validated as those in package.json are', () => {
+    expect(CONFIG_FILE).toBe('.spec-guard.json');
+    expect(parseStandaloneConfig('{}')).toEqual({});
+    expect(parseStandaloneConfig(JSON.stringify({ specs: ['docs/*.md'], exclude: ['target'], engine: 'rg', strict: true }))).toEqual({
+      specs: ['docs/*.md'],
+      exclude: ['target'],
+      engine: 'ripgrep',
+      strict: true,
+    });
+  });
+
+  it('names the file and the key, without the package.json nesting, in every refusal', () => {
+    expect(standalone('{ "strict": ')).toMatch(/^\.spec-guard\.json is not valid JSON \(.+\), so its options cannot be read\.$/);
+    expect(standalone('[]')).toBe('.spec-guard.json must hold an object of options, got an array.');
+    expect(standalone('null')).toBe('.spec-guard.json must hold an object of options, got null.');
+    expect(standalone('{"stict": true}')).toBe(`.spec-guard.json: unknown option "stict". Options are ${CONFIG_KEYS.join(', ')}.`);
+    // The package.json form, copied over whole, is the likeliest mistake.
+    expect(standalone('{"specGuard": {"strict": true}}')).toMatch(/^\.spec-guard\.json: unknown option "specGuard"\./);
+    expect(standalone('{"format": "sarif"}')).toBe('.spec-guard.json: "format" is chosen on the command line, not in .spec-guard.json.');
+    expect(standalone('{"strict": "yes"}')).toBe('.spec-guard.json: "strict" must be true or false, got "yes".');
+    expect(standalone('{"engine": "rgg"}')).toBe('.spec-guard.json: "engine": Unknown engine "rgg". Expected auto, rg or js.');
   });
 });
 
@@ -168,17 +216,67 @@ describe('loadConfig', () => {
     throw Object.assign(new Error(`${code}: nope`), { code });
   };
 
-  it('reads package.json in the root, whichever separator the root ends with', async () => {
-    const asked: string[] = [];
-    const read = async (file: string): Promise<string> => {
+  /** A root holding these files and no others. */
+  const holding =
+    (files: Record<string, string>, asked: string[] = []) =>
+    async (file: string): Promise<string> => {
       asked.push(file);
-      return manifest({ strict: true });
+      const name = file.slice(file.lastIndexOf('/') + 1);
+      const text = files[name];
+      if (text === undefined) throw Object.assign(new Error(`ENOENT: ${name}`), { code: 'ENOENT' });
+      return text;
     };
+
+  it('reads package.json and .spec-guard.json in the root, whichever separator the root ends with', async () => {
+    const asked: string[] = [];
+    const read = holding({ 'package.json': manifest({ strict: true }) }, asked);
     expect(await loadConfig('/repo', read)).toEqual({ strict: true });
     await loadConfig('/repo/', read);
     await loadConfig('C:\\repo\\', read);
     await loadConfig('/repo//', read);
-    expect(asked).toEqual(['/repo/package.json', '/repo/package.json', 'C:\\repo/package.json', '/repo/package.json']);
+    expect(asked).toEqual([
+      '/repo/package.json',
+      '/repo/.spec-guard.json',
+      '/repo/package.json',
+      '/repo/.spec-guard.json',
+      'C:\\repo/package.json',
+      'C:\\repo/.spec-guard.json',
+      '/repo/package.json',
+      '/repo/.spec-guard.json',
+    ]);
+  });
+
+  it('says which file the options came from', async () => {
+    expect(await findConfig('/repo', holding({ 'package.json': manifest({ strict: true }) }))).toEqual({ config: { strict: true }, file: 'package.json' });
+    expect(await findConfig('/repo', holding({ '.spec-guard.json': '{"strict": true}' }))).toEqual({ config: { strict: true }, file: '.spec-guard.json' });
+    // A package.json that holds no options leaves the root to .spec-guard.json.
+    expect(await findConfig('/repo', holding({ 'package.json': '{"name": "web"}', '.spec-guard.json': '{"strict": true}' }))).toEqual({
+      config: { strict: true },
+      file: '.spec-guard.json',
+    });
+    expect(await findConfig('/repo', holding({}))).toEqual({ config: {}, file: 'package.json' });
+  });
+
+  it('refuses options in both files, even empty ones, rather than letting one be ignored', async () => {
+    for (const options of [{ strict: true }, {}]) {
+      await expect(findConfig('/repo', holding({ 'package.json': manifest(options), '.spec-guard.json': '{"exclude": ["target"]}' }))).rejects.toThrow(
+        new ConfigError(
+          'Options are set in both package.json ("specGuard") and .spec-guard.json. Keep them in one of the two, so that no option is written somewhere nothing reads.',
+        ),
+      );
+    }
+  });
+
+  it('refuses a broken package.json even when .spec-guard.json holds the options', async () => {
+    await expect(findConfig('/repo', holding({ 'package.json': '{ not json', '.spec-guard.json': '{}' }))).rejects.toThrow(/^package\.json is not valid JSON/);
+  });
+
+  it('refuses a .spec-guard.json that is there and cannot be read', async () => {
+    const read = async (file: string): Promise<string> => {
+      if (file.endsWith('package.json')) throw Object.assign(new Error('ENOENT: nope'), { code: 'ENOENT' });
+      throw Object.assign(new Error('EACCES: nope'), { code: 'EACCES' });
+    };
+    await expect(findConfig('/repo', read)).rejects.toThrow(new ConfigError('.spec-guard.json could not be read (EACCES: nope), so its options cannot be read.'));
   });
 
   it('finds no configuration where there is no package.json, or no directory to hold one', async () => {
@@ -194,7 +292,8 @@ describe('loadConfig', () => {
   });
 
   it('validates what it read', async () => {
-    await expect(loadConfig('/repo', async () => manifest({ strict: 'yes' }))).rejects.toThrow('"specGuard.strict" must be true or false, got "yes".');
+    await expect(loadConfig('/repo', holding({ 'package.json': manifest({ strict: 'yes' }) }))).rejects.toThrow('"specGuard.strict" must be true or false, got "yes".');
+    await expect(loadConfig('/repo', holding({ '.spec-guard.json': '{"strict": "yes"}' }))).rejects.toThrow('.spec-guard.json: "strict" must be true or false, got "yes".');
   });
 
   it('reads a real package.json from disk through the command line', async () => {
@@ -230,7 +329,7 @@ describe('flags that a configuration can set', () => {
     expect(
       [
         ...parseArgs(
-          ['a.md', '--engine', 'js', '--no-strict', '--allow-missing-targets', '--no-allow-empty-scope', '--ignore-status', '--no-include-specs', '--default-skips', '--max-snippets', '1', '--concurrency', '2'],
+          ['a.md', '--exclude', 'dist', '--engine', 'js', '--no-strict', '--allow-missing-targets', '--no-allow-empty-scope', '--ignore-status', '--no-include-specs', '--default-skips', '--max-snippets', '1', '--concurrency', '2'],
           process.cwd(),
         ).fromCommandLine,
       ].sort(),
@@ -250,9 +349,22 @@ describe('flags that a configuration can set', () => {
     });
   });
 
-  it('documents the file and the opposites in the help', () => {
-    expect(HELP).toContain('under "specGuard". A flag wins over the file, and every on/off');
-    expect(HELP).toContain('option there also takes its opposite (--no-strict, --default-skips, ...).');
+  it('reads --exclude as lists, repeatable, and --exclude= as none', () => {
+    expect(parseArgs(['--exclude', 'target'], process.cwd()).exclude).toEqual(['target']);
+    expect(parseArgs(['--exclude', 'bin, obj', '--exclude=dist/**'], process.cwd()).exclude).toEqual(['bin', 'obj', 'dist/**']);
+    const cleared = parseArgs(['--exclude='], process.cwd());
+    expect(cleared.exclude).toEqual([]);
+    expect([...cleared.fromCommandLine]).toEqual(['exclude']);
+    expect(parseArgs([], process.cwd()).exclude).toEqual([]);
+    expect(() => parseArgs(['--exclude'], process.cwd())).toThrow(new UsageError('Option --exclude requires a value.'));
+    expect(parseArgs(['query', 'src', '--exclude', 'target'], process.cwd()).exclude).toEqual(['target']);
+  });
+
+  it('documents both files, exclude, and the opposites in the help', () => {
+    expect(HELP).toContain("--exclude <globs>   Paths no assertion looks at, beside each directive's exclude; repeatable");
+    expect(HELP).toContain('maxSnippets and concurrency under "specGuard"; a root with no package.json can');
+    expect(HELP).toContain('keep them in .spec-guard.json instead, but not in both. A flag wins over the');
+    expect(HELP).toContain('--default-skips, ...), and --exclude= with nothing clears exclude.');
   });
 });
 
@@ -260,6 +372,7 @@ describe('applyConfig', () => {
   const cwd = process.cwd();
   const everything: ProjectConfig = {
     specs: ['rules/*.md'],
+    exclude: ['target'],
     engine: 'ripgrep',
     strict: true,
     allowMissingTargets: true,
@@ -276,6 +389,7 @@ describe('applyConfig', () => {
     expect(applyConfig(options, everything)).toEqual({ file: 'package.json', applied: [...CONFIG_KEYS], overridden: [] });
     expect(options).toMatchObject({
       patterns: ['rules/*.md'],
+      exclude: ['target'],
       engine: 'ripgrep',
       strictTargets: true,
       allowMissingTargets: true,
@@ -289,10 +403,11 @@ describe('applyConfig', () => {
   });
 
   it('leaves every option the command line set, either way, and names it as overridden', () => {
-    const options = parseArgs(['a.md', '--engine', 'js', '--no-strict', '--no-allow-missing-targets', '--no-allow-empty-scope', '--no-ignore-status', '--no-include-specs', '--default-skips', '--max-snippets', '2', '--concurrency', '4'], cwd);
+    const options = parseArgs(['a.md', '--exclude=', '--engine', 'js', '--no-strict', '--no-allow-missing-targets', '--no-allow-empty-scope', '--no-ignore-status', '--no-include-specs', '--default-skips', '--max-snippets', '2', '--concurrency', '4'], cwd);
     expect(applyConfig(options, everything, 'pkg/package.json')).toEqual({ file: 'pkg/package.json', applied: [], overridden: [...CONFIG_KEYS] });
     expect(options).toMatchObject({
       patterns: ['a.md'],
+      exclude: [],
       engine: 'javascript',
       strictTargets: false,
       allowMissingTargets: false,
@@ -303,6 +418,18 @@ describe('applyConfig', () => {
       maxSnippets: 2,
       concurrency: 4,
     });
+  });
+
+  it("replaces the file's exclude with the command line's, and keeps its own copy", () => {
+    const config: ProjectConfig = { exclude: ['target', 'bin'] };
+    const replaced = parseArgs(['--exclude', 'dist'], cwd);
+    expect(applyConfig(replaced, config)).toEqual({ file: 'package.json', applied: [], overridden: ['exclude'] });
+    expect(replaced.exclude).toEqual(['dist']);
+
+    const taken = parseArgs([], cwd);
+    expect(applyConfig(taken, config, '.spec-guard.json')).toEqual({ file: '.spec-guard.json', applied: ['exclude'], overridden: [] });
+    taken.exclude.push('obj');
+    expect(config.exclude).toEqual(['target', 'bin']);
   });
 
   it('replaces the default specs rather than adding to them, and keeps its own copy', () => {
@@ -316,7 +443,7 @@ describe('applyConfig', () => {
 
   it('applies to a query only what a query reads', () => {
     const options = parseArgs(['query', 'src'], cwd);
-    expect(applyConfig(options, everything)).toEqual({ file: 'package.json', applied: ['specs', 'ignoreStatus', 'includeSpecs', 'defaultSkips'], overridden: [] });
+    expect(applyConfig(options, everything)).toEqual({ file: 'package.json', applied: ['specs', 'exclude', 'ignoreStatus', 'includeSpecs', 'defaultSkips'], overridden: [] });
     expect(options).toMatchObject({ strictTargets: false, engine: 'auto', maxSnippets: 5 });
     expect(applyConfig(parseArgs(['query', 'src', '--spec', 'x.md'], cwd), { specs: ['y.md'], strict: true })).toEqual({ file: 'package.json', applied: [], overridden: ['specs'] });
   });
@@ -492,6 +619,31 @@ describe('an MCP server under a configuration', () => {
     expect(await exit).toBe(EXIT_OK);
     // Everything the file said was overridden, so the server does not claim to serve any of it.
     expect(err).toEqual([`spec-guard ${version()}: MCP server on stdio, rules from rules/a.md under ${root}`]);
+  });
+
+  it("serves under a .spec-guard.json, its exclusions in every answer", async () => {
+    const root = await repo({
+      ...PROJECT,
+      // The whole root, so only the exclusions keep target/ out of the rule.
+      'rules/a.md': '# A\n\n<!-- @assert-absence symbol="Legacy" -->\n',
+      'target/gen.ts': 'export const Legacy = 1;\n',
+      '.spec-guard.json': JSON.stringify({ specs: ['rules/a.md'], exclude: ['target'] }),
+    });
+    const stdin = new PassThrough();
+    const { cli, out, err } = io(root, stdin);
+    const exit = main(['mcp', '--engine', 'js'], cli);
+
+    expect((await ask(stdin, out, 1, 'check_architecture'))['structuredContent']).toMatchObject({ ok: true });
+    expect((await ask(stdin, out, 2, 'get_architectural_rules', { path: 'target/gen.ts' }))['structuredContent']).toMatchObject({
+      results: [{ rules: [] }],
+    });
+    expect((await ask(stdin, out, 3, 'get_architectural_rules', { path: 'src/a.ts' }))['structuredContent']).toMatchObject({
+      results: [{ rules: [{}] }],
+    });
+
+    stdin.end();
+    expect(await exit).toBe(EXIT_OK);
+    expect(err).toEqual([`spec-guard ${version()}: MCP server on stdio, rules from rules/a.md under ${root}, options from .spec-guard.json: specs, exclude`]);
   });
 
   it('will not start under a malformed configuration', async () => {

@@ -597,6 +597,30 @@ describe('spec-guard --watch', () => {
     expect(stdin.isPaused()).toBe(true);
   });
 
+  it('reads .spec-guard.json again for each run, so an edit to its exclusions re-runs what they cover', async () => {
+    const root = await makeTempRepo({
+      '.spec-guard.json': JSON.stringify({ specs: ['rules/*.md'], exclude: ['target'] }),
+      'rules/a.md': '# A\n\n<!-- @assert-absence symbol="Legacy" -->\n',
+      'target/gen.ts': 'export const a = Legacy;\n',
+    });
+    temporary.push(root);
+    const { io, output, emit, interrupt } = cli(root);
+    const exit = main(['--watch', '--root', root], io);
+
+    await until(output, 'first run');
+    expect(output.join('')).toContain('1 passed');
+    expect(output.join('')).toContain('options from .spec-guard.json: specs, exclude');
+
+    await fs.writeFile(path.join(root, '.spec-guard.json'), JSON.stringify({ specs: ['rules/*.md'] }));
+    emit('change', '.spec-guard.json');
+    await until(output, 're-executed');
+    expect(output.join('')).toContain('0 passed · 1 failed');
+    expect(output.join('')).toContain('options from .spec-guard.json: specs\n');
+
+    interrupt();
+    expect(await exit).toBe(130);
+  });
+
   it('refuses a broken package.json before it starts watching', async () => {
     const root = await makeTempRepo({ 'package.json': '{"specGuard": {"watch": true}}' });
     temporary.push(root);

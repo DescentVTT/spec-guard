@@ -5,6 +5,51 @@ All notable changes to this project are documented here. Versions follow
 may change in a minor release — each such change is listed under **Changed**
 with the flag that restores the previous behaviour.
 
+## Unreleased
+
+Improvements from running 0.9.2 over a large polyglot monorepo: a
+configuration a Rust, Go or .NET root can hold, exclusions a whole project
+shares, and a cycle rule that can leave lazy loading out.
+[ADR-0014](docs/adr/0014-configuration-and-watch.md),
+[ADR-0011](docs/adr/0011-layers-and-cycles.md).
+
+### Added
+
+- **`.spec-guard.json`**, for a root with no `package.json`. It holds the same
+  options, at the top level, with the same validation and exit 2 on any mistake.
+  Options in both it and `package.json` are exit 2 too, rather than one file
+  being silently ignored. A `package.json` with no `"specGuard"` beside it is
+  fine.
+- **`exclude` in the configuration, and `--exclude <globs>`**: paths no
+  assertion looks at, such as build output (`target`, `bin`, `obj`, `dist`).
+  - They are added to each directive's own `exclude`, under both engines, for
+    text, import, layer, cycle and structure rules alike. `query`, the MCP
+    server and watch mode apply them too.
+  - `@assert-present`, which names its files, is unaffected.
+  - A rule's description names only its own exclusions; the report's options
+    line names the project's.
+  - `--exclude` is repeatable, replaces the configuration's list, and
+    `--exclude=` clears it.
+- **`@assert-import-cycle dynamic="ignore"`** leaves `import('x')` out of the
+  graph, so a loop closed only by lazy loading is not reported. A static import
+  between the same files keeps the loop. It cannot tell a top-level
+  `await import()`, which runs at load and can deadlock, from one inside a
+  function, and ignores both. The default is `include`, and the description says
+  `(dynamic imports ignored)`.
+- `findConfig`, `parseStandaloneConfig` and `CONFIG_FILE` in the programmatic
+  API.
+
+### Changed
+
+- **`spec-guard query` accepts `--no-color`.** Its output never has colour, and
+  scripts pass the flag to every command they run. `--color` is still refused.
+- **A blank line now separates a passing assertion's warnings** from the summary
+  or a failure that follows them.
+- **API:** `ImportQuery` has a required `includeDynamic`. `buildGraph` takes an
+  optional fourth argument, `includeDynamic`, which defaults to `true`.
+  `RunOptions`, `RuleSetOptions` and `ResolveContext` take `exclude`.
+  `loadConfig` reads `.spec-guard.json` as well as `package.json`.
+
 ## 0.9.2
 
 ### Fixed

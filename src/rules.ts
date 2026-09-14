@@ -179,6 +179,8 @@ export interface RuleView {
   /** The import rules. */
   modules?: string[];
   types?: 'include' | 'ignore';
+  /** The cycle rule: whether `import('x')` makes an edge. */
+  dynamic?: 'include' | 'ignore';
   order?: string[];
   /** The structure rules: which claim, and its list under the claim's own name. */
   claim?: StructureClaim;
@@ -282,7 +284,9 @@ export function viewRule(assertion: Assertion, document: DocumentView, query?: Q
   }
 
   const types = assertion.imports.includeTypes ? 'include' : 'ignore';
-  if (assertion.kind === 'assert-import-cycle') return { ...scoped, types };
+  if (assertion.kind === 'assert-import-cycle') {
+    return { ...scoped, types, dynamic: assertion.imports.includeDynamic ? 'include' : 'ignore' };
+  }
   if (assertion.layers === undefined) return { ...scoped, modules: assertion.imports.modules, types, baseline };
   return {
     ...scoped,

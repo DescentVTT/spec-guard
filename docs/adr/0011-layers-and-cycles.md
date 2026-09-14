@@ -200,6 +200,36 @@ the analyser depending on them at runtime. So this document asserts both halves:
 <!-- @assert-import-cycle target="src" types="ignore" reason="no runtime import cycle anywhere in the package" -->
 <!-- @assert-import-cycle target="src" max="1" reason="the one type-only cycle ADR-0008 keeps between imports.ts and polyglot.ts; a second is new" -->
 
+**`dynamic="ignore"`, added in 0.10.0, asks the runtime question of `import()`.**
+A run of 0.9.2 over a real monorepo met a loop that is intended:
+`configuration.ts -> lazy-tier.ts -> import('./tier-boot.ts') -> configuration.ts`.
+No module waits on another to load, because the last edge is taken when the
+plugin is asked for, after all three have loaded. The rule reported it, with
+nothing to write but `max="1"`, which would also have admitted the first real
+cycle to come along.
+
+So a cycle rule takes `dynamic="ignore"`, which leaves `import('x')` references
+out of the graph before resolution. An import it drops also cannot be reported
+as unresolved. A static import between the same two files still makes the edge.
+The default stays `include`, for the same reason as `types`: an `import()` is
+coupling, and a rule that ignored it by default would pass without saying so.
+The description says what was left out, as `types="ignore"` does: `(dynamic
+imports ignored)`, or `(type-only and dynamic imports ignored)`.
+
+Two things it does not distinguish, stated here and in the README:
+- **A top-level `await import('x')`** runs while its module loads, so a cycle
+  through it can deadlock. Telling it from an `await import()` inside a function
+  needs function scope, which a tokenizer does not track; brace depth is not a
+  substitute, since `try { await import() }` at the top level is depth 1. The
+  attribute ignores both, and the author who writes it is taking that on.
+- **`require()`** is not dynamic here. Whether it runs at load time depends on
+  where it is called, and the default for anything unknown is to keep the edge.
+
+Layers take no `dynamic`: an `import()` that points a layer the wrong way is
+still a violation. Neither do the per-module rules, which count dependencies.
+
+<!-- @assert-count target="src/parser.ts" symbol="'dynamic'" expected="1" reason="dynamic= belongs to the cycle rule alone; an import() still breaks a layer" -->
+
 And the layering the source actually has, which nothing asserted until now:
 
 <!-- @assert-layers target="src" order="src/text.ts, src/parser.ts, src/runner.ts, src/cli.ts" reason="the grammar knows nothing of execution, and execution nothing of the command line" -->

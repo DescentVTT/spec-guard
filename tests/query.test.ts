@@ -511,7 +511,7 @@ describe('parseArgs for the commands', () => {
   });
 
   it('refuses the options that mean nothing to a query', () => {
-    for (const option of ['--verbose', '-v', '--fail-fast', '--engine=js', '--strict', '--allow-missing-targets', '--allow-empty-scope', '--print-baseline', '--allow-empty', '--max-snippets=1', '--concurrency=1', '--color', '--no-color']) {
+    for (const option of ['--verbose', '-v', '--fail-fast', '--engine=js', '--strict', '--allow-missing-targets', '--allow-empty-scope', '--print-baseline', '--allow-empty', '--max-snippets=1', '--concurrency=1', '--color']) {
       const name = option.split('=')[0] as string;
       expect(() => parseArgs(['query', 'src', option], root), option).toThrow(new UsageError(`Option ${name} does not apply to spec-guard query.`));
     }
@@ -519,6 +519,19 @@ describe('parseArgs for the commands', () => {
       new UsageError('spec-guard query has no sarif format: it lists rules, not results. Expected human or json.'),
     );
     expect(() => parseArgs(['query', 'src', '--format', 'xml'], root)).toThrow(new UsageError('Unknown format "xml". Expected human, json or sarif.'));
+  });
+
+  // A script that passes --no-color to every command it runs was refused here.
+  it('takes --no-color, which a query is already, and answers exactly as without it', async () => {
+    expect(parseArgs(['query', 'src', '--no-color'], root)).toMatchObject({ command: 'query', color: false, paths: ['src'] });
+
+    const plain = io();
+    const told = io();
+    expect(await main(['query', 'src/domain/user.ts', '--spec', 'docs/adr/*.md'], plain.cli)).toBe(EXIT_OK);
+    expect(await main(['query', 'src/domain/user.ts', '--spec', 'docs/adr/*.md', '--no-color'], told.cli)).toBe(EXIT_OK);
+    const timeless = (lines: string[]) => lines.join('\n').replace(/read in [\d.]+ms/, '');
+    expect(timeless(told.out)).toBe(timeless(plain.out));
+    expect(timeless(told.out)).toContain('@assert-layers');
   });
 
   it('refuses the options that mean nothing to a server, and any argument', () => {

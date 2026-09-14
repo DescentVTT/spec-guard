@@ -43,6 +43,8 @@ export interface ImportQuery {
   modules: string[];
   /** Whether `import type` / `export type` count as dependencies. */
   includeTypes: boolean;
+  /** Whether `import('x')` counts. Only a cycle rule can leave it out (`dynamic="ignore"`). */
+  includeDynamic: boolean;
 }
 
 /** Source location of a directive inside a spec file. */

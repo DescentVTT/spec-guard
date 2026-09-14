@@ -29,6 +29,8 @@ export interface RuleSetOptions {
   includeSpecs?: boolean;
   /** Skip `.git`, `.hg`, `.svn` and `node_modules`, as a run does by default. */
   defaultSkips?: boolean;
+  /** The project's exclusions, which govern what each rule covers as they do in a run. */
+  exclude?: readonly string[];
 }
 
 /** Every rule the specs state, resolved, with the document that states it. */
@@ -64,6 +66,7 @@ export async function loadRuleSet(options: RuleSetOptions): Promise<RuleSet> {
     root: options.root,
     excludeFiles: specExclusions(specs.files, options.includeSpecs ?? false),
     scope: createScope(options.defaultSkips ?? true),
+    exclude: options.exclude,
   };
   const rules: RuleSet['rules'] = [];
   const errors = [...specs.errors];

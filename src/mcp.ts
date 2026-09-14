@@ -297,6 +297,7 @@ export function createMcpHandler(options: McpServerOptions): (message: unknown) 
     // could never disagree with it in a way anything could see.
     includeSpecs: run?.includeSpecs,
     defaultSkips: run?.defaultSkips,
+    exclude: run?.exclude,
   });
 
   const noSpecs = (patterns: readonly string[]): ToolOutcome =>
