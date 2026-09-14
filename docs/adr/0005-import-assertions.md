@@ -85,6 +85,18 @@ scanner had been consuming enormous phantom regular expressions. The trade is
 that `a < /re/.test(b)` is now misread instead, which is a shape that does not
 occur in practice.
 
+**JSX again, in 0.9.1.** A run over a real monorepo found the other half. A
+self-closing element whose last attribute is an expression, `<App x={y} />`, puts
+`}` before `/>`. `}` stays in the set, because a regular expression can open a
+statement after a block. So the file was lost at that line, reported as
+unanalysable, and every import after it went uncounted.
+
+The obvious fix, that `/` followed by `>` never starts a regular expression, is
+wrong: `/>/` is one. Tried on `html.replace(/>/g, '&gt;')`, `tag.split(/>\s*/)`
+and `/>=/`, it lost all three, which the old rule read correctly. Only `}`
+followed by `/>` is now read as division. The new trade is a statement that
+opens with a regular expression beginning `>` straight after a block.
+
 The six files that remain unanalysable are five JSX files and one TypeScript
 file in rxjs. They are **detected**, which is the property that matters: the
 analyser declines to answer for them rather than reporting them as clean.

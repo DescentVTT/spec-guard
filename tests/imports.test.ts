@@ -100,6 +100,41 @@ describe('what a regular expression gets wrong', () => {
     ].join('\n');
     expect(specifiers(source)).toEqual(['./real.js']);
   });
+
+  // From a run over a real monorepo: a self-closing element whose last
+  // attribute is an expression puts `}` before `/>`, and a `/` after `}` was read
+  // as the start of a regular expression, so every import after it was lost.
+  it.each([
+    ['an expression attribute', 'const el = <App x={y} />;'],
+    ['no space before the slash', 'const el = <App x={y}/>;'],
+    ['a spread attribute', 'const el = <App {...props} />;'],
+    ['an arrow function attribute', 'const el = <App onClick={() => go()} />;'],
+    ['the slash on a line of its own', 'const el = (\n  <App\n    x={y}\n  />\n);'],
+    ['a nested self-closing element', 'const el = <Page>\n  <App x={y} />\n</Page>;'],
+  ])('does not read a self-closing JSX element after %s as a regular expression', (_name, element) => {
+    const source = `${element}\nimport { B } from './real.js';\n`;
+    expect(analyzeSource(source, 'src/a.tsx').notes).toEqual([]);
+    expect(specifiers(source)).toEqual(['./real.js']);
+  });
+
+  // `/>/` is a regular expression, so `/>` only means JSX after `}`. Treating it
+  // as division anywhere else loses the scan on exactly these lines.
+  it.each([
+    ["const s = html.replace(/>/g, '&gt;');"],
+    ['const parts = tag.split(/>\\s*/);'],
+    ['const gte = />=/;'],
+  ])('still reads %s as a regular expression', (line) => {
+    const source = `${line}\nimport { B } from './real.js';\n`;
+    expect(analyzeSource(source, 'src/a.ts').notes).toEqual([]);
+    expect(specifiers(source)).toEqual(['./real.js']);
+  });
+
+  it('still reads a regular expression opening a statement after a block', () => {
+    // Read as division, the quote in the pattern would open a string that never closes.
+    const source = ['if (ready) {}', "/'/.test(input);", "import { B } from './real.js';"].join('\n');
+    expect(analyzeSource(source, 'src/a.ts').notes).toEqual([]);
+    expect(specifiers(source)).toEqual(['./real.js']);
+  });
 });
 
 describe('what counts as a dependency', () => {

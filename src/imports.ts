@@ -116,6 +116,14 @@ const REGEX_AFTER_WORD = new Set([
  * as the start of a regular expression loses the scan for the rest of the file.
  * The cost is that `a < /re/.test(b)` is misread instead, which is a shape that
  * does not occur in practice.
+ *
+ * `}` stays, for a regular expression that opens a statement after a block,
+ * except before `/>`. That is a JSX element closing after an expression
+ * attribute, `<App x={y} />`, and reading it as a regular expression loses the
+ * scan in the same way. `/>` after anything else is still one - `/>/` is a
+ * regular expression, and HTML escaping is full of `replace(/>/g, ...)`. The
+ * cost is a statement that opens with a regular expression beginning `>` straight
+ * after a block, which does not occur in practice either.
  */
 const REGEX_AFTER_PUNCT = new Set([
   '(',
@@ -175,11 +183,11 @@ export function tokenize(source: string): TokenizeResult {
   };
   const previous = (): Token | undefined => tokens[tokens.length - 1];
 
-  const regexAllowed = (): boolean => {
+  const regexAllowed = (next: string | undefined): boolean => {
     const token = previous();
     if (!token) return true;
     if (token.type === 'word') return REGEX_AFTER_WORD.has(token.value);
-    if (token.type === 'punct') return REGEX_AFTER_PUNCT.has(token.value);
+    if (token.type === 'punct') return REGEX_AFTER_PUNCT.has(token.value) && !(token.value === '}' && next === '>');
     return false;
   };
 
@@ -237,7 +245,7 @@ export function tokenize(source: string): TokenizeResult {
       continue;
     }
 
-    if (char === '/' && regexAllowed()) {
+    if (char === '/' && regexAllowed(next)) {
       const startLine = line;
       const startColumn = column(index);
       let scan = index + 1;

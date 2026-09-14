@@ -5,6 +5,22 @@ All notable changes to this project are documented here. Versions follow
 may change in a minor release — each such change is listed under **Changed**
 with the flag that restores the previous behaviour.
 
+## Unreleased
+
+### Fixed
+
+- **A self-closing JSX element after an expression attribute lost the rest of the
+  file's imports.** In `<App x={y} />`, `<App {...props} />` and the like, the
+  tokenizer read the `/` after `}` as the start of a regular expression.
+  - The scan ended at that line, and the file was reported as unanalysable.
+  - Its imports after that line went uncounted by import, layer and cycle
+    assertions.
+  - `/>` after `}` is now read as the end of the element.
+  - `/>` anywhere else still starts a regular expression, so
+    `replace(/>/g, '&gt;')` reads as before.
+
+  [ADR-0005](docs/adr/0005-import-assertions.md).
+
 ## 0.9.0
 
 A project's policy can live in its `package.json`, and `spec-guard --watch`
