@@ -258,11 +258,11 @@ describe('a query, saying why nothing governs a path', () => {
   });
 
   it('says why in the human answer: the project, a rule of its own, or nothing at all', async () => {
-    const report = await ask(['target/out.ts', 'src/legacy/generated/api.ts', 'dist/index.js', 'lib/x.ts'], { exclude: ['target', 'dist'] });
+    const report = await ask(['target/out.js', 'src/legacy/generated/api.ts', 'dist/index.js', 'lib/x.ts'], { exclude: ['target', 'dist', '*.js'] });
     expect(formatQuery({ ...report, durationMs: 1 })).toBe(
       [
-        'target/out.ts (does not exist yet)',
-        "  no rules in force govern this path: the project's exclude leaves it out (target)",
+        'target/out.js (does not exist yet)',
+        "  no rules in force govern this path: the project's exclude leaves it out (target, *.js)",
         '',
         'src/legacy/generated/api.ts (does not exist yet)',
         '  no rules in force govern this path: exclude="..." leaves it out of 2 rules',
@@ -277,19 +277,19 @@ describe('a query, saying why nothing governs a path', () => {
         '  Rules  (docs/rules.md)',
         '    :5 @assert-present  dist/index.js must exist',
         '',
-        "  the project's exclude leaves this path out of every rule that takes one (dist)",
+        "  the project's exclude leaves this path out of every rule that takes one (dist, *.js)",
         '',
         'lib/x.ts (does not exist yet)',
         '  no rules in force govern this path',
         '',
-        'exclude from the command line: target, dist',
+        'exclude from the command line: target, dist, *.js',
         '',
         '2 spec files read in 1.0ms',
       ].join('\n'),
     );
   });
 
-  it('names one rule in the singular, and a rule of its own under the project headline', async () => {
+  it("names one rule in the singular, and no rule's own exclude where the project's is the reason", async () => {
     // A layer rule reads no plain text, so only the text rule would reach this file.
     const report = await ask(['src/legacy/generated/notes.txt']);
     expect(formatQuery({ ...report, durationMs: 1 }).split('\n').slice(0, 6)).toEqual([
@@ -300,15 +300,20 @@ describe('a query, saying why nothing governs a path', () => {
       '    docs/rules.md:3 @assert-absence  "LegacyClient" must not appear in src (excluding src/legacy)',
       '',
     ]);
-    const excludedOnce = await ask(['src/legacy/generated/api.ts'], { exclude: ['src/legacy/generated'] });
-    expect(formatQuery({ ...excludedOnce, durationMs: 1 }).split('\n').slice(0, 6)).toEqual([
-      'src/legacy/generated/api.ts (does not exist yet)',
-      "  no rules in force govern this path: the project's exclude leaves it out (src/legacy/generated)",
-      '',
-      '  left out by exclude="...":',
-      '    docs/rules.md:3 @assert-absence  "LegacyClient" must not appear in src (excluding src/legacy)',
-      '',
-    ]);
+    // The text rule's own src/legacy would leave this path out too, and is not
+    // named: the project's exclusion is the reason.
+    const excludedTwice = await ask(['src/legacy/generated/api.ts'], { exclude: ['src/legacy/generated'] });
+    expect(excludedTwice.results[0]?.excluded).toEqual({ project: ['src/legacy/generated'], rules: [] });
+    expect(formatQuery({ ...excludedTwice, durationMs: 1 })).toBe(
+      [
+        'src/legacy/generated/api.ts (does not exist yet)',
+        "  no rules in force govern this path: the project's exclude leaves it out (src/legacy/generated)",
+        '',
+        'exclude from the command line: src/legacy/generated',
+        '',
+        '2 spec files read in 1.0ms',
+      ].join('\n'),
+    );
   });
 });
 

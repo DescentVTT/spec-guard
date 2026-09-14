@@ -129,24 +129,25 @@ export function governs(assertion: Assertion, query: QueryPath): boolean {
 }
 
 /**
- * Whether an assertion's own `exclude="..."` is what keeps it off a path its
- * scope would otherwise reach, whether or not the project's exclusions do too.
+ * Whether an assertion's own `exclude="..."` is what keeps it off a path: the
+ * project's exclusions alone would let it reach the path, and with its own
+ * added it does not.
  *
- * Asked by governing with no exclusions and then with only the directive's.
- * Nothing more is needed: leaving a pattern out never makes a path governed
- * less, so an assertion that governs the path with every exclusion governs it
- * with only its own, and is not reported. `@assert-present` takes no `exclude`. A pattern the directive
- * and the project both list is one entry once resolved, and counts as the
- * project's, since resolution keeps no record that the directive wrote it too.
+ * Where the project's exclusions already keep the rule off, they are the reason
+ * a query gives, and the rule's own are not named as a second one. That also
+ * settles a pattern the directive and the project both list, which is one entry
+ * once resolved: it is the project's. `@assert-present` takes no `exclude`.
+ *
+ * The first version asked whether the rule would govern with no exclusions at
+ * all, and CI's sweep of it could not hold that premise in place: an empty list
+ * of patterns and a list of one pattern no path has are the same list to every
+ * test.
  */
 export function leftOutByOwnExclude(assertion: Assertion, query: QueryPath, project: readonly string[]): boolean {
+  if (assertion.kind === 'assert-present') return false;
   const search = assertion.search as SearchOptions;
-  const withExcludes = (excludeGlobs: string[]): Assertion => ({ ...assertion, search: { ...search, excludeGlobs } });
-  return (
-    assertion.kind !== 'assert-present' &&
-    governs(withExcludes([]), query) &&
-    !governs(withExcludes(search.excludeGlobs.filter((pattern) => !project.includes(pattern))), query)
-  );
+  const projectOnly: Assertion = { ...assertion, search: { ...search, excludeGlobs: search.excludeGlobs.filter((pattern) => project.includes(pattern)) } };
+  return governs(projectOnly, query) && !governs(assertion, query);
 }
 
 /* ---------------------------------------------------------------- the views */

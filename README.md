@@ -748,7 +748,8 @@ src/legacy/generated/api.ts
 ```
 
 In JSON, each path carries `excluded.project`, the project patterns that match
-it, and `excluded.rules`, the rules whose own `exclude` leaves it out.
+it, and `excluded.rules`, the rules whose own `exclude` leaves it out where the
+project's does not.
 
 The arithmetic that decides whether a rule governs a path is tested against the
 walk a real run makes, file for file, under both engines and on randomly

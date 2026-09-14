@@ -62,8 +62,8 @@ shape under both engines while making them.
   rather than only `no rules in force govern this path`.
   - The project's exclude: `no rules in force govern this path: the project's
     exclude leaves it out (target)`.
-  - A rule's own exclude: `exclude="..." leaves it out of 2 rules`, followed by
-    those rules.
+  - A rule's own exclude, where the project's does not already leave the path
+    out: `exclude="..." leaves it out of 2 rules`, followed by those rules.
   - A path an `@assert-present` still governs gets a note that the project's
     exclude leaves it out of every other rule.
   - In JSON, each path has `excluded: { project, rules }`, and the report has

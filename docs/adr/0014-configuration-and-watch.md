@@ -355,19 +355,22 @@ The refused shapes are `!`, a `..` segment, a drive path, and `.` or `/`.
 
 **`query` says why.** Each path carries `excluded`:
 - `project`, the project's patterns that match the path itself;
-- `rules`, the rules whose scope reaches the path but for their own
-  `exclude="..."`.
+- `rules`, the rules that the project's exclusions alone would let reach the
+  path, and that their own `exclude="..."` keeps off it.
 
 The headline names the reason when no rule governs the path: `the project's
 exclude leaves it out (target)`, or `exclude="..." leaves it out of 2 rules`,
 followed by those rules. A path an `@assert-present` still governs gets a note
 that the project's exclude leaves it out of every other rule.
 
-`leftOutByOwnExclude` asks `governs` twice: with no exclusions, and with only
-the directive's. Leaving a pattern out never makes a path governed less, so
-nothing more is needed. It cannot tell a pattern the directive and the project
-both list from one only the project lists, because resolution merges them into
-one entry, and so it counts the pattern as the project's.
+Where the project's exclude is the reason, a rule's own is not named as a second
+one. That also settles a pattern that both the directive and the project list,
+which resolution merges into one entry: it counts as the project's.
+`leftOutByOwnExclude` first asked whether a rule would govern the path with no
+exclusions at all. CI's sweep left that question's empty list of patterns
+standing, because a list of one pattern no path has behaves the same in every
+test. So it now asks `governs` with only the project's patterns, and with all of
+them.
 
 ### Watch mode: `spec-guard --watch`
 

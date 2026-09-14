@@ -1588,9 +1588,10 @@ export interface RunPlan {
  * otherwise get the same silent no-op they refuse.
  */
 export function checkProjectExcludes(exclude: readonly string[] | undefined): string[] {
-  const error = excludeListError(exclude ?? []);
+  const patterns = [...(exclude ?? [])];
+  const error = excludeListError(patterns);
   if (error !== null) throw new Error(`${error}.`);
-  return [...(exclude ?? [])];
+  return patterns;
 }
 
 /**

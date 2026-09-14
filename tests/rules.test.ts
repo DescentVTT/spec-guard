@@ -230,14 +230,16 @@ describe('leftOutByOwnExclude', () => {
   it("is true where the rule's own exclude is what keeps it off the path", () => {
     expect(leftOutByOwnExclude(under([], text), file('src/legacy/a.ts'), [])).toBe(true);
     expect(leftOutByOwnExclude(under([], text), dir('src/legacy/deep'), [])).toBe(true);
-    // The project's exclusions do not hide the rule's own.
-    expect(leftOutByOwnExclude(under(['src'], text), file('src/legacy/a.ts'), ['src'])).toBe(true);
+    // Project exclusions elsewhere do not hide the rule's own.
+    expect(leftOutByOwnExclude(under(['dist'], text), file('src/legacy/a.ts'), ['dist'])).toBe(true);
   });
 
-  it('is false where the rule governs the path, would not reach it anyway, or only the project leaves it out', () => {
+  it('is false where the rule governs the path, would not reach it anyway, or the project leaves it out', () => {
     expect(leftOutByOwnExclude(under([], text), file('src/a.ts'), [])).toBe(false);
     expect(leftOutByOwnExclude(under([], text), file('lib/legacy/a.ts'), [])).toBe(false);
     expect(leftOutByOwnExclude(under(['src/gen'], text), file('src/gen/a.ts'), ['src/gen'])).toBe(false);
+    // The project's exclusion is the reason given, even where the rule's own would leave the path out too.
+    expect(leftOutByOwnExclude(under(['src'], text), file('src/legacy/a.ts'), ['src'])).toBe(false);
     // Written by both, it is one entry, and counts as the project's.
     expect(leftOutByOwnExclude(under(['src/legacy'], text), file('src/legacy/a.ts'), ['src/legacy'])).toBe(false);
   });
