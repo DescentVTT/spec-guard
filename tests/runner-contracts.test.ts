@@ -28,6 +28,7 @@ import {
   type RunResult,
 } from '../src/runner.js';
 import { createImportIndex } from '../src/imports.js';
+import { nodeIo } from '../src/io.js';
 import { DEFAULT_SCOPE } from '../src/scope.js';
 import { createTreeIndex } from '../src/structure.js';
 import type { Assertion, Bounds, Directive, DirectiveKind } from '../src/types.js';
@@ -348,6 +349,7 @@ describe('an assertion with no bounds at all', () => {
     };
     const result = await executeAssertion(assertion, {
       root,
+      io: nodeIo,
       engine: javascriptEngine,
       allowMissingTargets: false,
       strictTargets: false,
@@ -403,6 +405,7 @@ describe('executing one assertion twice', () => {
     const execute = async (allowMissingTargets: boolean) => {
       const { durationMs: _, ...result } = await executeAssertion(resolved.assertion, {
         root,
+        io: nodeIo,
         engine: javascriptEngine,
         allowMissingTargets,
         strictTargets: false,

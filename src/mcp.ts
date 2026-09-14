@@ -17,10 +17,10 @@
  * and its claim is validated; anything else, `initialize` included, is legacy.
  */
 
-import { promises as fs } from 'node:fs';
 import type { Readable } from 'node:stream';
 
 import { toPosix } from './glob.js';
+import { nodeIo, readText } from './io.js';
 import { formatReport } from './reporter.js';
 import { elapsed, runSpecGuard, type RunOptions } from './runner.js';
 import {
@@ -278,7 +278,7 @@ function unknownArguments(args: JsonObject, allowed: readonly string[]): ToolOut
 export function createMcpHandler(options: McpServerOptions): (message: unknown) => Promise<OutgoingMessage | null> {
   const serverInfo = { name: SERVER_NAME, version: options.version };
   const capabilities = { tools: {}, resources: {} };
-  const readFile = options.readFile ?? ((file: string) => fs.readFile(file, 'utf8'));
+  const readFile = options.readFile ?? ((file: string) => readText(nodeIo, file));
   const ruleSetOptions = {
     patterns: options.patterns,
     root: options.root,

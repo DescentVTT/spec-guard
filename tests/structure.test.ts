@@ -14,7 +14,7 @@ import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
 import { javascriptEngine } from '../src/engine.js';
-import { defaultDirectoryReader, type DirectoryReader } from '../src/glob.js';
+import { nodeIo, type DirectoryReader } from '../src/io.js';
 import { createImportIndex } from '../src/imports.js';
 import { parseDirectives } from '../src/parser.js';
 import { formatBaselines, formatJson, formatReport, formatSarif } from '../src/reporter.js';
@@ -29,7 +29,7 @@ import {
   type TreeIndex,
 } from '../src/structure.js';
 import type { Assertion, AssertionResult } from '../src/types.js';
-import { makeTempRepo, removeTempRepo } from './helpers.js';
+import { makeTempRepo, reading, removeTempRepo } from './helpers.js';
 
 const temporary: string[] = [];
 afterAll(async () => {
@@ -89,6 +89,7 @@ function assertionOf(directive: string, root?: string): Assertion {
 function executeOptions(root: string): Parameters<typeof executeAssertion>[1] {
   return {
     root,
+    io: nodeIo,
     engine: javascriptEngine,
     allowMissingTargets: false,
     strictTargets: false,
@@ -206,7 +207,7 @@ function countingReader(root: string, fail: readonly string[] = []): { reader: D
     const relative = path.relative(root, directory).replace(/\\/g, '/') || '.';
     reads.set(relative, (reads.get(relative) ?? 0) + 1);
     if (fail.includes(relative)) throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
-    return defaultDirectoryReader(directory);
+    return nodeIo.readDirectory(directory);
   };
   return { reader, reads };
 }
@@ -236,19 +237,19 @@ describe('createTreeIndex', () => {
   it('records a directory it cannot list as a gap, the target itself included', async () => {
     const root = await tree({ 'src/a.ts': '', 'src/locked/b.ts': '' });
     const { reader } = countingReader(root, ['src/locked']);
-    expect(await createTreeIndex(root, reader).walk('src', DEFAULT_SCOPE)).toEqual({
+    expect(await createTreeIndex(root, reading(reader)).walk('src', DEFAULT_SCOPE)).toEqual({
       files: ['src/a.ts'],
       directories: ['src/locked'],
       gaps: ['src/locked'],
     });
     const whole = countingReader(root, ['src']);
-    expect(await createTreeIndex(root, whole.reader).walk('src', DEFAULT_SCOPE)).toEqual({ files: [], directories: [], gaps: ['src'] });
+    expect(await createTreeIndex(root, reading(whole.reader)).walk('src', DEFAULT_SCOPE)).toEqual({ files: [], directories: [], gaps: ['src'] });
   });
 
   it('walks a target once per run and scope, and lists each directory once for walks and lookups alike', async () => {
     const root = await tree({ 'src/a.ts': '', 'src/deep/b.ts': '' });
     const { reader, reads } = countingReader(root);
-    const index = createTreeIndex(root, reader);
+    const index = createTreeIndex(root, reading(reader));
     const first = index.walk('src', DEFAULT_SCOPE);
     expect(index.walk('src', DEFAULT_SCOPE)).toBe(first);
     expect(index.walk('src', SCAN_EVERYTHING)).not.toBe(first);
@@ -264,7 +265,7 @@ describe('createTreeIndex', () => {
     const root = await tree({ 'src/a.ts': '' });
     for (const order of ['walk first', 'lookup first']) {
       const { reader, reads } = countingReader(root);
-      const index = createTreeIndex(root, reader);
+      const index = createTreeIndex(root, reading(reader));
       if (order === 'walk first') {
         await index.walk('.', DEFAULT_SCOPE);
         await index.listing('src');
@@ -278,10 +279,10 @@ describe('createTreeIndex', () => {
 
   it('answers null, and does not throw, for a directory it cannot list or one below it', async () => {
     const root = await tree({ 'src/deep/a.ts': '' });
-    const locked = createTreeIndex(root, countingReader(root, ['src']).reader);
+    const locked = createTreeIndex(root, reading(countingReader(root, ['src']).reader));
     expect(await locked.listing('src')).toBeNull();
     expect(await locked.listing('src/deep')).toBeNull();
-    const rootless = createTreeIndex(root, countingReader(root, ['.']).reader);
+    const rootless = createTreeIndex(root, reading(countingReader(root, ['.']).reader));
     expect(await rootless.listing('.')).toBeNull();
     expect(await rootless.listing('src')).toBeNull();
   });
@@ -608,7 +609,7 @@ describe('what every structure rule shares with the others', () => {
     const root = await tree({ 'packages/a/package.json': '' });
     const result = await executeAssertion(assertionOf('<!-- @assert-structure target="packages/a" required="package.json" -->', root), {
       ...executeOptions(root),
-      tree: createTreeIndex(root, countingReader(root, ['packages']).reader),
+      tree: createTreeIndex(root, reading(countingReader(root, ['packages']).reader)),
     });
     expect(result).toMatchObject({ ok: false, message: 'target path does not exist: packages/a' });
   });
@@ -657,9 +658,9 @@ describe('what every structure rule shares with the others', () => {
     const execute = (strictTargets: boolean, tree: TreeIndex): Promise<AssertionResult> =>
       executeAssertion(assertion(), { ...executeOptions(root), strictTargets, tree });
 
-    const lenient = await execute(false, createTreeIndex(root, countingReader(root, ['src/locked']).reader));
+    const lenient = await execute(false, createTreeIndex(root, reading(countingReader(root, ['src/locked']).reader)));
     expect(lenient).toMatchObject({ ok: true, message: 'expected no misnamed files, found 0', scope: { skipped: [{ path: 'src/locked', reason: 'unreadable' }] } });
-    const strict = await execute(true, createTreeIndex(root, countingReader(root, ['src/locked']).reader));
+    const strict = await execute(true, createTreeIndex(root, reading(countingReader(root, ['src/locked']).reader)));
     expect(strict).toMatchObject({ ok: false, message: 'expected no misnamed files, found 0; 1 file could not be inspected' });
     // The control: the same run, with every directory readable.
     expect(await execute(true, createTreeIndex(root))).toMatchObject({ ok: true, scope: { skipped: [] } });
@@ -668,7 +669,7 @@ describe('what every structure rule shares with the others', () => {
   it('lists every directory once across all the structure rules of a run', async () => {
     const root = await tree({ 'src/a.ts': '', 'src/a.test.ts': '', 'src/deep/b.ts': '', 'src/deep/b.test.ts': '' }, ['src/empty']);
     const { reader, reads } = countingReader(root);
-    const options = { ...executeOptions(root), tree: createTreeIndex(root, reader) };
+    const options = { ...executeOptions(root), tree: createTreeIndex(root, reading(reader)) };
     const results = await Promise.all(
       [
         '<!-- @assert-structure target="src" glob="*.ts" exclude="*.test.ts" partner="[name].test.ts" -->',

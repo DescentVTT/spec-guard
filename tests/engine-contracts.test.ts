@@ -30,6 +30,7 @@ import {
   buildJsRegExp,
   comparePaths,
   createCachedEngine,
+  createJavaScriptEngine,
   enumerateCandidates,
   javascriptEngine,
   parseRipgrepFiles,
@@ -47,11 +48,12 @@ import {
   ROOT_TARGETS,
   SMALL_TREE_BUDGET,
   ANY_FILE_PROBE,
+  type Engine,
   type SearchRequest,
 } from '../src/engine.js';
-import { defaultDirectoryReader, type DirectoryReader } from '../src/glob.js';
+import { nodeIo, type DirectoryReader } from '../src/io.js';
 import { DEFAULT_SCOPE, MAX_LEDGER_ENTRIES, SCAN_EVERYTHING } from '../src/scope.js';
-import { DEMO_REPO, makeTempRepo, removeTempRepo, searchOptions, wideTree } from './helpers.js';
+import { DEMO_REPO, makeTempRepo, memoryIo, reading, removeTempRepo, searchOptions, wideTree } from './helpers.js';
 
 const temporary: string[] = [];
 
@@ -411,7 +413,7 @@ describe('enumerateCandidates', () => {
     const enumeration = await enumerateCandidates(
       { root, symbol: 'Widget', targets: ['src'], options: searchOptions() },
       undefined,
-      reader,
+      reading(reader),
     );
 
     expect(enumeration.skipped).toEqual([{ path: 'src/locked', reason: 'unreadable' }]);
@@ -446,7 +448,7 @@ describe('enumerateCandidates', () => {
     const enumeration = await enumerateCandidates(
       { root, symbol: 'Widget', targets: ['src'], options: searchOptions() },
       undefined,
-      reader,
+      reading(reader),
     );
 
     expect(enumeration.skipped).toHaveLength(MAX_LEDGER_ENTRIES);
@@ -503,7 +505,7 @@ describe('ANY_FILE_PROBE', () => {
       calls,
       reader: (directory) => {
         calls.push(directory);
-        return defaultDirectoryReader(directory);
+        return nodeIo.readDirectory(directory);
       },
     };
   }
@@ -519,7 +521,7 @@ describe('ANY_FILE_PROBE', () => {
     const request: SearchRequest = { root, symbol: 'Widget', targets: ['src'], options: searchOptions() };
 
     const probe = counting();
-    const enumeration = await enumerateCandidates(request, ANY_FILE_PROBE, probe.reader);
+    const enumeration = await enumerateCandidates(request, ANY_FILE_PROBE, reading(probe.reader));
 
     expect(enumeration.files).toHaveLength(1);
     expect(enumeration.exceeded).toBe(true);
@@ -529,7 +531,7 @@ describe('ANY_FILE_PROBE', () => {
     // repository that simply had two directories in it, and the test would be
     // measuring the fixture rather than the budget.
     const whole = counting();
-    const full = await enumerateCandidates(request, undefined, whole.reader);
+    const full = await enumerateCandidates(request, undefined, reading(whole.reader));
 
     expect(full.files).toHaveLength(DIRECTORIES * FILES_PER_DIRECTORY);
     expect(full.exceeded).toBe(false);
@@ -548,14 +550,14 @@ describe('ANY_FILE_PROBE', () => {
     const filesOnly = await enumerateCandidates(
       request,
       { maxFiles: ANY_FILE_PROBE.maxFiles, maxBytes: Number.POSITIVE_INFINITY },
-      byFiles.reader,
+      reading(byFiles.reader),
     );
 
     const byBytes = counting();
     const bytesOnly = await enumerateCandidates(
       request,
       { maxFiles: Number.POSITIVE_INFINITY, maxBytes: ANY_FILE_PROBE.maxBytes },
-      byBytes.reader,
+      reading(byBytes.reader),
     );
 
     expect(filesOnly.exceeded).toBe(true);
@@ -608,7 +610,7 @@ describe('the adaptive engine', () => {
     const enumeration = await enumerateCandidates(
       { root, symbol: 'Widget', targets: ['src'], options: searchOptions() },
       undefined,
-      reader,
+      reading(reader),
     );
 
     const [result] = await javascriptEngine.searchFiles(
@@ -730,6 +732,43 @@ describe('createCachedEngine', () => {
       engine.search(request({ symbol: '(', options: searchOptions({ regex: true }) })),
     ).rejects.toThrow();
     expect(engine.fallbacks).toEqual([]);
+  });
+
+  it('falls back to the engine it is given, not to the shared scanner', async () => {
+    // A watch session's scanner reads through its own door. Falling back to
+    // the shared one would read the disk behind the session's back, so the
+    // fallback is whatever the caller names - here a scanner over a tree that
+    // exists only in memory, which the shared scanner could never find.
+    const root = path.resolve('/spec-guard-virtual-root');
+    const fallback = createJavaScriptEngine(memoryIo(root, { 'src/a.ts': 'Widget Widget\n' }));
+    const failing: Engine = {
+      name: 'ripgrep',
+      search: async () => {
+        throw new Error('rg exploded');
+      },
+    };
+    const question = { root, symbol: 'Widget', targets: ['src'], options: searchOptions() };
+
+    const single = createCachedEngine(failing, fallback);
+    expect((await single.search(question)).count).toBe(2);
+    expect(single.fallbacks).toEqual(['rg exploded']);
+
+    const batched = createCachedEngine(failing, fallback);
+    expect((await batched.searchBatch([question]))[0]?.count).toBe(2);
+    expect(batched.fallbacks).toEqual(['rg exploded']);
+  });
+
+  it('records no fallback when the engine that failed is its own fallback', async () => {
+    const scanner = createJavaScriptEngine();
+    const broken = request({ symbol: '(', options: searchOptions({ regex: true }) });
+
+    const single = createCachedEngine(scanner, scanner);
+    await expect(single.search(broken)).rejects.toThrow();
+    expect(single.fallbacks).toEqual([]);
+
+    const batched = createCachedEngine(scanner, scanner);
+    await expect(batched.searchBatch([broken])).rejects.toThrow();
+    expect(batched.fallbacks).toEqual([]);
   });
 
   it('answers an empty batch without consulting the engine', async () => {

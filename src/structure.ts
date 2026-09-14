@@ -15,13 +15,12 @@ import { comparePaths } from './engine.js';
 import {
   createExcludeMatcher,
   createGlobMatcher,
-  defaultDirectoryReader,
   globToRegExp,
   isGlob,
   toPosix,
   walkPaths,
-  type DirectoryReader,
 } from './glob.js';
+import { nodeIo, type DirectoryReader, type Io } from './io.js';
 import { LedgerBuilder, UNCERTAIN_REASONS, type ScopeLedger, type ScopePolicy } from './scope.js';
 import type { StructureQuery } from './types.js';
 
@@ -63,7 +62,7 @@ export interface TreeIndex {
   walk(target: string, scope: ScopePolicy): Promise<Tree>;
 }
 
-export function createTreeIndex(root: string, readDirectory: DirectoryReader = defaultDirectoryReader): TreeIndex {
+export function createTreeIndex(root: string, io: Io = nodeIo): TreeIndex {
   // Each directory's read, by its path from the root, kept twice over: as the
   // reader returned it, for the walk - which needs a failed read to fail, and
   // sorts in place a list that is then already sorted - and as a lookup by
@@ -77,7 +76,7 @@ export function createTreeIndex(root: string, readDirectory: DirectoryReader = d
   const read = (relativeDirectory: string): { entries: Promise<Entry[]>; listing: Promise<Listing | null> } => {
     let cached = reads.get(relativeDirectory);
     if (!cached) {
-      const entries = readDirectory(path.join(root, relativeDirectory));
+      const entries = io.readDirectory(path.join(root, relativeDirectory));
       const listing = entries.then(
         (found) => new Map(found.map((entry) => [entry.name, entry])),
         () => null,
@@ -108,7 +107,7 @@ export function createTreeIndex(root: string, readDirectory: DirectoryReader = d
         const fromRoot = (relativePath: string): string => path.posix.join(target, relativePath);
         const walked = walkPaths(path.join(root, target), {
           scope,
-          readDirectory: (directory) => read(toPosix(path.relative(root, directory)) || '.').entries,
+          io: { ...io, readDirectory: (directory) => read(toPosix(path.relative(root, directory)) || '.').entries },
           onDirectory: (relativePath) => tree.directories.push(fromRoot(relativePath)),
           // Only the gaps. `.git` and `node_modules` are the run's policy, and
           // are no more news here than they are to a search.

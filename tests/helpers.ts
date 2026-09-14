@@ -10,6 +10,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { nodeIo, type DirectoryReader, type Io } from '../src/io.js';
 import { DEFAULT_SCOPE } from '../src/scope.js';
 
 export const TESTS_DIR = path.dirname(fileURLToPath(import.meta.url));
@@ -69,6 +70,70 @@ export function wideTree(directories: number, filesPerDirectory: number, prefix 
     }
   }
   return files;
+}
+
+/** The filesystem, with every directory listing answered by `readDirectory`. */
+export function reading(readDirectory: DirectoryReader): Io {
+  return { ...nodeIo, readDirectory };
+}
+
+/**
+ * A filesystem that exists only in memory, rooted at `root`.
+ *
+ * Its root is a path nothing on disk answers to, so a reader that went around
+ * the door it was handed would find nothing there and change its answer.
+ * `files` maps root-relative paths to contents; `directories` adds empty ones.
+ */
+export function memoryIo(root: string, files: Record<string, string | Buffer>, directories: readonly string[] = []): Io {
+  type Node = { kind: 'file'; content: Buffer } | { kind: 'directory' };
+  const nodes = new Map<string, Node>([[path.resolve(root), { kind: 'directory' }]]);
+  const addDirectory = (absolute: string): void => {
+    for (let current = absolute; !nodes.has(current); current = path.dirname(current)) {
+      nodes.set(current, { kind: 'directory' });
+    }
+  };
+  for (const [relative, content] of Object.entries(files)) {
+    const absolute = path.resolve(root, relative);
+    addDirectory(path.dirname(absolute));
+    nodes.set(absolute, { kind: 'file', content: Buffer.from(content) });
+  }
+  for (const directory of directories) addDirectory(path.resolve(root, directory));
+
+  const missing = (target: string): Error => Object.assign(new Error(`ENOENT: ${target}`), { code: 'ENOENT' });
+  const nodeAt = (target: string): Node | undefined => nodes.get(path.resolve(target));
+
+  return {
+    async readDirectory(directory) {
+      const absolute = path.resolve(directory);
+      if (nodeAt(absolute)?.kind !== 'directory') throw missing(directory);
+      return [...nodes]
+        .filter(([candidate]) => candidate !== absolute && path.dirname(candidate) === absolute)
+        .map(([candidate, node]) => ({
+          name: path.basename(candidate),
+          isDirectory: () => node.kind === 'directory',
+          isFile: () => node.kind === 'file',
+          isSymbolicLink: () => false,
+        })) as never;
+    },
+    async stat(target) {
+      const node = nodeAt(target);
+      if (!node) return null;
+      return {
+        isDirectory: () => node.kind === 'directory',
+        isFile: () => node.kind === 'file',
+        size: node.kind === 'file' ? node.content.length : 0,
+      } as never;
+    },
+    async readFile(file) {
+      const node = nodeAt(file);
+      if (node?.kind !== 'file') throw missing(file);
+      return node.content;
+    },
+    async realpath(target) {
+      if (!nodeAt(target)) throw missing(target);
+      return path.resolve(target);
+    },
+  };
 }
 
 /** Convenience: an empty SearchOptions with the given overrides. */

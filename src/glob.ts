@@ -6,9 +6,9 @@
  * patterns itself instead of trusting the shell.
  */
 
-import { promises as fs, type Dirent, type Stats } from 'node:fs';
 import path from 'node:path';
 
+import { nodeIo, type Io } from './io.js';
 import { DEFAULT_SCOPE, type ScopePolicy, type SkipReason } from './scope.js';
 
 const MAGIC_RE = /[*?[\]{}]/;
@@ -124,25 +124,6 @@ export function createGlobMatcher(patterns: readonly string[]): (relativePath: s
 }
 
 /**
- * `fs.stat`, or null for a path that cannot be stat'd.
- *
- * One helper rather than five `.catch(() => null)` tails. Each of those was a
- * function whose only distinguishing behaviour is that it returns null rather
- * than undefined, and since every caller tests the result for falsiness, no
- * caller could tell the difference. Here the difference is the contract, and
- * one assertion holds it.
- */
-export async function statOrNull(target: string): Promise<Stats | null> {
-  return fs.stat(target).catch(() => null);
-}
-
-/** Reads one directory. Injectable so the ordering guarantee can be tested. */
-export type DirectoryReader = (directory: string) => Promise<Dirent[]>;
-
-export const defaultDirectoryReader: DirectoryReader = (directory) =>
-  fs.readdir(directory, { withFileTypes: true });
-
-/**
  * Builds a predicate for `exclude` patterns, following gitignore/ripgrep rules
  * rather than the include-filter rules above.
  *
@@ -208,14 +189,15 @@ export interface WalkOptions {
    */
   onDirectory?: (relativePath: string) => void;
   /**
-   * Directory reader, defaulting to `fs.readdir`.
+   * The door the walk reads through, defaulting to the filesystem.
    *
-   * This exists because the ordering guarantee below is otherwise untestable on
-   * Windows: NTFS returns directory entries already sorted, so a test that
-   * checks the output is ordered passes even if the sort is deleted. Injecting
-   * an unordered reader makes the guarantee real on every platform.
+   * Injectable first because the ordering guarantee below is otherwise
+   * untestable on Windows: NTFS returns directory entries already sorted, so a
+   * test that checks the output is ordered passes even if the sort is deleted.
+   * An unordered reader makes the guarantee real on every platform. A watch
+   * session now passes one too, to see what the walk read (ADR-0014).
    */
-  readDirectory?: DirectoryReader;
+  io?: Io;
 }
 
 /** A file the walk found, before anyone has asked how big it is. */
@@ -242,8 +224,9 @@ export function compareDirents(a: { name: string }, b: { name: string }): number
  * permissions forbid it - is reported as unreadable rather than yielded.
  */
 export async function* walkFiles(root: string, options: WalkOptions = {}): AsyncGenerator<WalkedFile> {
+  const io = options.io ?? nodeIo;
   for await (const file of walkPaths(root, options)) {
-    const stats = await statOrNull(file.absolutePath);
+    const stats = await io.stat(file.absolutePath);
     if (!stats) {
       options.onSkip?.(file.relativePath, 'unreadable');
       continue;
@@ -263,14 +246,14 @@ export async function* walkFiles(root: string, options: WalkOptions = {}): Async
 export async function* walkPaths(root: string, options: WalkOptions = {}): AsyncGenerator<WalkedPath> {
   const scope = options.scope ?? DEFAULT_SCOPE;
   const followSymlinks = options.followSymlinks ?? false;
-  const readDirectory = options.readDirectory ?? defaultDirectoryReader;
+  const io = options.io ?? nodeIo;
   const onSkip = options.onSkip;
   const seen = new Set<string>();
 
   async function* visit(directory: string, prefix: string): AsyncGenerator<WalkedPath> {
     let entries;
     try {
-      entries = await readDirectory(directory);
+      entries = await io.readDirectory(directory);
     } catch {
       // A directory we cannot list may hold anything, so it is reported rather
       // than treated as empty.
@@ -291,7 +274,7 @@ export async function* walkPaths(root: string, options: WalkOptions = {}): Async
       let isFile = entry.isFile();
       if (entry.isSymbolicLink()) {
         if (!followSymlinks) continue;
-        const stats = await statOrNull(absolutePath);
+        const stats = await io.stat(absolutePath);
         if (!stats) continue;
         isDirectory = stats.isDirectory();
         isFile = stats.isFile();
@@ -306,7 +289,7 @@ export async function* walkPaths(root: string, options: WalkOptions = {}): Async
         // Each physical directory is visited at most once. That stops symlink
         // cycles, and - more importantly for a search tool - stops a linked
         // tree from counting the same match twice.
-        const real = followSymlinks ? await fs.realpath(absolutePath).catch(() => absolutePath) : absolutePath;
+        const real = followSymlinks ? await io.realpath(absolutePath).catch(() => absolutePath) : absolutePath;
         if (seen.has(real)) continue;
         seen.add(real);
         options.onDirectory?.(relativePath);
@@ -319,7 +302,7 @@ export async function* walkPaths(root: string, options: WalkOptions = {}): Async
     }
   }
 
-  const rootStats = await statOrNull(root);
+  const rootStats = await io.stat(root);
   if (!rootStats?.isDirectory()) return;
   yield* visit(root, '');
 }
@@ -346,6 +329,7 @@ export async function expandSpecPatterns(
   patterns: readonly string[],
   root: string,
   defaultExtensions: readonly string[] = ['.md', '.markdown', '.mdx'],
+  io: Io = nodeIo,
 ): Promise<string[]> {
   const found = new Set<string>();
 
@@ -354,11 +338,11 @@ export async function expandSpecPatterns(
 
     if (!isGlob(pattern)) {
       const absolute = path.resolve(root, pattern);
-      const stats = await statOrNull(absolute);
+      const stats = await io.stat(absolute);
       if (stats?.isFile()) {
         found.add(absolute);
       } else if (stats?.isDirectory()) {
-        for await (const file of walkPaths(absolute)) {
+        for await (const file of walkPaths(absolute, { io })) {
           if (defaultExtensions.some((extension) => file.relativePath.toLowerCase().endsWith(extension))) {
             found.add(file.absolutePath);
           }
@@ -372,7 +356,7 @@ export async function expandSpecPatterns(
     const walkRoot = isAbsolutePattern ? base || path.parse(pattern).root : path.resolve(root, base);
     const matcher = createGlobMatcher([pattern]);
 
-    for await (const file of walkPaths(walkRoot)) {
+    for await (const file of walkPaths(walkRoot, { io })) {
       const candidate = isAbsolutePattern
         ? toPosix(file.absolutePath)
         : toPosix(path.relative(root, file.absolutePath));

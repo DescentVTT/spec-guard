@@ -20,10 +20,10 @@
  * the file is reported as unanalysable rather than as having no imports.
  */
 
-import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
 import { toPosix } from './glob.js';
+import { nodeIo, readText, type Io } from './io.js';
 import { analyzePolyglot, languageFor, normalizeModule, POLYGLOT_EXTENSIONS } from './polyglot.js';
 
 /** Extensions the JavaScript tokenizer below reads. */
@@ -573,7 +573,7 @@ export interface ImportIndex {
  * tokenizing is the most expensive thing spec-guard does. Without this the cost
  * would be the tree multiplied by the number of import assertions.
  */
-export function createImportIndex(): ImportIndex {
+export function createImportIndex(io: Io = nodeIo): ImportIndex {
   const cache = new Map<string, Promise<FileImports>>();
 
   return {
@@ -583,8 +583,7 @@ export function createImportIndex(): ImportIndex {
     analyze(absolutePath: string, relativePath: string): Promise<FileImports> {
       let pending = cache.get(absolutePath);
       if (!pending) {
-        pending = fs
-          .readFile(absolutePath, 'utf8')
+        pending = readText(io, absolutePath)
           .then((source) => analyzeSource(source, relativePath))
           .catch(
             (error: unknown): FileImports => ({

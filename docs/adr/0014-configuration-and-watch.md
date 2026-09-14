@@ -278,7 +278,7 @@ the MCP server an injected file reader. The rest read `node:fs` directly today.
 A plain run uses the Node implementation. A watch session uses a caching,
 recording one.
 
-<!-- @assert-import-absence target="src" module="node:fs, node:fs/promises" exclude="src/io.ts" reason="watch mode can only evict what it saw being read, and it sees reads at one door" -->
+<!-- @assert-import-absence target="src" module="node:fs, node:fs/promises, fs, fs/promises" exclude="src/io.ts" reason="watch mode can only evict what it saw being read, and it sees reads at one door" -->
 
 **Watch mode does not use ripgrep.** ripgrep reads files in another process,
 where no door can see them. Its cost is also a process per pass: ADR-0004

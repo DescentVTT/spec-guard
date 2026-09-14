@@ -11,7 +11,8 @@
 import path from 'node:path';
 
 import { comparePaths } from './engine.js';
-import { statOrNull, toPosix } from './glob.js';
+import { toPosix } from './glob.js';
+import { nodeIo, type Io } from './io.js';
 import { elapsed, resolveDirective, specExclusions } from './runner.js';
 import { createScope } from './scope.js';
 import { governs, viewRule, within, type DocumentView, type QueryPath, type RuleView } from './rules.js';
@@ -102,7 +103,7 @@ export class QueryPathError extends Error {}
  * question this command exists for. It is a file unless it exists as a
  * directory or is written with a trailing slash.
  */
-export async function resolveQueryPath(input: string, root: string): Promise<QueryPath & { exists: boolean }> {
+export async function resolveQueryPath(input: string, root: string, io: Io = nodeIo): Promise<QueryPath & { exists: boolean }> {
   if (input.trim().length === 0) throw new QueryPathError('A path to query must not be empty.');
   // Separators normalised before resolving, so the path, the absolute path and
   // whether it exists all describe the same file on every platform.
@@ -112,7 +113,7 @@ export async function resolveQueryPath(input: string, root: string): Promise<Que
   if (posix === '..' || posix.startsWith('../') || path.isAbsolute(relative)) {
     throw new QueryPathError(`"${input}" is outside the root ${toPosix(root)}.`);
   }
-  const stats = await statOrNull(absolutePath);
+  const stats = await io.stat(absolutePath);
   const shape = stats ? (stats.isDirectory() ? 'directory' : 'file') : /[\\/]$/.test(input) ? 'directory' : 'file';
   return { path: posix || '.', shape, absolutePath, exists: stats !== null };
 }

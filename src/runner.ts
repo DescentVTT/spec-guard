@@ -6,7 +6,6 @@
  * silently-passing assertion. A spec that lies is worse than no spec at all.
  */
 
-import { promises as fs } from "node:fs";
 import path from "node:path";
 
 import {
@@ -23,6 +22,7 @@ import {
   type SearchRequest,
 } from "./engine.js";
 import { createExcludeMatcher, toPosix } from "./glob.js";
+import { nodeIo, type Io } from "./io.js";
 import {
   buildGraph,
   cyclicComponents,
@@ -40,7 +40,7 @@ import {
   type ModuleReference,
 } from "./imports.js";
 import { checkLayers } from "./layers.js";
-import { readSpecs, specPath } from "./specs.js";
+import { readSpecs, specPath, type SpecSet } from "./specs.js";
 import {
   createScope,
   DEFAULT_SCOPE,
@@ -61,6 +61,7 @@ import type {
   Bounds,
   Directive,
   DirectiveError,
+  EngineName,
   InactiveSpec,
   MatchLocation,
   RatchetMode,
@@ -410,7 +411,7 @@ export function applyBaseline(
  * answer. Without the cache the probe measured about 0.9 ms per assertion,
  * which is small until a spec has two hundred of them.
  */
-export function createScopeProbe(): (request: SearchRequest) => Promise<boolean> {
+export function createScopeProbe(io: Io = nodeIo): (request: SearchRequest) => Promise<boolean> {
   const cache = new Map<string, Promise<boolean>>();
   return (request: SearchRequest): Promise<boolean> => {
     const key = JSON.stringify([
@@ -423,7 +424,7 @@ export function createScopeProbe(): (request: SearchRequest) => Promise<boolean>
     if (!pending) {
       // The walk abandons at the first file it finds, so proving a scope is
       // populated costs a couple of directory reads rather than a traversal.
-      pending = enumerateCandidates(request, ANY_FILE_PROBE).then(
+      pending = enumerateCandidates(request, ANY_FILE_PROBE, io).then(
         (enumeration) => enumeration.files.length > 0,
       );
       cache.set(key, pending);
@@ -827,8 +828,8 @@ export function specExclusions(specFiles: readonly string[], includeSpecs: boole
   return new Set(includeSpecs ? undefined : specFiles.map((file) => path.resolve(file)));
 }
 
-async function pathExists(candidate: string): Promise<boolean> {
-  return (await fs.stat(candidate).catch(() => null)) !== null;
+async function pathExists(io: Io, candidate: string): Promise<boolean> {
+  return (await io.stat(candidate)) !== null;
 }
 
 /**
@@ -840,18 +841,20 @@ async function pathExists(candidate: string): Promise<boolean> {
  */
 async function partitionTargets(
   targets: readonly string[],
-  root: string,
+  options: { root: string; io: Io },
 ): Promise<{ existing: string[]; missing: string[] }> {
   const existing: string[] = [];
   const missing: string[] = [];
   for (const target of targets) {
-    (await pathExists(path.resolve(root, target)) ? existing : missing).push(target);
+    (await pathExists(options.io, path.resolve(options.root, target)) ? existing : missing).push(target);
   }
   return { existing, missing };
 }
 
 export interface ExecuteOptions {
   root: string;
+  /** The door every read of the codebase goes through. ADR-0014. */
+  io: Io;
   engine: Engine;
   allowMissingTargets: boolean;
   strictTargets: boolean;
@@ -912,7 +915,7 @@ async function prepareAssertion(
   if (assertion.kind === "assert-present") {
     const missing: string[] = [];
     for (const file of assertion.files) {
-      if (!(await pathExists(path.resolve(options.root, file))))
+      if (!(await pathExists(options.io, path.resolve(options.root, file))))
         missing.push(file);
     }
     const actual = assertion.files.length - missing.length;
@@ -943,7 +946,7 @@ async function prepareAssertion(
     return executeStructureAssertion(assertion, assertion.structure, options, base, warnings, startedAt);
   }
 
-  const { existing: existingTargets, missing } = await partitionTargets(assertion.targets, options.root);
+  const { existing: existingTargets, missing } = await partitionTargets(assertion.targets, options);
   const notFound = missingTargets(missing);
   if (missing.length > 0) warnings.push(notFound.warning);
 
@@ -1155,7 +1158,7 @@ async function executeImportAssertion(
   startedAt: number,
 ): Promise<AssertionResult> {
   const query = assertion.imports as NonNullable<Assertion["imports"]>;
-  const { existing: existingTargets, missing: absent } = await partitionTargets(assertion.targets, options.root);
+  const { existing: existingTargets, missing: absent } = await partitionTargets(assertion.targets, options);
   const notFound = missingTargets(absent);
   if (absent.length > 0) warnings.push(notFound.warning);
 
@@ -1168,11 +1171,15 @@ async function executeImportAssertion(
   const enumeration =
     existingTargets.length === 0
       ? { files: [] }
-      : await enumerateCandidates({
-          root: options.root,
-          targets: existingTargets,
-          options: assertion.search as SearchOptions,
-        });
+      : await enumerateCandidates(
+          {
+            root: options.root,
+            targets: existingTargets,
+            options: assertion.search as SearchOptions,
+          },
+          undefined,
+          options.io,
+        );
 
   // Why a missing target fails the assertion, or null when it does not. Decided
   // before scope, so a rule whose only target is gone says so rather than that
@@ -1517,19 +1524,36 @@ export function batchConcurrency(requested: number, batches: number): number {
   return Math.max(1, Math.min(requested, batches));
 }
 
-/** Reads, parses and executes every directive found in the given spec files. */
-export async function runSpecGuard(options: RunOptions): Promise<RunResult> {
-  const startedAt = performance.now();
-  const root = path.resolve(options.root ?? process.cwd());
-  const maxSnippets = options.maxSnippets ?? DEFAULT_MAX_SNIPPETS;
-  const strictTargets = options.strictTargets ?? false;
-  const allowMissingTargets = options.allowMissingTargets ?? false;
-  const allowEmptyScope = options.allowEmptyScope ?? false;
-  const scope = createScope(options.defaultSkips ?? true);
+/**
+ * The part of a run decided by the specs alone: the rules to execute, and what
+ * is wrong with the rest.
+ */
+export interface RunPlan {
+  root: string;
+  /** Every spec file the patterns matched, absolute. */
+  specFiles: readonly string[];
+  /** The rules to execute, in document order. */
+  assertions: Assertion[];
+  /** How many directives their document's status withheld. */
+  withheld: number;
+  /** Parse and resolution errors, in the order they were found. */
+  errors: DirectiveError[];
+  inactiveSpecs: InactiveSpec[];
+}
 
-  const specs = await readSpecs(options.patterns, root);
-  const specFiles = specs.files;
-  const excludeFiles = specExclusions(specFiles, options.includeSpecs ?? false);
+/**
+ * Resolves what a set of specs asks for, reading nothing.
+ *
+ * The first half of `runSpecGuard`, moved out so that a watch session plans
+ * each run the way a run does rather than by a copy of it (ADR-0014).
+ */
+export function planRun(
+  specs: SpecSet,
+  root: string,
+  options: Pick<RunOptions, "includeSpecs" | "defaultSkips" | "ignoreStatus" | "select">,
+): RunPlan {
+  const scope = createScope(options.defaultSkips ?? true);
+  const excludeFiles = specExclusions(specs.files, options.includeSpecs ?? false);
 
   const directives: Directive[] = [];
   /** Parsed, validated, and then not run: see ADR-0010. */
@@ -1576,16 +1600,73 @@ export async function runSpecGuard(options: RunOptions): Promise<RunResult> {
     if ("error" in resolved) errors.push(resolved.error);
   }
 
+  return { root, specFiles: specs.files, assertions, withheld: withheld.length, errors, inactiveSpecs };
+}
+
+/**
+ * A run's report, from its plan and the results of the rules it executed.
+ *
+ * The last part of `runSpecGuard`, shared with a watch session for the same
+ * reason as `planRun`.
+ */
+export function reportRun(
+  plan: RunPlan,
+  results: AssertionResult[],
+  engine: { name: EngineName; fallbacks: readonly string[] },
+  startedAt: number,
+): RunResult {
+  const warnings = engine.fallbacks.map(
+    (message) =>
+      `ripgrep failed, fell back to the JavaScript engine (${message})`,
+  );
+
+  // Errors arrive in two waves (parse, then resolve); readers expect file order.
+  const errors = [...plan.errors].sort((a, b) =>
+    a.location.relativeFile === b.location.relativeFile
+      ? a.location.line - b.location.line
+      : comparePaths(a.location.relativeFile, b.location.relativeFile),
+  );
+
+  const failed = results.filter((result) => !result.ok).length;
+  return {
+    ok: failed === 0 && errors.length === 0,
+    root: plan.root,
+    engine: warnings.length > 0 ? "javascript" : engine.name,
+    durationMs: elapsed(startedAt),
+    summary: {
+      specs: plan.specFiles.length,
+      total: results.length,
+      passed: results.length - failed,
+      failed,
+      skipped: plan.assertions.length - results.length,
+      inactive: plan.withheld,
+    },
+    results,
+    errors,
+    warnings,
+    inactiveSpecs: plan.inactiveSpecs,
+    specFiles: plan.specFiles.map((file) => specPath(plan.root, file)),
+  };
+}
+
+/** Reads, parses and executes every directive found in the given spec files. */
+export async function runSpecGuard(options: RunOptions): Promise<RunResult> {
+  const startedAt = performance.now();
+  const root = path.resolve(options.root ?? process.cwd());
+  const plan = planRun(await readSpecs(options.patterns, root), root, options);
+  const assertions = plan.assertions;
+
   const engine = createCachedEngine(
     await resolveEngine(options.engine ?? "auto"),
   );
-  const executeOptions = {
+  const executeOptions: ExecuteOptions = {
     root,
+    io: nodeIo,
     engine,
-    allowMissingTargets,
-    strictTargets,
-    allowEmptyScope,
-    maxSnippets,
+    allowMissingTargets: options.allowMissingTargets ?? false,
+    strictTargets: options.strictTargets ?? false,
+    allowEmptyScope: options.allowEmptyScope ?? false,
+    maxSnippets: options.maxSnippets ?? DEFAULT_MAX_SNIPPETS,
     imports: createImportIndex(),
     hasFiles: createScopeProbe(),
     tree: createTreeIndex(root),
@@ -1656,36 +1737,5 @@ export async function runSpecGuard(options: RunOptions): Promise<RunResult> {
     await Promise.all(Array.from({ length: concurrency }, worker));
   }
 
-  const warnings = engine.fallbacks.map(
-    (message) =>
-      `ripgrep failed, fell back to the JavaScript engine (${message})`,
-  );
-
-  // Errors arrive in two waves (parse, then resolve); readers expect file order.
-  errors.sort((a, b) =>
-    a.location.relativeFile === b.location.relativeFile
-      ? a.location.line - b.location.line
-      : comparePaths(a.location.relativeFile, b.location.relativeFile),
-  );
-
-  const failed = results.filter((result) => !result.ok).length;
-  return {
-    ok: failed === 0 && errors.length === 0,
-    root,
-    engine: warnings.length > 0 ? "javascript" : engine.name,
-    durationMs: elapsed(startedAt),
-    summary: {
-      specs: specFiles.length,
-      total: results.length,
-      passed: results.length - failed,
-      failed,
-      skipped: assertions.length - results.length,
-      inactive: withheld.length,
-    },
-    results,
-    errors,
-    warnings,
-    inactiveSpecs,
-    specFiles: specFiles.map((file) => specPath(root, file)),
-  };
+  return reportRun(plan, results, engine, startedAt);
 }

@@ -19,6 +19,7 @@ export {
   buildJsRegExp,
   buildRipgrepArgs,
   createCachedEngine,
+  createJavaScriptEngine,
   enumerateCandidates,
   escapeRegExp,
   ANY_FILE_PROBE,
@@ -48,7 +49,6 @@ export {
   compareDirents,
   createExcludeMatcher,
   createGlobMatcher,
-  defaultDirectoryReader,
   expandSpecPatterns,
   globBase,
   globToRegExp,
@@ -57,7 +57,10 @@ export {
   walkFiles,
   walkPaths,
 } from './glob.js';
-export type { DirectoryReader, WalkedFile, WalkedPath, WalkOptions } from './glob.js';
+export type { WalkedFile, WalkedPath, WalkOptions } from './glob.js';
+
+export { nodeIo, readText } from './io.js';
+export type { DirectoryReader, Io } from './io.js';
 
 export {
   createScope,
@@ -161,13 +164,15 @@ export {
   applyBaseline,
   createScopeProbe,
   executeAssertion,
+  planRun,
+  reportRun,
   resolveDirective,
   runSpecGuard,
   specExclusions,
   DEFAULT_CONCURRENCY,
   DEFAULT_MAX_SNIPPETS,
 } from './runner.js';
-export type { ResolveContext, RunOptions, RunResult } from './runner.js';
+export type { ExecuteOptions, ResolveContext, RunOptions, RunPlan, RunResult } from './runner.js';
 
 export { createPainter, formatBaselines, formatJson, formatReport, formatSarif, shouldUseAscii, shouldUseColor } from './reporter.js';
 export type { ReporterOptions } from './reporter.js';

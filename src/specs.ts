@@ -9,11 +9,11 @@
  * argument is that withholding a rule must never happen by accident.
  */
 
-import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
 import { MAX_CONCURRENT_READS } from './engine.js';
 import { expandSpecPatterns, toPosix } from './glob.js';
+import { nodeIo, readText, type Io } from './io.js';
 import { parseDocument } from './parser.js';
 import type { Directive, DirectiveError, SpecStatus } from './types.js';
 
@@ -55,8 +55,8 @@ export function specPath(root: string, file: string): string {
 }
 
 /** Expands the patterns and reads every document they match. */
-export async function readSpecs(patterns: readonly string[], root: string): Promise<SpecSet> {
-  const files = await expandSpecPatterns(patterns, root);
+export async function readSpecs(patterns: readonly string[], root: string, io: Io = nodeIo): Promise<SpecSet> {
+  const files = await expandSpecPatterns(patterns, root, undefined, io);
   const documents: SpecDocument[] = [];
   const errors: DirectiveError[] = [];
 
@@ -69,7 +69,7 @@ export async function readSpecs(patterns: readonly string[], root: string): Prom
   const sources: Array<string | Error> = [];
   while (sources.length < files.length) {
     const batch = files.slice(sources.length, sources.length + MAX_CONCURRENT_READS);
-    sources.push(...(await Promise.all(batch.map((file) => fs.readFile(file, 'utf8').catch((error: unknown) => error as Error)))));
+    sources.push(...(await Promise.all(batch.map((file) => readText(io, file).catch((error: unknown) => error as Error)))));
   }
 
   files.forEach((file, index) => {

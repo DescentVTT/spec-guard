@@ -20,11 +20,10 @@ import {
   createGlobMatcher,
   expandSpecPatterns,
   globToRegExp,
-  statOrNull,
   walkFiles,
-  type DirectoryReader,
 } from '../src/glob.js';
-import { DEMO_REPO, makeTempRepo, removeTempRepo } from './helpers.js';
+import type { DirectoryReader } from '../src/io.js';
+import { DEMO_REPO, makeTempRepo, memoryIo, reading, removeTempRepo } from './helpers.js';
 
 /* ---------------------------------------------------------- the translation */
 
@@ -155,19 +154,6 @@ describe('the exclude matcher', () => {
 
 /* ----------------------------------------------------------------- the walk */
 
-describe('statOrNull', () => {
-  it('returns the stats for a path that exists', async () => {
-    const stats = await statOrNull(path.join(DEMO_REPO, 'src'));
-    expect(stats?.isDirectory()).toBe(true);
-  });
-
-  it('returns null - not undefined - for one that does not', async () => {
-    // Every caller tests the result for falsiness, so the difference is
-    // invisible from any of them and has to be stated here.
-    expect(await statOrNull(path.join(DEMO_REPO, 'no-such-path'))).toBeNull();
-  });
-});
-
 function dirent(name: string, kind: 'file' | 'directory' | 'other'): never {
   return {
     name,
@@ -178,6 +164,22 @@ function dirent(name: string, kind: 'file' | 'directory' | 'other'): never {
 }
 
 describe('walkFiles at its edges', () => {
+  it('walks each directory whose real path cannot be resolved, under its own name', async () => {
+    // A failed realpath falls back to the path itself. Falling back to nothing
+    // would give every such directory one identity, and the guard against
+    // visiting a directory twice would then skip all of them but the first.
+    const root = path.resolve('/spec-guard-virtual-root');
+    const io = {
+      ...memoryIo(root, { 'a/x.ts': '', 'b/y.ts': '' }),
+      realpath: async (): Promise<string> => {
+        throw new Error('EPERM');
+      },
+    };
+    const found: string[] = [];
+    for await (const file of walkFiles(root, { io, followSymlinks: true })) found.push(file.relativePath);
+    expect(found).toEqual(['a/x.ts', 'b/y.ts']);
+  });
+
   const temporary: string[] = [];
 
   async function repo(files: Record<string, string>): Promise<string> {
@@ -207,7 +209,7 @@ describe('walkFiles at its edges', () => {
     const reader: DirectoryReader = async () => [dirent('a.ts', 'file'), dirent('pipe', 'other')];
 
     const found = [];
-    for await (const file of walkFiles(root, { readDirectory: reader, onSkip: (p, r) => skipped.push([p, r]) })) {
+    for await (const file of walkFiles(root, { io: reading(reader), onSkip: (p, r) => skipped.push([p, r]) })) {
       found.push(file.relativePath);
     }
 
@@ -223,7 +225,7 @@ describe('walkFiles at its edges', () => {
       directory === root ? [dirent('locked', 'directory')] : Promise.reject(new Error('EACCES'));
 
     const found = [];
-    for await (const file of walkFiles(root, { readDirectory: reader })) found.push(file.relativePath);
+    for await (const file of walkFiles(root, { io: reading(reader) })) found.push(file.relativePath);
 
     expect(found).toEqual([]);
   });
@@ -235,7 +237,7 @@ describe('walkFiles at its edges', () => {
     const reader: DirectoryReader = async () => [dirent('z.ts', 'file'), dirent('a.ts', 'file'), dirent('m.ts', 'file')];
 
     const found = [];
-    for await (const file of walkFiles(root, { readDirectory: reader })) found.push(file.relativePath);
+    for await (const file of walkFiles(root, { io: reading(reader) })) found.push(file.relativePath);
 
     expect(found).toEqual(['a.ts', 'm.ts', 'z.ts']);
   });

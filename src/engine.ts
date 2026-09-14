@@ -20,19 +20,11 @@
  */
 
 import { spawn } from 'node:child_process';
-import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
 import { createCommentMask, type CommentMask } from './comments.js';
-import {
-  createExcludeMatcher,
-  createGlobMatcher,
-  statOrNull,
-  toPosix,
-  walkFiles,
-  type DirectoryReader,
-  type WalkOptions,
-} from './glob.js';
+import { createExcludeMatcher, createGlobMatcher, toPosix, walkFiles, type WalkOptions } from './glob.js';
+import { nodeIo, type Io } from './io.js';
 import { isBinary, LedgerBuilder, UNCERTAIN_REASONS, type SkippedPath } from './scope.js';
 import { lineStarts, locate } from './text.js';
 import type { EngineName, MatchLocation, SearchOptions, SearchResult } from './types.js';
@@ -509,6 +501,8 @@ interface CandidateFile {
 class JavaScriptEngine implements Engine {
   readonly name: EngineName = 'javascript';
 
+  constructor(private readonly io: Io) {}
+
   async search(request: SearchRequest): Promise<SearchResult> {
     const [result] = await this.searchBatch([request]);
     return result as SearchResult;
@@ -523,7 +517,7 @@ class JavaScriptEngine implements Engine {
     const [first] = requests;
     if (!first) return [];
 
-    const enumeration = await enumerateCandidates(first);
+    const enumeration = await enumerateCandidates(first, undefined, this.io);
     return this.searchFiles(enumeration.files, requests, [], enumeration.skipped);
   }
 
@@ -566,7 +560,7 @@ class JavaScriptEngine implements Engine {
         const file = files[cursor++];
         /* c8 ignore next -- cursor is bounded by files.length */
         if (!file) return;
-        const buffer = await fs.readFile(file.absolutePath).catch(() => null);
+        const buffer = await this.io.readFile(file.absolutePath).catch(() => null);
         if (!buffer) {
           // A file we cannot open might hold anything, so it is recorded rather
           // than passed over as though it had been read and found clean.
@@ -677,13 +671,13 @@ export async function enumerateCandidates(
   request: WalkRequest,
   budget?: EnumerationBudget,
   /**
-   * Directory reader, forwarded to the walk. Exists for the same reason
-   * `walkFiles` takes one: the interesting behaviour here is what the
-   * enumeration does with a directory it *cannot* read, and there is no
-   * portable way to create one - Windows has no chmod, and a permission bit set
-   * by a test is a permission bit a failed test leaves behind.
+   * The door the enumeration reads through, forwarded to the walk. Injectable
+   * for the same reason `walkFiles` takes one: the interesting behaviour here
+   * is what the enumeration does with a directory it *cannot* read, and there
+   * is no portable way to create one - Windows has no chmod, and a permission
+   * bit set by a test is a permission bit a failed test leaves behind.
    */
-  readDirectory?: DirectoryReader,
+  io: Io = nodeIo,
 ): Promise<Enumeration> {
   const matcher = createGlobMatcher(request.options.globs);
   const excluded = createExcludeMatcher(request.options.excludeGlobs);
@@ -723,7 +717,7 @@ export async function enumerateCandidates(
 
   outer: for (const target of targetsOf(request)) {
     const absoluteTarget = path.resolve(request.root, target);
-    const stats = await statOrNull(absoluteTarget);
+    const stats = await io.stat(absoluteTarget);
     if (!stats) continue;
 
     if (stats.isFile()) {
@@ -739,7 +733,7 @@ export async function enumerateCandidates(
       scope: request.options.scope,
       onSkip: (relativePath: string, reason: SkippedPath['reason']): void =>
         note(prefix ? `${prefix}/${relativePath}` : relativePath, reason),
-      ...(readDirectory ? { readDirectory } : {}),
+      io,
     };
 
     for await (const file of walkFiles(absoluteTarget, walkOptions)) {
@@ -828,7 +822,17 @@ export type BatchEngine = Engine &
     ): Promise<SearchResult[]>;
   };
 
-export const javascriptEngine: BatchEngine = new JavaScriptEngine();
+/**
+ * A scanner that reads through the given door.
+ *
+ * One per watch session rule, so the session sees what each rule read
+ * (ADR-0014). A plain run shares the one below, which reads the filesystem.
+ */
+export function createJavaScriptEngine(io: Io = nodeIo): BatchEngine {
+  return new JavaScriptEngine(io);
+}
+
+export const javascriptEngine: BatchEngine = createJavaScriptEngine();
 
 /**
  * How much scanning the JavaScript engine may do before ripgrep is worth a
@@ -969,8 +973,12 @@ export type CachedEngine = Engine & Required<Pick<Engine, 'searchBatch'>> & { fa
 /**
  * Wraps an engine with a de-duplicating cache plus an automatic fallback to the
  * JS engine, so a ripgrep hiccup degrades to "slower" instead of "broken".
+ *
+ * The fallback is a parameter because a watch session's scanner reads through a
+ * door of its own, and falling back to the shared one would read past it.
+ * Nothing falls back from the fallback: its failure is the run's failure.
  */
-export function createCachedEngine(engine: Engine): CachedEngine {
+export function createCachedEngine(engine: Engine, fallback: BatchEngine = javascriptEngine): CachedEngine {
   const cache = new Map<string, Promise<SearchResult>>();
   const fallbacks: string[] = [];
 
@@ -993,9 +1001,9 @@ export function createCachedEngine(engine: Engine): CachedEngine {
       let result = cache.get(key);
       if (!result) {
         result = engine.search(request).catch(async (error: unknown) => {
-          if (engine === javascriptEngine) throw error;
+          if (engine === fallback) throw error;
           recordFallback(error);
-          return javascriptEngine.search(request);
+          return fallback.search(request);
         });
         cache.set(key, result);
       }
@@ -1012,9 +1020,9 @@ export function createCachedEngine(engine: Engine): CachedEngine {
       // does nothing. The guard could not change an outcome, which is why
       // nothing could be written to hold it in place.
       const pending = runSearches(engine, uncached).catch(async (error: unknown) => {
-        if (engine === javascriptEngine) throw error;
+        if (engine === fallback) throw error;
         recordFallback(error);
-        return runSearches(javascriptEngine, uncached);
+        return runSearches(fallback, uncached);
       });
       uncached.forEach((request, index) => {
         cache.set(

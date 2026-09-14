@@ -28,7 +28,7 @@ import { walkFiles } from '../src/glob.js';
 import { runSpecGuard } from '../src/runner.js';
 import { SCAN_EVERYTHING } from '../src/scope.js';
 import type { SearchResult } from '../src/types.js';
-import { findTestRipgrep, makeTempRepo, removeTempRepo, searchOptions } from './helpers.js';
+import { findTestRipgrep, makeTempRepo, reading, removeTempRepo, searchOptions } from './helpers.js';
 
 const rgPath = findTestRipgrep();
 const temporary: string[] = [];
@@ -309,10 +309,11 @@ describe('paths that cannot be read', () => {
     const found = [];
     for await (const file of walkFiles(root, {
       onSkip: (p, reason) => skipped.push([p, reason]),
-      readDirectory: async (directory) =>
+      io: reading(async (directory) =>
         directory === root
           ? ([{ name: 'phantom.ts', isDirectory: () => false, isFile: () => true, isSymbolicLink: () => false }] as never)
           : [],
+      ),
     })) {
       found.push(file.relativePath);
     }
@@ -325,13 +326,14 @@ describe('paths that cannot be read', () => {
     const root = await repo({ 'a.ts': 'clean\n' });
     const found = [];
     for await (const file of walkFiles(root, {
-      readDirectory: async (directory) =>
+      io: reading(async (directory) =>
         directory === root
           ? ([
               { name: 'a.ts', isDirectory: () => false, isFile: () => true, isSymbolicLink: () => false },
               { name: 'phantom.ts', isDirectory: () => false, isFile: () => true, isSymbolicLink: () => false },
             ] as never)
           : [],
+      ),
     })) {
       found.push(file.relativePath);
     }
@@ -346,9 +348,9 @@ describe('paths that cannot be read', () => {
     const found = [];
     for await (const file of walkFiles(root, {
       onSkip: (p, reason) => skipped.push([p, reason]),
-      readDirectory: async () => {
+      io: reading(async () => {
         throw new Error('EACCES');
-      },
+      }),
     })) {
       found.push(file.relativePath);
     }

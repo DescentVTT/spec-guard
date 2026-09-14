@@ -7,6 +7,7 @@ import { EMPTY_LEDGER } from '../src/scope.js';
 import { createTreeIndex } from '../src/structure.js';
 import { createScopeProbe, executeAssertion, resolveDirective, runSpecGuard } from '../src/runner.js';
 import type { Directive, DirectiveKind } from '../src/types.js';
+import { nodeIo } from '../src/io.js';
 import { DEMO_REPO, findTestRipgrep, makeTempRepo, removeTempRepo } from './helpers.js';
 
 const rgPath = findTestRipgrep();
@@ -417,6 +418,7 @@ describe('executeAssertion', () => {
 
     const result = await executeAssertion(resolved.assertion, {
       root: DEMO_REPO,
+      io: nodeIo,
       engine: { name: 'javascript', search: async () => ({ count: 0, commentMatches: 0, unclassifiedFiles: 0, scope: EMPTY_LEDGER, matches: [], fileCounts: new Map(), engine: 'javascript' }) },
       allowMissingTargets: false,
       strictTargets: false,
@@ -437,6 +439,7 @@ describe('executeAssertion', () => {
 
     const result = await executeAssertion(resolved.assertion, {
       root: DEMO_REPO,
+      io: nodeIo,
       engine: { name: 'javascript', search: async () => ({ count: 0, commentMatches: 0, unclassifiedFiles: 0, scope: EMPTY_LEDGER, matches: [], fileCounts: new Map(), engine: 'javascript' }) },
       allowMissingTargets: false,
       strictTargets: false,

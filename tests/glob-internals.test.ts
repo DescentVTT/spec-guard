@@ -5,7 +5,7 @@
  * green on Windows: NTFS returns directory entries already sorted, so deleting
  * `entries.sort(...)` changes nothing locally and the mutant survives. Feeding
  * the walker a deliberately unordered reader makes the guarantee testable
- * everywhere, which is the whole reason `readDirectory` is injectable.
+ * everywhere, which is the first reason the walk's door is injectable.
  */
 
 import type { Dirent } from 'node:fs';
@@ -14,7 +14,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { javascriptEngine } from '../src/engine.js';
 import { compareDirents, expandSpecPatterns, globToRegExp, toPosix, walkFiles } from '../src/glob.js';
-import { DEMO_REPO, makeTempRepo, removeTempRepo, searchOptions } from './helpers.js';
+import { DEMO_REPO, makeTempRepo, reading, removeTempRepo, searchOptions } from './helpers.js';
 
 const temporary: string[] = [];
 
@@ -62,7 +62,7 @@ describe('walkFiles ordering', () => {
 
     const shuffled = async (): Promise<Dirent[]> => [dirent('c.ts'), dirent('a.ts'), dirent('b.ts')];
     const found = [];
-    for await (const file of walkFiles(root, { readDirectory: shuffled })) found.push(file.relativePath);
+    for await (const file of walkFiles(root, { io: reading(shuffled) })) found.push(file.relativePath);
 
     expect(found).toEqual(['a.ts', 'b.ts', 'c.ts']);
   });
@@ -76,7 +76,7 @@ describe('walkFiles ordering', () => {
     };
 
     const found = [];
-    for await (const file of walkFiles(root, { readDirectory: shuffled })) found.push(file.relativePath);
+    for await (const file of walkFiles(root, { io: reading(shuffled) })) found.push(file.relativePath);
 
     expect(found).toEqual(['adir/inner.ts', 'm.ts', 'zdir/inner.ts']);
   });
@@ -88,7 +88,7 @@ describe('walkFiles ordering', () => {
     };
 
     const found = [];
-    for await (const file of walkFiles(root, { readDirectory: broken })) found.push(file.relativePath);
+    for await (const file of walkFiles(root, { io: reading(broken) })) found.push(file.relativePath);
 
     expect(found).toEqual([]);
   });
