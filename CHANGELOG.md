@@ -5,7 +5,7 @@ All notable changes to this project are documented here. Versions follow
 may change in a minor release — each such change is listed under **Changed**
 with the flag that restores the previous behaviour.
 
-## Unreleased
+## 0.10.1
 
 Fixes from running 0.10.0 over a large monorepo, and from testing each exclude
 shape under both engines while making them.
