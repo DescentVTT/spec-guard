@@ -266,11 +266,15 @@ export function formatReport(report: RunResult, options: ReporterOptions, maxSni
   }
   if (report.warnings.length > 0) lines.push('');
 
-  if (options.verbose) {
-    for (const result of passes) {
-      for (const note of [...commentNotes(result), ...scopeNotes(result.scope), ...result.warnings]) {
-        lines.push(`${paint(glyphs.warn, 'yellow')} ${paint(`${formatLocation(result)}  ${note}`, 'yellow')}`);
-      }
+  // A passing assertion's own warnings - references that could not be resolved,
+  // files no layer constrains, a target that is not there - print whether or not
+  // --verbose was passed. Nobody passes --verbose to a green run, which is when
+  // they matter (ADR-0006). Its comment and scope notes are totalled below, and
+  // are listed per assertion under --verbose.
+  for (const result of passes) {
+    const notes = options.verbose ? [...commentNotes(result), ...scopeNotes(result.scope), ...result.warnings] : result.warnings;
+    for (const note of notes) {
+      lines.push(`${paint(glyphs.warn, 'yellow')} ${paint(`${formatLocation(result)}  ${note}`, 'yellow')}`);
     }
   }
 

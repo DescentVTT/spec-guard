@@ -329,14 +329,17 @@ code are dynamic, and about 0.09% of files defeat the tokenizer outright. Both
 are reported rather than counted as clean:
 
 ```text
-✔ docs/adr.md:1  @assert-import-absence "src/db" (0 matches) in src/core
-⚠ 1 module reference could not be resolved statically
-⚠   src/core/plugin.ts:1 import(name)
+⚠ docs/adr.md:1  1 module reference could not be resolved statically
+⚠ docs/adr.md:1    src/core/plugin.ts:1 import(name)
+
+1 passed · 9ms
+✔ every spec assertion holds
 ```
 
 The count is still true of everything that could be seen; the warning is what
-stops it being mistaken for a complete answer. `--strict` turns those warnings
-into failures. Files in scope that are not JavaScript or TypeScript are counted
+stops it being mistaken for a complete answer. A passing rule prints it without
+`--verbose` too, since a green run is when it would otherwise go unread.
+`--strict` turns those warnings into failures. Files in scope that are not JavaScript or TypeScript are counted
 and reported too, so a rule pointed at the wrong tree says "analysed 2 of 3
 files" rather than quietly passing - and if *none* of them can be read, the
 assertion fails rather than passing on an empty analysis.

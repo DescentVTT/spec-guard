@@ -5,6 +5,33 @@ All notable changes to this project are documented here. Versions follow
 may change in a minor release — each such change is listed under **Changed**
 with the flag that restores the previous behaviour.
 
+## Unreleased
+
+### Fixed
+
+- **A passing assertion's warnings were printed only with `--verbose`.** Without
+  it, the report printed the note about matches inside comments but hid the
+  rest:
+  - module references that could not be resolved;
+  - imports missing from the graph;
+  - files that belong to no layer;
+  - target paths that were not found.
+
+  They now print on a passing run either way, one line per warning with the
+  assertion's location, as `--verbose` prints them. The MCP server's text and
+  watch mode, which render without `--verbose`, show them too.
+- **An apostrophe in JSX text lost the rest of the file's imports.** In
+  `<span>Don't click</span>`, the `'` opened a string that never closed, and the
+  file was reported as unanalysable.
+  - A quote straight after a letter or digit whose string does not close on its
+    line is now read as text. That covers contractions, possessives such as
+    `users'`, and `5"`.
+  - A quote after a space or punctuation that never closes still marks the file
+    unanalysable, as does `/*` inside JSX text.
+  - Tracking JSX text in general was turned down: a TypeScript cast or a
+    generic arrow read as markup would skip real code without a word.
+    [ADR-0005](docs/adr/0005-import-assertions.md).
+
 ## 0.9.1
 
 ### Fixed

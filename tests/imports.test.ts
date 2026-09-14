@@ -129,6 +129,37 @@ describe('what a regular expression gets wrong', () => {
     expect(specifiers(source)).toEqual(['./real.js']);
   });
 
+  // Also from the monorepo run: an apostrophe in JSX text opened a string that
+  // never closed, and the file was reported unanalysable.
+  it.each([
+    ['a contraction', "const el = <span>Don't click</span>;"],
+    ['a contraction in text on lines of its own', "const el = (\n  <p>\n    Don't click\n  </p>\n);"],
+    ['a contraction before an expression', "const el = <p>It's {count} items</p>;"],
+    ['a plural possessive', "const el = <p>The users' list</p>;"],
+    ['a quote after a digit', 'const el = <p>A 5" screen</p>;'],
+    ['a letter outside ASCII', "const el = <p>The café's menu</p>;"],
+  ])('does not lose the scan on %s in JSX text', (_name, element) => {
+    const source = `${element}\nimport { B } from './real.js';\n`;
+    expect(analyzeSource(source, 'src/a.tsx').notes).toEqual([]);
+    expect(specifiers(source)).toEqual(['./real.js']);
+  });
+
+  it.each([
+    ["import { A } from'./minified.js';", './minified.js'],
+    ['export*from"./minified.js";', './minified.js'],
+    ["import'./side-effect.js';", './side-effect.js'],
+  ])('still reads a quote straight after a keyword as a string: %s', (source, specifier) => {
+    expect(specifiers(source)).toEqual([specifier]);
+  });
+
+  it.each([
+    ['after a space', "const el = <p>\n  'Til then\n</p>;"],
+    ['after punctuation', "const s = ('never closed;"],
+    ['at the start of the file', "'never closed\n"],
+  ])('still loses the scan on a quote that never closes %s', (_name, source) => {
+    expect(analyzeSource(source, 'src/a.tsx').notes.some((note) => note.kind === 'unreadable')).toBe(true);
+  });
+
   it('still reads a regular expression opening a statement after a block', () => {
     // Read as division, the quote in the pattern would open a string that never closes.
     const source = ['if (ready) {}', "/'/.test(input);", "import { B } from './real.js';"].join('\n');

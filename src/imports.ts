@@ -278,10 +278,22 @@ export function tokenize(source: string): TokenizeResult {
     }
 
     if (char === "'" || char === '"') {
+      const start = index;
       const startLine = line;
       const startColumn = column(index);
       const value = readQuoted(char);
       if (value === null) {
+        // JSX text: <span>Don't click</span>, <p>users' list</p>, <p>A 5" screen</p>.
+        // A string that runs past its line is not valid code, and the quotes
+        // that follow a keyword directly - return'x', from'./x' - close on
+        // theirs, so a quote straight after a letter or digit that does not is
+        // text, and is stepped over. A quote after anything else still loses
+        // the scan: tracking JSX text in general would read a TypeScript cast
+        // or <T extends Base>(item: T) => ... as markup and skip real code.
+        if (/[\p{L}\p{N}]/u.test(source[start - 1] ?? '')) {
+          index = start + 1;
+          continue;
+        }
         desynced = true;
         break;
       }

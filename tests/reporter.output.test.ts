@@ -419,6 +419,38 @@ describe('comment exclusion notes', () => {
     );
   });
 
+  // Found by a run over a real monorepo: a pass printed its comment note by
+  // default, but an unresolved import or a missing target on the same pass only
+  // under --verbose.
+  it("prints a passing assertion's warnings without --verbose, and totals its other notes", () => {
+    const report = fixture({
+      ok: true,
+      summary: { specs: 1, total: 2, passed: 2, failed: 0, skipped: 0, inactive: 0 },
+      results: [
+        {
+          ...passingResult,
+          commentMatches: 2,
+          warnings: ['1 module reference could not be resolved statically', '  src/cli.ts:102 require(manifest)'],
+        },
+        { ...passingResult, location: location(9), warnings: ['target path not found: src/gone'] },
+      ],
+    });
+
+    expect(formatReport(report, { color: false, verbose: false })).toBe(
+      [
+        'spec-guard 1 spec · 2 assertions · ripgrep',
+        '',
+        '⚠ docs/a.md:3  1 module reference could not be resolved statically',
+        '⚠ docs/a.md:3    src/cli.ts:102 require(manifest)',
+        '⚠ docs/a.md:9  target path not found: src/gone',
+        '⚠ 2 matches inside comments were not counted; add comments="include" to count them',
+        '',
+        '2 passed · 12ms',
+        '✔ every spec assertion holds',
+      ].join('\n'),
+    );
+  });
+
   it('separates run-level warnings from what follows', () => {
     const report = fixture({
       ok: true,

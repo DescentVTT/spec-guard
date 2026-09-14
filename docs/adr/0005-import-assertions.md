@@ -97,6 +97,32 @@ and `/>=/`, it lost all three, which the old rule read correctly. Only `}`
 followed by `/>` is now read as division. The new trade is a statement that
 opens with a regular expression beginning `>` straight after a block.
 
+**JSX text, in 0.9.2.** The same run found apostrophes. In `<span>Don't
+click</span>`, the `'` opened a string that never closed on its line, and the
+file was lost.
+
+Tracking JSX text, from a tag's `>` to the next `<`, was considered and turned
+down. It would have to tell a closing `>` from a TypeScript cast `<Type>value` and
+from a generic arrow `<T extends Base>(item: T) => ...`. Getting that wrong
+would treat real code as text and skip it silently, which is worse than a file
+reported as unanalysable.
+
+The narrower rule rests on valid code:
+- **a string must close on its line** (a line continuation is escaped and read
+  as part of the string);
+- **a quote directly after a keyword closes on its line too**, as in minified
+  `return'x'` or `from'./x'`.
+
+So a quote straight after a letter or digit whose string does not close on its
+line is text, and the scan steps over that one character. That covers
+contractions, plural possessives such as `users'`, and `5"`.
+
+A quote after a space or punctuation still loses the scan, as do `'Til then`
+and `/*` inside JSX text. `/*` has a worse case, found while checking this and
+not fixed: when a real `*/` follows later in the file, the code in between is
+skipped without any note. Nothing that knows no JSX can tell that `/*` from a
+real comment.
+
 The six files that remain unanalysable are five JSX files and one TypeScript
 file in rxjs. They are **detected**, which is the property that matters: the
 analyser declines to answer for them rather than reporting them as clean.
@@ -209,6 +235,11 @@ Default behaviour is to report, not to hide and not to fail:
 
 The count is still reported, because it is still true of everything that could
 be seen. The warning is what stops it being mistaken for a complete answer.
+
+Until 0.9.2 the human report printed it under a passing assertion only with
+`--verbose`, while the comment note beside it printed by default. A green run is
+the one nobody passes `--verbose` to, so a passing assertion's warnings now
+print either way.
 
 `--strict` promotes those warnings to failures. That is the same meaning the
 flag already has for missing target paths, generalised to its natural form:
