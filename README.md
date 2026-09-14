@@ -1190,7 +1190,7 @@ npm install
 npm run build      # tsc -> dist/
 npm test           # vitest
 npm run test:coverage
-npm run test:mutation  # stryker (three 16-20 min jobs in CI; hours locally)
+npm run test:mutation  # stryker (four parallel jobs in CI; hours locally)
 npm run lint       # tsc --noEmit
 npm run selfcheck  # run spec-guard on its own docs
 ```
@@ -1252,7 +1252,7 @@ verdict.
 The full sweep was 6m54s at 2,118 mutants, 15m51s at 3,493, and 42m39s at 7,763.
 That growth is why the tiers exist: a check that gets quietly more expensive
 every release is a check somebody eventually proposes lowering. It is also why
-both tiers now run in three parallel shards of 16 to 20 minutes each. One runner
+both tiers now run in four parallel shards. One runner
 could no longer finish the full sweep reliably inside the job's limit, and the
 answer was to split the sweep rather than raise the limit or drop mutants.
 Each shard mutates its own files against every test, and a final job merges the

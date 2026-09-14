@@ -1063,7 +1063,7 @@ measured, and one fewer survivor than 0.7.0 before 676 new mutants arrived:
 - `glob.ts` has six, less the adjacent-class hang;
 - every other module has exactly the survivors it had in 0.7.0.
 
-### 0.9.0: the sweep in three parallel shards
+### 0.9.0: the sweep in parallel shards
 
 The full sweep of 820f261 was cancelled at the job's 45-minute limit with 7,044
 of 7,763 mutants tested. The commit before it, f83a743, had the same source and
@@ -1217,6 +1217,36 @@ static mutants. Shard 3 was the heaviest by about two minutes, so `specs.ts` and
 `text.ts` moved to shard 1. Both are small files whose timeouts hold a worker
 for a minute each. That makes the shards about 16.3, 15.6 and 16.3 on a common
 runner. Runner variance is still larger than that difference.
+
+**The second sharded sweep, 5e0902d, was the first the merge accepted.** Each
+shard started from nothing and found only its own files: 6, 4 and 13 of them.
+The merged report scored **98.84% over 7,763 mutants**: 7,540 killed, 132
+timeouts, 87 survivors, 3 uncovered and 1 error. Against f83a743's unsplit
+sweep, the file-by-file table moved in three ways:
+- **`watch.ts`** lost its survivor, as expected;
+- **mutants on the border of hanging** went between killed and timed out: one in
+  `comments.ts`, one in `engine.ts`, one in `polyglot.ts`;
+- **`structure.ts`'s one timeout became an error.** Its vitest worker exited
+  unexpectedly. The 0.8.0 section says `structure.ts`'s only timeout is a walk
+  that descends for ever. Whether such a mutant reaches the clock or exhausts
+  its worker first depends on the runner. Stryker leaves an error out of the
+  score rather than counting it as a kill. Either way the score is 98.84%.
+
+It was not fast enough. The shards took 20m51s, 18m46s and 19m33s, on runners
+whose initial test runs took 10.3, 9.1 and 8.2 seconds of test time. With two
+sweeps of per-file minutes, each scaled to a runner that takes 8.0 seconds and
+then averaged, the whole sweep is about 49 minutes of work. Three shards cannot
+land near 15 minutes on that, and a 21-minute shard leaves a 30-minute limit
+too little headroom for a bad runner. So there are **four shards**:
+
+| shard | files | minutes on an 8.0-second runner |
+| --- | --- | --- |
+| 1 | `runner.ts`, `polyglot.ts`, `comments.ts`, `text.ts` | 12.3 |
+| 2 | `engine.ts`, `graph.ts`, `imports.ts`, `specs.ts` | 12.2 |
+| 3 | `parser.ts`, `mcp.ts`, `glob.ts`, `scope.ts`, `structure.ts` | 12.2 |
+| 4 | everything else | 12.7 |
+
+On the second sweep's slowest runner, that is about 16 minutes.
 
 <!-- @assert-present file="scripts/mutation-shards.mjs,scripts/mutation-timeline.mjs,stryker.shard.config.mjs,tests/mutation-shards.test.ts" reason="the sweep is only one sweep if the merge that checks it exists" -->
 <!-- @assert-count target="stryker.config.mjs" symbol="related: false }" expected="1" reason="with related tests on, which tests a shard runs depends on the files it holds; see 0.9.0 in this ADR" -->

@@ -62,7 +62,7 @@ affected. [ADR-0014](docs/adr/0014-configuration-and-watch.md).
   `Assertion.missingTargets` is gone: only execution ever wrote to it.
 - This repository keeps its specs in `package.json`, and its selfcheck, CI run
   and SARIF upload run `spec-guard` without patterns.
-- **Mutation testing in CI runs in three parallel shards.** The full sweep took
+- **Mutation testing in CI runs in four parallel shards.** The full sweep took
   42m39s against a 45-minute job limit, and a slower runner was cancelled on the
   same source. Hosted runners vary by a fifth or more on identical work.
   - Each shard mutates its own files, balanced on per-file minutes read from

@@ -4,7 +4,7 @@
  *
  * One hosted runner stopped finishing the sweep reliably: 42m39s on f83a743
  * against a 45-minute job limit, and the same source on a slower runner was on
- * pace for about 49. ADR-0003 ("0.9.0: the sweep in three parallel shards") has
+ * pace for about 49. ADR-0003 ("0.9.0: the sweep in parallel shards") has
  * the measurements behind the split and behind the table below.
  *
  * Each shard runs Stryker with stryker.shard.config.mjs, which takes `mutate`
@@ -28,25 +28,29 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 // replaces, and a separately pinned copy could drift from it.
 import { calculateMutationTestMetrics } from 'mutation-testing-metrics';
 
-// Minutes each file took in the first sharded sweep, 68a4da5, read off each
-// shard's log with scripts/mutation-timeline.mjs (ADR-0003 has the unsplit
-// sweep's minutes these shards were first cut on):
+// Minutes each file takes, read off the logs of the first two sharded sweeps
+// (68a4da5, 5e0902d) with scripts/mutation-timeline.mjs. Each shard's minutes
+// are scaled to a runner whose initial test run takes 8.0 seconds of test
+// time, since the runners behind these took from 8.0 to 10.3, and the two
+// sweeps are averaged:
 //
-//   runner 7.6   engine 5.3   cli 5.1   parser 4.3   graph 3.7   watch 3.6
-//   mcp 3.5   imports 3.5   polyglot 2.6   glob 2.5   comments 2.4
-//   reporter 2.4   structure 0.9   the other ten files 4.1 between them
+//   runner 7.0   engine 5.3   cli 4.9   parser 4.5   watch 3.5   graph 3.3
+//   mcp 3.3   imports 3.1   glob 2.8   polyglot 2.4   comments 2.3
+//   reporter 2.1   the other eleven files 4.9 between them
 //
-// Runners differ by a fifth or more, so these are only good to a minute or so,
-// and a shard's minutes are best compared after scaling by its initial test
-// run. The first shards are listed. The last mutates everything else the base
+// About 49 minutes in all, so three shards could not land near 15 minutes:
+// they took 19 to 21 on the second sweep's runners. Runners differ by a fifth
+// or more, so none of this is good to better than a minute or so. The first
+// shards are listed. The last mutates everything else the base
 // configuration mutates, so a file added later is still mutated without anyone
 // remembering to list it here; the price is that new files all land in one
 // shard. When a shard's sweep passes 20 minutes, re-measure and move files or
 // add a shard (and add it to the workflow's matrix, which the merge checks).
 export const ASSIGNED = [
-  ['src/runner.ts', 'src/graph.ts', 'src/polyglot.ts', 'src/comments.ts', 'src/specs.ts', 'src/text.ts'], // 17.5
-  ['src/engine.ts', 'src/parser.ts', 'src/mcp.ts', 'src/glob.ts'], // 15.6
-]; // and the rest: 18.6, on a runner that was a seventh slower than shard 2's
+  ['src/runner.ts', 'src/polyglot.ts', 'src/comments.ts', 'src/text.ts'], // 12.3
+  ['src/engine.ts', 'src/graph.ts', 'src/imports.ts', 'src/specs.ts'], // 12.2
+  ['src/parser.ts', 'src/mcp.ts', 'src/glob.ts', 'src/scope.ts', 'src/structure.ts'], // 12.2
+]; // and the rest: 12.7
 
 export const SHARD_COUNT = ASSIGNED.length + 1;
 

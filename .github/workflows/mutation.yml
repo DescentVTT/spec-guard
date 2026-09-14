@@ -59,11 +59,11 @@ jobs:
     # mistaken for an authority it does not have.
     name: stryker (${{ (github.ref == 'refs/heads/main' || github.event_name == 'schedule' || inputs.full) && 'full' || 'incremental' }}, shard ${{ matrix.shard }} of ${{ strategy.job-total }})
     runs-on: ubuntu-latest
-    # Headroom for a bad day, not a budget. The first sharded sweep took 16m49s,
-    # 16m04s and 20m25s, the last on a slow runner, and was rebalanced after it.
-    # If shards keep passing 20 minutes, move files between them or add one;
-    # the history of this number (30, then 45, then a coin flip at 45) is why it
-    # is not raised.
+    # Headroom for a bad day, not a budget. Three shards took 19 to 21 minutes
+    # on the second sharded sweep's runners, which is why there are four. If
+    # shards keep passing 20 minutes, move files between them or add one; the
+    # history of this number (30, then 45, then a coin flip at 45) is why it is
+    # not raised.
     timeout-minutes: 30
 
     strategy:
@@ -72,7 +72,7 @@ jobs:
       fail-fast: false
       matrix:
         # One entry per shard in scripts/mutation-shards.mjs; a test checks.
-        shard: [1, 2, 3]
+        shard: [1, 2, 3, 4]
 
     env:
       FULL: ${{ github.ref == 'refs/heads/main' || github.event_name == 'schedule' || inputs.full }}
