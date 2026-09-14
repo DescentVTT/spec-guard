@@ -549,6 +549,12 @@ class JavaScriptEngine implements Engine {
     const concurrency = readConcurrency(files.length);
     let cursor = 0;
     const perFile = new Map<string, Map<string, Tally>>();
+    // What a reader could not inspect, by file. Kept here and entered in the
+    // ledger in walk order below, rather than by each reader as its read ends:
+    // that was the order reads happened to finish in, which differed between two
+    // runs of one tree - and past the ledger's cap, so did which paths it named.
+    // A watch session held to a fresh run found it (ADR-0014).
+    const gaps = new Map<string, { reason: 'unreadable' | 'binary'; matches?: number }>();
     // Per pattern, how many matches each file holds. Only files that matched
     // appear, so this is smaller than perFile, which already holds an entry for
     // every file scanned - there is no new memory shape here.
@@ -564,7 +570,7 @@ class JavaScriptEngine implements Engine {
         if (!buffer) {
           // A file we cannot open might hold anything, so it is recorded rather
           // than passed over as though it had been read and found clean.
-          ledger.add(file.relativePath, 'unreadable');
+          gaps.set(file.relativePath, { reason: 'unreadable' });
           continue;
         }
         const content = buffer.toString('utf8');
@@ -589,7 +595,7 @@ class JavaScriptEngine implements Engine {
           // reporting the same thing, since ripgrep only ever hands the scanner
           // files that matched.
           const found = [...scanned.values()].reduce((total, tally) => total + tally.count, 0);
-          if (found > 0) ledger.add(file.relativePath, 'binary', found);
+          if (found > 0) gaps.set(file.relativePath, { reason: 'binary', matches: found });
           continue;
         }
         // A mask exists only if some pattern matched, since that is the only
@@ -602,8 +608,11 @@ class JavaScriptEngine implements Engine {
 
     await Promise.all(Array.from({ length: concurrency }, worker));
 
-    // Merge in walk order so snippets come out sorted by path, like ripgrep's.
+    // Merge in walk order so snippets come out sorted by path, like ripgrep's,
+    // and so does the ledger.
     for (const file of files) {
+      const gap = gaps.get(file.relativePath);
+      if (gap) ledger.add(file.relativePath, gap.reason, gap.matches);
       const scanned = perFile.get(file.relativePath);
       if (!scanned) continue;
       for (const [pattern, tally] of scanned) {

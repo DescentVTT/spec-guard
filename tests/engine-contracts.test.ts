@@ -722,6 +722,37 @@ describe('an empty batch is answered without searching', () => {
   });
 });
 
+describe('the order of what the scanner could not inspect', () => {
+  it('is the order of the paths, not the order the reads finished in', async () => {
+    // Found by holding a watch session to a fresh run (ADR-0014): two plain
+    // runs of the same tree listed the same binary files in different orders,
+    // because each reader added its file to the ledger as its read finished.
+    // A door whose first file arrives last makes the race happen every time.
+    const root = path.resolve('/spec-guard-virtual-root');
+    const files = { 'a.bin': 'Widget\u0000', 'b.bin': 'Widget\u0000', 'c.ts': 'x', 'd.bin': 'Widget\u0000' };
+    const memory = memoryIo(root, files);
+    const unreadable = path.join(root, 'c.ts');
+    const slowFirst: typeof memory = {
+      ...memory,
+      readFile: async (file) => {
+        if (file === path.join(root, 'a.bin')) await new Promise((resolve) => setTimeout(resolve, 30));
+        if (file === unreadable) {
+          await new Promise((resolve) => setTimeout(resolve, 15));
+          throw new Error('EACCES');
+        }
+        return memory.readFile(file);
+      },
+    };
+    const [result] = await createJavaScriptEngine(slowFirst).searchBatch([{ root, symbol: 'Widget', targets: [], options: searchOptions() }]);
+    expect(result?.scope.skipped).toEqual([
+      { path: 'a.bin', reason: 'binary', matches: 1 },
+      { path: 'b.bin', reason: 'binary', matches: 1 },
+      { path: 'c.ts', reason: 'unreadable' },
+      { path: 'd.bin', reason: 'binary', matches: 1 },
+    ]);
+  });
+});
+
 describe('createCachedEngine', () => {
   it('records no fallback when the javascript engine is the one that failed', async () => {
     // There is nothing to fall back to, so a fallback note would be a claim
