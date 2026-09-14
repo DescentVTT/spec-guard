@@ -1248,6 +1248,19 @@ too little headroom for a bad runner. So there are **four shards**:
 
 On the second sweep's slowest runner, that is about 16 minutes.
 
+**The first four-shard sweep** was the weekly schedule's, on cd368a4. It fired
+late and cancelled the push's run of the same commit, as the workflow's
+concurrency group intends.
+- **Score:** **98.84% over 7,763 mutants**: 7,541 killed, 132 timeouts, 87
+  survivors, 3 uncovered and no errors. `structure.ts`'s hang reached the clock
+  this time.
+- **Shards:** 10m56s, 10m22s, 15m04s and 12m48s, on runners whose initial test
+  runs took 6.5, 6.2, 8.9 and 8.6 seconds of test time. Scaled to 8.0 seconds
+  that is 13.5, 13.4, 13.5 and 11.9.
+- **The whole sweep:** 15m33s from the first shard starting to the merged score,
+  against 42m39s on one runner, with the gate, every mutant and the per-mutant
+  timeout unchanged.
+
 <!-- @assert-present file="scripts/mutation-shards.mjs,scripts/mutation-timeline.mjs,stryker.shard.config.mjs,tests/mutation-shards.test.ts" reason="the sweep is only one sweep if the merge that checks it exists" -->
 <!-- @assert-count target="stryker.config.mjs" symbol="related: false }" expected="1" reason="with related tests on, which tests a shard runs depends on the files it holds; see 0.9.0 in this ADR" -->
 <!-- @assert-absence target=".github/workflows" symbol="--ignoreStatic" reason="780 static mutants are 10% of the sweep; leaving them out lowers the gate" -->
