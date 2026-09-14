@@ -592,14 +592,16 @@ describe('what every structure rule shares with the others', () => {
     expect(await one(root, '<!-- @assert-structure target="Src" pattern="*.ts" -->')).toMatchObject({ ok: false, message: 'target path does not exist: Src' });
   });
 
-  it('warns about nothing when every target is there, and records the ones that are not on the assertion', async () => {
+  it('warns about nothing when every target is there, and names the ones that are not, once each time', async () => {
     const root = await tree({ 'src/a.ts': '' });
     const report = await run(root, ['<!-- @assert-structure target="src" pattern="*.ts" -->']);
     expect(report.results[0]?.warnings).toEqual([]);
 
     const assertion = assertionOf('<!-- @assert-structure target="src, gone, lost" pattern="*.ts" -->', root);
-    await executeAssertion(assertion, { ...executeOptions(root), allowMissingTargets: true });
-    expect(assertion.missingTargets).toEqual(['gone', 'lost']);
+    for (let time = 0; time < 2; time++) {
+      const result = await executeAssertion(assertion, { ...executeOptions(root), allowMissingTargets: true });
+      expect(result.warnings).toEqual(['target paths not found: gone, lost']);
+    }
   });
 
   it('fails rather than breaks on a target below a directory that cannot be listed', async () => {
@@ -739,7 +741,6 @@ describe('resolving @assert-structure', () => {
         excludeFiles: new Set(),
       },
       structure: { claim: 'pattern', values: ['*.entity.ts', 'index.ts'] },
-      missingTargets: [],
       allowEmpty: false,
       baseline: [],
       ratchet: 'two-sided',

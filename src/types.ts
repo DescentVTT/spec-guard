@@ -261,8 +261,6 @@ export interface Assertion {
   baseline: readonly BaselineEntry[];
   /** Whether a baseline entry that no longer matches fails the run. */
   ratchet: RatchetMode;
-  /** Targets that do not exist on disk. */
-  missingTargets: string[];
   /**
    * Tolerate a scope containing no files.
    *

@@ -483,7 +483,6 @@ export function resolveDirective(
           targets: [],
           files,
           bounds: { min: files.length, max: files.length },
-          missingTargets: [],
           // A file list is never empty here: resolution rejects that above.
           allowEmpty: true,
           baseline: [],
@@ -678,7 +677,6 @@ export function resolveDirective(
           },
           imports: { modules: perModule ? splitList(symbol) : [], includeTypes },
           ...(kind === "assert-layers" ? { layers } : {}),
-          missingTargets: [],
           allowEmpty,
           baseline,
           ratchet,
@@ -724,7 +722,6 @@ export function resolveDirective(
         files: [],
         bounds,
         search,
-        missingTargets: [],
         allowEmpty,
         baseline,
         ratchet,
@@ -813,7 +810,6 @@ function resolveStructure(
         excludeFiles: new Set(),
       },
       structure: dirs === undefined ? { claim, values } : { claim, values, dirs },
-      missingTargets: [],
       allowEmpty: shared.allowEmpty,
       baseline: shared.baseline,
       ratchet: shared.ratchet,
@@ -833,6 +829,25 @@ export function specExclusions(specFiles: readonly string[], includeSpecs: boole
 
 async function pathExists(candidate: string): Promise<boolean> {
   return (await fs.stat(candidate).catch(() => null)) !== null;
+}
+
+/**
+ * The targets that exist and the ones that do not, in the order written.
+ *
+ * Returned rather than recorded on the assertion, which is what execution used
+ * to do: the second execution of a rule then named each missing target twice.
+ * A watch session executes its rules again and again (ADR-0014).
+ */
+async function partitionTargets(
+  targets: readonly string[],
+  root: string,
+): Promise<{ existing: string[]; missing: string[] }> {
+  const existing: string[] = [];
+  const missing: string[] = [];
+  for (const target of targets) {
+    (await pathExists(path.resolve(root, target)) ? existing : missing).push(target);
+  }
+  return { existing, missing };
 }
 
 export interface ExecuteOptions {
@@ -928,17 +943,11 @@ async function prepareAssertion(
     return executeStructureAssertion(assertion, assertion.structure, options, base, warnings, startedAt);
   }
 
-  const existingTargets: string[] = [];
-  for (const target of assertion.targets) {
-    if (await pathExists(path.resolve(options.root, target)))
-      existingTargets.push(target);
-    else assertion.missingTargets.push(target);
-  }
+  const { existing: existingTargets, missing } = await partitionTargets(assertion.targets, options.root);
+  const notFound = missingTargets(missing);
+  if (missing.length > 0) warnings.push(notFound.warning);
 
-  const notFound = missingTargets(assertion.missingTargets);
-  if (assertion.missingTargets.length > 0) warnings.push(notFound.warning);
-
-  if (!options.allowMissingTargets && assertion.missingTargets.length > 0) {
+  if (!options.allowMissingTargets && missing.length > 0) {
     return {
       ...base,
       ok: false,
@@ -1058,7 +1067,6 @@ async function executeStructureAssertion(
     options.tree,
   );
 
-  assertion.missingTargets.push(...check.missing);
   const notFound = missingTargets(check.missing);
   if (check.missing.length > 0) warnings.push(notFound.warning);
 
@@ -1147,15 +1155,9 @@ async function executeImportAssertion(
   startedAt: number,
 ): Promise<AssertionResult> {
   const query = assertion.imports as NonNullable<Assertion["imports"]>;
-  const existingTargets: string[] = [];
-  for (const target of assertion.targets) {
-    if (await pathExists(path.resolve(options.root, target)))
-      existingTargets.push(target);
-    else assertion.missingTargets.push(target);
-  }
-
-  const notFound = missingTargets(assertion.missingTargets);
-  if (assertion.missingTargets.length > 0) warnings.push(notFound.warning);
+  const { existing: existingTargets, missing: absent } = await partitionTargets(assertion.targets, options.root);
+  const notFound = missingTargets(absent);
+  if (absent.length > 0) warnings.push(notFound.warning);
 
   // No symbol: an import assertion never runs a text search, and the walk does
   // not depend on one. This used to pass `symbol: ""`, an invented value that
@@ -1176,7 +1178,7 @@ async function executeImportAssertion(
   // before scope, so a rule whose only target is gone says so rather than that
   // its scope is empty - which is true, and not the thing to fix.
   const missing =
-    !options.allowMissingTargets && assertion.missingTargets.length > 0
+    !options.allowMissingTargets && absent.length > 0
       ? notFound.failure
       : null;
 

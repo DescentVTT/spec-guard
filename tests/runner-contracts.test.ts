@@ -342,7 +342,6 @@ describe('an assertion with no bounds at all', () => {
       files: [],
       bounds,
       search: searchOptions(),
-      missingTargets: [],
       allowEmpty: false,
       baseline: [],
       ratchet: 'two-sided',
@@ -382,6 +381,46 @@ describe('an assertion with no bounds at all', () => {
     [{ min: 0, max: 0 }, false],
   ] as Array<[Bounds, boolean]>)('bounds %o against a count of 1 is %s', async (bounds, ok) => {
     expect((await outcome(bounds)).ok).toBe(ok);
+  });
+});
+
+/**
+ * A watch session keeps its resolved assertions and executes them again
+ * (ADR-0014). Execution used to append each missing target to the assertion it
+ * was given, so the second run of a rule named every missing target twice.
+ */
+describe('executing one assertion twice', () => {
+  const RULES: Array<[DirectiveKind, Record<string, string>]> = [
+    ['assert-absence', { target: 'src, src/gone', symbol: 'Widget' }],
+    ['assert-import-absence', { target: 'src, src/gone', module: 'lodash' }],
+    ['assert-structure', { target: 'src, src/gone', pattern: '*.ts' }],
+  ];
+
+  it.each(RULES)('gives the same %s result both times', async (kind, attributes) => {
+    const root = await repo({ 'src/a.ts': 'const w = Widget;\n' });
+    const resolved = resolveDirective(directive(kind, attributes), { root, excludeFiles: new Set<string>() });
+    if (!('assertion' in resolved)) throw new Error(resolved.error.message);
+    const execute = async (allowMissingTargets: boolean) => {
+      const { durationMs: _, ...result } = await executeAssertion(resolved.assertion, {
+        root,
+        engine: javascriptEngine,
+        allowMissingTargets,
+        strictTargets: false,
+        allowEmptyScope: false,
+        maxSnippets: DEFAULT_MAX_SNIPPETS,
+        imports: createImportIndex(),
+        hasFiles: createScopeProbe(),
+        tree: createTreeIndex(root),
+      });
+      return result;
+    };
+
+    for (const allowMissingTargets of [true, false]) {
+      const first = await execute(allowMissingTargets);
+      expect(first.warnings).toContain('target path not found: src/gone');
+      expect(await execute(allowMissingTargets)).toEqual(first);
+    }
+    expect((await execute(false)).message).toBe('target path does not exist: src/gone');
   });
 });
 
@@ -482,7 +521,6 @@ describe('assert-present resolves to a fixed shape', () => {
       files: ['src/a.ts', 'src/b.ts'],
       targets: [],
       bounds: { min: 2, max: 2 },
-      missingTargets: [],
       allowEmpty: true,
       baseline: [],
       ratchet: 'two-sided',
