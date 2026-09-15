@@ -55,15 +55,16 @@ describe('which language an extension is', () => {
     ['a.py', 'hash'],
     ['a.pyi', 'hash'],
     ['a.rb', 'hash'],
-    ['a.sh', 'hash'],
-    ['a.bash', 'hash'],
-    ['a.zsh', 'hash'],
-    ['a.yaml', 'hash'],
-    ['a.yml', 'hash'],
     ['a.toml', 'hash'],
     ['a.tf', 'hash'],
     ['a.pl', 'hash'],
     ['a.r', 'hash'],
+    // A shell and YAML both take `#` as a comment only where a word starts.
+    ['a.sh', 'shell-like'],
+    ['a.bash', 'shell-like'],
+    ['a.zsh', 'shell-like'],
+    ['a.yaml', 'shell-like'],
+    ['a.yml', 'shell-like'],
     ['a.sql', 'sql-like'],
     ['a.lua', 'sql-like'],
     ['a.hs', 'sql-like'],
@@ -120,6 +121,7 @@ describe('the profiles themselves', () => {
     ['rust', { line: ['//'], block: [['/*', '*/']], nested: true }],
     ['go', { line: ['//'], block: [['/*', '*/']], nested: false }],
     ['hash', { line: ['#'], block: [], nested: false }],
+    ['shell-like', { line: ['#'], block: [], nested: false }],
     ['sql-like', { line: ['--'], block: [['/*', '*/']], nested: false }],
     ['markup', { line: [], block: [['<!--', '-->']], nested: false }],
     ['none', { line: [], block: [], nested: false }],
@@ -131,7 +133,7 @@ describe('the profiles themselves', () => {
     // Two ways of answering "which language is this" is one more than the
     // number that can be right, so the by-name table is derived from the
     // by-extension one; this is the assertion that they agree.
-    for (const file of ['a.ts', 'a.c', 'a.cs', 'a.rs', 'a.go', 'a.py', 'a.sql', 'a.md', 'a.json']) {
+    for (const file of ['a.ts', 'a.c', 'a.cs', 'a.rs', 'a.go', 'a.py', 'a.sh', 'a.sql', 'a.md', 'a.json']) {
       const syntax = syntaxFor(file);
       expect(syntaxNamed(syntax?.name ?? ''), file).toBe(syntax);
     }
@@ -145,11 +147,13 @@ describe('the profiles themselves', () => {
     ['javascript', ['"', "'", '`']],
     ['c-like', ['"', "'"]],
     ['c#', ['"""', '@$"', '@"', '"', "'"]],
-    ['rust', ['r#"', 'r"', '"', "'"]],
+    // One raw form, `r` and any number of hashes, before the ordinary quotes.
+    ['rust', ['r', '"', "'"]],
     ['go', ['"', "'", '`']],
     // Triple quotes first: a Python docstring is a string, not a comment, and
     // reading it as code is the conservative direction.
     ['hash', ['"""', "'''", '"', "'"]],
+    ['shell-like', ["$'", '"', "'"]],
     ['sql-like', ['"', "'"]],
     ['markup', []],
     ['none', []],
@@ -165,11 +169,39 @@ describe('the profiles themselves', () => {
     ]);
   });
 
-  it('closes a rust raw string with the matching hash form', () => {
-    expect(syntaxNamed('rust')?.strings.slice(0, 2)).toEqual([
-      { open: 'r#"', close: '"#', escape: false },
-      { open: 'r"', close: '"', escape: false },
+  it('reads a rust raw string by its hashes, and a character literal as a line at most', () => {
+    expect(syntaxNamed('rust')?.strings).toEqual([
+      { open: 'r', close: '"', escape: false, hashes: true },
+      { open: '"', close: '"', escape: true },
+      { open: "'", close: "'", escape: true, singleLine: true },
     ]);
+  });
+
+  it('honours a backslash in a shell string only where the shell does', () => {
+    // Nothing escapes inside '...', in a shell or in YAML; $'...' is the form
+    // that exists to allow it.
+    expect(syntaxNamed('shell-like')?.strings).toEqual([
+      { open: "$'", close: "'", escape: true },
+      { open: '"', close: '"', escape: true },
+      { open: "'", close: "'", escape: false },
+    ]);
+  });
+
+  const PROFILES = ['javascript', 'c-like', 'c#', 'rust', 'go', 'hash', 'shell-like', 'sql-like', 'markup', 'none'];
+
+  it.each([
+    ['lifetimes', ['rust']],
+    // C++ and C23 alone. JavaScript, C# and Go share C's comments, not this.
+    ['digitSeparators', ['c-like']],
+    ['wordComments', ['shell-like']],
+  ] as const)('reads %s in exactly %j', (flag, names) => {
+    expect(PROFILES.filter((name) => syntaxNamed(name)?.[flag] === true)).toEqual(names);
+  });
+
+  it('names every profile the table above walks', () => {
+    for (const file of ['a.ts', 'a.c', 'a.cs', 'a.rs', 'a.go', 'a.py', 'a.sh', 'a.sql', 'a.md', 'a.json']) {
+      expect(PROFILES, file).toContain(syntaxFor(file)?.name);
+    }
   });
 
   it('honours a backslash in an ordinary quoted string, and in a python docstring', () => {
@@ -302,6 +334,174 @@ describe('c# strings since C# 11', () => {
     expect(result.strings).toEqual([[start, 15]]);
     expect(result.comments).toEqual([[17, source.length]]);
     expect(result.unterminated).toBe(false);
+  });
+});
+
+/** What a scan read as literals, comments and lost, as text. */
+function read(source: string, name: string) {
+  const result = lexRanges(source, syntaxNamed(name) as NonNullable<ReturnType<typeof syntaxNamed>>);
+  const text = (ranges: ReadonlyArray<readonly [number, number]>) => ranges.map(([start, end]) => source.slice(start, end));
+  return { strings: text(result.strings), comments: text(result.comments), unterminated: result.unterminated };
+}
+
+describe('rust quotes that are not character literals', () => {
+  // Every source here ends in a contraction, the trap from the trial: a quote
+  // misread as opening a character literal closes on that apostrophe instead,
+  // and everything between becomes the literal.
+  it.each([
+    ['a static lifetime', "fn id(&self) -> &'static str { name }"],
+    ['the anonymous lifetime', "impl Iterator for Lines<'_> {}"],
+    ['a lifetime parameter', "struct Parser<'a> { rest: &'a str }"],
+    ['lifetime bounds', "fn f<'a, 'b>(x: &'a str) -> &'b str where 'a: 'b { x }"],
+    ['a lifetime in a trait object', 'fn lines(t: &str) -> Box<dyn Iterator<Item = &str> + \'_> { todo!() }'],
+    ['a loop label', "'outer: loop { break 'outer; }"],
+    ['a label on a block', "let v = 'done: { break 'done 1; };"],
+    ['a lifetime with a non-ascii name', "fn f<'λ>(x: &'λ str) {}"],
+  ])('reads %s as code', (_name, code) => {
+    expect(read(`${code} // it's`, 'rust')).toEqual({ strings: [], comments: ["// it's"], unterminated: false });
+  });
+
+  it('reads the trial file: a lifetime, a comment with a contraction, and the code between', () => {
+    const source = "fn id(&self) -> &'static str {\n    \"rules\"\n}\n\nconst X: u8 = 1;\n// don't\n";
+    expect(read(source, 'rust')).toEqual({ strings: ['"rules"'], comments: ["// don't"], unterminated: false });
+  });
+
+  it.each([
+    ["'a'", "'a'"],
+    ["'_'", "'_'"],
+    ["'λ'", "'λ'"],
+    ["'\\''", "'\\''"],
+    ['\'"\'', '\'"\''],
+    ["'\\\\'", "'\\\\'"],
+    ["'\\u{1F600}'", "'\\u{1F600}'"],
+    ["b'\\''", "'\\''"],
+  ])('reads %s as a character literal', (literal, captured) => {
+    expect(read(`let c = ${literal}; // it's`, 'rust')).toEqual({ strings: [captured], comments: ["// it's"], unterminated: false });
+  });
+
+  it('reads a lifetime whole, so its last letter opens no raw string', () => {
+    // A macro's input is tokens, and there a lifetime can sit against a string:
+    // rustc reads `'xr` and then "a\"b", not `'x` and a raw string r"a\".
+    expect(read('m!(\'xr"a\\"b"); // note', 'rust')).toEqual({
+      strings: ['"a\\"b"'],
+      comments: ['// note'],
+      unterminated: false,
+    });
+  });
+
+  it('ends a character literal left open at its line, and reports the lost place', () => {
+    // No valid file has one. What it costs is now a line rather than the file:
+    // the comment below is read, and the flag still says something went wrong.
+    expect(read("let c = '  x;\n// note\n", 'rust')).toEqual({ strings: ["'  x;"], comments: ['// note'], unterminated: true });
+  });
+
+  it('lets a string run over lines, which only a character literal cannot', () => {
+    expect(read('let s = "one\ntwo"; // note', 'rust')).toEqual({ strings: ['"one\ntwo"'], comments: ['// note'], unterminated: false });
+  });
+});
+
+describe('rust raw strings', () => {
+  it.each([
+    ['no hashes, and a backslash', 'r"C:\\"'],
+    ['one hash, holding a quote', 'r#"say "hi""#'],
+    ['two hashes, holding a quote and a hash', 'r##"a "# b"##'],
+    ['three hashes, holding two', 'r###"a "## b"###'],
+    ['nothing at all', 'r#""#'],
+  ])('reads a raw string with %s', (_name, literal) => {
+    expect(read(`let s = ${literal}; // it's`, 'rust')).toEqual({ strings: [literal], comments: ["// it's"], unterminated: false });
+  });
+
+  it.each([
+    ['byte', 'br##"a "# b"##'],
+    ['C', 'cr#"a "b"#'],
+  ])('reads a raw %s string by the same rule', (_name, literal) => {
+    expect(read(`let s = ${literal}; // it's`, 'rust').strings).toEqual([literal.slice(1)]);
+  });
+
+  it('reads a raw identifier as an identifier', () => {
+    // `r#` with no quote after its hashes opens nothing: this is a field named
+    // `type`, and the string after it is an ordinary one.
+    expect(read('let r#type = "a\\"b"; // it\'s', 'rust')).toEqual({ strings: ['"a\\"b"'], comments: ["// it's"], unterminated: false });
+  });
+
+  it('reads the r of a word as a letter', () => {
+    expect(read('for x in xs { f("C:\\\\"); } // it\'s', 'rust').strings).toEqual(['"C:\\\\"']);
+  });
+
+  it('reports a raw string whose closer is short of hashes as a lost place', () => {
+    expect(read('let s = r##"a "# b"#;\n', 'rust')).toEqual({ strings: ['r##"a "# b"#;\n'], comments: [], unterminated: true });
+  });
+});
+
+describe('digit separators in C++ and C23', () => {
+  it.each([
+    ["100'000"],
+    ["1'000'000"],
+    // A group after a separator can start with a letter, so the number is read
+    // back to where it started, across the separators before it.
+    ["0xFFFF'FFFF'FFFF"],
+    ["0b1010'1010"],
+    ["3.141'592"],
+  ])('reads %s as one number', (number) => {
+    expect(read(`auto n = ${number}; // it's`, 'c-like')).toEqual({ strings: [], comments: ["// it's"], unterminated: false });
+  });
+
+  it('reads a number at the very start of the file', () => {
+    expect(read("1'0; // it's", 'c-like').strings).toEqual([]);
+  });
+
+  it('still reads a character literal whose prefix ends in a digit', () => {
+    expect(read('auto a = u8\'a\'; auto b = L\'"\'; // it\'s', 'c-like')).toEqual({
+      strings: ["'a'", '\'"\''],
+      comments: ["// it's"],
+      unterminated: false,
+    });
+  });
+
+  it.each(['javascript', 'c#', 'go'])('is not a rule for %s, which shares only C comments', (name) => {
+    // A quote after a number is no valid code in these either; a misread file
+    // is what reaches one, and a rule should not change which wrong answer it
+    // gets.
+    expect(read("x = 1'a # b'", name).strings).toEqual(["'a # b'"]);
+  });
+});
+
+describe('a hash inside a word, in a shell and in YAML', () => {
+  it.each([
+    ['a prefix removal', 'name=${file#v} # tag'],
+    ['a basename', 'name=${path##*/} # base'],
+    ['an array length', 'count=${#items[@]} # items'],
+    ['the argument count', 'if [ $# -eq 0 ]; then exit 1; fi # none'],
+    ['a URL fragment in YAML', 'url: https://example.com/docs#top # docs'],
+  ])('reads %s as code, up to the comment after it', (_name, source) => {
+    expect(read(source, 'shell-like').comments).toEqual([source.slice(source.lastIndexOf('# '))]);
+  });
+
+  it.each([
+    ['at the start of the file', '# note\nx=1\n'],
+    ['at the start of a line', 'x=1\n# note\n'],
+    ['after a space', 'x=1 # note\n'],
+    ['after a tab', 'x=1\t# note\n'],
+  ])('opens a comment %s', (_name, source) => {
+    expect(read(source, 'shell-like').comments).toEqual(['# note']);
+  });
+
+  it('reads a comment written against code as code, the direction that fails loudly', () => {
+    expect(read('x=1;# note\n', 'shell-like').comments).toEqual([]);
+  });
+
+  it('still opens one anywhere in Python, which says so', () => {
+    expect(read('x=1# note\n', 'hash').comments).toEqual(['# note']);
+  });
+
+  it.each([
+    ['a single-quoted string ending in a backslash', "'C:\\'"],
+    ['a double-quoted string with escaped quotes', '"say \\"hi\\""'],
+    ['an ANSI-C string with an escaped quote', "$'it\\'s'"],
+    ['a quote straight after a number', "'x # y'"],
+  ])('closes %s where the shell does', (_name, literal) => {
+    const source = `echo 2${literal} # note`;
+    expect(read(source, 'shell-like')).toEqual({ strings: [literal], comments: ['# note'], unterminated: false });
   });
 });
 

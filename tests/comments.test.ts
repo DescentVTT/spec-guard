@@ -143,6 +143,22 @@ const CASES: Case[] = [
     expected: [false, false],
   },
   {
+    // Both triple quotes are strings, and each closes only at its own triple:
+    // a `'''` read as closed by nothing would end where it opened, and the
+    // rest of this docstring would be a comment.
+    name: 'a single-quoted docstring is a string too',
+    file: 'a.py',
+    source: "'''# NEEDLE lives here'''\nx = NEEDLE\n",
+    expected: [false, false],
+  },
+  {
+    // A backslash escapes a quote in a docstring, so `\'''` does not close it.
+    name: 'a backslash escapes a quote in a docstring',
+    file: 'a.py',
+    source: "'''it\\'''s # NEEDLE'''\n# NEEDLE\n",
+    expected: [false, true],
+  },
+  {
     name: 'a hash inside a string is text',
     file: 'a.py',
     source: 'colour = "#fff NEEDLE"\n',
@@ -242,6 +258,77 @@ const CASES: Case[] = [
     file: 'a.py',
     source: 'class Session:\n    pass\n# NEEDLE\nx = NEEDLE\n',
     expected: [true, false],
+  },
+
+  // 0.10.3. Each of these hid code as a comment before it, and each is written
+  // the way it is in real code.
+
+  {
+    // The trial: `'static` opened a character literal that closed on the
+    // apostrophe in `it's`, so the rest of that comment was code, and its `/*`
+    // hid the code below until the end of the file.
+    name: 'a rust lifetime opens no literal',
+    file: 'a.rs',
+    source: 'fn id(&self) -> &\'static str { "rules" } // it\'s /* NEEDLE\nlet x = NEEDLE;\n',
+    expected: [true, false],
+  },
+  {
+    name: 'rust lifetime bounds and labels open no literal either',
+    file: 'a.rs',
+    source: "fn f<'a, 'b>(x: &'a str) where 'a: 'b {\n    'outer: loop { break 'outer; }\n} // don't /* NEEDLE\nlet x = NEEDLE;\n",
+    expected: [true, false],
+  },
+  {
+    name: 'a rust character literal holding a quote is still one',
+    file: 'a.rs',
+    source: "if c == '\\'' || c == '\"' { NEEDLE } // don't NEEDLE\n",
+    expected: [false, true],
+  },
+  {
+    name: 'a rust raw string may hold a quote and a hash',
+    file: 'a.rs',
+    source: 'let s = r##"say "#hi /* NEEDLE"##;\n// NEEDLE\nlet x = NEEDLE;\n',
+    expected: [false, true, false],
+  },
+  {
+    name: 'a C++ digit separator opens no literal',
+    file: 'a.cpp',
+    source: "constexpr int kLimit = 100'000; // it's /* NEEDLE\nint x = NEEDLE;\n",
+    expected: [true, false],
+  },
+  {
+    name: 'a # inside a shell expansion is no comment',
+    file: 'a.sh',
+    source: 'base=${path##*/}; NEEDLE "$base" # NEEDLE\nif [ $# -eq 0 ]; then NEEDLE; fi\n',
+    expected: [false, true, false],
+  },
+  {
+    name: 'a # inside a YAML value is no comment',
+    file: 'a.yml',
+    source: 'url: https://example.com/#NEEDLE # NEEDLE\n',
+    expected: [false, true],
+  },
+  {
+    // The profile for Python, not for shells: Python needs no space before one.
+    name: 'a python comment needs no space before it',
+    file: 'a.py',
+    source: 'x = 1# NEEDLE\n',
+    expected: [true],
+  },
+  {
+    // Anything that read a quote before a word as a lifetime everywhere would
+    // read this string as code, and `//` inside it as a comment.
+    name: 'a single-quoted javascript string is still a string',
+    file: 'a.ts',
+    source: "const s = 'see // NEEDLE';\n",
+    expected: [false],
+  },
+  {
+    // A string that begins with a hash is not a raw string's hashes.
+    name: 'a string starting with a hash ends at its quote',
+    file: 'a.ts',
+    source: 'const colour = "#fff"; // NEEDLE\n',
+    expected: [true],
   },
 ];
 

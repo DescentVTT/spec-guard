@@ -5,6 +5,55 @@ All notable changes to this project are documented here. Versions follow
 may change in a minor release — each such change is listed under **Changed**
 with the flag that restores the previous behaviour.
 
+## 0.10.3
+
+Fixes from running 0.10.2 over a Rust and .NET monorepo, where an import rule
+missed five `use` declarations in one crate and said nothing, and from probing
+every other language profile for the same mistake.
+[ADR-0006](docs/adr/0006-comment-classification.md),
+[ADR-0008](docs/adr/0008-polyglot-imports.md).
+
+### Fixed
+
+- **A Rust lifetime hid the code after it.** Every `'` opened a character
+  literal, and a lifetime - `&'static str`, `<'_>`, `'a`, `where 'a: 'b` - has
+  no closing quote, so the literal ran on to the next quote in the file: often
+  an apostrophe in a comment (`// don't`). Every `use` in between went unread
+  without a note, because the literal did close; with no second quote, every
+  `use` after it went unread with one. For a text rule the rest of that comment
+  became code, and a `/*` in it hid code as a comment. Quotes are now read as
+  `rustc_lexer` reads them: a quote and an identifier with no closing quote is a
+  lifetime or a label, and `'a'`, `'\''` and `'"'` are character literals.
+- **A Rust raw string with two or more hashes lost the scan.** `r##"…"##` read
+  as an ordinary string that closed at its first inner quote. Any number of
+  hashes is read now, in byte and C strings too (`br##"…"##`, `cr#"…"#`), and
+  `r#type` stays a raw identifier. `literalValue` strips any number of them.
+- **A `#` inside a word in a shell script or YAML file hid the rest of the
+  line**, as in `${path##*/}`, `${#items[@]}`, `$#` and
+  `url: https://example.com/#top`. `.sh`, `.bash`, `.zsh`, `.yaml` and `.yml`
+  have a profile of their own, `shell-like`, in which `#` opens a comment only
+  at the start of a line or after a space or a tab, as both languages define
+  it. Their quotes follow their specifications as well: `'C:\'` is a complete
+  string, and `$'it\'s'` is one string.
+- **A C++ digit separator opened a string.** `100'000` read its quote as the
+  start of a character literal, which paired with the next quote in the file.
+  In `.c`, `.cpp` and the rest of the C profile, a quote after a word that
+  begins with a digit is now part of the number; `u8'a'` is still a
+  character.
+
+### Changed
+
+- **A Rust character literal ends at the end of its line.** None can hold a
+  line break, and rustc stops reading an unclosed one there, so a quote misread
+  in future costs at most the rest of its line. Such a file is still reported
+  as unreadable, and the note now reads `a string or comment was never closed,
+  so its imports are not trustworthy` - it used to say the literal ran to the
+  end of the file.
+
+JavaScript and TypeScript are read exactly as before: across 7,954 files, the
+new lexer's ranges match 0.10.2's on every one. What it still misreads there - a
+regular expression literal holding a quote, `/["']/` - is recorded in ADR-0006.
+
 ## 0.10.2
 
 Fixes from running 0.10.1 over a .NET solution, where a layer rule passed while

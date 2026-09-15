@@ -252,6 +252,90 @@ describe('rust', () => {
     expect(expandUsePath(source)).toBeNull();
   });
 
+  // The shape of the trial file, with its names changed: a plugin crate whose
+  // uses sit among lifetimes, character literals, raw strings and comments
+  // with contractions. 0.10.2 read one use of these seven and said nothing.
+  const PLUGIN = [
+    '//! A rules plugin: the dice it rolls and the sheets it reads.',
+    '',
+    'use engine_api::dice::Roll;',
+    '',
+    "pub struct Skill<'a> {",
+    "    name: &'a str,",
+    '}',
+    '',
+    'impl Plugin for Rules {',
+    "    fn id(&self) -> &'static str {",
+    '        "rules"',
+    '    }',
+    '}',
+    '',
+    "// The sheet's layout doesn't change between editions.",
+    'use engine_api::sheet::{Field, Sheet};',
+    'use engine_api::chat::Message;',
+    '',
+    "fn lines(text: &str) -> impl Iterator<Item = &str> + '_ {",
+    '    text.lines()',
+    '}',
+    '',
+    "fn longest<'a, 'b>(x: &'a str, y: &'b str) -> &'a str where 'b: 'a {",
+    "    'scan: for c in x.chars() {",
+    "        if c == '\\'' || c == '\"' { break 'scan; }",
+    '    }',
+    '    x',
+    '}',
+    '',
+    'const HELP: &str = r##"Say "#roll" - use engine_api::hidden; is not a use."##;',
+    '',
+    "use engine_api::tokens::Token; // it's the last one",
+    '',
+  ].join('\n');
+
+  it('reads every use among lifetimes, character literals, raw strings and contractions', () => {
+    const analysis = analyzeSource(PLUGIN, 'plugins/rules/src/lib.rs');
+
+    expect(analysis.references.map((reference) => reference.specifier)).toEqual([
+      'engine_api::dice::Roll',
+      'engine_api::sheet::Field',
+      'engine_api::sheet::Sheet',
+      'engine_api::chat::Message',
+      'engine_api::tokens::Token',
+    ]);
+    expect(analysis.notes).toEqual([]);
+  });
+
+  it.each([
+    ['a static lifetime', "fn id() -> &'static str { \"x\" }"],
+    ['the anonymous lifetime', "impl Display for Row<'_> {}"],
+    ['a named lifetime', "fn first<'a>(s: &'a str) -> &'a str { s }"],
+    ['a lifetime bound', "struct Ref<'a, T: 'a> { r: &'a T }"],
+    ['an outlives bound', "fn f<'a, 'b>(x: &'a str) where 'a: 'b {}"],
+  ])('reads a use after %s and a comment with a contraction', (_name, code) => {
+    // An odd number of quotes before the uses and one after them: the last of
+    // them and the apostrophe made a character literal of everything between.
+    const source = `${code}\nuse crate::db::Pool;\nuse crate::db::Client;\n// don't\n`;
+    expect(specifiers(source, 'a.rs')).toEqual(['crate::db::Pool', 'crate::db::Client']);
+    expect(notes(source, 'a.rs')).toEqual([]);
+  });
+
+  it('reads a use after an escaped quote character', () => {
+    expect(specifiers("let q = '\\'';\nuse crate::after;\n// it's\n", 'a.rs')).toEqual(['crate::after']);
+  });
+
+  it('ignores a use inside a raw string of any number of hashes, and reads the one after it', () => {
+    const source = 'const S: &str = r###"a "## use crate::hidden; "#"###;\nuse crate::real;\n';
+    expect(specifiers(source, 'a.rs')).toEqual(['crate::real']);
+    expect(notes(source, 'a.rs')).toEqual([]);
+  });
+
+  it('reads the uses after a character literal left open, and reports the file', () => {
+    // Not valid Rust, so no compiler would take it; but it now costs the rest
+    // of one line rather than the rest of the file, and it is still reported.
+    const source = "let c = '\\u{41;\nuse crate::after;\n";
+    expect(specifiers(source, 'a.rs')).toEqual(['crate::after']);
+    expect(notes(source, 'a.rs')).toEqual(['unreadable: a string or comment was never closed, so its imports are not trustworthy']);
+  });
+
   it('matches crate-relative paths after normalisation', () => {
     expect(normalizeModule('crate::db::client', 'src/ui/w.rs', 'rust')).toBe('crate/db/client');
     // Documented limitation: module-relative paths are matched as written,
@@ -488,6 +572,10 @@ describe('literalValue', () => {
     ['@"verbatim"', 'verbatim'],
     ['r"raw"', 'raw'],
     ['r#"raw"#', 'raw'],
+    ['r##"say "#hi""##', 'say "#hi"'],
+    ['r###"raw"###', 'raw'],
+    // An ordinary string that merely ends in `r"` is not a raw one.
+    ['"bar"', 'bar'],
   ])('strips the delimiters of %s', (raw, value) => {
     expect(literalValue(raw)).toBe(value);
   });

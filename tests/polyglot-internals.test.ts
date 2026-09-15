@@ -371,7 +371,7 @@ describe('the note for a lost scan', () => {
       kind: 'unreadable',
       line: 1,
       column: 1,
-      detail: 'a string or comment ran to the end of the file, so its imports are not trustworthy',
+      detail: 'a string or comment was never closed, so its imports are not trustworthy',
     });
   });
 });

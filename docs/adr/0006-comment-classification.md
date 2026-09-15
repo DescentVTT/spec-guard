@@ -90,12 +90,106 @@ wrongly dropped is a lie.
 
 The languages are covered by a table of comment and string rules rather than a
 parser per language — 9 profiles over 59 extensions (68 since 0.10.2, which
-added .NET's XML), and the rules that actually differ are few: Rust nests
-block comments and has `r#"…"#`; C# has `@"…"`, and since 0.10.2 `@$"…"` and
-raw strings of three quotes or more; Go's backtick strings ignore backslashes;
-Python checks triple quotes before single ones; JavaScript adds template
-literals. Zero dependencies, and the whole classifier is under 200 lines of
-code.
+added .NET's XML, and a tenth profile since 0.10.3, below), and the rules that
+actually differ are few: Rust nests block comments, has raw strings and
+lifetimes; C# has `@"…"`, and since 0.10.2 `@$"…"` and raw strings of three
+quotes or more; Go's backtick strings ignore backslashes; Python checks triple
+quotes before single ones; JavaScript adds template literals. Zero
+dependencies, and the whole classifier is about 280 lines of code, blank lines
+and comments aside.
+
+### A quote or a hash that opens nothing (0.10.3)
+
+A trial of 0.10.2 on a Rust and .NET monorepo found five `use` declarations in
+one plugin crate that an import rule never saw, and no note saying so. The
+profile read every `'` as a character literal, the way C does. A Rust lifetime
+is a quote with no partner - `&'static str`, `<'_>`, `where 'a: 'b` - so the
+scan closed that literal on the next quote in the file, which in that file was
+the apostrophe in a comment's `don't`. Everything between was the literal's
+interior, so the import reader never saw it; and because the literal did
+close, nothing reported a lost scan. For a text rule the same misreading turns
+the rest of that comment into code, where a `/*` in it hides real code until
+its `*/`.
+
+Every rule this table had was about where a literal or a comment *ends*. This
+one is about a character that opens nothing at all, so the other profiles were
+probed for the same mistake. Four more were found, each hiding code as a
+comment on 0.10.2:
+
+| Source | Profile | What was hidden |
+| --- | --- | --- |
+| `&'static str { … } // it's /* …` | Rust | everything to the next `*/` |
+| `base=${path##*/}; LegacyClient` | `#`, for `.sh` | the rest of the line |
+| `if [ $# -eq 0 ]; then LegacyClient; fi` | `#`, for `.sh` | the rest of the line |
+| `url: https://example.com/#top` | `#`, for `.yaml` | the rest of the line |
+| `int n = 100'000; // it's /* …` | C | everything to the next `*/` |
+
+What each now follows is the language's own lexical grammar, not a guess:
+
+- **Rust**, as `rustc_lexer` reads it. A quote followed by an identifier is a
+  lifetime or a label unless a quote follows the identifier: `'a'` and `'_'`
+  are characters, `'a` and `'_` are code. The identifier is read whole, as the
+  compiler reads it, so a lifetime's last letter never opens `r"…"`. A
+  character literal cannot hold a line break, and rustc stops reading an
+  unclosed one at the end of its line - so does this, and reports it. That
+  bound is the backstop: whatever quote is misread in future costs at most the
+  rest of its line, not the rest of the file.
+- **Rust raw strings** take any number of hashes, `r"…"` to `r###"…"###`; only
+  `r"` and `r#"` were known. `r#` with no quote after its hashes is a raw
+  identifier, `r#type`.
+- **Shell scripts and YAML** have a profile of their own. POSIX ignores a word
+  that *begins* with `#`, and YAML requires whitespace before a comment, so
+  `#` opens one only at the start of a line or after a space or a tab. A
+  comment written against code, `x;# note`, is read as code: the direction that
+  fails loudly. Their quotes follow their specifications too - nothing escapes
+  inside `'…'`, and `$'…'` is the form that allows it.
+- **C and C++**: a quote after a word that begins with a digit is a digit
+  separator, as in C++14 and C23. `u8'a'` is still a character.
+
+Two things were measured rather than assumed, on the only corpus this machine
+has - 7,756 files in `node_modules` plus this repository, JavaScript and
+TypeScript nearly all of it. The digit-separator rule was first written for the
+whole C family, JavaScript included, on the argument that no valid JavaScript
+puts a quote after a number. The argument was right and the rule still changed
+9 files: every one a regular expression literal holding a quote, which this
+lexer already misreads (below), where the new rule only picked a different
+wrong answer. A rule no valid file can reach has nothing to offer a language,
+so it is C's alone. With that, the new lexer's ranges are identical to 0.10.2's
+on all 7,954 files. There is no Rust, C++ or shell corpus here, which is why
+each rule above is a grammar's and why each case in the tests is one those
+grammars name.
+
+**What it costs.** The same 55 MB of JavaScript read as each profile, one
+process per lexer, median of five alternating runs: through the JavaScript
+profile alone the scan is 11% *faster* than 0.10.2's, and with all four
+profiles through one process, JavaScript and C are 5% slower, Rust 2% faster
+and shell scripts 10% faster. It was not that on the first try. Asking every
+character whether it was a quote that is code cost a tenth of the scan -
+JavaScript read as C came out 1.29 times slower - and two changes took it back:
+the question is now asked only where a literal would open, and every profile
+has the same keys in the same order, so the lexer's reads of them stay
+monomorphic.
+
+What the `#` rule does not cover is as deliberate. Python, Ruby, TOML and R
+accept `x=1# note` as a comment and keep reading it as one. Perl's `$#items`
+still hides the rest of its line: a shell's quotes are not Perl's, and Perl did
+not seem worth a profile.
+
+**What the table still does not read.** Each of these is a literal form a
+profile has no rule for, so a quote inside one can pair with the wrong partner
+and turn comment text into code or the reverse:
+
+- **A JavaScript or TypeScript regular expression holding a quote** - `/'/g`,
+  `/["']/`. This is the one with reach: every text rule over a TypeScript
+  project reads through this lexer, and this repository's own `src/parser.ts`
+  loses its place on `/\\(["'\\])/g`. Telling a regular expression from a
+  division takes the previous token, which `imports.ts` tracks and this lexer
+  does not; it needs its own measurement against that tokenizer, not a rule
+  added in passing.
+- C++ raw strings, `R"(…)"`; Kotlin, Scala and Swift triple-quoted strings;
+  Swift's `#"…"#`; Dart's `r'…'`.
+- A quote inside a YAML plain scalar, `title: Don't`, which YAML does not read
+  as a quote at all.
 
 ### Excluding a match is reported, never silent
 

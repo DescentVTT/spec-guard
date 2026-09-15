@@ -139,8 +139,9 @@ function literalsBetween(masked: Masked, from: number, to: number): string[] {
 export function literalValue(raw: string): string {
   let text = raw;
   if (text.startsWith('@')) text = text.slice(1);
-  if (text.startsWith('r#"')) return text.slice(3, -2);
-  if (text.startsWith('r"')) return text.slice(2, -1);
+  // r"…", r#"…"#, r##"…"##: a closer is one character shorter than its opener.
+  const opener = /^r#*"/.exec(text);
+  if (opener) return text.slice(opener[0].length, 1 - opener[0].length);
   if (text.startsWith('"""') || text.startsWith("'''")) return text.slice(3, -3);
   const quote = text[0];
   if (quote === '"' || quote === "'" || quote === '`') return text.slice(1, -1);
@@ -661,7 +662,7 @@ export function analyzePolyglot(source: string, file: string, language: ModuleLa
       file,
       line: 1,
       column: 1,
-      detail: 'a string or comment ran to the end of the file, so its imports are not trustworthy',
+      detail: 'a string or comment was never closed, so its imports are not trustworthy',
     });
   }
   return { references: collector.references, notes: collector.notes, namespaces: collector.namespaces };

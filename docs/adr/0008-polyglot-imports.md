@@ -77,7 +77,7 @@ tested code in the project. What it lacked was an exit: it discarded string
 ranges after using them to avoid false comments.
 
 So `commentRanges` became `lexRanges`, which reports comments *and* string
-literals *and* whether the scan ran off the end of the file. Then:
+literals *and* whether a literal or comment was left open. Then:
 
 ```
 source ──▶ lexRanges ──▶ mask comments + string interiors ──▶ statement reader
@@ -235,6 +235,29 @@ namespaces where Go and Python do not, so a rule spanning both writes
 `module="app/db/** App/Db/**"`. Case-insensitive matching was rejected: it would
 make `module="app"` match a directory called `App` in a case-sensitive
 repository, which is a different silent wrong answer.
+
+### Rust as it is written now (0.10.3)
+
+"Not imports spec-guard misreads", above, held only as long as the mask was
+right about every delimiter, and in Rust it was not. The profile it borrowed
+read every `'` as opening a character literal. A lifetime - `&'static str`,
+`<'_>`, `'a` - has no closing quote, so the scan closed the literal on the
+next quote in the file, often an apostrophe in a comment, and masked
+everything between as its interior. A trial found five `use` declarations in
+one plugin crate hidden that way. And no note: the literal *did* close, so the
+file was not reported as unreadable.
+
+That is the gap in "a reference this module cannot resolve becomes a note". It
+covers what a reader sees and cannot resolve, not what the mask removed before
+the reader looked, and a mask that closes a literal in the wrong place is
+silent by construction. So the fix is two things
+([ADR-0006](0006-comment-classification.md) has both). Quotes are read as
+`rustc_lexer` reads them, lifetimes and labels as code. And a character literal
+may not cross a line: rustc stops an unclosed one there too, so a quote misread
+in future costs at most the rest of its line, and a literal left open there
+has the file reported. The note's wording changed with it, from "ran to the
+end of the file" to "was never closed". Raw strings now take any number of
+hashes; `r##"…"##` used to lose the scan, loudly.
 
 ### The cap
 
