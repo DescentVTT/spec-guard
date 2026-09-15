@@ -39,6 +39,13 @@ Two consequences fall out of choosing comments, and both are deliberate:
   without this rule every absence assertion would fail on itself. `--include-specs`
   turns the exclusion off.
 
+**A backslash escapes only a quote or another backslash** (since 0.10.2).
+Values need `\"` inside double quotes, and nothing more: the values people
+write backslashes in are regular expressions and Windows paths, where the
+backslash is the value's own. Until 0.10.2 every backslash escaped the next
+character, so `symbol="\bTODO\b" regex="true"` searched for `bTODOb` and passed
+for finding nothing, while the report quoted the rewritten pattern.
+
 <!-- @assert-count target="src/parser.ts" symbol="ALLOWED_ATTRIBUTES" min="2" reason="unknown attributes must stay a hard error" -->
 <!-- @assert-count target="src" symbol="excludeFiles" min="4" reason="self-exclusion is threaded through both engines" -->
 

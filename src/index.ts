@@ -108,6 +108,7 @@ export {
   analyzeSource,
   createImportIndex,
   extractReferences,
+  moduleNames,
   resolveModule,
   resolveSpecifier,
   tokenize,
@@ -118,6 +119,7 @@ export type { AnalysisNote, FileImports, ImportIndex, ModuleReference, NoteKind,
 
 export {
   analyzePolyglot,
+  enclosingModules,
   expandUsePath,
   languageFor,
   literalValue,

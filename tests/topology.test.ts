@@ -429,6 +429,125 @@ describe('@assert-layers', () => {
   });
 });
 
+/* ------------------------------------------------------- a rule that saw nothing */
+
+const SOLUTION = {
+  'src/Shop.Domain/Orders/Order.cs': 'namespace Shop.Domain.Orders;\n\npublic sealed class Order { }\n',
+  'src/Shop.Application/Orders/PlaceOrder.cs':
+    'using Shop.Domain.Orders;\n\nnamespace Shop.Application.Orders;\n\npublic sealed class PlaceOrder { }\n',
+  'src/Shop.Infrastructure/Persistence/OrderStore.cs':
+    'using Microsoft.EntityFrameworkCore;\nusing Shop.Application.Orders;\n\nnamespace Shop.Infrastructure.Persistence;\n\npublic sealed class OrderStore { }\n',
+};
+
+const BY_NAMESPACE = 'order="Shop.Domain, Shop.Application, Shop.Infrastructure"';
+const BY_FOLDER = 'order="src/Shop.Domain, src/Shop.Application, src/Shop.Infrastructure"';
+
+describe('@assert-layers over a C# solution', () => {
+  it('holds each project to the order by the namespaces its usings name', async () => {
+    const kept = await only({ 'docs/a.md': `<!-- @assert-layers target="src" ${BY_NAMESPACE} -->\n`, ...SOLUTION });
+    expect(kept.ok).toBe(true);
+    expect(kept.warnings).toEqual([]);
+
+    // The report this came from: a domain file importing the application passed.
+    const broken = await only({
+      'docs/a.md': `<!-- @assert-layers target="src" ${BY_NAMESPACE} -->\n`,
+      ...SOLUTION,
+      'src/Shop.Domain/Orders/Order.cs':
+        'using Shop.Application.Orders;\n\nnamespace Shop.Domain.Orders;\n\npublic sealed class Order { }\n',
+    });
+    expect(broken.ok).toBe(false);
+    expect(broken.matches).toEqual([
+      {
+        file: 'src/Shop.Domain/Orders/Order.cs',
+        line: 1,
+        column: 1,
+        text: 'Shop.Domain -> Shop.Application: using Shop.Application.Orders',
+        count: 1,
+      },
+    ]);
+  });
+
+  it('fails on layers named by folder, which no using can reach, naming a namespace of each', async () => {
+    const result = await only({ 'docs/a.md': `<!-- @assert-layers target="src" ${BY_FOLDER} -->\n`, ...SOLUTION });
+
+    expect(result.ok).toBe(false);
+    expect(result.actual).toBe(0);
+    expect(result.message).toBe(
+      'no C# using can reach layers "src/Shop.Application" and "src/Shop.Infrastructure": they match none of the namespaces their files declare, such as Shop.Application.Orders and Shop.Infrastructure.Persistence, so a dependency on them is never seen (a layer reaches C# when it matches the namespace as well as the folder; add allow-empty="true" if that is expected)',
+    );
+    expect(result.warnings).toEqual([]);
+  });
+
+  it('says so of one layer in the singular, and as a warning when an empty rule is allowed', async () => {
+    const files = { ...SOLUTION, 'docs/a.md': '<!-- @assert-layers target="src" order="src/Shop.Domain, src/Shop.Application" -->\n' };
+    const one = 'no C# using can reach layer "src/Shop.Application": it matches none of the namespaces its files declare, such as Shop.Application.Orders, so a dependency on it is never seen';
+
+    expect((await only(files)).message).toBe(
+      `${one} (a layer reaches C# when it matches the namespace as well as the folder; add allow-empty="true" if that is expected)`,
+    );
+
+    const allowed = await only({ ...files, 'docs/a.md': files['docs/a.md'].replace(' -->', ' allow-empty="true" -->') });
+    expect(allowed.ok).toBe(true);
+    expect(allowed.warnings).toEqual([
+      '1 of 3 files belongs to no layer, so nothing here constrains it',
+      one,
+      "no import in scope reaches a layer other than its own file's, so these layers would pass in any order",
+    ]);
+  });
+
+  it('fails when one layer is out of reach even though others are crossed into', async () => {
+    // The mixed order: the application imports the domain, which reaches it, so
+    // something crossed - and the domain importing the application would not.
+    const result = await only({
+      'docs/a.md': '<!-- @assert-layers target="src" order="Shop.Domain, src/Shop.Application, Shop.Infrastructure" -->\n',
+      ...SOLUTION,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toContain('no C# using can reach layer "src/Shop.Application"');
+  });
+
+  it('passes a layer named by a segment folder and namespace share', async () => {
+    // A solution whose folders are not named for their namespaces.
+    const result = await only({
+      'docs/a.md': '<!-- @assert-layers target="src" order="Domain, Application" -->\n',
+      'src/Domain/Entities/Order.cs': 'namespace Acme.Clean.Domain.Entities;\n',
+      'src/Application/Orders/PlaceOrder.cs': 'using Acme.Clean.Domain.Entities;\nnamespace Acme.Clean.Application.Orders;\n',
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.warnings).toEqual([]);
+  });
+});
+
+describe('@assert-layers where no import crosses a layer', () => {
+  const UNCROSSED = {
+    'src/domain/user.ts': 'export {};\n',
+    'src/application/signup.ts': "import './local.js';\n",
+    'src/application/local.ts': 'export {};\n',
+    'src/infrastructure/db.ts': "import 'pg';\n",
+  };
+  const uncrossed = "no import in scope reaches a layer other than its own file's, so these layers would pass in any order";
+
+  it('fails, since any order of the layers would have passed', async () => {
+    const result = await only({ 'docs/a.md': `<!-- @assert-layers target="src" ${ORDER} -->\n`, ...UNCROSSED });
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toBe(`${uncrossed} (add allow-empty="true" if that is expected)`);
+    expect(result.warnings).toEqual([]);
+  });
+
+  it('warns instead when an empty rule is allowed, by the directive or for the run', async () => {
+    const allowed = await only({ 'docs/a.md': `<!-- @assert-layers target="src" ${ORDER} allow-empty="true" -->\n`, ...UNCROSSED });
+    expect(allowed.ok).toBe(true);
+    expect(allowed.warnings).toEqual([uncrossed]);
+
+    const run = await only({ 'docs/a.md': `<!-- @assert-layers target="src" ${ORDER} -->\n`, ...UNCROSSED }, { allowEmptyScope: true });
+    expect(run.ok).toBe(true);
+    expect(run.warnings).toEqual([uncrossed]);
+  });
+});
+
 describe('what an @assert-layers directive must say before anything is read', () => {
   const error = async (directive: string): Promise<string | undefined> =>
     (await run(await repo({ 'docs/a.md': `${directive}\n`, ...LAYERED }))).errors[0]?.message;

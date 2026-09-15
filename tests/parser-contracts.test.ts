@@ -172,6 +172,12 @@ describe('attribute values', () => {
     ['regex', { regex: 'true' }],
     ['a="b c"', { a: 'b c' }],
     ['a="say \\"hi\\""', { a: 'say "hi"' }],
+    ["a='it\\'s'", { a: "it's" }],
+    ['a="C:\\\\temp"', { a: 'C:\\temp' }],
+    // Any other backslash is the value's own: a regular expression keeps its
+    // escapes, and a Windows path its separators.
+    ['symbol="\\bTODO\\b\\.\\d+"', { symbol: '\\bTODO\\b\\.\\d+' }],
+    ['exclude=src\\gen', { exclude: 'src\\gen' }],
     ['a=""', { a: '' }],
     ['', {}],
   ])('reads %s as %j', (input, expected) => {

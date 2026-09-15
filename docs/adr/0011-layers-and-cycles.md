@@ -87,6 +87,10 @@ Three things fail rather than pass:
 - **Fewer than two layers, or the same layer twice.** Rejected when the
   directive is resolved, before anything is read.
 
+0.10.2 added two more, a layer no C# using can reach and a scope in which no
+import crosses between layers - see [C# layers are
+namespaces](#c-layers-are-namespaces-0102) below.
+
 A file in scope that matches no layer is unconstrained, and said to be: the
 result carries a note giving how many. Shared utilities are often meant to sit
 outside the order; a directory someone forgot to assign is not, and only the
@@ -233,6 +237,95 @@ still a violation. Neither do the per-module rules, which count dependencies.
 And the layering the source actually has, which nothing asserted until now:
 
 <!-- @assert-layers target="src" order="src/text.ts, src/parser.ts, src/runner.ts, src/cli.ts" reason="the grammar knows nothing of execution, and execution nothing of the command line" -->
+
+### C# layers are namespaces (0.10.2)
+
+A run of 0.10.1 over a .NET solution put `using Shop.Application.Catalog;` into
+a file of `src/Shop.Domain` on purpose, and two rules passed it:
+
+```md
+<!-- @assert-layers target="src" order="src/Shop.Domain, src/Shop.Application" -->
+<!-- @assert-layers target="src" order="Shop.Domain, Shop.Application" -->
+```
+
+**The second was a matching gap, and is fixed where `module=` is.** A bare
+`Shop.Application` held the files of `src/Shop.Application` - it matches that
+path segment - but a pattern without a slash matches one whole name, and the
+names of that reference were `Shop.Application.Catalog` and
+`Shop/Application/Catalog`. The slashed form of the pattern would have caught
+it, and nothing said so. A reference in a language whose modules are dotted now
+also goes by every module it sits under (ADR-0008), so the pattern that holds a
+project's files reaches its usings too, and stops at a segment:
+`Shop.ApplicationServices` is not beneath it.
+
+**The first cannot be fixed by matching.** `src/Shop.Application` is a path, and
+a using names a namespace. No name of any C# reference begins with `src/`, so
+the layer held the right files and no reference could ever arrive in it. That
+rule checked nothing, and read like one that checked everything.
+
+Making it work would mean deciding which folder a namespace lives in. Three ways
+were considered, and each is wrong for a convention in wide use - wrong in the
+direction that reports a violation that is not there, which a team answers with
+a baseline, and the baseline then hides the real one when it comes:
+
+| mapping | where it breaks |
+| --- | --- |
+| a folder's name is its root namespace | `dotnet new` does this, but a widely used Clean Architecture template keeps `src/Domain` with `<RootNamespace>CleanArchitecture.Domain</RootNamespace>`, and solutions that prefix a company name do the same |
+| a project's `RootNamespace`, read from its project file | it is often set in `Directory.Build.props`, as `$(MSBuildProjectName)` or with a prefix: reading it is evaluating MSBuild, the resolver ADR-0005 declined for `tsconfig` |
+| the namespaces a layer's files declare | Microsoft's guidance for library authors puts `IServiceCollection` extensions in `Microsoft.Extensions.DependencyInjection`, and a solution may declare it in more than one layer; every `using Microsoft.Extensions.DependencyInjection;` in an earlier layer would become a violation |
+
+So a C# layer is named by its namespace - which is also its folder, under the
+naming `dotnet new` uses - and where folders and namespaces differ, by the
+segment they share: `Domain` holds `src/Domain` and reaches
+`CleanArchitecture.Domain.Entities`. That is the unit .NET's own architecture
+tests use, too: NetArchTest and ArchUnitNET select types by namespace.
+
+**What declarations are right for is telling that a layer cannot be reached.**
+The namespace a file declares is exactly the name a using of that file writes.
+If a layer's pattern matches none of the namespaces its own files declare, no
+using can reach it - that is not a guess about where a namespace lives, it is
+the pattern tried against names the layer's files give themselves. One that
+matches is enough, so a layer that also holds an extension class in a framework
+namespace is still reachable. So the C# reader records what each file declares
+(a nested block in full: `namespace A { namespace B {` declares `A.B`), and a
+layer rule **fails** when a layer after the first is unreachable that way:
+
+```text
+no C# using can reach layer "src/Shop.Application": it matches none of the namespaces its files declare, such as Shop.Application.Catalog, so a dependency on it is never seen (a layer reaches C# when it matches the namespace as well as the folder; add allow-empty="true" if that is expected)
+```
+
+The first layer is exempt because every layer may depend on it: a reference
+that cannot reach it hides nothing. A layer whose files declare no namespace -
+top-level statements in `Program.cs` - cannot be judged, and is not.
+
+**And a scope in which no import crosses between layers fails**, in every
+language. When no reference reaches any layer other than its own file's, the
+rule would pass with its layers listed in any order, which is the symptom of
+every layer-matching gap: the first defect recorded below, file-sized layers
+that no JavaScript import matched, is exactly this, and so is the C# one.
+
+```text
+no import in scope reaches a layer other than its own file's, so these layers would pass in any order (add allow-empty="true" if that is expected)
+```
+
+Both take `allow-empty="true"` and `--allow-empty-scope`, and become warnings
+under either, for the reason a layer that matches no file does: each is a rule
+that could not have failed. A real codebase whose layers do not yet depend on
+each other is the case the attribute exists for.
+
+It costs matching time, since a C# reference now goes by the namespaces above it
+and each layer's declarations are tried as well. On 4,000 synthetic C# files in
+four projects, six usings each, `checkLayers` took 26-74 ms under 0.10.1 and
+67-152 ms under 0.10.2 across three runs on the development machine: about
+twice, and a fifth of a second at worst. Reading the files, and the same
+measurement over 4,000 TypeScript files, moved within that machine's
+run-to-run noise.
+
+Two gaps stay, and the README gives each a text rule, since a text rule reads a
+name wherever it is written: a fully qualified name with no using at all, and
+the dependencies .NET keeps outside C# files - a `<ProjectReference>` or
+`<Using Include>` in a project file, and `@using` in Razor. Project files are
+now read as XML, so a reference commented out of one is not counted.
 
 ## Consequences
 

@@ -25,7 +25,7 @@ import path from 'node:path';
 import { toPosix } from './glob.js';
 import { nodeIo, type Io } from './io.js';
 import { NO_MEMO, type Memo } from './memo.js';
-import { analyzePolyglot, languageFor, normalizeModule, POLYGLOT_EXTENSIONS } from './polyglot.js';
+import { analyzePolyglot, enclosingModules, languageFor, normalizeModule, POLYGLOT_EXTENSIONS } from './polyglot.js';
 
 /** Extensions the JavaScript tokenizer below reads. */
 export const JS_EXTENSIONS: ReadonlySet<string> = new Set([
@@ -58,6 +58,11 @@ export interface ModuleReference {
   typeOnly: boolean;
   line: number;
   column: number;
+  /**
+   * C# only: the namespace a using sits inside, which its name is resolved
+   * against first. Absent for a using outside every namespace.
+   */
+  namespace?: string;
 }
 
 export type NoteKind = 'dynamic' | 'unreadable' | 'truncated';
@@ -75,6 +80,11 @@ export interface AnalysisNote {
 export interface FileImports {
   references: ModuleReference[];
   notes: AnalysisNote[];
+  /**
+   * C# only: every namespace the file declares, a nested one in full. What a
+   * layer rule reads to tell whether a using can reach the layer (ADR-0011).
+   */
+  namespaces?: string[];
 }
 
 /* ---------------------------------------------------------------- tokenizer */
@@ -577,6 +587,37 @@ export function resolveModule(specifier: string, importingFile: string): string 
   const file = toPosix(importingFile);
   const language = languageFor(file);
   return language ? normalizeModule(specifier, file, language) : resolveSpecifier(specifier, file);
+}
+
+/**
+ * Every name a module pattern is tried against, for one reference.
+ *
+ * The specifier as written and the module it resolves to, so `module="app/db"`
+ * and `module="System.Text.Json"` both work - and, where modules are named by
+ * a dotted path, every module the reference sits under. A pattern with a slash
+ * is anchored and already covered what lies beneath it: `App/Db` matched
+ * `App/Db/Client`. The dotted form did not, and until 0.10.2 `module="App.Db"`
+ * quietly missed `using App.Db.Client;`. Now `App.Db` is one of that
+ * reference's names, in the notation of its language: `.` in C# and Python,
+ * `::` in Rust.
+ *
+ * A C# using inside a namespace adds the names it can resolve to there.
+ * `using Catalog;` inside `namespace Shop.Domain` may be `Shop.Domain.Catalog`,
+ * `Shop.Catalog` or `Catalog`, and which it is only the compiler's symbol table
+ * knows, so each is a name: for a rule forbidding a dependency, an extra name
+ * is the direction that fails loudly. ADR-0008.
+ */
+export function moduleNames(specifier: string, importingFile: string, namespace?: string): string[] {
+  const file = toPosix(importingFile);
+  const language = languageFor(file);
+  if (language === null) return [specifier, resolveSpecifier(specifier, file)];
+  const named = (name: string): string[] => [
+    name,
+    normalizeModule(name, file, language),
+    ...enclosingModules(name, language),
+  ];
+  const scopes = namespace === undefined ? [] : [namespace, ...enclosingModules(namespace, language)];
+  return [...named(specifier), ...scopes.flatMap((scope) => named(`${scope}.${specifier}`))];
 }
 
 /* -------------------------------------------------------------------- index */

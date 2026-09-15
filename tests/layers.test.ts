@@ -11,7 +11,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { ModuleReference, ReferenceKind } from '../src/imports.js';
-import { checkLayers, layerMatcher, referenceForms } from '../src/layers.js';
+import { checkLayers, layerMatcher, referenceForms, type LayerInput } from '../src/layers.js';
 
 function ref(specifier: string, line = 1, extra: { typeOnly?: boolean; kind?: ReferenceKind } = {}): ModuleReference {
   return { specifier, kind: extra.kind ?? 'import', typeOnly: extra.typeOnly ?? false, line, column: 1 };
@@ -40,12 +40,32 @@ describe('the names a reference is matched under', () => {
     ]);
   });
 
-  it('is the specifier and its module, and nothing more, where modules are not files', () => {
+  it('is the names module= tries, and nothing more, where modules are not files', () => {
     expect(referenceForms('github.com/o/r/internal/db', 'cmd/main.go')).toEqual([
       'github.com/o/r/internal/db',
       'github.com/o/r/internal/db',
     ]);
-    expect(referenceForms('crate::infra::db', 'src/lib.rs')).toEqual(['crate::infra::db', 'crate/infra/db']);
+    expect(referenceForms('crate::infra::db', 'src/lib.rs')).toEqual(['crate::infra::db', 'crate/infra/db', 'crate::infra', 'crate']);
+  });
+
+  it("includes the namespaces a C# using sits under, and those it may mean inside its file's namespace", () => {
+    expect(referenceForms('Shop.Application.Catalog', 'src/Shop.Domain/Order.cs')).toEqual([
+      'Shop.Application.Catalog',
+      'Shop/Application/Catalog',
+      'Shop.Application',
+      'Shop',
+    ]);
+    expect(referenceForms('Catalog', 'src/Shop.Domain/Order.cs', 'Shop')).toEqual([
+      'Catalog',
+      'Catalog',
+      'Shop.Catalog',
+      'Shop/Catalog',
+      'Shop',
+    ]);
+  });
+
+  it("adds a Python module's file forms after the modules it sits under", () => {
+    expect(referenceForms('app.db', 'app/views.py')).toEqual(['app.db', 'app/db', 'app', 'app/db.py', 'app/db/__init__.py']);
   });
 });
 
@@ -204,5 +224,163 @@ describe('what a reference reaches', () => {
     const report = checkLayers([{ file: 'app/domain.py', references: [ref('app.db')] }], order, true);
 
     expect(report.violations).toHaveLength(1);
+  });
+});
+
+/* --------------------------------------------------------------- c# layers */
+
+const SHOP = ['Shop.Domain', 'Shop.Application', 'Shop.Infrastructure'];
+
+function using(specifier: string, line = 1, namespace?: string): ModuleReference {
+  return { ...ref(specifier, line, { kind: 'using' }), namespace };
+}
+
+describe('a C# solution layered by namespace', () => {
+  it('holds a project to the order by the namespaces its usings name, sub-namespaces included', () => {
+    // The regression from a real solution: `Shop.Application` as a layer holds
+    // the files of src/Shop.Application, and did not reach `using
+    // Shop.Application.Catalog;`, so a domain file importing it passed.
+    const violation = using('Shop.Application.Catalog', 3);
+    const report = checkLayers(
+      [
+        { file: 'src/Shop.Domain/Orders/Order.cs', references: [using('Shop.Domain.Common'), violation] },
+        { file: 'src/Shop.Application/Catalog/GetProduct.cs', references: [using('Shop.Domain.Orders')] },
+      ],
+      SHOP,
+      true,
+    );
+
+    expect(report.violations).toEqual([{ file: 'src/Shop.Domain/Orders/Order.cs', from: 0, to: 1, reference: violation }]);
+  });
+
+  it('reaches no layer through a namespace that merely starts with the same letters', () => {
+    const report = checkLayers(
+      [{ file: 'src/Shop.Domain/Order.cs', references: [using('Shop.ApplicationServices.Pricing')] }],
+      SHOP,
+      true,
+    );
+
+    expect(report.violations).toEqual([]);
+  });
+
+  it('reaches a layer through a using written relative to the namespace around it', () => {
+    const report = checkLayers(
+      [{ file: 'src/Shop.Domain/Order.cs', references: [using('Application.Catalog', 4, 'Shop.Domain')] }],
+      SHOP,
+      true,
+    );
+
+    expect(report.violations).toMatchObject([{ from: 0, to: 1, reference: { line: 4 } }]);
+  });
+});
+
+describe('what a layer rule could not have seen', () => {
+  const PATHS = ['src/Shop.Domain', 'src/Shop.Application', 'src/Shop.Infrastructure'];
+  const solution = [
+    {
+      file: 'src/Shop.Domain/Orders/Order.cs',
+      references: [using('Shop.Application.Catalog')],
+      namespaces: ['Shop.Domain.Orders'],
+    },
+    {
+      file: 'src/Shop.Application/Catalog/GetProduct.cs',
+      references: [using('Shop.Domain.Orders')],
+      namespaces: ['Shop.Application.Catalog', 'Shop.Application.Catalog.Queries'],
+    },
+    { file: 'src/Shop.Infrastructure/Db.cs', references: [], namespaces: ['Shop.Infrastructure'] },
+  ];
+
+  it('names every layer after the first whose own namespaces no using can reach, with one they declare', () => {
+    // A folder is a path, and a using names a namespace: every layer here holds
+    // the right files, and no reference reaches any of them.
+    const report = checkLayers(solution, PATHS, true);
+
+    expect(report.violations).toEqual([]);
+    expect(report.unreachable).toEqual([
+      { layer: 1, namespace: 'Shop.Application.Catalog' },
+      { layer: 2, namespace: 'Shop.Infrastructure' },
+    ]);
+    expect(report.crossed).toBe(false);
+  });
+
+  it('names nothing once the layers match the namespaces, and sees the dependency', () => {
+    const report = checkLayers(solution, SHOP, true);
+
+    expect(report.unreachable).toEqual([]);
+    expect(report.crossed).toBe(true);
+    expect(report.violations).toHaveLength(1);
+  });
+
+  it('gives as the example the namespace most of the layer declares, not the one its first file borrows', () => {
+    const extension = (file: string) => ({ file, references: [], namespaces: ['Microsoft.Extensions.DependencyInjection'] });
+    const own = (file: string) => ({ file, references: [], namespaces: ['Shop.Infrastructure.Persistence'] });
+    const example = (inputs: LayerInput[]) => checkLayers(inputs, PATHS, true).unreachable;
+
+    expect(
+      example([extension('src/Shop.Infrastructure/DependencyInjection.cs'), own('src/Shop.Infrastructure/A.cs'), own('src/Shop.Infrastructure/B.cs')]),
+    ).toEqual([{ layer: 2, namespace: 'Shop.Infrastructure.Persistence' }]);
+    // A tie goes to the first.
+    expect(example([extension('src/Shop.Infrastructure/DependencyInjection.cs'), own('src/Shop.Infrastructure/A.cs')])).toEqual([
+      { layer: 2, namespace: 'Microsoft.Extensions.DependencyInjection' },
+    ]);
+  });
+
+  it('lists the layers in order whatever order their files arrive in', () => {
+    expect(checkLayers([...solution].reverse(), PATHS, true).unreachable.map(({ layer }) => layer)).toEqual([1, 2]);
+  });
+
+  it('takes one namespace a using can reach as enough, and a file that declares none as saying nothing', () => {
+    const report = checkLayers(
+      [
+        // An extension class in a framework's namespace, beside one that is the layer's own.
+        {
+          file: 'src/Shop.Application/DependencyInjection.cs',
+          references: [],
+          namespaces: ['Microsoft.Extensions.DependencyInjection'],
+        },
+        { file: 'src/Shop.Application/Catalog/Product.cs', references: [], namespaces: ['Shop.Application.Catalog'] },
+        { file: 'src/Shop.Infrastructure/Program.cs', references: [] },
+      ],
+      ['Shop.Domain', 'Shop.Application', 'src/Shop.Infrastructure'],
+      true,
+    );
+
+    expect(report.unreachable).toEqual([]);
+  });
+
+  it('leaves the namespaces of a file no single layer claims out of it', () => {
+    const report = checkLayers(
+      [
+        { file: 'src/Shared/Clock.cs', references: [], namespaces: ['Shared'] },
+        { file: 'src/Shop.Domain/Shop.Application/Odd.cs', references: [], namespaces: ['Odd'] },
+      ],
+      ['Shop.Domain', 'Shop.Application'],
+      true,
+    );
+
+    expect(report.unreachable).toEqual([]);
+  });
+
+  it('says nothing crossed when every reference stays in its own layer or leaves the order', () => {
+    const report = checkLayers(
+      [
+        { file: 'src/domain/a.ts', references: [ref('./b.js'), ref('react')] },
+        { file: 'src/application/c.ts', references: [ref('./d.js')] },
+        { file: 'src/shared/log.ts', references: [ref('../domain/a.js')] },
+      ],
+      ORDER,
+      true,
+    );
+
+    expect(report.crossed).toBe(false);
+  });
+
+  it('says something crossed for an allowed reference as much as a forbidden one, and not for one it ignores', () => {
+    const allowed = [{ file: 'src/application/c.ts', references: [ref('../domain/a.js')] }];
+    expect(checkLayers(allowed, ORDER, true).crossed).toBe(true);
+
+    const typeOnly = [{ file: 'src/application/c.ts', references: [ref('../domain/a.js', 1, { typeOnly: true })] }];
+    expect(checkLayers(typeOnly, ORDER, false).crossed).toBe(false);
+    expect(checkLayers(typeOnly, ORDER, true).crossed).toBe(true);
   });
 });

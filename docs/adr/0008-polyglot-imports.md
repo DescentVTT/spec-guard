@@ -174,6 +174,16 @@ each one is reported rather than assumed absent:
   re-exported from `app.db` is recorded as a dependency on `app`, not on
   `app.db`. Following it would need to read another file and resolve names,
   which is the line ADR-0005 drew and this does not cross.
+- **A C# using relative to its namespace.** Inside `namespace Shop.Domain`,
+  `using Application.Catalog;` is `Shop.Domain.Application.Catalog`,
+  `Shop.Application.Catalog` or `Application.Catalog`, whichever exists first,
+  and only the compiler's symbol table knows which. Since 0.10.2 it goes by all
+  three, which can only add matches; before, it went only by what was written,
+  and a rule about `Shop.Application` did not see it.
+- **A C# name no using introduces.** `new Shop.Infrastructure.Db()` depends on a
+  namespace no directive names. Reading every qualified name in every
+  expression is parsing. A text rule on the namespace sees it, and the README
+  says so beside the layer rule.
 
 ### Two decisions worth naming
 
@@ -183,6 +193,42 @@ as written (`app.db.client`, `crate::db::client`). A C# author should not have
 to know that spec-guard rewrote their namespace before deciding to write
 `System/Text/Json`. Matching both can only add matches, which for an absence
 rule is the direction that fails loudly.
+
+Until 0.10.2 the two notations were not equal, and nothing said so. A pattern
+with a slash is anchored and covers what lies beneath it, so `App/Db` matched
+`App/Db/Client`; a dotted pattern has no slash, matches one whole name, and
+`App.Db` did not match `App.Db.Client` - which is what a C# or Python author
+writes. So a reference now also goes by every module it sits under, in its
+language's separator: `App.Db.Client` is also `App.Db` and `App`, and
+`crate::db::pool` is also `crate::db` and `crate`. The boundary is a whole
+segment, so `App.Db` does not cover `App.Dbx`. Go needs none of this, since its
+import paths are slashed already, and neither does a Python relative import,
+which goes by the path it resolves to.
+
+### C# as it is written now (0.10.2)
+
+Checking the first of those against real .NET code turned up three ways the C#
+reader lost a dependency, all of them quiet:
+
+- **An alias qualifier became part of the name.** The reader treated `::` as a
+  separator, so `global using global::Shop.Application;` - the form the SDK's
+  own generated files use - was `global.Shop.Application`, and an extern alias
+  gave `Legacy.Shop.Application`. What precedes `::` says where to look a name
+  up, not what it is, so it is left off.
+- **Two string forms lost the scan.** The lexer knew `"..."` and `@"..."`. A raw
+  string literal (C# 11) read as `""` and then a string of its own, so a quote
+  inside it closed that early, and one opened with four quotes to hold three
+  ran to the end of the file. `@$"C:\"`, the interpolated verbatim string,
+  read as `@`, `$` and an ordinary string whose backslash escaped its closing
+  quote. A C# raw string now opens with a run of three or more quotes and
+  closes only at a run as long, and `@$"` is verbatim beside `@"`.
+- **A relative using**, above.
+
+The reader also records the namespaces each file declares - `namespace A.B;`,
+or a block, a nested one named in full - and the namespace each using sits in.
+It does that in the same single pass, by brace depth: a namespace is open until
+the depth falls below its body's. That is what a layer rule reads to tell a
+layer no using can reach ([ADR-0011](0011-layers-and-cycles.md)).
 
 **Matching is case-sensitive, and polyglot rules feel it.** C# capitalises
 namespaces where Go and Python do not, so a rule spanning both writes

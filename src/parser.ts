@@ -403,8 +403,16 @@ export function maskCode(source: string): string {
   return maskRanges(masked, spans);
 }
 
+/**
+ * Undoes the escapes a quoted value needs: `\"`, `\'` and `\\`.
+ *
+ * Every other backslash is kept. Until 0.10.2 any backslash escaped the next
+ * character, so `symbol="\bTODO\b" regex="true"` searched for `bTODOb` and
+ * found nothing - a rule that passed because its pattern had been rewritten
+ * under it - and `exclude="src\gen"` excluded `srcgen`.
+ */
 function unescape(value: string): string {
-  return value.replace(/\\(.)/g, '$1');
+  return value.replace(/\\(["'\\])/g, '$1');
 }
 
 /** Parses `name="value"` pairs; bare `name` is shorthand for `name="true"`. */

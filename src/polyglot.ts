@@ -206,14 +206,22 @@ export class Reader {
     return match[0];
   }
 
-  /** Reads `a.b.c`, treating `::` as a separator too (C# alias qualifiers). */
+  /**
+   * Reads `a.b.c`, leaving out a C# alias qualifier.
+   *
+   * `global::A.B` and `Legacy::A.B` both name the namespace `A.B`: what comes
+   * before `::` says where to look it up - the global namespace, or the
+   * assembly an extern alias names - and is not part of the name. Until 0.10.2
+   * this read `global.A.B`, and no pattern written for `A.B` matched it.
+   */
   dotted(): string {
-    const parts: string[] = [];
+    let parts: string[] = [];
     for (;;) {
       const part = this.identifier();
       if (!part) break;
       parts.push(part);
-      if (!this.eat('.') && !this.eat('::')) break;
+      if (this.eat('::')) parts = [];
+      else if (!this.eat('.')) break;
     }
     return parts.join('.');
   }
@@ -260,13 +268,15 @@ interface Collector {
   notes: AnalysisNote[];
   masked: Masked;
   file: string;
+  /** C# only: the namespaces the file declares. */
+  namespaces?: string[];
 }
 
-function emit(collector: Collector, specifier: string, kind: ReferenceKind, offset: number): void {
+function emit(collector: Collector, specifier: string, kind: ReferenceKind, offset: number, namespace?: string): void {
   const trimmed = specifier.trim();
   if (!trimmed) return;
   const { line, column } = locate(collector.masked.starts, offset);
-  collector.references.push({ specifier: trimmed, kind, typeOnly: false, line, column });
+  collector.references.push({ specifier: trimmed, kind, typeOnly: false, line, column, namespace });
 }
 
 function note(collector: Collector, kind: AnalysisNote['kind'], offset: number, detail: string): void {
@@ -486,17 +496,71 @@ function readRust(collector: Collector): void {
 
 /* -------------------------------------------------------------------- c-sharp */
 
-const CSHARP_USING = /\busing\b/g;
+/** Everything the C# reader stops at: a using, a namespace, or a brace. */
+const CSHARP_TOKEN = /\b(?:using|namespace)\b|[{}]/g;
 
+/** A block namespace not yet closed, and the brace depth of its body. */
+interface OpenNamespace {
+  name: string;
+  depth: number;
+}
+
+/**
+ * Reads using directives and the namespaces a file declares, in one pass.
+ *
+ * One pass because each needs what the other knows. A using inside a namespace
+ * resolves its name there first - in `namespace A.B { using C; }`, `C` may be
+ * `A.B.C` or `A.C` - so the namespace around it is kept on the reference
+ * (ADR-0008). And a block namespace inside another is named in full: `namespace
+ * A { namespace B {` declares `A` and `A.B`, the name a using elsewhere writes.
+ *
+ * Depth, not offsets, decides what is inside what. A namespace is open until
+ * the brace depth falls below its body's, so nothing here compares an offset
+ * with the offset of a delimiter - which no keyword can ever sit on, and which
+ * would leave `<` and `<=` meaning the same thing to every test. The code is
+ * masked, so no brace in a string or a comment counts.
+ */
 function readCsharp(collector: Collector): void {
   const { code } = collector.masked;
-  CSHARP_USING.lastIndex = 0;
+  const declared = new Set<string>();
+  const open: OpenNamespace[] = [];
+  let fileScoped: string | undefined;
+  let depth = 0;
+  CSHARP_TOKEN.lastIndex = 0;
   let match: RegExpExecArray | null;
 
-  while ((match = CSHARP_USING.exec(code)) !== null) {
+  while ((match = CSHARP_TOKEN.exec(code)) !== null) {
+    const token = match[0];
+    if (token === '{') {
+      depth += 1;
+      continue;
+    }
+    if (token === '}') {
+      depth -= 1;
+      while (open.length > 0 && (open.at(-1) as OpenNamespace).depth > depth) open.pop();
+      continue;
+    }
+
     const reader = new Reader(code);
-    reader.index = match.index + match[0].length;
+    reader.index = match.index + token.length;
     reader.skipSpace();
+
+    if (token === 'namespace') {
+      // `@namespace` is an identifier rather than the keyword, and no name
+      // follows it.
+      const name = reader.dotted();
+      if (name === '') continue;
+      reader.skipSpace();
+      const outer = open.at(-1);
+      const full = outer === undefined ? name : `${outer.name}.${name}`;
+      // A file-scoped namespace covers the rest of the file, and C# allows
+      // neither a second one nor a block beside it.
+      if (reader.peek() === ';') fileScoped = full;
+      else if (reader.peek() === '{') open.push({ name: full, depth: depth + 1 });
+      else continue;
+      declared.add(full);
+      continue;
+    }
 
     if (reader.keyword('static')) reader.skipSpace();
 
@@ -521,8 +585,9 @@ function readCsharp(collector: Collector): void {
     // tests green with each of them defeated. `emit` refuses an empty
     // specifier, so this line is the only check that has to be right.
     if (reader.peek() !== ';') continue;
-    emit(collector, target, 'using', match.index);
+    emit(collector, target, 'using', match.index, open.at(-1)?.name ?? fileScoped);
   }
+  collector.namespaces = [...declared];
 }
 
 /* ----------------------------------------------------------------- normalise */
@@ -558,6 +623,23 @@ export function normalizeModule(specifier: string, importingFile: string, langua
   return path.posix.normalize(path.posix.join(base, tail));
 }
 
+/**
+ * The modules a specifier sits under, nearest first: `a.b` and `a` for
+ * `a.b.c`, in the language's own notation.
+ *
+ * Nothing for Go, whose import paths already carry their hierarchy in `/`, and
+ * nothing for a Python relative import, which is matched by the path it
+ * resolves to.
+ */
+export function enclosingModules(specifier: string, language: ModuleLanguage): string[] {
+  if (language === 'go' || specifier.startsWith('.')) return [];
+  const separator = language === 'rust' ? '::' : '.';
+  const parts = specifier.split(separator);
+  const enclosing: string[] = [];
+  for (let length = parts.length - 1; length > 0; length--) enclosing.push(parts.slice(0, length).join(separator));
+  return enclosing;
+}
+
 /* -------------------------------------------------------------------- entry */
 
 const READERS: Record<ModuleLanguage, (collector: Collector) => void> = {
@@ -582,5 +664,5 @@ export function analyzePolyglot(source: string, file: string, language: ModuleLa
       detail: 'a string or comment ran to the end of the file, so its imports are not trustworthy',
     });
   }
-  return { references: collector.references, notes: collector.notes };
+  return { references: collector.references, notes: collector.notes, namespaces: collector.namespaces };
 }

@@ -107,7 +107,9 @@ Exit code 1. The ADR is now a test.
 ## Directives
 
 Every directive is an HTML comment. It may span multiple lines. Attribute values
-may use double or single quotes, and a bare attribute means `="true"`.
+may use double or single quotes, and a bare attribute means `="true"`. Inside a
+value, `\"`, `\'` and `\\` are escapes and any other backslash is kept, so a
+regular expression is written as it reads: `symbol="\bTODO\b" regex="true"`.
 
 ### `@assert-absence` - this symbol is gone
 
@@ -204,9 +206,9 @@ touching code, a run that passed this way says so:
 ✔ every spec assertion holds
 ```
 
-Comment syntax is known for around 59 extensions across 9 families (JS/TS, C,
-C#, Rust, Go, Python-style `#`, SQL-style `--`, markup, and formats with no
-comments at all). Strings are tracked too, because `//` inside a URL is not a
+Comment syntax is known for around 68 extensions across 9 families (JS/TS, C,
+C#, Rust, Go, Python-style `#`, SQL-style `--`, markup - MSBuild project files
+included - and formats with no comments at all). Strings are tracked too, because `//` inside a URL is not a
 comment and reading it as one would hide real code. Where spec-guard is unsure —
 an unknown extension, an unterminated literal — the text counts as code, and the
 report says which files it could not classify. A match wrongly kept is a visible
@@ -302,7 +304,7 @@ These read the dependency rather than the text, in **five languages**:
 | Python | `.py .pyi` | `import a.b`, `from .rel import x`, `importlib.import_module("x")` |
 | Go | `.go` | `import "x"` and grouped `import ( ... )`, including aliases and `_` |
 | Rust | `.rs` | `use a::{b, c}` with nested groups, `pub use`, `extern crate` |
-| C# | `.cs .csx` | `using`, `using static`, `global using`, `using X = A.B` |
+| C# | `.cs .csx` | `using`, `using static`, `global using`, `using X = A.B`, `global::` and extern-alias qualifiers, and a using relative to its namespace |
 
 No parser and no new dependency. JavaScript gets a full tokenizer because a
 module reference can appear anywhere in an expression; the other four are read
@@ -315,9 +317,12 @@ this does not.
 
 Module patterns are matched against the resolved `/`-separated path *and*
 against the specifier as written, so `module="System.Text.Json"` and
-`module="System/Text/Json"` both work. Matching is case-sensitive, so a rule
-spanning C# and Go needs both conventions:
-`module="app/db/** App/Db/**"`.
+`module="System/Text/Json"` both work. Either form covers what sits beneath it,
+as `module="lodash"` covers `lodash/fp`: `module="Shop.Application"` matches
+`using Shop.Application.Catalog;` and not `using Shop.ApplicationServices;`,
+`module="app.db"` matches `import app.db.client`, and `module="crate::db"`
+matches `use crate::db::pool`. Matching is case-sensitive, so a rule spanning C#
+and Go needs both conventions: `module="app/db/** App/Db/**"`.
 
 The unit counted is **files** that depend on the module. For JavaScript and
 TypeScript it understands:
@@ -354,7 +359,7 @@ stops it being mistaken for a complete answer. A passing rule prints it without
 `--verbose` too, since a green run is when it would otherwise go unread.
 `--strict` turns those warnings into failures. Files in scope that are not JavaScript or TypeScript are counted
 and reported too, so a rule pointed at the wrong tree says "analysed 2 of 3
-files" rather than quietly passing - and if *none* of them can be read, the
+files; 1 is in a language whose imports spec-guard cannot read (.razor)" rather than quietly passing - and if *none* of them can be read, the
 assertion fails rather than passing on an empty analysis.
 
 [ADR-0005](docs/adr/0005-import-assertions.md) has the measurements and the
@@ -387,15 +392,89 @@ why this works in all five languages above: `src/domain` is anchored at the
 root, and a bare `domain` matches that segment anywhere - in `src/domain/user.ts`,
 in Python's `app.domain.user`, in Rust's `crate::domain::user`. A layer may also
 be a single file; `order="src/parser.ts, src/cli.ts"` understands that
-`./parser.js` is `src/parser.ts`.
+`./parser.js` is `src/parser.ts`. C# is layered by namespace, and has
+[a section of its own](#c-and-net-solutions).
 
 The unit is files, and `max`, `types`, `exclude` and `baseline` mean what they
-mean on `@assert-import-absence`. Three things fail rather than pass, because
-each is a rule that would otherwise check less than it says: a layer that
-matches no file (`order="domain, aplication"`), a file two layers both claim,
-and a target that does not exist. Files that no layer claims are left alone and
-counted, so a directory nobody assigned shows up as a number rather than as
-silence.
+mean on `@assert-import-absence`. Five things fail rather than pass, because
+each is a rule that would otherwise check less than it says:
+
+- a layer that matches no file (`order="domain, aplication"`);
+- a file two layers both claim;
+- a target that does not exist;
+- a layer no C# `using` can reach, because it matches none of the namespaces its
+  own files declare - `src/Shop.Application` rather than `Shop.Application`;
+- a scope in which no import reaches a layer other than its own file's, since
+  that rule passes whatever order its layers are listed in:
+
+```text
+✖ docs/architecture.md:12  @assert-layers
+    src must keep its layers in order, src/domain < src/application < src/infrastructure
+    no import in scope reaches a layer other than its own file's, so these layers would pass in any order (add allow-empty="true" if that is expected)
+```
+
+`allow-empty="true"` turns the first and the last two into warnings. Files that
+no layer claims are left alone and counted, so a directory nobody assigned shows
+up as a number rather than as silence.
+
+### C# and .NET solutions
+
+A .NET project has three names: its folder, its project file and its root
+namespace. `dotnet new` gives all three the same one, and that is what lets a
+single pattern do both halves of a layer rule - hold the files under
+`src/Shop.Domain`, and reach `using Shop.Domain.Orders;` from anywhere else:
+
+```md
+<!-- @assert-layers target="src" order="Shop.Domain, Shop.Application, Shop.Infrastructure, Shop.Web" reason="dependencies point inward" -->
+<!-- @assert-import-absence target="src/Shop.Application" module="Microsoft.EntityFrameworkCore" reason="persistence is infrastructure's" -->
+```
+
+- **Name a C# layer by its namespace.** `Shop.Domain` matches the folder as a
+  path segment, and the namespace with everything under it - `Shop.Domain.Orders`,
+  but not `Shop.DomainEvents`. A folder path such as `src/Shop.Domain` holds the
+  right files, but a using names a namespace, never a path, so nothing can reach
+  it: such a rule fails, and names a namespace the layer's files declare. Where
+  folders and namespaces differ, as when `src/Domain` holds
+  `Acme.Clean.Domain.Entities`, the name they share - `Domain` - does both.
+- **`module=` is a namespace too**, as above: `module="Shop.Infrastructure"`
+  covers `using Shop.Infrastructure.Persistence;`.
+- **What is read**: `using`, `global using`, `using static` and aliases, with
+  any `global::` or extern-alias qualifier left off the name. A using inside a
+  namespace may be relative to it, so `using Application.Orders;` inside
+  `namespace Shop.Domain` also counts as `Shop.Application.Orders`. Nothing in a
+  comment, a verbatim string or a raw string literal is read.
+
+What it cannot see, and the text rule that covers each - a text rule reads a
+name wherever it is written:
+
+| Not seen by an import rule | Held by |
+| --- | --- |
+| A fully qualified name with no using: `new Shop.Infrastructure.Db()` | `@assert-absence target="src/Shop.Domain" glob="*.cs" symbol="Shop.Infrastructure" word="true"` |
+| A `<ProjectReference>`, or a `<Using Include>` in a project file | the same rule with `glob="*.csproj,*.props"` |
+| `@using` in `.razor` and `.cshtml`, which import rules count as files they could not read | the same rule with `glob="*.razor,*.cshtml"` |
+| Code a source generator writes | nothing: it is not in the tree |
+
+In a solution of projects, the project references are the layering the
+compiler enforces - a using of a project that is not referenced does not build -
+so a rule over the project files is worth having beside the layer rule:
+
+```md
+<!-- @assert-absence target="src/Shop.Domain" glob="*.csproj" regex="true" symbol="Shop\.(Application|Infrastructure|Web)\b" reason="the domain references no outer project" -->
+```
+
+Keep build output out of every rule in `.spec-guard.json`:
+
+```json
+{
+  "specs": ["docs/**/*.md"],
+  "exclude": ["bin", "obj", "artifacts", "TestResults", ".vs"]
+}
+```
+
+`bin` and `obj` are MSBuild's output, `artifacts` is where the output goes with
+`UseArtifactsOutput` (.NET 8 and later), `TestResults` is where `dotnet test`
+writes, and `.vs` holds Visual Studio's caches. A front end in the same tree
+adds its own, such as Nuxt's `.output`; `node_modules` is skipped already.
 
 ### `@assert-import-cycle` - no file depends on itself
 
@@ -573,7 +652,7 @@ Passes when every listed path exists relative to `--root`. Directories count.
 | `partner` | structure | Partner templates, any one of which must exist: `[name].test.[ext]` |
 | `types` | import assertions, layers, cycles | `include` (default) or `ignore` for `import type` |
 | `dynamic` | cycles | `include` (default) or `ignore` for `import('x')` |
-| `allow-empty` | all but present | Tolerate a scope that holds no files, a layer that matches none, or no chosen directories. Off by default - see below |
+| `allow-empty` | all but present | Tolerate a scope that holds no files, a layer that matches none, a layer no C# using can reach, layers no import crosses between, or no chosen directories. Off by default - see below |
 | `baseline` | absence, import-absence, layers, structure | Known violations that do not count: `path` or `path:count` |
 | `ratchet` | absence, import-absence, layers, structure | `two-sided` (default) or `one-way` - see below |
 | `reason` | all | Human-readable justification, printed on failure |

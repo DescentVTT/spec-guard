@@ -5,6 +5,81 @@ All notable changes to this project are documented here. Versions follow
 may change in a minor release — each such change is listed under **Changed**
 with the flag that restores the previous behaviour.
 
+## 0.10.2
+
+Fixes from running 0.10.1 over a .NET solution, where a layer rule passed while
+the domain imported the application, and from reading C# as it is written in
+2026 while fixing that.
+[ADR-0011](docs/adr/0011-layers-and-cycles.md),
+[ADR-0008](docs/adr/0008-polyglot-imports.md).
+
+### Fixed
+
+- **A dotted module pattern did not cover what sits beneath it.**
+  `module="Shop.Application"` missed `using Shop.Application.Catalog;`, while
+  `module="Shop/Application"` caught it. A layer named `Shop.Application` had
+  the same gap, so `order="Shop.Domain, Shop.Application"` passed over a domain
+  that imported the application. Each reference in C#, Python and Rust now also
+  goes by every module it sits under, in its own notation, so `Shop.Application`
+  covers `Shop.Application.Catalog` and not `Shop.ApplicationServices`,
+  `app.db` covers `app.db.client`, and `crate::db` covers `crate::db::pool`.
+  An `@assert-import-count` over those languages can count more files than
+  before, and each is a file that depends on the module.
+- **Three kinds of C# using were read under a name no pattern matched.**
+  - `using global::Shop.Application;` read as `global.Shop.Application`, and
+    `using Legacy::Shop.Application;` (an extern alias) as
+    `Legacy.Shop.Application`. The qualifier is now left off.
+  - A using inside a namespace may be relative to it: in `namespace
+    Shop.Domain`, `using Application.Catalog;` can be
+    `Shop.Application.Catalog`. It now counts under each name it can resolve to
+    there.
+- **Two kinds of C# string lost the scan.** A raw string literal (C# 11) that
+  held a quote, or that opened with four quotes to hold three, and an
+  interpolated verbatim string written `@$"C:\"`, were misread. Every using after
+  one could go unread, and a text rule could count a comment as code. Both are
+  now read as strings.
+- **A backslash in a directive attribute was dropped.** Every backslash escaped
+  the character after it, so `symbol="Shop\.(Application|Web)\b" regex="true"`
+  searched for `Shop.(Application|Web)b`, matched nothing and passed, and
+  `exclude="src\gen"` excluded `srcgen`. Only `\"`, `\'` and `\\` are escapes
+  now; any other backslash is kept. Found by running this release's README
+  example against a project file. A pattern written with doubled backslashes to
+  get past the old behaviour, `\\b`, still reads as `\b`.
+- **`.csproj`, `.fsproj`, `.vbproj`, `.props`, `.targets`, `.slnx`, `.nuspec`,
+  `.resx` and `.xaml` were unclassified,** so a text rule over a project file
+  counted a `<ProjectReference>` inside `<!-- -->`. They are now read as XML.
+
+### Changed
+
+- **A layer rule that could not have failed now fails** (`allow-empty="true"`,
+  or `--allow-empty-scope`, makes each a warning again):
+  - **A layer no C# using can reach.** A layer named by its folder,
+    `src/Shop.Application`, holds the right files, but a using names a
+    namespace, never a path. When a layer after the first matches none of the
+    namespaces its own files declare, the rule fails:
+    `no C# using can reach layer "src/Shop.Application": it matches none of the
+    namespaces its files declare, such as Shop.Application.Catalog, so a
+    dependency on it is never seen`. Name a C# layer by its namespace,
+    `Shop.Application`, which matches the folder as well.
+  - **A scope in which no import reaches another layer.** Such a rule would
+    pass with its layers in any order: `no import in scope reaches a layer other
+    than its own file's, so these layers would pass in any order`. This is how
+    a layer named in a way no reference can match shows up in every language.
+- **The files an import rule could not read are named by kind**, as in
+  `analysed 5 of 7 files; 2 are in a language whose imports spec-guard cannot
+  read (.csproj, .razor)`. In a .NET project, the count alone hid the Razor
+  page among project files, and a Razor page can hold an `@using`.
+- **README:** a section on C# and .NET solutions - layers by namespace, what an
+  import rule cannot see and the text rule for each, and the `exclude` list for
+  build output (`bin`, `obj`, `artifacts`, `TestResults`, `.vs`).
+- **API:**
+  - `ModuleReference` has an optional `namespace`, the namespace a C# using sits
+    in.
+  - `FileImports` and `LayerInput` have an optional `namespaces`, those a C#
+    file declares.
+  - `LayerReport` has `crossed` and `unreachable`.
+  - New: `moduleNames` and `enclosingModules`.
+
 ## 0.10.1
 
 Fixes from running 0.10.0 over a large monorepo, and from testing each exclude

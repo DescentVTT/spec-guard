@@ -294,6 +294,59 @@ describe('layerPosition', () => {
   });
 });
 
+describe('a C# solution, layered by namespace', () => {
+  // The names of the projects, which are also their folders and their root
+  // namespaces: one pattern holds the files of a project and reaches its usings.
+  const order = ['Shop.Domain', 'Shop.Application', 'Shop.Infrastructure', 'Shop.Web'];
+
+  it('places a file by the project folder its namespace is named for', () => {
+    expect(layerPosition(order, 'src/Shop.Application/Catalog/GetProduct.cs')).toEqual({
+      layer: 'Shop.Application',
+      position: 2,
+      matches: ['Shop.Application'],
+      mayImport: ['Shop.Domain', 'Shop.Application'],
+      mustNotImport: ['Shop.Infrastructure', 'Shop.Web'],
+    });
+    expect(layerPosition(order, 'src/Shop.Domain')).toMatchObject({ layer: 'Shop.Domain', position: 1 });
+  });
+
+  it('places a test project, whose folder only starts with the name, in no layer', () => {
+    expect(layerPosition(order, 'tests/Shop.Application.Tests/GetProductTests.cs')).toMatchObject({ layer: null, matches: [] });
+  });
+
+  it('governs the C# files of the projects, and not their project files or the build output left out', () => {
+    const [layers, projectFiles] = rules(
+      '<!-- @assert-layers target="src" order="Shop.Domain, Shop.Application" exclude="bin, obj" -->\n' +
+        '<!-- @assert-absence target="src/Shop.Domain" glob="*.csproj" symbol="Shop.Application" -->',
+    ) as [Assertion, Assertion];
+
+    expect(
+      governed(layers, [
+        file('src/Shop.Domain/Orders/Order.cs'),
+        file('src/Shop.Domain/Scripts/seed.csx'),
+        file('src/Shop.Domain/Shop.Domain.csproj'),
+        file('src/Shop.Web/Pages/_Imports.razor'),
+        file('src/Shop.Domain/obj/Debug/net10.0/Shop.Domain.GlobalUsings.g.cs'),
+        file('src/Shop.Domain/bin/Debug/net10.0/Shop.Domain.deps.json'),
+      ]),
+    ).toEqual(['src/Shop.Domain/Orders/Order.cs', 'src/Shop.Domain/Scripts/seed.csx']);
+
+    expect(governed(projectFiles, [file('src/Shop.Domain/Shop.Domain.csproj'), file('src/Shop.Domain/Orders/Order.cs')])).toEqual([
+      'src/Shop.Domain/Shop.Domain.csproj',
+    ]);
+  });
+
+  it('shows where a C# file sits in the order', () => {
+    const layers = rule('<!-- @assert-layers target="src" order="Shop.Domain, Shop.Application" -->');
+    const accepted: DocumentView = { file: 'docs/a.md', title: null, status: null, label: null, inForce: true };
+
+    expect(viewRule(layers, accepted, file('src/Shop.Domain/Orders/Order.cs'))).toMatchObject({
+      order: ['Shop.Domain', 'Shop.Application'],
+      position: { layer: 'Shop.Domain', mustNotImport: ['Shop.Application'] },
+    });
+  });
+});
+
 describe('viewRule', () => {
   const accepted: DocumentView = { file: 'docs/a.md', title: 'ADR-1', status: 'accepted', label: 'Accepted', inForce: true };
   const proposed: DocumentView = { ...accepted, status: 'proposed', label: 'Proposed', inForce: false };

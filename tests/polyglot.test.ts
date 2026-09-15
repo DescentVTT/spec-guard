@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { analyzeSource } from '../src/imports.js';
+import { analyzeSource, moduleNames } from '../src/imports.js';
 import { runSpecGuard } from '../src/runner.js';
 import { makeTempRepo, removeTempRepo } from './helpers.js';
 import { syntaxFor, syntaxNamed } from '../src/comments.js';
 import {
   analyzePolyglot,
+  enclosingModules,
   expandUsePath,
   languageFor,
   literalValue,
@@ -307,6 +308,138 @@ describe('c#', () => {
   it('normalises dotted namespaces to paths', () => {
     expect(normalizeModule('System.Text.Json', 'a.cs', 'csharp')).toBe('System/Text/Json');
   });
+
+  it('reads the namespace a global:: or extern alias qualifier looks in, without the qualifier', () => {
+    // `global.Shop.Application` was the specifier before 0.10.2, and a rule
+    // about Shop.Application never saw it.
+    expect(
+      specifiers(
+        'extern alias Legacy;\nglobal using global::Shop.Application;\nusing Legacy::Shop.Domain;\nusing Json = global::System.Text.Json;\n',
+        'a.cs',
+      ),
+    ).toEqual(['Shop.Application', 'Shop.Domain', 'System.Text.Json']);
+  });
+
+  it('reads the usings after a string C# 11 or C# 8 wrote, and none inside one', () => {
+    const source = [
+      'var sql = """',
+      '    using Shop.Hidden;',
+      '    say "hi"',
+      '    """;',
+      'var four = """"',
+      '    using Shop.AlsoHidden; """ still inside',
+      '    """";',
+      'var path = @$"C:\\";',
+      'namespace Shop.Web { using Shop.Real; }',
+    ].join('\n');
+
+    expect(analyzeSource(source, 'a.cs')).toMatchObject({ notes: [], references: [{ specifier: 'Shop.Real', line: 9 }] });
+    expect(analyzeSource(source, 'a.cs').references).toHaveLength(1);
+  });
+});
+
+describe('the namespaces a c# file declares', () => {
+  const declared = (source: string): string[] | undefined => analyzeSource(source, 'a.cs').namespaces;
+
+  it('reads a file-scoped namespace and a block one', () => {
+    expect(declared('namespace Shop.Domain.Orders;\n\npublic class Order { }\n')).toEqual(['Shop.Domain.Orders']);
+    expect(declared('namespace Shop.Domain\n{\n    public class Order { }\n}\n')).toEqual(['Shop.Domain']);
+  });
+
+  it('names a block inside another in full, and a block after one closes on its own', () => {
+    const source = 'namespace Shop { class A { } namespace Domain { } }\nnamespace Billing { }\n';
+    expect(declared(source)).toEqual(['Shop', 'Shop.Domain', 'Billing']);
+  });
+
+  it('lists a namespace declared twice once', () => {
+    expect(declared('namespace A { }\nnamespace A { }\n')).toEqual(['A']);
+  });
+
+  it('declares nothing for the identifier @namespace, or a namespace with no body', () => {
+    expect(declared('var x = @namespace;\nreturn @namespace { };\n')).toEqual([]);
+    expect(declared('namespace Broken\n')).toEqual([]);
+  });
+
+  it('ignores a namespace in a comment or a string', () => {
+    expect(declared('// namespace Hidden;\nvar s = "namespace Hidden;";\nnamespace Real;\n')).toEqual(['Real']);
+  });
+
+  it('is only said of c#', () => {
+    expect(analyzeSource('import app.db\n', 'a.py').namespaces).toBeUndefined();
+    expect(analyzeSource("import './a.js';\n", 'a.ts').namespaces).toBeUndefined();
+  });
+});
+
+describe('the namespace a c# using sits in', () => {
+  const inside = (source: string): Array<string | undefined> =>
+    analyzeSource(source, 'a.cs').references.map((reference) => reference.namespace);
+
+  it('is nothing for a using before a file-scoped namespace, and the namespace for one after it', () => {
+    expect(inside('using Top;\nnamespace Shop.Domain;\nusing Inside;\n')).toEqual([undefined, 'Shop.Domain']);
+  });
+
+  it('is the innermost block around it, and nothing once the blocks have closed', () => {
+    const source = [
+      'namespace Shop {',
+      '  using One;',
+      '  class A { void M() { } }',
+      '  namespace Domain { using Two; }',
+      '  namespace Billing { using Three; }',
+      '}',
+      'using Four;',
+    ].join('\n');
+
+    expect(inside(source)).toEqual(['Shop', 'Shop.Domain', 'Shop.Billing', undefined]);
+  });
+
+  it('survives a brace that closes something no namespace opened', () => {
+    expect(inside('}\nusing Stray;\nnamespace A { using B; }\n')).toEqual([undefined, 'A']);
+  });
+});
+
+describe('enclosingModules', () => {
+  it.each([
+    ['Shop.Application.Catalog', 'csharp', ['Shop.Application', 'Shop']],
+    ['app.db.client', 'python', ['app.db', 'app']],
+    ['crate::db::client', 'rust', ['crate::db', 'crate']],
+    ['Shop', 'csharp', []],
+    // A relative import is matched by the path it resolves to.
+    ['..core.models', 'python', []],
+    // A Go import path carries its hierarchy in its slashes, and its dots are a host name.
+    ['github.com/o/r/db', 'go', []],
+  ] as const)('%s in %s sits under %j', (specifier, language, expected) => {
+    expect(enclosingModules(specifier, language)).toEqual(expected);
+  });
+});
+
+describe('moduleNames', () => {
+  it('is the specifier and its resolved form for javascript', () => {
+    expect(moduleNames('../db/client.js', 'src/ui/view.ts')).toEqual(['../db/client.js', 'src/db/client.js']);
+  });
+
+  it('adds the modules a dotted name sits under, in its own notation', () => {
+    expect(moduleNames('Shop.Application.Catalog', 'src/A.cs')).toEqual([
+      'Shop.Application.Catalog',
+      'Shop/Application/Catalog',
+      'Shop.Application',
+      'Shop',
+    ]);
+    expect(moduleNames('crate::db::client', 'src/lib.rs')).toEqual(['crate::db::client', 'crate/db/client', 'crate::db', 'crate']);
+  });
+
+  it('adds what a using inside a namespace may resolve to there, nearest first', () => {
+    expect(moduleNames('Catalog', 'src/A.cs', 'Shop.Application')).toEqual([
+      'Catalog',
+      'Catalog',
+      'Shop.Application.Catalog',
+      'Shop/Application/Catalog',
+      'Shop.Application',
+      'Shop',
+      'Shop.Catalog',
+      'Shop/Catalog',
+      'Shop',
+    ]);
+  });
 });
 
 describe('lost scans', () => {
@@ -435,6 +568,55 @@ describe('through a directive', () => {
     const report = await runSpecGuard({ patterns: ['docs/*.md'], root, engine: 'javascript' });
 
     expect(report.results.map((result) => result.actual)).toEqual([1, 1]);
+  });
+
+  it('covers what sits under a dotted module, as the slashed form always did', async () => {
+    // `module="Shop.Application"` quietly missed `using Shop.Application.Catalog;`
+    // until 0.10.2, while `module="Shop/Application"` caught it.
+    const root = await repo({
+      'docs/dotted.md': '<!-- @assert-import-count target="src" module="Shop.Application" expected="4" -->\n',
+      'docs/slashed.md': '<!-- @assert-import-count target="src" module="Shop/Application" expected="4" -->\n',
+      'src/Shop.Domain/Orders/Order.cs': 'using Shop.Application.Catalog;\nnamespace Shop.Domain.Orders;\n',
+      'src/Shop.Domain/Orders/Line.cs': 'using Shop.Application;\nnamespace Shop.Domain.Orders;\n',
+      'src/Shop.Domain/Orders/Global.cs': 'global using global::Shop.Application.Catalog.Queries;\n',
+      // Inside `namespace Shop.Domain`, `Application.Catalog` may be `Shop.Application.Catalog`.
+      'src/Shop.Domain/Orders/Relative.cs': 'namespace Shop.Domain\n{\n    using Application.Catalog;\n}\n',
+      // The controls: a namespace that only starts with the same letters, and the domain's own.
+      'src/Shop.Domain/Orders/Services.cs': 'using Shop.ApplicationServices;\nnamespace Shop.Domain.Orders;\n',
+      'src/Shop.Domain/Orders/Own.cs': 'using Shop.Domain.Common;\nnamespace Shop.Domain.Orders;\n',
+    });
+
+    const report = await runSpecGuard({ patterns: ['docs/*.md'], root, engine: 'javascript' });
+
+    expect(report.results.map((result) => [result.ok, result.actual])).toEqual([
+      [true, 4],
+      [true, 4],
+    ]);
+    expect(report.results[0]?.matches.map((match) => match.text).sort()).toEqual([
+      'using Application.Catalog',
+      'using Shop.Application',
+      'using Shop.Application.Catalog',
+      'using Shop.Application.Catalog.Queries',
+    ]);
+  });
+
+  it('covers what sits under a dotted module in python and rust too', async () => {
+    const root = await repo({
+      'docs/py.md': '<!-- @assert-import-count target="svc" module="app.db" expected="2" -->\n',
+      'docs/rs.md': '<!-- @assert-import-count target="svc" module="crate::db" expected="1" -->\n',
+      'svc/a.py': 'import app.db.client\n',
+      'svc/b.py': 'from app.db import pool\n',
+      'svc/c.py': 'from app.dbx import other\n',
+      'svc/d.rs': 'use crate::db::pool::Pool;\nuse crate::dbx::Other;\n',
+      'svc/e.rs': 'use crate::dbx::Other;\n',
+    });
+
+    const report = await runSpecGuard({ patterns: ['docs/*.md'], root, engine: 'javascript' });
+
+    expect(report.results.map((result) => [result.ok, result.actual])).toEqual([
+      [true, 2],
+      [true, 1],
+    ]);
   });
 
   it('counts a file once however many times it names the module', async () => {

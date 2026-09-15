@@ -29,17 +29,16 @@ import {
   edgeKey,
   isGraphFile,
   witness,
-  type GraphInput,
   type GraphScope,
 } from "./graph.js";
 import {
   ANALYSABLE_EXTENSIONS,
   createImportIndex,
-  resolveModule,
+  moduleNames,
   type ImportIndex,
   type ModuleReference,
 } from "./imports.js";
-import { checkLayers } from "./layers.js";
+import { checkLayers, type LayerInput } from "./layers.js";
 import { readSpecs, specPath, type SpecSet } from "./specs.js";
 import {
   createScope,
@@ -1257,14 +1256,22 @@ async function executeImportAssertion(
 
   const skipped = enumeration.files.length - analysable.length;
   if (skipped > 0) {
+    // Which kinds, because "2 files" in a .NET project is a project file and a
+    // Razor page, and only one of them can hold an `@using` nothing here reads.
+    const inAnalysis = new Set(analysable);
+    const kinds = new Set(
+      enumeration.files.flatMap((file) =>
+        inAnalysis.has(file) ? [] : [path.posix.extname(file.relativePath) || path.posix.basename(file.relativePath)],
+      ),
+    );
     warnings.push(
       cycles
         ? `placed ${analysable.length} of ${enumeration.files.length} files in the import graph; ${skipped} ${skipped === 1 ? "is" : "are"} not JavaScript or TypeScript`
-        : `analysed ${analysable.length} of ${enumeration.files.length} files; ${skipped} ${skipped === 1 ? "is" : "are"} in a language whose imports spec-guard cannot read`,
+        : `analysed ${analysable.length} of ${enumeration.files.length} files; ${skipped} ${skipped === 1 ? "is" : "are"} in a language whose imports spec-guard cannot read (${[...kinds].sort().join(", ")})`,
     );
   }
 
-  const analysed: GraphInput[] = [];
+  const analysed: LayerInput[] = [];
   const unresolved: string[] = [];
 
   for (const file of analysable) {
@@ -1275,7 +1282,7 @@ async function executeImportAssertion(
     for (const note of analysis.notes) {
       unresolved.push(`${note.file}:${note.line} ${note.detail}`);
     }
-    analysed.push({ file: file.relativePath, references: analysis.references });
+    analysed.push({ file: file.relativePath, references: analysis.references, namespaces: analysis.namespaces });
   }
 
   if (unresolved.length > 0) {
@@ -1304,13 +1311,11 @@ async function executeImportAssertion(
   for (const { file, references } of analysed) {
     const hit = references.find((reference) => {
       if (reference.typeOnly && !query.includeTypes) return false;
-      // Both forms are tried: the resolved one so `module="app/db/**"` works
-      // everywhere, and the raw one so a Python or C# author can write the
-      // dotted path they see in their own source and still be understood.
-      return (
-        matchesModule(resolveModule(reference.specifier, file)) ||
-        matchesModule(reference.specifier)
-      );
+      // Every name the reference has: the resolved one so `module="app/db/**"`
+      // works everywhere, the raw one so a Python or C# author can write the
+      // dotted path they see in their own source, and the modules a dotted one
+      // sits under, so `module="App.Db"` covers `App.Db.Client` as `App/Db` does.
+      return moduleNames(reference.specifier, file, reference.namespace).some(matchesModule);
     });
     if (hit) {
       matches.push({
@@ -1355,7 +1360,7 @@ async function executeImportAssertion(
 /** Everything an import rule reads before it decides anything. */
 interface ImportRead {
   /** Each file in the analysis, with the references it makes. */
-  analysed: GraphInput[];
+  analysed: LayerInput[];
   /** Every file the walk produced, analysable or not. */
   walked: string[];
   /** The targets that exist. */
@@ -1458,9 +1463,12 @@ function finishCycles(
 /**
  * Checks each file's imports against the layer order.
  *
- * Three things fail besides a violation, because each is a rule that would
+ * Five things fail besides a violation, because each is a rule that would
  * otherwise pass while checking less than it says: a layer that matches no
- * file, a file two layers claim, and a missing target. See ADR-0011.
+ * file, a file two layers claim, a missing target, a layer no C# using can
+ * reach, and a scope in which no import reaches another layer at all. The
+ * first, the last two and their `allow-empty` are the same idea - a rule that
+ * could not have failed. See ADR-0011.
  */
 function finishLayers(
   assertion: Assertion,
@@ -1488,11 +1496,22 @@ function finishLayers(
   }
   if (empty.length > 0 && emptyAllowed) warnings.push(unmatched);
 
+  // A layer named by its folder, `src/Shop.Domain`, holds the right files, and
+  // no using - which names `Shop.Domain.Orders`, never a path - reaches it.
+  const blind = report.unreachable;
+  const alone = blind.length === 1;
+  const unreached = `no C# using can reach ${alone ? "layer" : "layers"} ${quoted(blind.map(({ layer }) => layer))}: ${alone ? "it matches" : "they match"} none of the namespaces ${alone ? "its" : "their"} files declare, such as ${blind.map(({ namespace }) => namespace).join(" and ")}, so a dependency on ${alone ? "it" : "them"} is never seen`;
+  if (blind.length > 0 && emptyAllowed) warnings.push(unreached);
+  const uncrossed = "no import in scope reaches a layer other than its own file's, so these layers would pass in any order";
+  if (!report.crossed && emptyAllowed) warnings.push(uncrossed);
+
   const fileCounts = new Map(report.violations.map((violation) => [violation.file, 1]));
   const { excluded, stale, shows } = applyBaseline(assertion.baseline, fileCounts);
   const staleFailure = assertion.ratchet === "two-sided" && stale.length > 0;
   const actual = report.violations.length - excluded;
   const emptyFailure = empty.length > 0 && !emptyAllowed;
+  const blindFailure = blind.length > 0 && !emptyAllowed;
+  const uncrossedFailure = !report.crossed && !emptyAllowed;
 
   const ok =
     satisfies(actual, assertion.bounds) &&
@@ -1500,6 +1519,8 @@ function finishLayers(
     !staleFailure &&
     !emptyFailure &&
     report.ambiguous.length === 0 &&
+    !blindFailure &&
+    !uncrossedFailure &&
     !(options.strictTargets && read.unresolved > 0);
 
   const message =
@@ -1511,12 +1532,16 @@ function finishLayers(
             .slice(0, options.maxSnippets)
             .map(({ file, layers }) => `${file} is in both ${quoted(layers)}`)
             .join("; ")}; a file in two layers has no single rule to follow`
-        : describeOutcome(
-            assertion.bounds,
-            actual,
-            { excluded, stale: staleFailure ? stale : [], gaps: 0 },
-            VIOLATING_FILES,
-          ) + strictSuffix(options, read.unresolved));
+        : blindFailure
+          ? `${unreached} (a layer reaches C# when it matches the namespace as well as the folder; ${EMPTY_SCOPE_HINT})`
+          : uncrossedFailure
+            ? `${uncrossed} (${EMPTY_SCOPE_HINT})`
+            : describeOutcome(
+                assertion.bounds,
+                actual,
+                { excluded, stale: staleFailure ? stale : [], gaps: 0 },
+                VIOLATING_FILES,
+              ) + strictSuffix(options, read.unresolved));
 
   return {
     ...base,

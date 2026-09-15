@@ -89,11 +89,13 @@ A match wrongly kept is a visible failure someone can argue with. A match
 wrongly dropped is a lie.
 
 The languages are covered by a table of comment and string rules rather than a
-parser per language — 9 profiles over 59 extensions, and the rules that
-actually differ are few: Rust nests block comments and has `r#"…"#`; C# has
-`@"…"`; Go's backtick strings ignore backslashes; Python checks triple quotes
-before single ones; JavaScript adds template literals. Zero dependencies, and
-the whole classifier is under 200 lines of code.
+parser per language — 9 profiles over 59 extensions (68 since 0.10.2, which
+added .NET's XML), and the rules that actually differ are few: Rust nests
+block comments and has `r#"…"#`; C# has `@"…"`, and since 0.10.2 `@$"…"` and
+raw strings of three quotes or more; Go's backtick strings ignore backslashes;
+Python checks triple quotes before single ones; JavaScript adds template
+literals. Zero dependencies, and the whole classifier is under 200 lines of
+code.
 
 ### Excluding a match is reported, never silent
 

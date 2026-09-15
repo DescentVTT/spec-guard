@@ -79,8 +79,14 @@ describe('Reader', () => {
     expect(reader.peek()).toBe(';');
   });
 
-  it('treats :: as a separator too', () => {
-    expect(new Reader('global::System.Text;').dotted()).toBe('global.System.Text');
+  it('leaves out an alias qualifier, which says where to look a name up and is not part of it', () => {
+    // It used to read `global.System.Text`, which no pattern for System.Text matched.
+    expect(new Reader('global::System.Text;').dotted()).toBe('System.Text');
+    expect(new Reader('Legacy::Shop.Orders;').dotted()).toBe('Shop.Orders');
+  });
+
+  it('reads nothing after a qualifier that is followed by no name', () => {
+    expect(new Reader('global::;').dotted()).toBe('');
   });
 
   it('stops a dotted path at a trailing separator', () => {

@@ -13,34 +13,38 @@
 
 import { createExcludeMatcher } from './glob.js';
 import { candidates, isGraphFile } from './graph.js';
-import { resolveModule, type ModuleReference } from './imports.js';
+import { moduleNames, resolveModule, type ModuleReference } from './imports.js';
 import { languageFor } from './polyglot.js';
 
 /**
  * Every name a reference can be matched under.
  *
- * The specifier as written and the module it resolves to, as `module=` tries -
- * and, for the two languages whose modules are files, the files that module can
- * denote. Without the last, a layer that names a file could never be reached:
- * `src/runner.ts` is where the file is, `./runner.js` is what imports it, and
- * the first rule this project wrote with file-sized layers passed while its
- * order was reversed, because no reference matched any layer at all.
+ * The names `module=` tries - the specifier, the module it resolves to, and the
+ * modules a dotted one sits under - and, for the two languages whose modules
+ * are files, the files that module can denote. Without the last, a layer that
+ * names a file could never be reached: `src/runner.ts` is where the file is,
+ * `./runner.js` is what imports it, and the first rule this project wrote with
+ * file-sized layers passed while its order was reversed, because no reference
+ * matched any layer at all.
  *
  * Names only. Nothing here asks whether a candidate exists, which is why a layer
  * outside the assertion's target still works: `../infrastructure/db.js` reaches
  * `src/infrastructure/db.ts` whether or not the walk ever went there.
  */
-export function referenceForms(specifier: string, importingFile: string): string[] {
+export function referenceForms(specifier: string, importingFile: string, namespace?: string): string[] {
   const module = resolveModule(specifier, importingFile);
   if (isGraphFile(importingFile)) return [specifier, ...candidates(module)];
-  if (languageFor(importingFile) === 'python') return [specifier, module, `${module}.py`, `${module}/__init__.py`];
-  return [specifier, module];
+  const names = moduleNames(specifier, importingFile, namespace);
+  if (languageFor(importingFile) === 'python') return [...names, `${module}.py`, `${module}/__init__.py`];
+  return names;
 }
 
 export interface LayerInput {
   /** Root-relative path of the importing file. */
   file: string;
   references: readonly ModuleReference[];
+  /** C# only: the namespaces the file declares. */
+  namespaces?: readonly string[];
 }
 
 export interface LayerViolation {
@@ -62,6 +66,20 @@ export interface LayerReport {
   ambiguous: Array<{ file: string; layers: number[] }>;
   /** At most one per file. */
   violations: LayerViolation[];
+  /**
+   * Whether any reference reaches a layer other than its file's own. When none
+   * does, no order of these layers could fail: whatever the rule was meant to
+   * see, it saw nothing that crosses between them.
+   */
+  crossed: boolean;
+  /**
+   * Layers no C# using can reach, with a namespace their files declare as the
+   * example: each matches none of the namespaces its own files declare, so a
+   * using of any of them never arrives there, and depending on the layer goes
+   * unseen. Only layers whose C# files declare a namespace can be told apart,
+   * and never the first layer, which every layer may depend on anyway.
+   */
+  unreachable: Array<{ layer: number; namespace: string }>;
 }
 
 /** A function from a path to the indices of every layer that matches it. */
@@ -103,8 +121,13 @@ export function checkLayers(inputs: readonly LayerInput[], order: readonly strin
   const unassigned: string[] = [];
   const ambiguous: LayerReport['ambiguous'] = [];
   const violations: LayerViolation[] = [];
+  let crossed = false;
+  // For each layer, how many of its files declare each namespace - and whether
+  // any of them is one a using could reach it by.
+  const declared = new Map<number, Map<string, number>>();
+  const reachable = new Set<number>();
 
-  for (const { file, references } of inputs) {
+  for (const { file, references, namespaces = [] } of inputs) {
     const own = layersOf(file);
     for (const layer of own) members[layer] = (members[layer] as number) + 1;
     if (own.length === 0) {
@@ -117,9 +140,16 @@ export function checkLayers(inputs: readonly LayerInput[], order: readonly strin
     }
 
     const from = own[0] as number;
+    const counts = declared.get(from) ?? new Map<string, number>();
+    for (const namespace of namespaces) {
+      counts.set(namespace, (counts.get(namespace) ?? 0) + 1);
+      if (referenceForms(namespace, file).flatMap(reachedBy).includes(from)) reachable.add(from);
+    }
+    if (counts.size > 0) declared.set(from, counts);
     for (const reference of references) {
       if (reference.typeOnly && !includeTypes) continue;
-      const reached = referenceForms(reference.specifier, file).flatMap(reachedBy);
+      const reached = referenceForms(reference.specifier, file, reference.namespace).flatMap(reachedBy);
+      if (reached.some((layer) => layer !== from)) crossed = true;
       const to = Math.max(from, ...reached);
       if (to > from) {
         violations.push({ file, from, to, reference });
@@ -128,5 +158,14 @@ export function checkLayers(inputs: readonly LayerInput[], order: readonly strin
     }
   }
 
-  return { members, unassigned, ambiguous, violations };
+  const unreachable = order.flatMap((_, layer) => {
+    const counts = declared.get(layer);
+    if (layer === 0 || counts === undefined || reachable.has(layer)) return [];
+    // The namespace most of the layer's files declare, the first of them on a
+    // tie: its own, rather than the framework namespace one extension class
+    // borrows, which is the example that says what to write instead.
+    const [namespace] = [...counts].reduce((most, entry) => (entry[1] > most[1] ? entry : most));
+    return [{ layer, namespace }];
+  });
+  return { members, unassigned, ambiguous, violations, crossed, unreachable };
 }

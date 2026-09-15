@@ -375,7 +375,7 @@ describe('@assert-import-absence', () => {
     // The Python file is analysed now; the plain text file is what remains,
     // and it is still counted rather than quietly dropped.
     expect(report.results[0]?.warnings.join('\n')).toContain(
-      'analysed 2 of 3 files; 1 is in a language whose imports spec-guard cannot read',
+      'analysed 2 of 3 files; 1 is in a language whose imports spec-guard cannot read (.txt)',
     );
   });
 });

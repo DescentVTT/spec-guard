@@ -76,6 +76,16 @@ describe('which language an extension is', () => {
     ['a.svelte', 'markup'],
     ['a.md', 'markup'],
     ['a.markdown', 'markup'],
+    // .NET's XML: a ProjectReference commented out of a project file is not one.
+    ['a.csproj', 'markup'],
+    ['a.fsproj', 'markup'],
+    ['a.vbproj', 'markup'],
+    ['a.props', 'markup'],
+    ['a.targets', 'markup'],
+    ['a.slnx', 'markup'],
+    ['a.nuspec', 'markup'],
+    ['a.resx', 'markup'],
+    ['a.xaml', 'markup'],
     // Named for the comments it allows, so it gets the C-style reader.
     ['a.jsonc', 'c-like'],
     ['a.json', 'none'],
@@ -134,7 +144,7 @@ describe('the profiles themselves', () => {
   it.each([
     ['javascript', ['"', "'", '`']],
     ['c-like', ['"', "'"]],
-    ['c#', ['@"', '"', "'"]],
+    ['c#', ['"""', '@$"', '@"', '"', "'"]],
     ['rust', ['r#"', 'r"', '"', "'"]],
     ['go', ['"', "'", '`']],
     // Triple quotes first: a Python docstring is a string, not a comment, and
@@ -147,9 +157,12 @@ describe('the profiles themselves', () => {
     expect(syntaxNamed(name)?.strings.map((rule) => rule.open)).toEqual(opens);
   });
 
-  it('closes a c# verbatim string with a plain quote, and does not honour a backslash in it', () => {
-    const verbatim = syntaxNamed('c#')?.strings[0];
-    expect(verbatim).toEqual({ open: '@"', close: '"', escape: false });
+  it('closes a c# raw string with its own run of quotes, and verbatim strings with a plain quote, honouring no backslash', () => {
+    expect(syntaxNamed('c#')?.strings.slice(0, 3)).toEqual([
+      { open: '"""', close: '"""', escape: false, run: true },
+      { open: '@$"', close: '"', escape: false },
+      { open: '@"', close: '"', escape: false },
+    ]);
   });
 
   it('closes a rust raw string with the matching hash form', () => {
@@ -224,6 +237,63 @@ describe('a scan that ran off the end', () => {
     const [range] = lex(source).strings;
 
     expect(range).toEqual([4, source.length]);
+  });
+});
+
+describe('c# strings since C# 11', () => {
+  const CS = syntaxNamed('c#') as NonNullable<ReturnType<typeof syntaxNamed>>;
+
+  it('reads a raw string holding a quote as one string', () => {
+    // Read as "" and then a string of its own, the inner quote closed it early
+    // and everything after `b` sat outside a string.
+    const source = 'var s = """a "b" c"""; // note';
+    const result = lexRanges(source, CS);
+
+    expect(result.strings).toEqual([[8, 21]]);
+    expect(result.comments).toEqual([[23, source.length]]);
+    expect(result.unterminated).toBe(false);
+  });
+
+  it('closes a raw string of four quotes only at four, so it can hold three', () => {
+    // It used to run to the end of the file, and every using after it was lost.
+    const source = 'var s = """"\n  x """ y\n  """"; // note';
+    const result = lexRanges(source, CS);
+
+    expect(result.strings).toEqual([[8, 29]]);
+    expect(result.comments).toEqual([[31, source.length]]);
+    expect(result.unterminated).toBe(false);
+  });
+
+  it('takes a run of any length, not only the lengths someone listed', () => {
+    const source = 'var s = """""a """" b"""""; x';
+    expect(lexRanges(source, CS).strings).toEqual([[8, 26]]);
+  });
+
+  it('reads an empty string as an empty string, not as the start of a run', () => {
+    // Only a raw string's opener runs: a plain quote that did would read `""`
+    // as the opener of a string closed by `""`, and lose the rest of the file.
+    const source = 'var a = ""; var b = "x"; // note';
+    const result = lexRanges(source, CS);
+
+    expect(result.strings).toEqual([[8, 10], [20, 23]]);
+    expect(result.unterminated).toBe(false);
+  });
+
+  it('reports a raw string that never closes as a lost place', () => {
+    expect(lexRanges('var s = """\n  open "" \n', CS).unterminated).toBe(true);
+  });
+
+  it.each([
+    // `@$"` used to read as `@`, `$` and an ordinary string, whose backslash
+    // escaped the closing quote.
+    ['@$"', 'var p = @$"C:\\"; // note', 8],
+    ['$@"', 'var p = $@"C:\\"; // note', 9],
+  ])('honours no backslash in an interpolated verbatim string opened %s', (_prefix, source, start) => {
+    const result = lexRanges(source, CS);
+
+    expect(result.strings).toEqual([[start, 15]]);
+    expect(result.comments).toEqual([[17, source.length]]);
+    expect(result.unterminated).toBe(false);
   });
 });
 

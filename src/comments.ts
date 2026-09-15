@@ -34,6 +34,12 @@ interface StringRule {
   close: string;
   /** Backslash escapes apply inside. */
   escape: boolean;
+  /**
+   * The opener is a run of its character at least `open` long, and only a run
+   * of the same length closes it: C#'s raw strings, which take `"""` or as many
+   * more quotes as their text needs to hold a `"""` of its own.
+   */
+  run?: boolean;
 }
 
 export interface CommentSyntax {
@@ -70,8 +76,19 @@ const JS_LIKE: CommentSyntax = {
 const C_SHARP: CommentSyntax = {
   ...C_LIKE,
   name: 'c#',
-  // Verbatim strings come first so @" wins over ".
-  strings: [{ open: '@"', close: '"', escape: false }, ...QUOTES],
+  // Longest opener first, so a raw string's """ wins over an empty "" and a
+  // verbatim string's @" - or @$", the interpolated one - over ".
+  //
+  // Neither of the first two was here before 0.10.2. A raw string holding a
+  // quote read as a string that closed early, and one of four quotes ran to the
+  // end of the file; @$"C:\" read its closing quote as escaped and did the same,
+  // so every using after it went unread.
+  strings: [
+    { open: '"""', close: '"""', escape: false, run: true },
+    { open: '@$"', close: '"', escape: false },
+    { open: '@"', close: '"', escape: false },
+    ...QUOTES,
+  ],
 };
 
 const RUST: CommentSyntax = {
@@ -183,6 +200,10 @@ register(GO, ['.go']);
 register(HASH, ['.py', '.pyi', '.rb', '.sh', '.bash', '.zsh', '.yaml', '.yml', '.toml', '.tf', '.pl', '.r']);
 register(SQL_LIKE, ['.sql', '.lua', '.hs', '.elm']);
 register(MARKUP, ['.html', '.htm', '.xml', '.svg', '.vue', '.svelte', '.md', '.markdown']);
+// MSBuild's files, and the rest of .NET's XML. A project file is where a
+// ProjectReference or a <Using Include> says what a project depends on, and a
+// reference commented out there is not one.
+register(MARKUP, ['.csproj', '.fsproj', '.vbproj', '.props', '.targets', '.slnx', '.nuspec', '.resx', '.xaml']);
 // .jsonc is named for the comments it allows, so it gets the C-style reader.
 register(C_LIKE, ['.jsonc']);
 register(NO_COMMENTS, ['.json', '.txt', '.csv', '.tsv', '.lock', '.log']);
@@ -208,12 +229,15 @@ interface Span {
 /** Where the literal opened at `at` ends, or the end of the file. */
 function endOfString(source: string, at: number, rule: StringRule): Span {
   let index = at + rule.open.length;
+  if (rule.run) while (source[index] === rule.open[0]) index += 1;
+  // Every character the run added to the opener, the closer needs as well.
+  const close = rule.close + source.slice(at + rule.open.length, index);
   while (index < source.length) {
     if (rule.escape && source[index] === '\\') {
       index += 2;
       continue;
     }
-    if (source.startsWith(rule.close, index)) return { end: index + rule.close.length, closed: true };
+    if (source.startsWith(close, index)) return { end: index + close.length, closed: true };
     index += 1;
   }
   return { end: source.length, closed: false };

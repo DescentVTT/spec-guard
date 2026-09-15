@@ -812,6 +812,31 @@ describe('an import assertion with a baseline', () => {
   });
 });
 
+describe('a backslash in a directive', () => {
+  it('reaches a regular expression intact, so the escapes in it still mean what they say', async () => {
+    // Until 0.10.2 this searched for `Shop.(Application|Web)b` and passed.
+    const root = await repo({
+      'src/Shop.Domain/Shop.Domain.csproj': '<ProjectReference Include="..\\Shop.Application\\Shop.Application.csproj" />\n',
+      'docs/a.md':
+        '<!-- @assert-absence target="src" glob="*.csproj" regex="true" symbol="Shop\\.(Application|Web)\\b" -->\n',
+    });
+
+    const [result] = (await run(root)).results;
+    expect(result?.description).toContain('"Shop\\.(Application|Web)\\b"');
+    expect(result?.actual).toBe(2);
+  });
+
+  it('reaches an exclude as the separator it is', async () => {
+    const root = await repo({
+      'src/gen/a.ts': 'TODO\n',
+      'src/b.ts': 'TODO\n',
+      'docs/a.md': '<!-- @assert-count target="src" symbol="TODO" exclude="src\\gen" expected="1" -->\n',
+    });
+
+    expect((await run(root)).results[0]?.ok).toBe(true);
+  });
+});
+
 describe('files in a language whose imports cannot be read', () => {
   it('pluralises one', async () => {
     const root = await repo({
@@ -822,7 +847,7 @@ describe('files in a language whose imports cannot be read', () => {
     });
 
     expect((await run(root)).results[0]?.warnings).toContain(
-      'analysed 2 of 3 files; 1 is in a language whose imports spec-guard cannot read',
+      'analysed 2 of 3 files; 1 is in a language whose imports spec-guard cannot read (.txt)',
     );
   });
 
@@ -835,7 +860,25 @@ describe('files in a language whose imports cannot be read', () => {
     });
 
     expect((await run(root)).results[0]?.warnings).toContain(
-      'analysed 1 of 3 files; 2 are in a language whose imports spec-guard cannot read',
+      'analysed 1 of 3 files; 2 are in a language whose imports spec-guard cannot read (.txt)',
+    );
+  });
+
+  it('names each kind it could not read once, in order, and a file with no extension by its name', async () => {
+    // A Razor page holds `@using` lines no import rule reads, and in a .NET
+    // project it sits among project files and settings: a count alone hides it.
+    const root = await repo({
+      'src/Web/Program.cs': 'using Shop.Application;\n',
+      'src/Web/Web.csproj': '<Project />\n',
+      'src/Web/appsettings.json': '{}\n',
+      'src/Web/Pages/_Imports.razor': '@using Shop.Infrastructure\n',
+      'src/Web/Pages/Index.razor': '<h1>Hi</h1>\n',
+      'src/Web/Dockerfile': 'FROM scratch\n',
+      'docs/a.md': '<!-- @assert-import-absence target="src" module="nothing" -->\n',
+    });
+
+    expect((await run(root)).results[0]?.warnings).toContain(
+      'analysed 1 of 6 files; 5 are in a language whose imports spec-guard cannot read (.csproj, .json, .razor, Dockerfile)',
     );
   });
 });
