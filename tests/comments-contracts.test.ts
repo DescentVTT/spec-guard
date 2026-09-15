@@ -264,6 +264,14 @@ describe('c# strings since C# 11', () => {
     expect(result.unterminated).toBe(false);
   });
 
+  it('honours no backslash in a raw string, which has no escapes at all', () => {
+    const source = 'var p = """C:\\"""; // note';
+    const result = lexRanges(source, CS);
+
+    expect(result.strings).toEqual([[8, 17]]);
+    expect(result.comments).toEqual([[19, source.length]]);
+  });
+
   it('takes a run of any length, not only the lengths someone listed', () => {
     const source = 'var s = """""a """" b"""""; x';
     expect(lexRanges(source, CS).strings).toEqual([[8, 26]]);

@@ -348,6 +348,17 @@ describe('@assert-layers', () => {
     expect(result.message).toBe(
       'src/domain/events/created.ts is in both "domain" and "src/domain/events"; a file in two layers has no single rule to follow',
     );
+
+    // And where imports do cross, so that nothing else is wrong with the rule:
+    // the file two layers claim is the whole reason it fails.
+    const crossed = await only({
+      'docs/a.md': '<!-- @assert-layers target="src" order="domain, src/domain/events, infrastructure" -->\n',
+      'src/domain/events/created.ts': 'export {};\n',
+      'src/domain/user.ts': 'export {};\n',
+      'src/infrastructure/db.ts': "import '../domain/user.js';\n",
+    });
+    expect(crossed.ok).toBe(false);
+    expect(crossed.message).toContain('is in both "domain" and "src/domain/events"');
   });
 
   it('says how many files no layer constrains', async () => {
