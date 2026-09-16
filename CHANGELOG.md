@@ -44,9 +44,11 @@ lost its place in. [ADR-0006](docs/adr/0006-comment-classification.md).
   code from there. It used to run to the end of the file. This is what JSX text
   costs as well: `<p>Don't click</p>` opens a literal nothing closes, and it
   now costs that line rather than everything after it.
-- **`.sh`, `.bash` and `.zsh` report their profile as `shell`,** not
-  `shell-like`; `.yaml` and `.yml` report `yaml`. The name appears in
-  `--json` as each result's comment syntax.
+- **The `shell-like` profile split in two.** `.sh`, `.bash` and `.zsh` are
+  read as `shell`, `.yaml` and `.yml` as `yaml`, because their quoting
+  differs: a shell's quotes open mid-word and YAML's open only where a value
+  starts. The names themselves are internal — no output reports them — so what
+  changed for a caller is the reading, described above.
 
 Counts may move on a project that has any of these. A text rule over `.ts`,
 `.tsx`, `.yaml` or `.yml` can now see code it could not see before, and can
