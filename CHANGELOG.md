@@ -5,6 +5,65 @@ All notable changes to this project are documented here. Versions follow
 may change in a minor release — each such change is listed under **Changed**
 with the flag that restores the previous behaviour.
 
+## 0.11.0
+
+The literal this lexer never read. A JavaScript or TypeScript regular
+expression can hold a quote — `/'/`, `/["']/`, `replace(/\/\//g, '')` — and
+without a rule for `/`, that quote opened a string that closed somewhere else
+entirely. Every text rule over a TypeScript project reads through this
+classifier, and this repository's own `src/parser.ts` was one of the files it
+lost its place in. [ADR-0006](docs/adr/0006-comment-classification.md).
+
+### Fixed
+
+- **A regular expression holding a quote desynchronised the scan.** The quote
+  opened a string that ran to the next quote in the file, so the comments it
+  covered were counted as code — and, once it closed, the scan was half a
+  literal out of step, where a `//` inside a real string opened a comment that
+  **hid real code**. `/` now opens a literal in `.js`, `.mjs`, `.cjs`, `.jsx`,
+  `.ts`, `.mts`, `.cts` and `.tsx`, decided by the token before it with the
+  same two tables the import tokenizer has used since 0.2.0 — which now live in
+  one place and are read by both, so the two scanners cannot disagree. A
+  character class holds an unescaped `/`, `\/` does not close, and a `/` that
+  closes nothing before the end of its line was a division.
+- **`/*` in JSX text opened a comment**, so `<div>/*</div>` hid every line up
+  to the next `*/` in the file. After a tag's `>` it is text.
+- **An apostrophe in a YAML value opened a string.** Most YAML scalars are
+  unquoted and may hold one — `- name: Build the decoder's artefact` — and read
+  with the shell's quoting that apostrophe closed on the next one, lines away,
+  with every `#` between them no longer a comment. `.yaml` and `.yml` have a
+  profile of their own, `yaml`, which keeps the shell's `#` rule and takes a
+  quote as opening a scalar only where a word could start. `'it''s'` is one
+  scalar, YAML's own escape. A shell's quotes still open mid-word, because
+  `dir='C:\'` needs them to.
+
+### Changed
+
+- **A JavaScript string ends at its line.** Only a template may hold a line
+  break, so a quoted string that reaches one was never a string and is read as
+  code from there. It used to run to the end of the file. This is what JSX text
+  costs as well: `<p>Don't click</p>` opens a literal nothing closes, and it
+  now costs that line rather than everything after it.
+- **`.sh`, `.bash` and `.zsh` report their profile as `shell`,** not
+  `shell-like`; `.yaml` and `.yml` report `yaml`. The name appears in
+  `--json` as each result's comment syntax.
+
+Counts may move on a project that has any of these. A text rule over `.ts`,
+`.tsx`, `.yaml` or `.yml` can now see code it could not see before, and can
+stop counting comment text it was counting: on 7,953 files here, 119 phantom
+comments in 63 files disappeared and 1,948 real comments in 53 files came back.
+44 JavaScript files reported a lost scan before; 4 do now, every one of them a
+template nested inside a `${…}` substitution, which ADR-0006 records as the
+open item this release does not close.
+
+The scan is also **faster than it has ever been** — 5.1× for TypeScript, 5.2×
+for C#, 3.4× for C, 2.8× for shell scripts and 1.3× for Rust, whose raw strings
+open with the letter `r` and so reach the slow path often. A character that
+opens nothing in a language now costs one array lookup rather than four
+searches that were always going to fail. That was not a bonus: adding the
+regular-expression branch made C, which never enters it, 16% slower, and a
+question asked per character has to be paid for per character.
+
 ## 0.10.3
 
 Fixes from running 0.10.2 over a Rust and .NET monorepo, where an import rule

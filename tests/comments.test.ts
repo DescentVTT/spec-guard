@@ -330,6 +330,90 @@ const CASES: Case[] = [
     source: 'const colour = "#fff"; // NEEDLE\n',
     expected: [true],
   },
+
+  // 0.11.0. A regular expression is a literal, and until now no profile read
+  // one - so a quote inside it opened a string that closed somewhere else.
+
+  {
+    // The quote opened a string that nothing on that line closed, so the
+    // comment after it was read as code and the code below it as a string.
+    name: 'a regular expression holding an apostrophe opens no string',
+    file: 'a.ts',
+    source: "const re = /'/; // NEEDLE\nconst x = NEEDLE;\n",
+    expected: [true, false],
+  },
+  {
+    name: 'a regular expression holding a character class of quotes',
+    file: 'a.ts',
+    source: 'const re = /["\']/g; // NEEDLE\nconst x = NEEDLE;\n',
+    expected: [true, false],
+  },
+  {
+    // This repository's own parser.ts, which lost its place here.
+    name: 'a regular expression with an escaped backslash and a class',
+    file: 'a.ts',
+    source: 'const q = /^\\\\(["\'\\\\])(.*?)\\\\1/.exec(t); // NEEDLE\nconst x = NEEDLE;\n',
+    expected: [true, false],
+  },
+  {
+    // Inside a character class a slash is an ordinary character, so the `//`
+    // here opened a comment that swallowed the rest of the line.
+    name: 'a slash inside a character class opens no comment',
+    file: 'a.ts',
+    source: 'const slash = /[//]/; const x = NEEDLE;\n// NEEDLE\n',
+    expected: [false, true],
+  },
+  {
+    // The other direction: a division read as a regular expression would take
+    // the comment marker after it for its closing slash.
+    name: 'a division is not a regular expression',
+    file: 'a.ts',
+    source: 'const ratio = a / b; // NEEDLE and / here\nconst x = NEEDLE;\n',
+    expected: [true, false],
+  },
+  {
+    name: 'a regular expression may open a statement after a comment',
+    file: 'a.ts',
+    source: '// note\n/"/.test(NEEDLE);\n// NEEDLE\n',
+    expected: [false, true],
+  },
+  {
+    // JSX text may say anything, including the two characters that open a
+    // comment. Read as one, it hid every line up to the next `*/`.
+    name: 'a block comment opener in JSX text is text',
+    file: 'a.tsx',
+    source: 'const a = <div>/*</div>;\nconst x = NEEDLE; /* NEEDLE */\n',
+    expected: [false, true],
+  },
+  {
+    // An apostrophe in JSX text opens a literal no quote closes. Bounded to
+    // its line, it costs that line and nothing more.
+    name: 'an apostrophe in JSX text costs its line, not the file',
+    file: 'a.tsx',
+    source: "const a = <p>Don't click</p>;\n// NEEDLE\nconst x = NEEDLE;\n",
+    expected: [true, false],
+  },
+  {
+    // YAML's plain scalars are unquoted text, and the apostrophe in one used
+    // to open a literal that closed on the next apostrophe, lines away.
+    name: 'an apostrophe in a YAML plain scalar opens no string',
+    file: 'a.yml',
+    source: "- name: Build the decoder's artefact\n# NEEDLE\n- name: Don't stop\n  run: NEEDLE\n",
+    expected: [true, false],
+  },
+  {
+    name: "a doubled quote is YAML's escape, not the end of the scalar",
+    file: 'a.yaml',
+    source: "key: 'it''s # NEEDLE'\n# NEEDLE\n",
+    expected: [false, true],
+  },
+  {
+    // The shell keeps its own rule: a quote there opens wherever it is written.
+    name: 'a shell quote still opens in the middle of a word',
+    file: 'a.sh',
+    source: "dir=a'# NEEDLE'\n# NEEDLE\n",
+    expected: [false, true],
+  },
 ];
 
 describe('comment classification', () => {

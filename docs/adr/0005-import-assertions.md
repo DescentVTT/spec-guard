@@ -119,9 +119,20 @@ contractions, plural possessives such as `users'`, and `5"`.
 
 A quote after a space or punctuation still loses the scan, as do `'Til then`
 and `/*` inside JSX text. `/*` has a worse case, found while checking this and
-not fixed: when a real `*/` follows later in the file, the code in between is
-skipped without any note. Nothing that knows no JSX can tell that `/*` from a
-real comment.
+not fixed here: when a real `*/` follows later in the file, the code in between
+is skipped without any note. Nothing that knows no JSX can tell that `/*` from
+a real comment — but the comment lexer, which has the same problem for text
+rules, takes a narrower rule that costs nothing: a `/*` directly after a `>`
+opens no comment there (ADR-0006, 0.11.0). This tokenizer could take it too,
+and has not been measured for it.
+
+**Where the tables live, since 0.11.0.** `REGEX_AFTER_WORD` and
+`REGEX_AFTER_PUNCT`, and everything decided above about `<`, `}` and `/>`,
+moved to `src/comments.ts`, which since 0.11.0 has to answer the same question
+about `/` for text rules. This tokenizer imports them back. Two copies of a
+heuristic are two answers to one question, and the two scanners reading a file
+differently is exactly the kind of gap ADR-0006 closed between the ripgrep and
+JavaScript engines.
 
 The six files that remain unanalysable are five JSX files and one TypeScript
 file in rxjs. They are **detected**, which is the property that matters: the

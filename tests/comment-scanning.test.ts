@@ -130,6 +130,29 @@ describe.skipIf(!rgPath)('ripgrep parity', () => {
     expect(viaRipgrep.map((result) => result.matches)).toEqual(viaScanner.map((result) => result.matches));
   });
 
+  it('agrees about a regular expression, JSX text and a YAML scalar', async () => {
+    // The three literals 0.11.0 taught the classifier. Both engines read the
+    // file through it, so a disagreement here is a disagreement about what a
+    // comment is - and each of these used to run a literal or a comment on
+    // past the code below it.
+    const root = await repo({
+      'src/strip.ts': "export const strip = (s: string) => s.replace(/'/g, ''); // LegacyThing was removed\nexport const one = LegacyThing;\n",
+      'src/tag.tsx': 'export const A = () => <div>/*</div>;\nexport const two = LegacyThing;\n',
+      'src/steps.yml': "- name: Build the decoder's artefact\n# LegacyThing was removed\n- run: echo LegacyThing\n",
+    });
+    process.env.SPEC_GUARD_RG = rgPath as string;
+    const ripgrep = await resolveEngine('ripgrep');
+
+    const viaRipgrep = await ripgrep.search(request(root, 'LegacyThing', true));
+    const viaScanner = await javascriptEngine.search(request(root, 'LegacyThing', true));
+
+    expect(viaRipgrep.count).toBe(3);
+    expect(viaRipgrep.commentMatches).toBe(2);
+    expect(viaRipgrep.count).toBe(viaScanner.count);
+    expect(viaRipgrep.commentMatches).toBe(viaScanner.commentMatches);
+    expect(viaRipgrep.matches).toEqual(viaScanner.matches);
+  });
+
   it('still agrees when comments are counted', async () => {
     const root = await repo(MIXED_SOURCES);
     process.env.SPEC_GUARD_RG = rgPath as string;

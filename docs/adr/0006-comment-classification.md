@@ -89,14 +89,16 @@ A match wrongly kept is a visible failure someone can argue with. A match
 wrongly dropped is a lie.
 
 The languages are covered by a table of comment and string rules rather than a
-parser per language — 9 profiles over 59 extensions (68 since 0.10.2, which
-added .NET's XML, and a tenth profile since 0.10.3, below), and the rules that
-actually differ are few: Rust nests block comments, has raw strings and
-lifetimes; C# has `@"…"`, and since 0.10.2 `@$"…"` and raw strings of three
-quotes or more; Go's backtick strings ignore backslashes; Python checks triple
-quotes before single ones; JavaScript adds template literals. Zero
-dependencies, and the whole classifier is about 280 lines of code, blank lines
-and comments aside.
+parser per language — 9 profiles over 59 extensions to begin with, 68
+extensions since 0.10.2, which added .NET's XML, and 11 profiles since 0.11.0
+split YAML off the shell. The rules that actually differ are few: Rust nests
+block comments, has raw strings and lifetimes; C# has `@"…"`, and since 0.10.2
+`@$"…"` and raw strings of three quotes or more; Go's backtick strings ignore
+backslashes; Python checks triple quotes before single ones; JavaScript adds
+template literals and, since 0.11.0, regular expressions. Zero dependencies,
+and the whole classifier is about 460 lines of code, blank lines and comments
+aside — 40 of them the two tables that moved here from the import tokenizer so
+that one answer serves both readers.
 
 ### A quote or a hash that opens nothing (0.10.3)
 
@@ -175,21 +177,126 @@ accept `x=1# note` as a comment and keep reading it as one. Perl's `$#items`
 still hides the rest of its line: a shell's quotes are not Perl's, and Perl did
 not seem worth a profile.
 
+### A slash that quotes (0.11.0)
+
+The open item 0.10.3 left at the top of its list was the one with reach. Every
+text rule over a TypeScript project reads through this lexer, and JavaScript
+has a literal the table had no rule for: the regular expression. A quote inside
+one is not a quote —
+
+```ts
+const quoted = /^\\(["'\\])(.*?)\\1/.exec(text);
+```
+
+— and this is `src/parser.ts`, in this repository. Read without a rule for `/`,
+that `"` opened a string that ran 138 characters into the file's prose, and the
+scan never recovered: `parser.ts` and `polyglot.ts` both reported a lost place,
+one of them with a single phantom literal covering 8,541 characters and 242
+lines. Both directions of damage follow from that, and the second is the one
+that matters:
+
+| What the phantom string covers | What a text rule then does |
+| --- | --- |
+| a real comment | counts its matches as code — a loud, arguable failure |
+| nothing, until it closes on a later quote | leaves the scan half a literal out of step, where a `//` inside a real string opens a comment and **hides real code** |
+
+The second row is a silent pass, which is the outcome this project treats as
+unacceptable, and it is not hypothetical. In `node_modules` on this machine
+**119 comments in 63 files across 26 packages were not comments at all** —
+mostly the `//` inside `const re = /^\/\//;`, read as a line comment that
+swallowed the rest of its line. In the other direction 1,948 real comments in
+53 files were being counted as code, because a phantom string was sitting over
+them.
+
+**Telling a regular expression from a division** takes the token before the
+`/`, which a character lexer does not have. `imports.ts` has had that
+heuristic since 0.2.0 — two tables, one of the words a regular expression may
+follow and one of the punctuation — so the tables moved into `comments.ts` and
+the tokenizer now imports them back. One table, two readers: the alternative
+was a second copy, and the only thing worse than a heuristic is two of them
+disagreeing about the same file. Where the previous token is a comment, this
+lexer steps over it and asks again, using the ranges it has already collected.
+
+The bound is what makes it safe. **A regular expression is one line long**, so
+a `/` read wrongly costs the rest of its line and never the rest of the file —
+the same backstop Rust's character literal got in 0.10.3. A `/` that closes
+nothing before the newline was a division after all, and is read as code.
+
+Three sibling fixes came out of the same pass, each a case where a delimiter
+belongs to text rather than to syntax:
+
+- **JSX text.** `<div>/*</div>` opened a block comment that ran to the next
+  `*/` in the file. After a tag's `>`, `/*` is now text. The cost is a comment
+  written directly against a `>` with no space, `a>/* … */`, which is read as
+  code — the loud direction, and a shape that occurs 28 times in the
+  `node_modules` here, every one of them inside a comment already, and in
+  `<pre>` and `<span>` text at that.
+- **YAML plain scalars.** Most YAML values are unquoted, and an unquoted value
+  may hold an apostrophe: `- name: Build the decoder's artefact`. Read with the
+  shell's quoting, that apostrophe opened a literal that closed on the next one
+  — often lines away, in another sentence — and every `#` between them stopped
+  being a comment. So YAML has a profile of its own, keeping the shell's `#`
+  rule and taking a quote as an opening only where a word could start. Its
+  own escape came with it: `'it''s'` is one scalar, and ending at the first of
+  the pair would leave the rest of the line as text with a `#` free to open a
+  comment in it.
+- **A JavaScript string ends at its line.** Only a template may hold a line
+  break, so a quoted string that reaches one was never a string. This is the
+  backstop again, and it is also what JSX text costs: `<p>Don't click</p>`
+  opens a literal nothing closes, and bounded to its line it costs that line.
+
+**What it changed.** On the only corpus this machine has — 7,953 files in
+`node_modules` and this repository, JavaScript and TypeScript nearly all of it
+— 666 of 7,126 JavaScript files now have different comment ranges, and 4 of 35
+YAML files. The number that says which direction: **44 JavaScript files
+reported a lost scan before and 4 do now**, and the one YAML file that did
+reports none. Every comment that disappeared was inspected; each was a phantom
+of the kind in the table above.
+
+**What it costs.** Nothing, and that took a rewrite. Adding the
+regular-expression branch made C — which has no regular expressions and never
+enters the branch — **16% slower**. Not the branch's work: the same branch with
+its body deleted cost the same, and so did an unrelated dead branch bolted onto
+0.10.3's lexer. A question asked per character is paid for per character
+whether or not it is answered, which 0.10.3 learned once and this learned
+again with less room to move.
+
+The answer was to stop asking. Every comment token and every literal opener in
+this table starts with one of a handful of ASCII characters, and a source file
+is mostly none of them, so the scan now begins with a 128-byte lookup and a
+character that opens nothing costs one array read. The same 20 MB through each
+profile, one process per lexer, median of five:
+
+| Profile | 0.10.3 | 0.11.0 |
+| --- | --- | --- |
+| javascript | 553 ms | 108 ms |
+| c# | 573 ms | 111 ms |
+| c-like | 356 ms | 104 ms |
+| shell | 248 ms | 90 ms |
+| yaml | 239 ms | 112 ms |
+| rust | 135 ms | 105 ms |
+
+Rust gains least, and for a reason worth knowing: its raw strings open with
+`r`, so every letter `r` in the file takes the slow path. A profile pays for
+the ordinariness of its delimiters.
+
 **What the table still does not read.** Each of these is a literal form a
 profile has no rule for, so a quote inside one can pair with the wrong partner
 and turn comment text into code or the reverse:
 
-- **A JavaScript or TypeScript regular expression holding a quote** - `/'/g`,
-  `/["']/`. This is the one with reach: every text rule over a TypeScript
-  project reads through this lexer, and this repository's own `src/parser.ts`
-  loses its place on `/\\(["'\\])/g`. Telling a regular expression from a
-  division takes the previous token, which `imports.ts` tracks and this lexer
-  does not; it needs its own measurement against that tokenizer, not a rule
-  added in passing.
+- **A template nested inside a substitution**, `` `a ${b ? `c` : d} e` ``. This
+  is now the one with reach: the inner backtick closes the outer template, and
+  from there the file's quoting is inverted. 111 of the 7,126 JavaScript files
+  here contain one — 1.6% — and they are all four of the JavaScript files that
+  still report a lost scan. Reading it needs the scan to re-enter itself at
+  `${` and return at the matching `}`, which is a change to the loop rather
+  than a row in the table, and the measurement above says what a change to that
+  loop costs when it is made carelessly.
 - C++ raw strings, `R"(…)"`; Kotlin, Scala and Swift triple-quoted strings;
   Swift's `#"…"#`; Dart's `r'…'`.
-- A quote inside a YAML plain scalar, `title: Don't`, which YAML does not read
-  as a quote at all.
+- A quote inside a Markdown or HTML code span: `markup` has no string rules at
+  all, so a ``<!--`` written inside backticks opens a comment. One file here
+  does it.
 
 ### Excluding a match is reported, never silent
 
@@ -273,5 +380,6 @@ Windows and sets the engine budgets accordingly.)
   one assertion silently kept its comment matches.
 
 <!-- @assert-present file="src/comments.ts, tests/comments.test.ts" reason="the classifier and its language table are the whole feature" -->
-<!-- @assert-count target="src/comments.ts" symbol="CommentSyntax" min="9" reason="one profile per comment family, plus the interface" -->
+<!-- @assert-count target="src/comments.ts" symbol="CommentSyntax" min="11" reason="one profile per comment family, plus the interface" -->
+<!-- @assert-count target="src" symbol="const REGEX_AFTER_WORD" expected="1" reason="one table, read by both scanners: two would be two answers to the same question" -->
 <!-- @assert-absence target="src/comments.ts" symbol="require(" reason="zero dependencies: the classifier parses, it does not delegate" -->

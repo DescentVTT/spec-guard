@@ -53,6 +53,13 @@ interface StringRule {
    * reading one at the end of its line.
    */
   singleLine?: boolean;
+  /**
+   * A doubled closing delimiter is an escaped one rather than the end: YAML
+   * writes a quote inside a single-quoted scalar as `''`, and `'it''s'` is one
+   * scalar. Without this the scalar ends at the first of the pair and the rest
+   * of the line becomes text, where a `#` would open a comment.
+   */
+  doubled?: boolean;
 }
 
 export interface CommentSyntax {
@@ -79,9 +86,85 @@ export interface CommentSyntax {
    * `$#` are code, and in YAML, where `a#b` is text.
    */
   wordComments: boolean;
+  /**
+   * A quote opens a literal only where a word could start, as in YAML, whose
+   * plain scalars are unquoted text: `name: the decoder's artefact` holds an
+   * apostrophe, not the opening of a string.
+   */
+  wordQuotes: boolean;
+  /**
+   * `/` may open a regular expression, which is a literal that can hold a
+   * quote or a comment marker: `/'/`, `replace(/\/\//g, '')`.
+   */
+  regexLiterals: boolean;
+  /**
+   * A block comment does not open directly after `>`, which in JSX is the end
+   * of a tag and the start of text that may say anything: `<div>/*</div>`.
+   */
+  jsxText: boolean;
   /** Literal forms that may contain comment-looking text. */
   strings: readonly StringRule[];
 }
+
+/**
+ * Words after which a `/` opens a regular expression rather than dividing.
+ *
+ * The remaining ambiguity is `)` and `}`, where this follows the usual
+ * heuristic. Both tables are shared with the import tokenizer in `imports.ts`,
+ * which is where they were written and proved: two copies would be two answers
+ * to "is this a regular expression", and the only thing worse than one
+ * heuristic is two of them disagreeing about the same file.
+ */
+export const REGEX_AFTER_WORD: ReadonlySet<string> = new Set([
+  'return',
+  'typeof',
+  'instanceof',
+  'in',
+  'of',
+  'new',
+  'delete',
+  'void',
+  'throw',
+  'case',
+  'do',
+  'else',
+  'yield',
+  'await',
+]);
+
+/**
+ * `<` is deliberately absent: in JSX every closing tag is `</`, and reading that
+ * as the start of a regular expression loses the scan for the rest of the line.
+ * The cost is that `a < /re/.test(b)` is misread instead, which is a shape that
+ * does not occur in practice.
+ *
+ * `}` stays, for a regular expression that opens a statement after a block,
+ * except before `/>`. That is a JSX element closing after an expression
+ * attribute, `<App x={y} />`. `/>` after anything else is still one - `/>/` is a
+ * regular expression, and HTML escaping is full of `replace(/>/g, ...)`.
+ */
+export const REGEX_AFTER_PUNCT: ReadonlySet<string> = new Set([
+  '(',
+  ',',
+  '=',
+  ':',
+  '[',
+  '!',
+  '&',
+  '|',
+  '?',
+  '{',
+  '}',
+  ';',
+  '+',
+  '-',
+  '*',
+  '/',
+  '%',
+  '^',
+  '~',
+  '>',
+]);
 
 const QUOTES: readonly StringRule[] = [
   { open: '"', close: '"', escape: true },
@@ -89,10 +172,11 @@ const QUOTES: readonly StringRule[] = [
 ];
 
 // Every profile writes the same keys in the same order, flags included where
-// they are false. The lexer reads these on every character of every file, and
-// objects of one shape keep those reads monomorphic: with the flags left off
-// where unused, each profile was a shape of its own, and a run that had seen
-// four of them read C about a fifth slower than 0.10.2 did.
+// they are false, so the lexer's reads of them stay monomorphic. With the
+// flags left off where unused, each profile was a shape of its own, and a run
+// that had seen four of them read C about a fifth slower than 0.10.2 did. The
+// scan reads a profile once per file now rather than once per character, which
+// makes this cheaper to get wrong than it was - and no less wrong.
 
 const C_LIKE: CommentSyntax = {
   name: 'c-like',
@@ -106,14 +190,37 @@ const C_LIKE: CommentSyntax = {
   // change which wrong answer a misread file gets.
   digitSeparators: true,
   wordComments: false,
+  wordQuotes: false,
+  regexLiterals: false,
+  jsxText: false,
   strings: QUOTES,
 };
+
+/**
+ * A quoted string in JavaScript cannot hold a line break - only a template
+ * can - so one that reaches the end of its line was never a string.
+ *
+ * The same backstop Rust's character literal got in 0.10.3, for the same
+ * reason: whatever this table misreads next, it costs a line rather than a
+ * file. It is also what JSX text costs. `<p>Don't click</p>` opens a literal
+ * that no quote closes, and bounded to its line that literal is read as code -
+ * which is what the text is.
+ */
+const JS_QUOTES: readonly StringRule[] = [
+  { open: '"', close: '"', escape: true, singleLine: true },
+  { open: "'", close: "'", escape: true, singleLine: true },
+];
 
 const JS_LIKE: CommentSyntax = {
   ...C_LIKE,
   name: 'javascript',
   digitSeparators: false,
-  strings: [...QUOTES, { open: '`', close: '`', escape: true }],
+  // Until 0.11.0 no profile read a regular expression, so a quote inside one -
+  // `/'/`, `/["']/` - opened a string that closed on some later quote, and the
+  // comments in between were read as code. See ADR-0006.
+  regexLiterals: true,
+  jsxText: true,
+  strings: [...JS_QUOTES, { open: '`', close: '`', escape: true }],
 };
 
 const C_SHARP: CommentSyntax = {
@@ -147,6 +254,9 @@ const RUST: CommentSyntax = {
   lifetimes: true,
   digitSeparators: false,
   wordComments: false,
+  wordQuotes: false,
+  regexLiterals: false,
+  jsxText: false,
   strings: [
     // Before 0.10.3 only r"…" and r#"…"# were known, and r##"…"## read as an
     // ordinary string that closed at the first quote inside it.
@@ -171,6 +281,9 @@ const HASH: CommentSyntax = {
   lifetimes: false,
   digitSeparators: false,
   wordComments: false,
+  wordQuotes: false,
+  regexLiterals: false,
+  jsxText: false,
   // Triple quotes first: a Python docstring is a string, not a comment, and
   // treating it as code is the conservative reading.
   strings: [
@@ -181,33 +294,75 @@ const HASH: CommentSyntax = {
 };
 
 /**
- * Shell scripts and YAML: `#` comments, but only where a word starts.
+ * Shell scripts: `#` comments, but only where a word starts.
  *
- * Both say so. A shell ignores a word *beginning* with `#`, so `${path##*.}`,
- * `${#items[@]}` and `$#` are code; YAML needs whitespace before a comment, so
- * `https://example.com/#top` is one value. Read as Python reads `#`, each of
- * those hid the rest of its line. (The basename expansion, whose pattern ends
- * in a star and a slash, is the commonest of them, and cannot be written in a
- * comment like this one without closing it.)
+ * POSIX says so. A shell ignores a word *beginning* with `#`, so `${path##*.}`,
+ * `${#items[@]}` and `$#` are code; read as Python reads `#`, each of those hid
+ * the rest of its line. (The basename expansion, whose pattern ends in a star
+ * and a slash, is the commonest of them, and cannot be written in a comment
+ * like this one without closing it.)
  *
  * A comment written straight after code, as in `x;# note`, is read as code
  * here, which is the direction that fails loudly.
  */
-const SHELL_LIKE: CommentSyntax = {
-  name: 'shell-like',
+const SHELL: CommentSyntax = {
+  name: 'shell',
   line: ['#'],
   block: [],
   nested: false,
   lifetimes: false,
   digitSeparators: false,
   wordComments: true,
+  // A shell quote opens anywhere, and has to: in `dir='C:\'` and `echo a'b'`
+  // the quote is mid-word, and a `#` inside one it did not open would comment
+  // out the rest of the line.
+  wordQuotes: false,
+  regexLiterals: false,
+  jsxText: false,
   strings: [
     // ANSI-C quoting, the one single-quoted form a backslash escapes in.
     { open: "$'", close: "'", escape: true },
     { open: '"', close: '"', escape: true },
-    // Nothing escapes inside single quotes, in either language: 'C:\' is
-    // complete. YAML writes a quote inside one as '', two strings side by side.
+    // Nothing escapes inside single quotes: 'C:\' is a complete string.
     { open: "'", close: "'", escape: false },
+  ],
+};
+
+/**
+ * YAML: a shell's `#` rule, and quotes only where a value starts.
+ *
+ * YAML needs whitespace before a comment, so `https://example.com/#top` is one
+ * value - the rule a shell shares. What it does not share is the quoting. Most
+ * YAML scalars are plain, which is to say unquoted, and a plain scalar may hold
+ * an apostrophe: `- name: Build the decoder's artefact` is a sentence, not a
+ * string opening. Read as a shell reads it, that apostrophe opened a literal
+ * that closed on the next one in the file - often lines away, in another
+ * sentence - and every `#` between them stopped being a comment.
+ *
+ * So a quote here opens a scalar only where a word could start, which is where
+ * YAML puts one: after `key:`, after `- `, or at the start of a line. A quote
+ * anywhere else is text. The limit is a quote in the middle of a plain scalar
+ * with a space in front of it, `title: the 'quoted' word`, which is still read
+ * as a string - harmlessly, because such quotes come in pairs, and it is the
+ * unpaired apostrophe that used to run away.
+ */
+const YAML: CommentSyntax = {
+  name: 'yaml',
+  line: ['#'],
+  block: [],
+  nested: false,
+  lifetimes: false,
+  digitSeparators: false,
+  wordComments: true,
+  wordQuotes: true,
+  regexLiterals: false,
+  jsxText: false,
+  strings: [
+    { open: '"', close: '"', escape: true },
+    // A single-quoted scalar has no backslash escapes. The one escape it has is
+    // a doubled quote, `'it''s'`, and reading that as two scalars would leave
+    // `s` outside a string - with a `#` after it free to open a comment.
+    { open: "'", close: "'", escape: false, doubled: true },
   ],
 };
 
@@ -219,6 +374,9 @@ const SQL_LIKE: CommentSyntax = {
   lifetimes: false,
   digitSeparators: false,
   wordComments: false,
+  wordQuotes: false,
+  regexLiterals: false,
+  jsxText: false,
   strings: QUOTES,
 };
 
@@ -230,6 +388,9 @@ const MARKUP: CommentSyntax = {
   lifetimes: false,
   digitSeparators: false,
   wordComments: false,
+  wordQuotes: false,
+  regexLiterals: false,
+  jsxText: false,
   strings: [],
 };
 
@@ -250,6 +411,9 @@ const NO_COMMENTS: CommentSyntax = {
   lifetimes: false,
   digitSeparators: false,
   wordComments: false,
+  wordQuotes: false,
+  regexLiterals: false,
+  jsxText: false,
   strings: [],
 };
 
@@ -294,7 +458,8 @@ register(C_SHARP, ['.cs', '.csx']);
 register(RUST, ['.rs']);
 register(GO, ['.go']);
 register(HASH, ['.py', '.pyi', '.rb', '.toml', '.tf', '.pl', '.r']);
-register(SHELL_LIKE, ['.sh', '.bash', '.zsh', '.yaml', '.yml']);
+register(SHELL, ['.sh', '.bash', '.zsh']);
+register(YAML, ['.yaml', '.yml']);
 register(SQL_LIKE, ['.sql', '.lua', '.hs', '.elm']);
 register(MARKUP, ['.html', '.htm', '.xml', '.svg', '.vue', '.svelte', '.md', '.markdown']);
 // MSBuild's files, and the rest of .NET's XML. A project file is where a
@@ -357,10 +522,23 @@ function endOfString(source: string, { rule, text, close }: Opener): Span {
       index += 2;
       continue;
     }
-    if (source.startsWith(close, index)) return { end: index + close.length, closed: true };
+    if (source.startsWith(close, index)) {
+      // A doubled delimiter is an escaped one, so the literal carries on.
+      if (rule.doubled && source.startsWith(close, index + close.length)) {
+        index += close.length * 2;
+        continue;
+      }
+      return { end: index + close.length, closed: true };
+    }
     index += 1;
   }
   return { end: source.length, closed: false };
+}
+
+/** A line comment's opener, and a YAML scalar's quote, is where a word could start. */
+function startsWord(source: string, at: number): boolean {
+  const before = source[at - 1];
+  return before === undefined || before === ' ' || before === '\t' || before === '\n';
 }
 
 /**
@@ -374,6 +552,9 @@ function endOfString(source: string, { rule, text, close }: Opener): Span {
  * digit is still that number, where `u8'a'` is a character.
  */
 function codeAfterQuote(source: string, at: number, syntax: CommentSyntax): number {
+  // YAML: a scalar is quoted only when the quote is where its value starts, so
+  // an apostrophe inside a word is part of a sentence.
+  if (syntax.wordQuotes && !startsWord(source, at)) return at + 1;
   if (source[at] !== "'") return at;
   if (syntax.lifetimes) {
     const identifier = /[\p{XID_Start}_]\p{XID_Continue}*/uy;
@@ -391,10 +572,112 @@ function codeAfterQuote(source: string, at: number, syntax: CommentSyntax): numb
   return at;
 }
 
-/** A line comment's opener is where a word could start. */
-function startsWord(source: string, at: number): boolean {
-  const before = source[at - 1];
-  return before === undefined || before === ' ' || before === '\t' || before === '\n';
+/**
+ * Whether the `/` at `at` opens a regular expression rather than dividing.
+ *
+ * The one question in JavaScript a character cannot answer by itself, and the
+ * reason no profile read a regular expression until 0.11.0: `/` divides or
+ * quotes according to what came before it. So this looks back, past the
+ * whitespace and past the comments - `// note` and then a line that opens with
+ * a regular expression is ordinary code - and asks the same two tables the
+ * import tokenizer asks.
+ */
+function opensRegex(source: string, at: number, comments: readonly CommentRange[]): boolean {
+  const word = /[A-Za-z0-9_$]/;
+  let index = at - 1;
+  let recent = comments.length - 1;
+
+  for (;;) {
+    while (index >= 0) {
+      const char = source[index] as string;
+      if (char !== ' ' && char !== '\t' && char !== '\n' && char !== '\r') break;
+      index -= 1;
+    }
+    // A comment is not a token. Step over the whole of it and ask again, which
+    // the ranges collected so far already say how to do.
+    while (recent >= 0 && (comments[recent] as CommentRange)[0] > index) recent -= 1;
+    const range = comments[recent];
+    if (range === undefined || range[1] <= index) break;
+    index = range[0] - 1;
+  }
+
+  // Nothing before it at all: a file may open with a regular expression.
+  if (index < 0) return true;
+  const before = source[index] as string;
+  if (word.test(before)) {
+    let from = index;
+    while (from > 0 && word.test(source[from - 1] as string)) from -= 1;
+    return REGEX_AFTER_WORD.has(source.slice(from, index + 1));
+  }
+  return REGEX_AFTER_PUNCT.has(before) && !(before === '}' && source[at + 1] === '>');
+}
+
+/**
+ * Where the regular expression opened at `at` ends, or `at` itself when
+ * nothing closes it before the end of the line - in which case the `/` divided
+ * after all.
+ *
+ * A regular expression is one line long, and that is the backstop here: a `/`
+ * this reads wrongly costs at most the rest of its line, never the rest of the
+ * file, the same bound a Rust character literal got in 0.10.3.
+ */
+function endOfRegex(source: string, at: number): number {
+  let index = at + 1;
+  let inClass = false;
+
+  while (index < source.length) {
+    const char = source[index] as string;
+    if (char === '\\') {
+      index += 2;
+      continue;
+    }
+    if (char === '\n') return at;
+    if (char === '[') inClass = true;
+    else if (char === ']') inClass = false;
+    // Inside a character class `/` is an ordinary character: /[/]/ is one
+    // literal, and `replace(/[/\\]/g, …)` is how a path is split.
+    else if (char === '/' && !inClass) return index + 1;
+    index += 1;
+  }
+  return at;
+}
+
+/**
+ * The ASCII characters that can begin anything a profile reads.
+ *
+ * Every comment token and every literal opener in this table starts with one
+ * of a handful of characters, and a source file is mostly none of them. So the
+ * scan asks this first, and a character that begins nothing costs one array
+ * read instead of four searches that were always going to fail.
+ *
+ * It is also what keeps a rule cheap for the languages that do not have it.
+ * Adding the regular-expression branch below to the scan made C 16% slower
+ * before this existed - not the branch's work, which C never reaches, but its
+ * presence: the same branch with its body deleted cost the same, and so did an
+ * unrelated one bolted onto 0.10.3. A question asked per character is paid for
+ * per character whether or not it is answered.
+ *
+ * The table is ASCII-wide, and deliberately has no bounds check at either end.
+ * A typed array ignores a write past its end and reads back `undefined`, which
+ * is not `0`, so a delimiter in some other script marks nothing and every
+ * character of that script takes the slow path - read correctly, and slowly.
+ * Both halves of that are the language's own behaviour rather than a branch
+ * that no file anyone has could reach.
+ *
+ * A profile that reads regular expressions needs `/` marked, and gets it from
+ * the `//` that opens its line comments; one that has the JSX rule needs it
+ * too, and gets it from `/*`. Both are the same character, and no language
+ * has one without the other.
+ */
+function openingCharacters(syntax: CommentSyntax): Uint8Array {
+  const starts = new Uint8Array(128);
+  const mark = (token: string): void => {
+    starts[token.charCodeAt(0)] = 1;
+  };
+  for (const token of syntax.line) mark(token);
+  for (const [open] of syntax.block) mark(open);
+  for (const rule of syntax.strings) mark(rule.open);
+  return starts;
 }
 
 /** Where the block comment opened at `at` ends, or the end of the file. */
@@ -422,7 +705,11 @@ function endOfBlock(source: string, at: number, pair: readonly [string, string],
 export interface LexResult {
   /** Half-open ranges of comment text, in ascending order. */
   comments: CommentRange[];
-  /** Half-open ranges of string literals, delimiters included. */
+  /**
+   * Half-open ranges of literals, delimiters included: strings, and the
+   * regular expressions of a profile that has them. Both are code, and both
+   * are places a comment marker means nothing.
+   */
   strings: CommentRange[];
   /**
    * True when a literal or block comment was never closed: it ran off the end
@@ -448,24 +735,43 @@ export interface LexResult {
  * below decide, the loop advances by at least one character. That guarantee is
  * the difference between a wrong answer and a hang, and this loop appends as it
  * goes - standing still here would not spin, it would eat memory until the
- * process died, on somebody's file, in somebody's CI.
+ * process died, on somebody's file, in somebody's CI. There are two advance
+ * points, and each one is an unconditional step forward rather than a
+ * calculation that could come out as zero.
  */
 export function lexRanges(source: string, syntax: CommentSyntax): LexResult {
   const comments: CommentRange[] = [];
   const strings: CommentRange[] = [];
+  // Every one of these is asked on every character of the file, so each is read
+  // once. 0.10.3 paid a tenth of the scan for a question asked per character
+  // and concluded that the profiles must all be one object shape; they still
+  // are, for the rules read at an opener, but the hot path no longer reaches
+  // into the profile at all. Nothing mutates a profile, so these cannot go
+  // stale mid-scan.
+  const { line, block, strings: literals, nested, wordComments, regexLiterals, jsxText } = syntax;
+  const starts = openingCharacters(syntax);
   let unterminated = false;
   let index = 0;
 
   while (index < source.length) {
     const start = index;
+    // The first advance point. A character that opens nothing in this language
+    // is code, and there is nothing further to ask about it.
+    if (starts[source.charCodeAt(start)] === 0) {
+      index = start + 1;
+      continue;
+    }
+
     const startsWith = (token: string): boolean => source.startsWith(token, start);
 
     // First match wins, in this order: a literal hides comment markers inside
-    // it, and a line comment hides a block opener on the same line. Each lookup
-    // sits in the branch that needs it, so none of them runs speculatively -
-    // which is why a quote is asked whether it is code only once a literal
-    // would open there. Asked on every character, it cost a tenth of the scan.
-    const opener = openerAt(source, start, syntax.strings);
+    // it, a line comment hides a block opener on the same line, and a `/` is
+    // asked whether it opens a regular expression only once it has failed to
+    // open either comment. Each lookup sits in the branch that needs it, so
+    // none of them runs speculatively - which is why a quote is asked whether
+    // it is code only once a literal would open there. Asked on every
+    // character, that question cost a tenth of the scan.
+    const opener = openerAt(source, start, literals);
     if (opener) {
       const code = codeAfterQuote(source, start, syntax);
       if (code > start) {
@@ -477,25 +783,42 @@ export function lexRanges(source: string, syntax: CommentSyntax): LexResult {
         if (!span.closed) unterminated = true;
       }
     } else {
-      const lineToken = syntax.line.find((token) => startsWith(token));
-      if (lineToken !== undefined && (!syntax.wordComments || startsWord(source, start))) {
+      const lineToken = line.find((token) => startsWith(token));
+      if (lineToken !== undefined && (!wordComments || startsWord(source, start))) {
         // A line comment is closed by the end of the file as legitimately as by
         // a newline, so running off the end is not a lost scan.
         const newline = source.indexOf('\n', start);
         index = newline === -1 ? source.length : newline;
         comments.push([start, index]);
       } else {
-        const blockPair = syntax.block.find(([open]) => startsWith(open));
-        if (blockPair) {
-          const span = endOfBlock(source, start, blockPair, syntax.nested);
+        const blockPair = block.find(([open]) => startsWith(open));
+        // In JSX a `>` ends a tag, and what follows is text that may say
+        // anything: `<div>/*</div>` opens no comment, and reading one there
+        // hid every line up to the next `*/` in the file.
+        if (blockPair && !(jsxText && source[start - 1] === '>')) {
+          const span = endOfBlock(source, start, blockPair, nested);
           index = span.end;
           comments.push([start, index]);
           if (!span.closed) unterminated = true;
+        } else if (regexLiterals && source[start] === '/' && source[start + 1] !== '*' && opensRegex(source, start, comments)) {
+          // No regular expression begins with `*`, so the only `/*` that
+          // reaches here is the JSX text above, and it stays code.
+          //
+          // The test for `/` is redundant today and stays anyway: the opening
+          // characters are the only ones that reach this far, and a quote
+          // among them always opens a literal in this profile. Give JavaScript
+          // `digitSeparators` and one would arrive here instead, and the scan
+          // below would read from a quote to the next slash on the line.
+          const end = endOfRegex(source, start);
+          if (end > start) {
+            index = end;
+            strings.push([start, index]);
+          }
         }
       }
     }
 
-    // The single advance point, and the only place termination depends on.
+    // The second, and the only one any of the branches above depends on.
     if (index <= start) index = start + 1;
   }
 

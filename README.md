@@ -206,13 +206,16 @@ touching code, a run that passed this way says so:
 ✔ every spec assertion holds
 ```
 
-Comment syntax is known for around 68 extensions across 10 families (JS/TS, C,
-C#, Rust, Go, Python-style `#`, shell and YAML `#`, SQL-style `--`, markup -
+Comment syntax is known for around 68 extensions across 11 families (JS/TS, C,
+C#, Rust, Go, Python-style `#`, shell `#`, YAML, SQL-style `--`, markup -
 MSBuild project files included - and formats with no comments at all). Strings
 are tracked too, because `//` inside a URL is not a comment and reading it as
-one would hide real code. So is what only looks like either: a Rust lifetime
-(`&'static str`), a C++ digit separator (`100'000`) and a `#` inside a shell
-word (`${#items[@]}`) open nothing. Where spec-guard is unsure —
+one would hide real code. So are JavaScript's regular expressions, because the
+quote in `/["']/` is not a quote. And so is what only looks like either: a Rust
+lifetime (`&'static str`), a C++ digit separator (`100'000`), a `#` inside a
+shell word (`${#items[@]}`), an apostrophe in a YAML value (`name: it's fine`)
+and a `/*` in JSX text (`<div>/*</div>`) all open nothing. Where spec-guard is
+unsure —
 an unknown extension, an unterminated literal — the text counts as code, and the
 report says which files it could not classify. A match wrongly kept is a visible
 failure you can argue with; a match wrongly dropped is a lie.

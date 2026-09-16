@@ -22,6 +22,11 @@
 
 import path from 'node:path';
 
+// Where a regular expression may open: one table, read by this tokenizer and by
+// the comment lexer, which since 0.11.0 has to answer the same question. A
+// wrong guess here is caught by the end-state check rather than silently
+// mis-scanning the rest of the file.
+import { REGEX_AFTER_PUNCT, REGEX_AFTER_WORD } from './comments.js';
 import { toPosix } from './glob.js';
 import { nodeIo, type Io } from './io.js';
 import { NO_MEMO, type Memo } from './memo.js';
@@ -97,66 +102,6 @@ interface Token {
   line: number;
   column: number;
 }
-
-/**
- * Words after which a `/` begins a regular expression rather than a division.
- * The remaining ambiguity is `)` and `}`, where this follows the usual
- * heuristic; a wrong guess is caught by the end-state check rather than
- * silently mis-scanning the rest of the file.
- */
-const REGEX_AFTER_WORD = new Set([
-  'return',
-  'typeof',
-  'instanceof',
-  'in',
-  'of',
-  'new',
-  'delete',
-  'void',
-  'throw',
-  'case',
-  'do',
-  'else',
-  'yield',
-  'await',
-]);
-
-/**
- * `<` is deliberately absent: in JSX every closing tag is `</`, and reading that
- * as the start of a regular expression loses the scan for the rest of the file.
- * The cost is that `a < /re/.test(b)` is misread instead, which is a shape that
- * does not occur in practice.
- *
- * `}` stays, for a regular expression that opens a statement after a block,
- * except before `/>`. That is a JSX element closing after an expression
- * attribute, `<App x={y} />`, and reading it as a regular expression loses the
- * scan in the same way. `/>` after anything else is still one - `/>/` is a
- * regular expression, and HTML escaping is full of `replace(/>/g, ...)`. The
- * cost is a statement that opens with a regular expression beginning `>` straight
- * after a block, which does not occur in practice either.
- */
-const REGEX_AFTER_PUNCT = new Set([
-  '(',
-  ',',
-  '=',
-  ':',
-  '[',
-  '!',
-  '&',
-  '|',
-  '?',
-  '{',
-  '}',
-  ';',
-  '+',
-  '-',
-  '*',
-  '/',
-  '%',
-  '^',
-  '~',
-  '>',
-]);
 
 function isIdentifierStart(char: string): boolean {
   // Deliberately not @ or #: they can start a decorator or a private field but
