@@ -850,6 +850,38 @@ describe('a block comment opener in JSX text', () => {
   });
 });
 
+describe('the regular-expression rule in a profile no extension has', () => {
+  // `lexRanges` takes a profile, and these two guards are about combinations
+  // of flags the registered eleven do not happen to use. Each is a line that
+  // reads as redundant against today's table and is not: the table is the
+  // thing most likely to gain a row.
+  const profile = (over: Partial<NonNullable<ReturnType<typeof syntaxNamed>>>) =>
+    ({ ...(syntaxNamed('javascript') as NonNullable<ReturnType<typeof syntaxNamed>>), ...over }) as NonNullable<
+      ReturnType<typeof syntaxNamed>
+    >;
+
+  function lexWith(source: string, over: Partial<NonNullable<ReturnType<typeof syntaxNamed>>>) {
+    const result = lexRanges(source, profile(over));
+    return result.strings.map(([start, end]) => source.slice(start, end));
+  }
+
+  it('opens nothing at an opener that opened no literal', () => {
+    // Rust's `r` is such an opener: `r#"…"#` is a raw string and `r#type` is
+    // an identifier, so the `r` reaches the branch that asks about `/`. With a
+    // profile that had both, it would be read as a regular expression running
+    // to the next slash on its line.
+    const rust = syntaxNamed('rust') as NonNullable<ReturnType<typeof syntaxNamed>>;
+    expect(lexWith('let s = r; a / b /;', { strings: rust.strings })).toEqual([]);
+  });
+
+  it('steps over a comment written with a one-character opener', () => {
+    // Every profile that reads regular expressions opens its comments with
+    // two characters, so the last thing before a `/` is never a comment's
+    // first character. With a one-character opener it can be.
+    expect(lexWith('x = #   \n/"/.test(y);\n', { line: ['#'] })).toEqual(['/"/']);
+  });
+});
+
 describe('the lexer reading this repository', () => {
   it('stays in step in every source file here', async () => {
     // Not a fixture: the defect 0.11.0 fixes was found in `src/parser.ts`,

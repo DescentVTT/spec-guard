@@ -735,19 +735,17 @@ export interface LexResult {
  * below decide, the loop advances by at least one character. That guarantee is
  * the difference between a wrong answer and a hang, and this loop appends as it
  * goes - standing still here would not spin, it would eat memory until the
- * process died, on somebody's file, in somebody's CI. There are two advance
- * points, and each one is an unconditional step forward rather than a
- * calculation that could come out as zero.
+ * process died, on somebody's file, in somebody's CI.
  */
 export function lexRanges(source: string, syntax: CommentSyntax): LexResult {
   const comments: CommentRange[] = [];
   const strings: CommentRange[] = [];
-  // Every one of these is asked on every character of the file, so each is read
-  // once. 0.10.3 paid a tenth of the scan for a question asked per character
-  // and concluded that the profiles must all be one object shape; they still
-  // are, for the rules read at an opener, but the hot path no longer reaches
-  // into the profile at all. Nothing mutates a profile, so these cannot go
-  // stale mid-scan.
+  // Read once, at the top: the loop below reaches for each of these wherever
+  // a character opens something, and the profile itself is never touched
+  // inside it. 0.10.3 paid a tenth of the scan for a question asked per
+  // character and concluded that the profiles must all be one object shape;
+  // they still are, for the rules read at an opener. Nothing mutates a
+  // profile, so these cannot go stale mid-scan.
   const { line, block, strings: literals, nested, wordComments, regexLiterals, jsxText } = syntax;
   const starts = openingCharacters(syntax);
   let unterminated = false;
@@ -755,70 +753,69 @@ export function lexRanges(source: string, syntax: CommentSyntax): LexResult {
 
   while (index < source.length) {
     const start = index;
-    // The first advance point. A character that opens nothing in this language
-    // is code, and there is nothing further to ask about it.
-    if (starts[source.charCodeAt(start)] === 0) {
-      index = start + 1;
-      continue;
-    }
+    // A character that opens nothing in this language is code, and there is
+    // nothing further to ask about it. Written this way round because a
+    // character outside the table's reach reads back `undefined`, which is not
+    // `0`: an unknown character is asked the long questions, not skipped.
+    if (starts[source.charCodeAt(start)] !== 0) {
+      const startsWith = (token: string): boolean => source.startsWith(token, start);
 
-    const startsWith = (token: string): boolean => source.startsWith(token, start);
-
-    // First match wins, in this order: a literal hides comment markers inside
-    // it, a line comment hides a block opener on the same line, and a `/` is
-    // asked whether it opens a regular expression only once it has failed to
-    // open either comment. Each lookup sits in the branch that needs it, so
-    // none of them runs speculatively - which is why a quote is asked whether
-    // it is code only once a literal would open there. Asked on every
-    // character, that question cost a tenth of the scan.
-    const opener = openerAt(source, start, literals);
-    if (opener) {
-      const code = codeAfterQuote(source, start, syntax);
-      if (code > start) {
-        index = code;
-      } else {
-        const span = endOfString(source, opener);
-        index = span.end;
-        strings.push([start, index]);
-        if (!span.closed) unterminated = true;
-      }
-    } else {
-      const lineToken = line.find((token) => startsWith(token));
-      if (lineToken !== undefined && (!wordComments || startsWord(source, start))) {
-        // A line comment is closed by the end of the file as legitimately as by
-        // a newline, so running off the end is not a lost scan.
-        const newline = source.indexOf('\n', start);
-        index = newline === -1 ? source.length : newline;
-        comments.push([start, index]);
-      } else {
-        const blockPair = block.find(([open]) => startsWith(open));
-        // In JSX a `>` ends a tag, and what follows is text that may say
-        // anything: `<div>/*</div>` opens no comment, and reading one there
-        // hid every line up to the next `*/` in the file.
-        if (blockPair && !(jsxText && source[start - 1] === '>')) {
-          const span = endOfBlock(source, start, blockPair, nested);
+      // First match wins, in this order: a literal hides comment markers inside
+      // it, a line comment hides a block opener on the same line, and a `/` is
+      // asked whether it opens a regular expression only once it has failed to
+      // open either comment. Each lookup sits in the branch that needs it, so
+      // none of them runs speculatively - which is why a quote is asked whether
+      // it is code only once a literal would open there. Asked on every
+      // character, that question cost a tenth of the scan.
+      const opener = openerAt(source, start, literals);
+      if (opener) {
+        const code = codeAfterQuote(source, start, syntax);
+        if (code > start) {
+          index = code;
+        } else {
+          const span = endOfString(source, opener);
           index = span.end;
-          comments.push([start, index]);
+          strings.push([start, index]);
           if (!span.closed) unterminated = true;
-        } else if (regexLiterals && source[start] === '/' && source[start + 1] !== '*' && opensRegex(source, start, comments)) {
-          // No regular expression begins with `*`, so the only `/*` that
-          // reaches here is the JSX text above, and it stays code.
-          //
-          // The test for `/` is redundant today and stays anyway: the opening
-          // characters are the only ones that reach this far, and a quote
-          // among them always opens a literal in this profile. Give JavaScript
-          // `digitSeparators` and one would arrive here instead, and the scan
-          // below would read from a quote to the next slash on the line.
-          const end = endOfRegex(source, start);
-          if (end > start) {
-            index = end;
-            strings.push([start, index]);
+        }
+      } else {
+        const lineToken = line.find((token) => startsWith(token));
+        if (lineToken !== undefined && (!wordComments || startsWord(source, start))) {
+          // A line comment is closed by the end of the file as legitimately as
+          // by a newline, so running off the end is not a lost scan.
+          const newline = source.indexOf('\n', start);
+          index = newline === -1 ? source.length : newline;
+          comments.push([start, index]);
+        } else {
+          const blockPair = block.find(([open]) => startsWith(open));
+          // In JSX a `>` ends a tag, and what follows is text that may say
+          // anything: `<div>/*</div>` opens no comment, and reading one there
+          // hid every line up to the next `*/` in the file.
+          if (blockPair && !(jsxText && source[start - 1] === '>')) {
+            const span = endOfBlock(source, start, blockPair, nested);
+            index = span.end;
+            comments.push([start, index]);
+            if (!span.closed) unterminated = true;
+          } else if (regexLiterals && source[start] === '/' && source[start + 1] !== '*' && opensRegex(source, start, comments)) {
+            // No regular expression begins with `*`, so the only `/*` that
+            // reaches here is the JSX text above, and it stays code.
+            //
+            // The test for `/` looks redundant, because in this profile every
+            // other opening character opens a literal. It is not: a rule whose
+            // opener may open nothing - Rust's `r`, which needs a quote after
+            // its hashes - reaches here too, and without this the scan would
+            // read from that `r` to the next slash on the line.
+            const end = endOfRegex(source, start);
+            if (end > start) {
+              index = end;
+              strings.push([start, index]);
+            }
           }
         }
       }
     }
 
-    // The second, and the only one any of the branches above depends on.
+    // The single advance point, and the only place termination depends on.
     if (index <= start) index = start + 1;
   }
 

@@ -1270,45 +1270,58 @@ regular-expression reader, two more profiles, three more flags on all eleven,
 and the two `REGEX_AFTER_*` tables that moved in from `imports.ts` - and the
 first sweep over it scored **94.89% with 36 survivors and 2 uncovered**.
 
-Twenty-nine of those were killed by tests, and the tests are the interesting
-part, because most of them are about *positions* rather than about behaviour
-anyone would describe in a bug report: a regular expression after nothing but
+**Thirty were killed by tests**, and the tests are the interesting part,
+because most of them are about *positions* rather than about behaviour anyone
+would describe in a bug report: a regular expression after nothing but
 whitespace, after a tab, after a carriage return, after a word that starts at
 offset zero, opening a statement after a block. A backward scan has an edge at
-every end, and a fixture that sits comfortably in the middle of a file exercises
-none of them. Two more were the escape flags on the shared `QUOTES`, which had
-been asserted through the JavaScript profile until 0.11.0 gave JavaScript
-quotes of its own and left the assertion looking at the wrong table.
+every end, and a fixture that sits comfortably in the middle of a file
+exercises none of them. Two more were the escape flags on the shared `QUOTES`,
+which had been asserted through the JavaScript profile until 0.11.0 gave
+JavaScript quotes of its own and left the assertion pointing at the wrong
+table.
 
-Two were deleted rather than tested. The fast-path table made `code < 128`
+Two of the thirty needed a profile no extension maps to, and they are the two
+worth arguing about. Both are lines that read as redundant against the table as
+it stands, and are not:
+
+- `source[start] === '/'` before the regular-expression branch. Every other
+  opening character in the JavaScript profile opens a literal, so only `/` gets
+  that far — *today*. A rule whose opener may open nothing reaches it too, and
+  Rust's `r` is exactly that: `r#"…"#` is a raw string and `r#type` is an
+  identifier. A profile with Rust's strings and JavaScript's regular
+  expressions reads `let s = r; a / b /;` as a literal running from the `r`.
+- `comments[recent][0] > index` in the backward scan's comment cursor. It
+  differs from `>=` only when a comment *starts* at the last non-space
+  character before a `/` outside it, which needs a one-character comment
+  opener. Every profile that reads regular expressions opens comments with two
+  characters; `#` profiles do not read regular expressions.
+
+Testing a combination nobody has runs against this project's grain, and the
+argument for it is that `lexRanges` takes a profile rather than a language, and
+the table is the part of this file most likely to gain a row. The alternative
+was to delete both lines as unreachable and leave the next row to find out.
+
+Two more were deleted rather than tested. The fast-path table made `code < 128`
 redundant in two places: a typed array ignores a write past its end and reads
 back `undefined`, which is not `0`, so a non-ASCII delimiter marks nothing and
-every character of that script takes the slow path - correctly, by the
+every character of that script takes the slow path — correctly, by the
 language's own rules rather than by a branch no file anyone has could reach.
 
-**The seven that remain are equivalent,** and each was applied and run:
+**The four that remain are equivalent,** and each was applied and run:
 
 - `while (index < source.length)` to `<=`, in three loops. At `index ===
   source.length` every character comparison in the body is against `undefined`,
   so the body advances and the loop ends one iteration later with the same
   answer. Two of the three predate this release.
-- `comments[recent][0] > index` to `>=`, in the backward scan's comment cursor.
-  It differs only when a comment *starts* at the last non-space character
-  before a `/` that is not itself in that comment - which would need a
-  one-character comment, and the shortest any profile has is two.
-- `source[start] === '/'` to `true`. The opening-character table already means
-  only `/` reaches that branch in a profile that reads regular expressions, so
-  the test is redundant *today*. It stays because it is redundant by
-  coincidence: give JavaScript `digitSeparators` and a quote would reach it,
-  and `endOfRegex` would happily scan from a quote to the next slash on the
-  line.
-- The fast path itself, twice - `if (false)` and the emptied block. It is an
-  optimization, and an optimization that changed an answer would be a defect.
-  What it can do wrong is covered from the other side: a delimiter the table
-  forgets to mark stops being read at all, and every profile's delimiters are
-  asserted above.
+- The fast path, `if (true)`. It is an optimization, and an optimization that
+  changed an answer would be a defect. What it can get wrong is covered from
+  the other side: a delimiter the table forgets to mark stops being read at
+  all, and every profile's delimiters are asserted entry by entry.
 
-The second sweep scored **99.05% over 733 mutants**.
+The last sweep of the file scored **99.45% over 732 mutants**, against 99.58%
+over 472 before the release — a file that grew by half again, with two
+survivors becoming four.
 
 <!-- @assert-present file="scripts/mutation-shards.mjs,scripts/mutation-timeline.mjs,stryker.shard.config.mjs,tests/mutation-shards.test.ts" reason="the sweep is only one sweep if the merge that checks it exists" -->
 <!-- @assert-count target="stryker.config.mjs" symbol="related: false }" expected="1" reason="with related tests on, which tests a shard runs depends on the files it holds; see 0.9.0 in this ADR" -->
