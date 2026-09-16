@@ -1370,7 +1370,7 @@ prebuilt binary and is never a runtime dependency.
 
 Coverage says a line ran. It does not say an assertion would notice if the line
 behaved differently. This repository measures the difference: line coverage is
-**100%**, and **99.00%** of 8,420 mutants are killed in CI, with 81 survivors and
+**100%**, and **99.01%** of 8,644 mutants are killed in CI, with 83 survivors and
 no file below 95%. The second number is the one worth reading, and what was done
 about the survivors matters more than the score. At 0.5.1 every surviving mutant
 was checked individually, and the 101 left then produced byte-identical output.

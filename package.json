@@ -1,6 +1,6 @@
 {
   "name": "@descent-vtt/spec-guard",
-  "version": "0.10.3",
+  "version": "0.11.0",
   "description": "Executable architecture assertions for Markdown specs & ADRs.",
   "keywords": [
     "adr",

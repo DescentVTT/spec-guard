@@ -1323,6 +1323,14 @@ The last sweep of the file scored **99.45% over 732 mutants**, against 99.58%
 over 472 before the release — a file that grew by half again, with two
 survivors becoming four.
 
+CI's full sweep came out at **99.01% over 8,644 mutants with 83 survivors**,
+against 99.00% over 8,420 with 81 at 0.10.3. Every other file is unchanged
+except `imports.ts`, which lost the 36 mutants of the two tables that moved to
+`comments.ts` and kept all 22 of its survivors. The shards took 15m11s, 14m09s,
+15m27s and 10m06s, so the one holding `comments.ts` absorbed a 261-mutant file
+growth in about twenty seconds of wall clock and the split still needs no
+rebalancing.
+
 <!-- @assert-present file="scripts/mutation-shards.mjs,scripts/mutation-timeline.mjs,stryker.shard.config.mjs,tests/mutation-shards.test.ts" reason="the sweep is only one sweep if the merge that checks it exists" -->
 <!-- @assert-count target="stryker.config.mjs" symbol="related: false }" expected="1" reason="with related tests on, which tests a shard runs depends on the files it holds; see 0.9.0 in this ADR" -->
 <!-- @assert-absence target=".github/workflows" symbol="--ignoreStatic" reason="780 static mutants are 10% of the sweep; leaving them out lowers the gate" -->
