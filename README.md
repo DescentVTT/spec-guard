@@ -1493,9 +1493,12 @@ the publishing job. A `Release tags` ruleset lets only repository admins create,
 move or delete a `v*` tag - under this workflow, pushing one is the release, and
 an accidental push should not be able to start it.
 
-`Actions -> Release -> Run workflow` exercises the whole path with `dry_run`
-left on, which verifies, packs and reaches npm without spending a version
-number.
+`Actions -> Release -> Run workflow` with `dry_run` left on verifies, packs and
+hands the tarball to npm without spending a version number. It stops at the
+registry's version check - a dispatch runs from `main`, whose version is already
+published - and it does not exercise authentication, because the OIDC exchange
+happens only on a publish that intends to write. The first real tag is what
+proves that end.
 
 ## Requirements
 

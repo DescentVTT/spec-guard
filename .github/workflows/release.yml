@@ -199,18 +199,52 @@ jobs:
             echo "::error::the verify job produced no tarball"
             exit 1
           fi
-          if [ "$DRY_RUN" = 'true' ]; then
-            echo "Dry run: nothing will be staged."
-            npm stage publish "$tarball" --provenance --access public --dry-run
-          else
+          if [ "$DRY_RUN" != 'true' ]; then
             npm stage publish "$tarball" --provenance --access public
+            exit 0
           fi
 
-      # The run is green and the package is still not installable. Saying so in
-      # the summary is the difference between a gate and a thing people forget.
+          # How far a dry run gets, and where it has to stop. `--dry-run` goes
+          # as far as the registry's version check and no further, and a
+          # dispatch runs from main, where package.json's version is by
+          # definition already published. So "cannot publish over the previously
+          # published versions" is where a healthy dry run ends rather than a
+          # fault, and it is the only failure tolerated below.
+          #
+          # What a dry run cannot tell you is whether authentication works. The
+          # OIDC exchange happens only on a publish that intends to write, so
+          # the first real tag is what proves that end of this file.
+          set +e
+          out="$(npm stage publish "$tarball" --provenance --access public --dry-run 2>&1)"
+          status=$?
+          set -e
+          echo "$out"
+          if [ "$status" -ne 0 ]; then
+            case "$out" in
+              *'cannot publish over the previously published versions'*) ;;
+              *) exit "$status" ;;
+            esac
+          fi
+
+      # A green tick here means two different things depending on the trigger,
+      # and neither of them is "published". Saying which is the difference
+      # between a gate and a thing people stop reading.
       - name: What has and has not happened
-        if: success() && inputs.dry_run != true
+        if: success()
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
         run: |
+          if [ "$DRY_RUN" = 'true' ]; then
+            {
+              echo '### Dry run'
+              echo
+              echo 'Verified, packed, and npm read the tarball. Nothing was staged and'
+              echo 'nothing was published. Authentication is the one thing still'
+              echo 'untested: the OIDC exchange happens only on a publish that intends'
+              echo 'to write, so the first real tag is what proves it.'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
           {
             echo '### Staged, not published'
             echo
