@@ -1,0 +1,224 @@
+name: Release
+
+# A release is a tag push, and nothing else.
+#
+# Publishing used to be `npm publish` from a laptop: the bytes that reached the
+# registry were whatever that machine had built, authorised by a credential
+# living in a keychain. This removes both halves. npm's trusted publishing hands
+# the job an OIDC token that GitHub mints for this repository, this workflow
+# filename and this environment, and npmjs.com trades it for a publish grant
+# scoped to exactly that. There is no npm token in the repository or in its
+# secrets, so there is none to leak, rotate, or forget to rotate.
+#
+# It does not publish. It *stages*. `npm stage publish` puts the version in a
+# queue on npmjs.com where it is visible to maintainers and installable by
+# nobody; `npm stage approve` releases it, and that command requires 2FA and
+# therefore a person. So the property the laptop flow had and a token flow
+# loses - a human with a second factor decides a version goes out - survives,
+# while the build itself moves to a machine whose state is reproducible.
+# Staging is also the mode that is certainly permitted: a trusted publisher
+# configured after 2026-09-03 allows `npm stage publish` by default and direct
+# `npm publish` only where the package's settings opt in. If that opt-in is
+# ever ticked, the stage step below becomes `npm publish` and the approval step
+# disappears.
+#
+# Two jobs, because the job holding the OIDC token should run as little code as
+# it can. `verify` installs the devDependencies - Stryker, vitest, a ripgrep
+# binary fetched by a postinstall script - runs the suite, and packs a tarball.
+# `publish` checks out nothing and installs no dependencies at all; it hands
+# that same tarball to npm. What reaches the registry is the artifact the tests
+# ran against, not a second build that merely shares a commit with it.
+
+on:
+  push:
+    tags: ['v*']
+
+  # A dispatch exercises the wiring - the environment's rules, the OIDC
+  # exchange, the pack - without spending a version number, and defaults to a
+  # dry run for the obvious reason.
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Verify and pack, but stage nothing'
+        type: boolean
+        default: true
+
+# A release is not a thing to cancel halfway through.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: verify and pack
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+
+      - run: npm ci
+
+      # The tag is the version claim and the changelog is the description of it.
+      # Disagreement means the tag is wrong, and saying so costs a minute;
+      # finding out afterwards costs a withdrawn release. The same step enforces
+      # the first line of this file: a dispatch that is neither a dry run nor on
+      # a tag would be a release from a branch, which is not a thing here.
+      - name: The tag, package.json and CHANGELOG.md must agree
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          if [ "$GITHUB_REF_TYPE" != 'tag' ]; then
+            if [ "$DRY_RUN" != 'true' ]; then
+              echo "::error::a release comes from a v* tag; a dispatch from $GITHUB_REF_NAME must keep dry_run on"
+              exit 1
+            fi
+            echo "Dry run from $GITHUB_REF_NAME - verifying and packing, releasing nothing." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          version="$(node -p "require('./package.json').version")"
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match package.json version $version"
+            exit 1
+          fi
+          if ! grep -qx "## $version" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no '## $version' section"
+            exit 1
+          fi
+          echo "Releasing $version from $GITHUB_REF_NAME." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Type check
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+      # The same step CI runs. A release that cannot execute its own ADRs is not
+      # a release this package is entitled to make.
+      - name: Execute this repository's own specs
+        run: node ./bin/spec-guard.js --verbose
+
+      # `npm pack` rather than `npm publish`, so the exact bytes can be listed
+      # and hashed in the log before anything is sent. Packing does not run
+      # `prepublishOnly` (clean, then build), which is why the Build step above
+      # is not optional - a CI checkout has no dist/, so the two agree.
+      - name: Pack
+        run: |
+          mkdir -p npm-package
+          npm pack --pack-destination npm-package
+          tar -tzf npm-package/*.tgz | sort
+          {
+            echo '### Tarball'
+            echo
+            echo '```'
+            sha256sum npm-package/*.tgz
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: npm-package
+          path: npm-package/*.tgz
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: stage on npm
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    # The name matches the Environment field on the package's trusted publisher,
+    # and npmjs.com refuses a token minted for any other one. It is also where
+    # the deployment rules live - only main and v* tags may reach it - so a
+    # required reviewer can be added there without editing this file.
+    environment:
+      name: npm
+      url: https://www.npmjs.com/package/@descent-vtt/spec-guard
+
+    permissions:
+      # The entire credential story. Short-lived, minted for this run, and
+      # useless to anything but the trusted publisher it was scoped to.
+      id-token: write
+      contents: read
+
+    steps:
+      # v7 or newer. Earlier releases exported a dummy NODE_AUTH_TOKEN whenever
+      # registry-url was set, and the npm CLI treats any token it finds as a
+      # credential and stops short of the OIDC exchange.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+
+      # Node's bundled npm is not reliably new enough, and when it is not the
+      # failure arrives as an authentication error that says nothing about
+      # versions. Pinned inside 11.x rather than @latest: 12 is newer, which is
+      # not the same as proven, and a release is the wrong place to find out.
+      - name: An npm new enough to stage
+        run: |
+          npm install -g 'npm@^11.15.0'
+          installed="$(npm --version)"
+          required=11.15.0
+          if [ "$(printf '%s\n%s\n' "$required" "$installed" | sort -V | head -1)" != "$required" ]; then
+            echo "::error::npm $installed is older than $required, which npm stage publish needs"
+            exit 1
+          fi
+          echo "npm $installed on node $(node --version)"
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: npm-package
+          path: npm-package
+
+      # `--provenance` is explicit although trusted publishing is documented to
+      # attach provenance on its own: `npm stage publish` documents the flag as
+      # defaulting to false, the two statements cannot both be load-bearing, and
+      # passing it settles the question in the direction that costs nothing.
+      - name: Stage the release
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          tarball="$(echo npm-package/*.tgz)"
+          if [ ! -f "$tarball" ]; then
+            echo "::error::the verify job produced no tarball"
+            exit 1
+          fi
+          if [ "$DRY_RUN" = 'true' ]; then
+            echo "Dry run: nothing will be staged."
+            npm stage publish "$tarball" --provenance --access public --dry-run
+          else
+            npm stage publish "$tarball" --provenance --access public
+          fi
+
+      # The run is green and the package is still not installable. Saying so in
+      # the summary is the difference between a gate and a thing people forget.
+      - name: What has and has not happened
+        if: success() && inputs.dry_run != true
+        run: |
+          {
+            echo '### Staged, not published'
+            echo
+            echo 'This version is queued on npmjs.com and installable by nobody.'
+            echo 'To release it, with 2FA:'
+            echo
+            echo '```'
+            echo 'npm stage list @descent-vtt/spec-guard'
+            echo 'npm stage view <stage-id>'
+            echo 'npm stage approve <stage-id>'
+            echo '```'
+            echo
+            echo 'Or the **Staged Packages** tab on npmjs.com. `npm stage reject`'
+            echo 'discards it, and the tag can then be deleted and remade.'
+          } >> "$GITHUB_STEP_SUMMARY"

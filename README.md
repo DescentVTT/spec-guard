@@ -1446,6 +1446,57 @@ mutants" sounded like judgement rather than an unchecked assumption - along with
 the real bugs that chasing the gate uncovered, and a class of mutant the runner
 reports as survived while the suite is in fact killing it.
 
+### Releasing
+
+A release is a tag push. Nothing is published from a laptop, and there is no
+npm token in this repository or in its secrets.
+
+```bash
+npm version minor   # or patch / major - writes package.json and makes the tag
+git push origin main --follow-tags
+```
+
+[`release.yml`](.github/workflows/release.yml) then:
+
+1. refuses the release unless the tag, `package.json` and a `## <version>`
+   heading in `CHANGELOG.md` all agree;
+2. type checks, builds, runs the suite and executes this repository's own ADRs.
+   A tag push does not run CI, so the release job runs those steps itself;
+3. `npm pack`s the tarball, prints its file list and its SHA-256, and hands that
+   exact file to the publishing job. Nothing is rebuilt in between, so what
+   reaches the registry is the artifact the tests ran against;
+4. stages it with `npm stage publish --provenance`. The job authenticates with a
+   short-lived OIDC token that GitHub mints for `release.yml` running in the
+   `npm` environment, and npmjs.com accepts it only for that combination - npm's
+   trusted publishing, so there is no credential to leak or to rotate.
+
+The publishing job installs no dependencies and checks nothing out. Everything
+that runs third-party code - `npm ci`, a postinstall that downloads a ripgrep
+binary, the test suite - happens in the earlier job, which has no token.
+
+Staging is not publishing. The version sits on npmjs.com visible to maintainers
+and installable by nobody until:
+
+```bash
+npm stage list @descent-vtt/spec-guard
+npm stage view <stage-id>
+npm stage approve <stage-id>   # asks for a second factor
+```
+
+`npm stage reject <stage-id>` discards it instead, and the tag can be deleted
+and remade. Approving needs 2FA and therefore a person: CI can build a release,
+but it cannot decide to publish one.
+
+Two repository settings hold the other end of this. The `npm` environment
+accepts deployments only from `main` and from `v*` tags, so no branch can reach
+the publishing job. A `Release tags` ruleset lets only repository admins create,
+move or delete a `v*` tag - under this workflow, pushing one is the release, and
+an accidental push should not be able to start it.
+
+`Actions -> Release -> Run workflow` exercises the whole path with `dry_run`
+left on, which verifies, packs and reaches npm without spending a version
+number.
+
 ## Requirements
 
 - Node.js 22 or newer (native ESM)

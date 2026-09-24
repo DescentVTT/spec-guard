@@ -7,3 +7,4 @@ tests/fixtures/.tmp/
 reports/
 .stryker-tmp/
 mutation-run*.log
+npm-package/
