@@ -190,7 +190,11 @@ jobs:
         env:
           DRY_RUN: ${{ inputs.dry_run }}
         run: |
-          tarball="$(echo npm-package/*.tgz)"
+          # The `./` is load-bearing. Without it npm reads `npm-package/x.tgz`
+          # as the GitHub shorthand `owner/repo` and tries to clone it over SSH,
+          # which fails as a git permission error that names neither npm nor
+          # this file.
+          tarball="$(echo ./npm-package/*.tgz)"
           if [ ! -f "$tarball" ]; then
             echo "::error::the verify job produced no tarball"
             exit 1
