@@ -108,12 +108,20 @@ That is exactly the kind of invariant that holds until somebody deletes the word
 comment:
 
 <!-- @assert-import-absence target="src/polyglot.ts" module="src/imports.js" types="ignore" reason="a value import back into the dispatcher would be a runtime cycle; import type is erased" -->
-<!-- @assert-import-count target="src/polyglot.ts" module="src/imports.js" expected="1" reason="the type-only import is expected to exist; this fails if it is removed as well as if it becomes a value import" -->
+<!-- @assert-import-count target="src/polyglot.ts" module="src/imports.js" min="1" reason="the type-only import is expected to exist; this fails if it is removed, and the rule above if it becomes a value import" -->
 
 Two assertions, not one. The first fails if the import becomes a value import.
 The second fails if it disappears altogether — because an assertion that
 something is absent from a file that no longer imports anything is a rule
 covering nothing, which is the failure mode this release exists to remove.
+
+The second said `expected="1"` until 2026-09-26, and its reason said it failed
+when the import became a value import too. `spec-guard prove` found both wrong
+(ADR-0016): the unit is files, and a target of one file holds one at most, so
+no change can take the count past one; and a value import counts as one here,
+since this rule counts type-only imports as well. It passed with the import
+made twice. `min="1"` is what it held all along, and the reason now says which
+rule catches which change.
 
 ## Consequences
 

@@ -46,6 +46,14 @@ jobs:
       - name: Execute this repository's own specs
         run: node ./bin/spec-guard.js --verbose
 
+      # A rule that passes is only worth something if it can fail. This shows
+      # each one a violation of itself, in memory, and fails on any that still
+      # pass with it in place (ADR-0016). It runs the rules as the step above
+      # does: --strict would also fail every import rule over src on the one
+      # require() in cli.ts that no rule can resolve.
+      - name: Prove every rule in those specs can fail
+        run: node ./bin/spec-guard.js prove
+
   # Dogfooding the SARIF output: this is the surface that puts a broken
   # architecture rule on the offending line of a pull request, so it should be
   # exercised by the project that ships it rather than only by its tests.
