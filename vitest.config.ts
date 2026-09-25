@@ -13,8 +13,9 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts'],
-      // types.ts is type-only: it compiles to an empty module.
-      exclude: ['src/types.ts'],
+      // types.ts is type-only: it compiles to an empty module. src/vendor is
+      // spec-core's copy, whose coverage spec-core measures (ADR-0015).
+      exclude: ['src/types.ts', 'src/vendor/**'],
       reporter: ['text', 'lcov'],
       // Floors, not targets - but a floor five points under the measurement is
       // not a floor. Re-anchored against 100% lines, 99.73% statements, 99.64%

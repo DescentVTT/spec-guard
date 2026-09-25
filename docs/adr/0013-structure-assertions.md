@@ -246,13 +246,17 @@ file is read:
 ### What this repository asserts
 
 <!-- @assert-structure target="docs/adr" pattern="[0-9][0-9][0-9][0-9]-*.md" reason="ADRs are numbered, so a reference to ADR-0011 names one file" -->
-<!-- @assert-structure target="src" exclude="index.ts, types.ts" partner="tests/[name].test.ts" reason="every module has a test file of its own name" -->
+<!-- @assert-structure target="src" exclude="index.ts, types.ts, src/vendor" partner="tests/[name].test.ts" reason="every module has a test file of its own name" -->
 
 The second rule did not hold when this ADR was proposed. `src/specs.ts` had no
 `tests/specs.test.ts`, because its tests lived in `tests/query.test.ts`, and a
 rule that is adopted has to decide between moving them and a baseline. They were
 moved, with no baseline. The rule then found one more file before any test did:
 `src/structure.ts` itself, written before its test file existed.
+
+`src/vendor` left the rule on 2026-09-26. It holds spec-core's modules, copied
+byte for byte and tested where they are written; `tests/vendor.test.ts` holds
+the copy to what was copied (ADR-0015).
 
 Two rules hold the implementation to the promise that existence is decided by
 name. The listings go through the walk's own directory reader, which is also

@@ -390,7 +390,9 @@ describe('this repository', () => {
   const base = JSON.parse(/mutate: (\[.*\]),/.exec(config)![1]!.replaceAll("'", '"')) as string[];
 
   it('lists only files the configuration mutates, each once', () => {
-    expect(base).toEqual(BASE);
+    // The copy of spec-core is measured by spec-core, never here (ADR-0015).
+    expect(base).toEqual([...BASE, '!src/vendor/**']);
+    expect(mutateFor(base, SHARD_COUNT)).toContain('!src/vendor/**');
     expect([...checkAssignment(base).keys()].sort()).toEqual(ASSIGNED.flat().sort());
     for (const file of ASSIGNED.flat()) expect(() => readFileSync(file)).not.toThrow();
   });
