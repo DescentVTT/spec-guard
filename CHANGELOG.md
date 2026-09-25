@@ -33,6 +33,10 @@ with the flag that restores the previous behaviour.
   `auto` with one searches with the built-in scanner. A search that fails
   outright through the door fails the run, rather than falling back to the
   scanner that reads the disk. [ADR-0014](docs/adr/0014-configuration-and-watch.md).
+- **`io` on `loadRuleSet` and `queryRules`, too.** A query found and read the
+  specs, and asked whether each path exists, through the filesystem whatever
+  the caller had; it now goes through the door it is given, as a run does, so
+  a query over a tree in memory sees that tree.
 
 ### Fixed
 

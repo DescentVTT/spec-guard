@@ -12,6 +12,8 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { EXIT_ERROR, EXIT_OK, HELP, main, parseArgs, UsageError, type CliIO } from '../src/cli.js';
+import { nodeIo } from '../src/io.js';
+import { overlayIo } from '../src/overlay.js';
 import { parseDocument, parseTitle } from '../src/parser.js';
 import {
   answerQuery,
@@ -154,6 +156,36 @@ describe('loadRuleSet and answerQuery', () => {
     expect(ruleSet.errors.map((error) => [error.location.relativeFile, error.location.line, error.message])).toEqual([
       ['docs/untitled.md', 4, '@assert-count requires expected="...", min="..." or max="...".'],
     ]);
+  });
+
+  it('finds and reads the specs through the door it is given, as a run does', async () => {
+    // The tree on disk holds no spec and no src/new.ts. The door adds both,
+    // and a query that read the disk would find no spec files at all.
+    const empty = await makeTempRepo({ 'README.txt': 'nothing here\n' });
+    try {
+      const door = overlayIo(nodeIo, empty, {
+        write: new Map([
+          ['docs/adr/0001-x.md', '# ADR-0001: X\n\n<!-- @assert-absence target="src" symbol="Legacy" -->\n'],
+          ['src/new.ts', 'export {};\n'],
+        ]),
+        remove: new Set(),
+      });
+      const ruleSet = await loadRuleSet({ patterns: ['docs/**/*.md'], root: empty, io: door });
+      expect(ruleSet.specFiles).toEqual(['docs/adr/0001-x.md']);
+      expect(ruleSet.rules.map(({ document }) => document.title)).toEqual(['ADR-0001: X']);
+
+      const report = await queryRules({ patterns: ['docs/**/*.md'], root: empty, paths: ['src/new.ts', 'src/'], io: door });
+      expect(report.results.map((result) => [result.path, result.shape, result.exists, result.rules.length])).toEqual([
+        ['src/new.ts', 'file', true, 1],
+        ['src', 'directory', true, 1],
+      ]);
+      // And without the door, the same question finds the disk as it is.
+      const plain = await queryRules({ patterns: ['docs/**/*.md'], root: empty, paths: ['src/new.ts'] });
+      expect(plain.specFiles).toEqual([]);
+      expect(plain.results[0]?.exists).toBe(false);
+    } finally {
+      await removeTempRepo(empty);
+    }
   });
 
   it('sorts errors by file and then by line, however they arrived', async () => {
