@@ -164,8 +164,8 @@ Directives
 
   Matches inside comments do not count; add comments="include" to count them.
   An assertion whose scope holds no files fails; add allow-empty="true" to allow it.
-  A document whose status is draft, proposed, rejected, deprecated or superseded
-  is reported and not executed; --ignore-status runs it anyway.
+  A document whose status is draft, proposed, rejected, deprecated, superseded
+  or archived is reported and not executed; --ignore-status runs it anyway.
 
 query answers from the specs alone, without reading the codebase, so it works
 for a file that does not exist yet. mcp offers the same answer, and a check,

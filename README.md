@@ -736,8 +736,11 @@ long before anyone deletes it - because deleting it deletes the reason a
 decision was made.
 
 spec-guard reads that status from the document and honours it. A document whose
-status is `draft`, `proposed`, `rejected`, `deprecated` or `superseded` is
-parsed, validated, reported - and not executed.
+status is `draft`, `proposed`, `rejected`, `deprecated`, `superseded` or
+`archived` is parsed, validated, reported - and not executed. `archived` is what
+`spec-brief` writes when it closes a task brief's round: the brief is kept as
+the record, and its directives, which stated the round's premises and goals,
+are history.
 
 Three spellings are recognised, because three are in use:
 

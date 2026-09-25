@@ -142,12 +142,14 @@ export const ALLOWED_ATTRIBUTES: Record<DirectiveKind, ReadonlySet<string>> = {
  * Status words that withhold a document's directives from execution.
  *
  * The words that mean "not in force" in Nygard's ADR template and in MADR's
- * between them, plus `draft`, which is the one people actually type. The list
- * is closed and short on purpose: every word added to it is another way for a
- * document to go dark, and a rule that stops being enforced without anyone
- * deciding so is the failure this tool exists to prevent. Anything else - an
- * unrecognised word, a misspelling, no status at all - stays in force. See
- * ADR-0010.
+ * between them, plus `draft`, which is the one people actually type, and
+ * `archived`, which `spec-brief` writes when it closes a task brief's round -
+ * whose directives stated premises and goals that are history once it closes.
+ * The list is closed and short on purpose: every word added to it is another
+ * way for a document to go dark, and a rule that stops being enforced without
+ * anyone deciding so is the failure this tool exists to prevent. Anything else -
+ * an unrecognised word, a misspelling, no status at all - stays in force. See
+ * ADR-0010 and its amendment.
  */
 export const INACTIVE_STATUSES: ReadonlySet<string> = new Set([
   'draft',
@@ -155,6 +157,7 @@ export const INACTIVE_STATUSES: ReadonlySet<string> = new Set([
   'rejected',
   'deprecated',
   'superseded',
+  'archived',
 ]);
 
 /** `---\n...\n---` at the very top of the file, and nowhere else. */
