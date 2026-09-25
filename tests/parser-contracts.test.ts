@@ -223,20 +223,20 @@ describe('fenced blocks', () => {
     // `~{3,}` not `~`: a single tilde in prose is a tilde.
     expect(parseDirectives('~~~\n<!-- @assert-absence symbol="X" -->\n~~~\n', context).directives).toEqual([]);
     expect(parseDirectives('~\n<!-- @assert-absence symbol="X" -->\n~\n', context).directives).toHaveLength(1);
+    expect(parseDirectives('~~\n<!-- @assert-absence symbol="X" -->\n~~\n', context).directives).toHaveLength(1);
   });
 
-  it('requires the fence to be the whole line', () => {
-    // The `$` anchor. Without it, "``` in a sentence" opens a block and
+  it('needs three backticks, where two are a code span that closes nothing', () => {
+    // One run of two and nothing to pair it with, so the inline rule leaves
+    // it alone too. Read as a fence, it would hide the rest of the document.
+    expect(parseDirectives('``\n<!-- @assert-absence symbol="X" -->\n', context).directives).toHaveLength(1);
+  });
+
+  it('requires the fence to start its line', () => {
+    // The `^` anchor. Without it, "``` in a sentence" opens a block and
     // everything after it stops being read.
     const source = 'text ``` more\n<!-- @assert-absence symbol="X" -->\n';
     expect(parseDirectives(source, context).directives).toHaveLength(1);
-  });
-
-  it('allows up to three spaces of indentation, and no more', () => {
-    expect(parseDirectives('   ```\n<!-- @assert-absence symbol="X" -->\n   ```\n', context).directives).toEqual([]);
-    // Four spaces is not a fence. Only one run of backticks here, so the
-    // inline-span rule has nothing to pair it with either.
-    expect(parseDirectives('    ```\n<!-- @assert-absence symbol="X" -->\n', context).directives).toHaveLength(1);
   });
 
   it('closes a fence only on a run at least as long as the opener', () => {
@@ -264,6 +264,126 @@ describe('fenced blocks', () => {
     const source = '```\ncode\n```\n<!-- @assert-absence symbol="X" -->\n';
     expect(maskedLines(source)).toHaveLength(source.split('\n').length);
     expect(parseDirectives(source, context).directives[0]?.location.line).toBe(4);
+  });
+});
+
+/*
+ * Three places the fence rule used to part from CommonMark, each of which ran a
+ * directive a document only showed, or hid one it meant.
+ */
+
+/** The `symbol` of every directive a document executes, in order. */
+function executed(source: string): Array<string | undefined> {
+  return parseDirectives(source, context).directives.map((directive) => directive.attributes['symbol']);
+}
+
+describe('an info string that holds a backtick', () => {
+  it('does not open a backtick fence, so the directive under it executes', () => {
+    // ```` ```js`x ```` is prose opening with a code span. Read as a fence it
+    // hid every line under it until something closed it, and nothing here
+    // does - so the rule below it never ran, and nothing said so.
+    expect(executed('```js`x\n<!-- @assert-absence symbol="X" -->\n')).toEqual(['X']);
+    expect(executed('``` a ` b\n<!-- @assert-absence symbol="X" -->\n')).toEqual(['X']);
+  });
+
+  it('is no closer either, so the fence after it still pairs as written', () => {
+    // As a fence, ```` ```js`x ```` opened a block that the ```` ```md ```` below
+    // closed, and the example's own closing fence then opened one that ran to
+    // the end of the file. Both directives were hidden; the first is real.
+    const source = [
+      '```js`x',
+      '<!-- @assert-absence symbol="X" -->',
+      '',
+      '```md',
+      '<!-- @assert-absence symbol="Y" -->',
+      '```',
+      '<!-- @assert-absence symbol="Z" -->',
+      '',
+    ].join('\n');
+    expect(executed(source)).toEqual(['X', 'Z']);
+  });
+
+  it('still opens a tilde fence, whose info string may hold anything', () => {
+    // The must-not-match: only a backtick fence is refused a backtick.
+    expect(executed('~~~ `js`\n<!-- @assert-absence symbol="X" -->\n~~~\n<!-- @assert-absence symbol="Y" -->\n')).toEqual(['Y']);
+  });
+});
+
+describe('a closing fence', () => {
+  it('carries no info string, so a fence line with one stays inside the block', () => {
+    // ```` ```js ```` inside a ``` block is a line of the block. It used to
+    // close it, and the directive-shaped example after it executed.
+    const source = [
+      '```',
+      '```js',
+      '<!-- @assert-absence symbol="X" -->',
+      '```',
+      '<!-- @assert-absence symbol="Y" -->',
+      '',
+    ].join('\n');
+    expect(executed(source)).toEqual(['Y']);
+    expect(executed(source.replaceAll('```', '~~~'))).toEqual(['Y']);
+  });
+
+  it('may be followed by spaces, a tab, or a CRLF line ending', () => {
+    // Whitespace is not an info string. Were it one, a closing fence with a
+    // trailing space - or any closing fence in a Windows-authored file - would
+    // close nothing, and the rest of the document would be hidden.
+    for (const closer of ['```  ', '```\t', '``` \t ']) {
+      expect(executed(`\`\`\`\n<!-- @assert-absence symbol="X" -->\n${closer}\n<!-- @assert-absence symbol="Y" -->\n`), JSON.stringify(closer)).toEqual(['Y']);
+    }
+    const crlf = '```\r\n<!-- @assert-absence symbol="X" -->\r\n```\r\n<!-- @assert-absence symbol="Y" -->\r\n';
+    expect(executed(crlf)).toEqual(['Y']);
+    expect(executed(crlf.replace('```\r\n<!--', '```ts\r\n<!--'))).toEqual(['Y']);
+  });
+
+  it('may open a block of its own when it is not inside one', () => {
+    // A bare fence is both: the closer of the block it is in, or the opener of
+    // one when it is in none.
+    expect(executed('```\n<!-- @assert-absence symbol="X" -->\n```\n')).toEqual([]);
+  });
+});
+
+describe('an indented fence', () => {
+  it('is a fence at any indentation, as it is in a list item nested in another', () => {
+    // A fence in a `1.` item inside a `-` item sits five spaces in, and deeper
+    // nesting puts it further. CommonMark measures its three spaces from the
+    // item; measured from the margin this was no fence, and the example
+    // executed. Written the way a README writes one.
+    const nested = (fence: string): string =>
+      [
+        '- Payments',
+        '  1. Write the rule under the sentence it guards:',
+        '',
+        `     ${fence}md`,
+        '     <!-- @assert-absence symbol="Example" -->',
+        `     ${fence}`,
+        '',
+        '<!-- @assert-absence symbol="Real" -->',
+        '',
+      ].join('\n');
+    expect(executed(nested('~~~'))).toEqual(['Real']);
+    expect(executed(nested('~~~').replaceAll('     ', '         '))).toEqual(['Real']);
+    // With backticks the old rule was right by accident: the two fence lines
+    // paired as a code span. A backtick run in the prose above - a sentence
+    // that mentions a fence - took the opener's place in that pairing, and
+    // the example ran.
+    expect(executed(nested('```'))).toEqual(['Real']);
+    expect(executed(`Open a fence with \`\`\` and close it the same way.\n\n${nested('```')}`)).toEqual(['Real']);
+    expect(executed('\t\t~~~\n<!-- @assert-absence symbol="X" -->\n\t\t~~~\n<!-- @assert-absence symbol="Y" -->\n')).toEqual(['Y']);
+  });
+
+  it('opens and closes whatever the difference in indentation between the two', () => {
+    expect(executed('        ```\n<!-- @assert-absence symbol="X" -->\n```\n<!-- @assert-absence symbol="Y" -->\n')).toEqual(['Y']);
+    expect(executed('```\n<!-- @assert-absence symbol="X" -->\n        ```\n<!-- @assert-absence symbol="Y" -->\n')).toEqual(['Y']);
+  });
+
+  it('is still only a fence when nothing but whitespace comes before it', () => {
+    // The must-not-match: indentation widens where a fence may start, not
+    // what may start one. A run partway along an indented line opens nothing.
+    expect(executed('        see ``` here\n<!-- @assert-absence symbol="X" -->\n')).toEqual(['X']);
+    expect(executed('x```js\n<!-- @assert-absence symbol="X" -->\n')).toEqual(['X']);
+    expect(executed('    ``\n<!-- @assert-absence symbol="X" -->\n')).toEqual(['X']);
   });
 });
 
