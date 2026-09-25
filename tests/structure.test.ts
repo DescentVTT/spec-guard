@@ -812,8 +812,12 @@ describe('resolving @assert-structure', () => {
     expect(errorOf('<!-- @assert-structure partner="[name].x, [base].x" -->')).toBe(
       'Partner template "[base].x" uses [base]; the placeholders are [name], [ext] and [dir].',
     );
-    // A pattern is a glob, so nothing in it is refused the way a partner's brackets are.
-    expect(resolve('<!-- @assert-structure pattern="[0-9]*.md, ../x" -->')).toHaveProperty('assertion');
+    // A pattern is a glob, so its brackets are a class and not a placeholder,
+    // and it is refused only for what spec-core refuses in any glob.
+    expect(resolve('<!-- @assert-structure pattern="[0-9]*.md, x" -->')).toHaveProperty('assertion');
+    expect(errorOf('<!-- @assert-structure pattern="[0-9]*.md, ../x" -->')).toBe(
+      'Attribute "pattern" has an invalid glob pattern "../x": a pattern cannot climb out of its root with "..".',
+    );
   });
 
   it('refuses both expected and max, as the other rules do', () => {

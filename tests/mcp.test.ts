@@ -189,10 +189,12 @@ describe('a message that is not a request the server can answer', () => {
   it('reports a failure it did not expect as an internal error, not as silence', async () => {
     const broken = { patterns: ['docs/[z-a]*.md'] };
     const error = (await failure('resources/list', undefined, broken)) as { code: number; message: string };
-    // The rest of the message is V8's, and its wording is not this project's to pin.
+    // A spec pattern with a range that runs backwards, which is not a request
+    // the protocol could have refused. It was V8's error about the RegExp the
+    // pattern compiled to, and is spec-core's refusal now (ADR-0015).
     expect(Object.keys(error).sort()).toEqual(['code', 'message']);
     expect(error.code).toBe(-32603);
-    expect(error.message.startsWith('Internal error: Invalid regular expression: ')).toBe(true);
+    expect(error.message).toBe('Internal error: invalid spec pattern "docs/[z-a]*.md": the range "z-a" runs backwards');
   });
 });
 
@@ -558,7 +560,7 @@ describe('get_architectural_rules', () => {
     const called = await tool('get_architectural_rules', { path: 'src' }, { patterns: ['docs/[z-a]*.md'] });
     expect(Object.keys(called).sort()).toEqual(['content', 'isError']);
     expect(called.isError).toBe(true);
-    expect(called.content[0]?.text.startsWith('spec-guard failed: Invalid regular expression: ')).toBe(true);
+    expect(called.content[0]?.text).toBe('spec-guard failed: invalid spec pattern "docs/[z-a]*.md": the range "z-a" runs backwards');
   });
 });
 

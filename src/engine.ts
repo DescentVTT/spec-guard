@@ -23,7 +23,16 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 
 import { createCommentMask, type CommentMask } from './comments.js';
-import { createExcludeMatcher, createGlobMatcher, normalizeExclude, normalizeGlob, toPosix, walkFiles, type WalkOptions } from './glob.js';
+import {
+  createExcludeMatcher,
+  createGlobMatcher,
+  normalizeExclude,
+  normalizeGlob,
+  ripgrepGlobs,
+  toPosix,
+  walkFiles,
+  type WalkOptions,
+} from './glob.js';
 import { nodeIo, type Io } from './io.js';
 import { NO_MEMO, type Memo } from './memo.js';
 import { isBinary, LedgerBuilder, UNCERTAIN_REASONS, type SkippedPath } from './scope.js';
@@ -281,6 +290,23 @@ export function findRipgrep(): Promise<string | null> {
 
 
 /**
+ * Whether a request's own filters admit a file, by its path from the root:
+ * matched by `glob`, and by no `exclude`.
+ *
+ * Asked of every file the walk finds, and of every file ripgrep names. ripgrep
+ * is handed the same filters and applies them to what it walks into, but never
+ * to a path it was handed by name: a target that is a file is searched whatever
+ * `glob` says, and a target inside an excluded directory is walked. The scanner
+ * read both as out of scope, so ripgrep's list is held to the same question
+ * rather than trusted to have asked it. ADR-0015.
+ */
+function scopeFilter(options: SearchOptions): (relativePath: string) => boolean {
+  const included = createGlobMatcher(options.globs);
+  const excluded = createExcludeMatcher(options.excludeGlobs);
+  return (relativePath) => included(relativePath) && !excluded(relativePath);
+}
+
+/**
  * Builds the argv that makes ripgrep walk exactly what the scanner walks.
  *
  * Almost every flag here switches off an opinion. ripgrep's defaults are
@@ -320,14 +346,19 @@ export function buildRipgrepArgs(request: SearchRequest, patterns: readonly stri
   if (!options.regex) args.push('--fixed-strings');
   if (options.word) args.push('--word-regexp');
   if (options.ignoreCase) args.push('--ignore-case');
-  // Normalised as the scanner normalises them, rather than as written: ripgrep
-  // read `./src/*.ts`, `src/`, `./build`, `src\build` and `build/` differently,
-  // and the same rule counted differently on either side of the size at which
-  // `auto` changes engine. ADR-0014.
-  for (const glob of options.globs) args.push('--glob', normalizeGlob(glob));
+  // Spelled as the scanner reads them, rather than as written: ripgrep read
+  // `./src/*.ts`, `src/`, `./build`, `src\build` and `build/` differently
+  // (ADR-0014), and braces, `.` segments and a lone `}` differently again
+  // (ADR-0015), and the same rule counted differently on either side of the
+  // size at which `auto` changes engine.
+  for (const glob of options.globs) {
+    for (const each of ripgrepGlobs(normalizeGlob(glob))) args.push('--glob', each);
+  }
   // ripgrep reads a leading "!" as an exclusion, with gitignore semantics that
-  // createExcludeMatcher mirrors for the JavaScript engine.
-  for (const glob of options.excludeGlobs) args.push('--glob', `!${normalizeExclude(glob)}`);
+  // createExcludeMatcher reads the same way for the JavaScript engine.
+  for (const glob of options.excludeGlobs) {
+    for (const each of ripgrepGlobs(normalizeExclude(glob))) args.push('--glob', `!${each}`);
+  }
   for (const name of options.scope.skippedDirectories.keys()) args.push('--glob', `!${name}/`);
   for (const pattern of patterns) args.push('--regexp', pattern);
   args.push('--');
@@ -411,8 +442,11 @@ class RipgrepEngine implements Engine {
           reject(new Error(ripgrepFailureMessage(code, errors)));
           return;
         }
+        const inScope = scopeFilter(request.options);
         resolve({
-          files: parseRipgrepFiles(Buffer.concat(stdout).toString('utf8'), request.root, request.options.excludeFiles),
+          files: parseRipgrepFiles(Buffer.concat(stdout).toString('utf8'), request.root, request.options.excludeFiles).filter(
+            (file) => inScope(file.relativePath),
+          ),
           unreadable: parseRipgrepErrors(errors),
         });
       });
@@ -731,14 +765,13 @@ export async function enumerateCandidates(
    */
   io: Io = nodeIo,
 ): Promise<Enumeration> {
-  const matcher = createGlobMatcher(request.options.globs);
-  const excluded = createExcludeMatcher(request.options.excludeGlobs);
+  const inScope = scopeFilter(request.options);
   // excludeFiles is applied here rather than after the walk so that a budgeted
   // enumeration counts only files it would really search. Filtering afterwards
   // let an excluded spec file fill a one-file probe and make a populated
   // directory look empty.
   const admits = (absolutePath: string, relativePath: string): boolean =>
-    matcher(relativePath) && !excluded(relativePath) && !request.options.excludeFiles.has(absolutePath);
+    inScope(relativePath) && !request.options.excludeFiles.has(absolutePath);
   const found = new Map<string, CandidateFile>();
   // A LedgerBuilder rather than an array and a cap of its own: the sample cap
   // is one rule, it is applied again downstream, and a second implementation of

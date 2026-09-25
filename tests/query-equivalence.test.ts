@@ -191,7 +191,7 @@ describe('a query against the walk it stands in for', () => {
     const segments = ['src', 'lib', 'app', 'tests', 'legacy', 'gen', 'node_modules', '.git', 'domain', 'web'];
     const names = ['a.ts', 'b.test.ts', 'c.py', 'd.go', 'e.css', 'f.md', 'g.mjs', 'h.rs', 'i.txt', 'j.tsx'];
     const excludes = ['tests', 'legacy', 'gen', 'src/legacy', '**/*.test.ts', '*.py', 'app/web', 'domain/**'];
-    const globs = ['*.ts', '*.py', 'src/**', '*.{ts,py}', 'lib/*'];
+    const globs = ['*.ts', '*.py', 'src/**', '[a-m]*.ts', 'lib/*'];
 
     for (let round = 0; round < 8; round++) {
       const files = new Set<string>();

@@ -23,7 +23,15 @@ import {
   type EnginePreference,
   type SearchRequest,
 } from "./engine.js";
-import { createExcludeMatcher, excludeListError, toPosix } from "./glob.js";
+import {
+  createExcludeMatcher,
+  excludeListError,
+  globPatternError,
+  modulePatternError,
+  pathPatternError,
+  patternListError,
+  toPosix,
+} from "./glob.js";
 import { nodeIo, type Io } from "./io.js";
 import {
   buildGraph,
@@ -209,6 +217,21 @@ export function splitList(value: string | undefined): string[] {
   // three made the third unnecessary - so none of them could be tested. What is
   // wanted is "the runs of non-separator characters", and that is one pattern.
   return value.match(/[^,\s]+/g) ?? [];
+}
+
+/**
+ * What a directive is told about a list attribute holding a pattern that
+ * cannot be read.
+ *
+ * A list attribute splits on commas, so `glob="*.{ts,tsx}"` arrives as `*.{ts`
+ * and `tsx}`, and the first is refused for a brace that never closes. That
+ * is true and not what went wrong, so a value with a comma inside braces is
+ * told what did. It always split so: the scanner read both halves as literals
+ * that matched nothing, and ripgrep refused them. ADR-0015.
+ */
+function patternAttributeError(attribute: string, value: string, error: string): string {
+  const split = /\{[^{}]*,/.test(value);
+  return `Attribute "${attribute}" has an ${error}.${split ? " A list attribute splits on commas, so a {a,b} group cannot be written in one: list each pattern instead." : ""}`;
 }
 
 /** Rejects absolute paths and any `..` escape out of the root. */
@@ -578,7 +601,11 @@ export function resolveDirective(
     // --exclude refuse the same patterns: each would exclude nothing and say so
     // nowhere.
     const excludeError = excludeListError(splitList(attributes["exclude"]));
-    if (excludeError !== null) return fail(`Attribute "exclude" has an ${excludeError}.`);
+    if (excludeError !== null) return fail(patternAttributeError("exclude", attributes["exclude"] as string, excludeError));
+    // A malformed glob is refused for the same reason: read as a literal, it
+    // was a filter that matched nothing, and the rule over it passed. ADR-0015.
+    const globError = patternListError(splitList(attributes["glob"]), globPatternError);
+    if (globError !== null) return fail(patternAttributeError("glob", attributes["glob"] as string, globError));
 
     const rawTargets = splitList(attributes["target"]);
     const targets = (rawTargets.length > 0 ? rawTargets : ROOT_TARGETS).map((target) =>
@@ -677,6 +704,10 @@ export function resolveDirective(
       }
       const includeDynamic = dynamic === "include";
       const layers = splitList(symbol);
+      const moduleError = perModule
+        ? patternListError(layers, (pattern) => modulePatternError(pattern))
+        : patternListError(layers, (pattern) => modulePatternError(pattern, "layer"));
+      if (moduleError !== null) return fail(patternAttributeError(subject, symbol, moduleError));
       if (kind === "assert-layers") {
         if (layers.length < 2) {
           return fail(
@@ -818,6 +849,10 @@ function resolveStructure(
   }
   const dirs = attributes["dirs"]?.trim().replace(/^\.\//, "").replace(/\/+$/, "");
   if (dirs === "") throw new Error(`Attribute "dirs" must not be empty.`);
+  const dirsError = dirs === undefined ? null : pathPatternError(dirs);
+  if (dirsError !== null) throw new Error(`Attribute "dirs" has an ${dirsError}.`);
+  const namesError = claim === "pattern" ? patternListError(values, globPatternError) : null;
+  if (namesError !== null) throw new Error(patternAttributeError("pattern", attributes["pattern"] as string, namesError));
 
   const issue = values
     .map((value) => (required ? requiredEntryIssue(value) : claim === "partner" ? partnerTemplateIssue(value) : null))

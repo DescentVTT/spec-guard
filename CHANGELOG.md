@@ -22,6 +22,24 @@ with the flag that restores the previous behaviour.
 
 ### Fixed
 
+- **A glob could take a minute to fail one file name.** Every pattern was
+  compiled to a `RegExp`, and `*-*-*-*-*-*x` against a name of 121 dashes made
+  V8 try every way of dividing the name between six `[^/]*` groups: 55 seconds,
+  measured. Patterns are now read by the glob engine the spec-* tools share,
+  spec-core's, whose automaton keeps a set of live states and cannot backtrack:
+  the same match takes under a millisecond. spec-core is copied into
+  `src/vendor/spec-core` and verified by hash, so `dependencies` stays empty.
+  [ADR-0015](docs/adr/0015-globs-from-spec-core.md).
+- **ripgrep and the scanner still read some patterns differently**, so the same
+  rule could count differently on either side of the tree size at which `auto`
+  changes engine. ripgrep anchored every alternative of `{src/*.ts,*.md}`
+  because one held a `/`, dropped the empty one in `{,src/}a.ts`, matched
+  nothing for `src/./a.ts`, and failed on a `}` that closes nothing. It is now
+  handed each alternative as a glob of its own, spelled as the scanner reads
+  it. And ripgrep applies no glob to a path named on its command line, so a
+  rule whose target is a file its `glob` does not match, or a directory its
+  `exclude` does, counted under ripgrep what the scanner left out; its list of
+  files is now held to the same filters. ADR-0015.
 - **Three fence shapes were read the wrong way round.** Directives inside code
   never execute, and what counts as code is decided by `maskCode`. It now
   follows CommonMark in two places it did not, and departs from it in one on
@@ -49,6 +67,25 @@ with the flag that restores the previous behaviour.
 
 ### Changed
 
+- **A pattern that cannot be read is refused.** An unclosed `[` or `{`, an
+  extended glob such as `+(a|b)`, a `..`, or a range that runs backwards, in
+  `glob`, `exclude`, `module`, `order`, `pattern`, `dirs` or `required`, makes
+  the directive invalid; in `exclude` in the configuration or `--exclude`, or in
+  a spec pattern, it is exit 2. Each used to be read as a literal or as whatever
+  its `RegExp` happened to mean, which is a filter that matches nothing and
+  passes. So is an alternative that names no path, as in `{dist/**,}`, whose
+  empty alternative matched the empty string. A brace group with a comma in it
+  in a directive is one more case: a list attribute splits on commas, so
+  `glob="*.{ts,tsx}"` was always the two patterns `*.{ts` and `tsx}`, and the
+  message now says so. A configuration's `exclude` is a JSON array, where braces
+  keep their commas. Nothing restores the old readings.
+  [ADR-0015](docs/adr/0015-globs-from-spec-core.md).
+- **`**` inside a segment is `*`**, as `.gitignore`, bash and ripgrep read it:
+  `src/**.ts` matches `src/a.ts` and no longer `src/deep/a.ts`. ripgrep never
+  crossed directories there, so a rule that did counted differently by engine.
+- **A `.` or empty segment is no segment** (`src/./a.ts` is `src/a.ts`), and
+  **a leading `/` anchors a `glob`** at the root, as it anchors an `exclude`.
+  Both matched nothing in the scanner before; ripgrep already anchored.
 - **`archived` withholds a document**, a sixth word beside `draft`,
   `proposed`, `rejected`, `deprecated` and `superseded`. `spec-brief` closes a
   task brief's round by setting `status: archived` and moving the brief to an

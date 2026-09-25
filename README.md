@@ -158,6 +158,12 @@ can never exclude anything:
 - **a drive path** such as `C:/repo/dist`.
 - **`.` or `/`**, the root itself.
 
+So is any pattern the glob engine cannot read - an unclosed `[` or `{`, an
+extended glob such as `+(a|b)`, a range that runs backwards - rather than being
+read as a literal that excludes nothing. The same goes for `glob`, `module`,
+`order` and the structure rules' patterns, and for a spec pattern on the command
+line.
+
 In a directive a refused pattern is an invalid directive; in the configuration
 or `--exclude` it is exit 2.
 
@@ -169,7 +175,10 @@ List attributes accept commas or whitespace, so both of these work:
 ```
 
 (A path containing a space therefore cannot be written; there is no quoting
-inside an attribute value.)
+inside an attribute value. Nor can a brace group with a comma in it:
+`glob="*.{ts,tsx}"` is the two patterns `*.{ts` and `tsx}`, and is refused with a
+message that says so. Write `glob="*.ts, *.tsx"`. A configuration's `exclude` is
+a JSON array, where a brace group keeps its commas.)
 
 ### `comments` - the note about a deletion is not the deletion
 
@@ -1321,6 +1330,13 @@ Since 0.4.0 it does not need the proof, because ripgrep no longer counts
 anything - it answers only *which files contain this text*, and the scanner
 counts each pattern separately over the shared file contents. The batching
 checks were deleted along with the risk they guarded.
+
+**Globs are matched by an automaton, not a regular expression.** Every
+pattern - `glob`, `exclude`, `module`, a layer, a spec pattern - is read by the
+glob engine the spec-* tools share, copied from spec-core and checked by hash.
+A `RegExp` backtracks: `*-*-*-*-*-*x` took 55 seconds to fail one long file
+name. The automaton cannot, and ripgrep is handed each pattern spelled as the
+automaton reads it ([ADR-0015](docs/adr/0015-globs-from-spec-core.md)).
 
 **Exit code 2 exists.** "Your specs failed" and "spec-guard could not run" are
 different facts, and CI should be able to tell them apart.
