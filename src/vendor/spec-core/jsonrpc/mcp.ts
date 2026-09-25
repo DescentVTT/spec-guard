@@ -185,7 +185,12 @@ export function unknownArguments(args: JsonObject, allowed: readonly string[]): 
   const unknown = Object.keys(args).filter((name) => !allowed.includes(name));
   if (unknown.length === 0) return undefined;
   const list = unknown.map((name) => `"${name}"`).join(', ');
-  const takes = allowed.length === 0 ? 'no arguments' : allowed.join(', ');
+  const takes =
+    allowed.length === 0
+      ? 'no arguments'
+      : allowed.length === 1
+        ? (allowed[0] as string)
+        : `${allowed.slice(0, -1).join(', ')} and ${allowed[allowed.length - 1] as string}`;
   return toolError(`Unknown argument${unknown.length === 1 ? '' : 's'} ${list}; this tool takes ${takes}.`);
 }
 
@@ -231,7 +236,7 @@ export function createMcpServer(definition: McpServerDefinition): (message: unkn
   const readResource = async (params: JsonObject, era: Era): Promise<JsonObject> => {
     const uri = params['uri'];
     if (typeof uri !== 'string') throw new ProtocolError(INVALID_PARAMS, 'resources/read needs a uri.');
-    const contents = definition.resources === undefined ? null : await definition.resources.read(uri);
+    const contents = await (definition.resources as ResourceProvider).read(uri);
     if (contents === null) {
       throw new ProtocolError(era === 'modern' ? INVALID_PARAMS : LEGACY_RESOURCE_NOT_FOUND, 'Resource not found', { uri });
     }
@@ -265,6 +270,17 @@ export function createMcpServer(definition: McpServerDefinition): (message: unkn
     } else if (method === 'server/discover') {
       return { supportedVersions: [...MODERN_PROTOCOL_VERSIONS], capabilities, instructions: definition.instructions };
     }
+    // A method for a capability the server did not declare does not exist on
+    // it: the answer is the one for any unknown method, not an empty list that
+    // reads as "declared, and empty".
+    const family = method.slice(0, method.indexOf('/') + 1);
+    if (
+      (family === 'tools/' && tools.length === 0) ||
+      (family === 'resources/' && definition.resources === undefined) ||
+      (family === 'prompts/' && prompts.length === 0)
+    ) {
+      throw new ProtocolError(METHOD_NOT_FOUND, 'Method not found');
+    }
     switch (method) {
       case 'tools/list':
         refuseCursor(params);
@@ -273,10 +289,10 @@ export function createMcpServer(definition: McpServerDefinition): (message: unkn
         return callTool(given);
       case 'resources/list':
         refuseCursor(params);
-        return { resources: definition.resources === undefined ? [] : [...(await definition.resources.list())] };
+        return { resources: [...(await (definition.resources as ResourceProvider).list())] };
       case 'resources/templates/list':
         refuseCursor(params);
-        return { resourceTemplates: [...(definition.resources?.templates ?? [])] };
+        return { resourceTemplates: [...((definition.resources as ResourceProvider).templates ?? [])] };
       case 'resources/read':
         return readResource(given, era);
       case 'prompts/list':
