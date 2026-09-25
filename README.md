@@ -934,7 +934,8 @@ passed, and the violation is shown), or **unprovable** (no violation could be
 made, and the reason is given). Both bounds of a count are probed. `prove`
 exits 1 when a rule survived, and under `--strict` when one is unprovable. It
 takes the run's `--root`, `--spec`, `--exclude`, `--ignore-status`, `--json`
-and `--format sarif`, and the configuration's specs, exclusions and strictness.
+and `--format sarif|github|gitlab`, and the configuration's specs, exclusions
+and strictness.
 
 A kill means the rule can fail, not that it catches the way the code is
 written: `module="src/db.ts"` is killed by `import 'src/db.ts'` though every
@@ -958,8 +959,8 @@ spec-guard prove [patterns...]         # show each rule a violation of itself, i
 | `-v, --verbose` | Print passing assertions too |
 | `--watch` | Report, then report again as the tree changes, until Ctrl+C |
 | `--fail-fast` | Stop at the first failing assertion |
-| `--json` | Machine-readable report on stdout (same as `--format json`) |
-| `--format <human\|json\|sarif>` | Output format. `sarif` uploads to GitHub code scanning |
+| `--json` | Machine-readable report on stdout (same as `--format json`), versioned by `formatVersion` |
+| `--format <human\|json\|sarif\|github\|gitlab>` | Output format. `sarif` uploads to GitHub code scanning, `github` annotates a pull request from the job's log, `gitlab` is a GitLab Code Quality report |
 | `--engine <auto\|rg\|js>` | Search engine (default `auto`: scanner for small trees, ripgrep for big ones) |
 | `--strict` / `--no-strict` | Treat analysis that could not be completed as a failure |
 | `--allow-missing-targets` / `--no-allow-missing-targets` | Warn instead of failing when a `target` path does not exist |
@@ -1161,6 +1162,40 @@ offending line, with the directive as a related location because that is often
 where the fix goes. Alerts carry a fingerprint derived from what the assertion
 is about rather than where its matches landed, so inserting a line above a
 violation does not close the alert and open a new one.
+
+Two formats need no upload step. `--format github` writes one GitHub Actions
+workflow command per finding, which the job's log turns into an annotation on
+the diff:
+
+```text
+::error file=src/a.ts,line=2,title=assert-absence::"Legacy" must not appear in src: expected no matches, found 2 (docs/adr/0004-legacy.md:12)
+```
+
+`--format gitlab` writes a
+[GitLab Code Quality](https://docs.gitlab.com/ci/testing/code_quality/) report,
+which a merge request shows beside its changes:
+
+```yaml
+spec-guard:
+  script:
+    - npx @descent-vtt/spec-guard --format gitlab > gl-code-quality-report.json || true
+  artifacts:
+    reports:
+      codequality: gl-code-quality-report.json
+```
+
+Every format places the same findings, and `prove` writes all three:
+
+| Finding | GitHub | GitLab severity |
+| --- | --- | --- |
+| a failing assertion, on its first offending line or its directive | `error` | `critical` |
+| a rule that survived `prove`, on its directive | `error` | `critical` |
+| a directive that could not be read | `error` | `major` |
+| a rule `prove` could make no violation for | `notice` | `minor` |
+| a document not in force, on its first line | `notice` | `info` |
+
+A GitLab issue's `fingerprint` is the SHA-256 of its rule, file and message,
+which GitLab compares across pipelines to tell a new finding from an old one.
 
 **There is no language server, and that is a decision rather than a gap.**
 spec-guard's claims are about a whole repository - "this symbol appears nowhere

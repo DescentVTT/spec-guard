@@ -33,6 +33,21 @@ with the flag that restores the previous behaviour.
   `auto` with one searches with the built-in scanner. A search that fails
   outright through the door fails the run, rather than falling back to the
   scanner that reads the disk. [ADR-0014](docs/adr/0014-configuration-and-watch.md).
+- **`--format gitlab` and `--format github`**, for the run and for `prove`.
+  `gitlab` writes a GitLab Code Quality report - `description`, `check_name`,
+  a `fingerprint` that is the SHA-256 of the rule, the file and the message,
+  a `severity` and a `location` - which a merge request shows beside its
+  changes. `github` writes one workflow command per finding, which a job's log
+  turns into an annotation on the pull request with no upload step. Both place
+  the findings SARIF places: a failing assertion or a surviving rule is
+  `critical`, a directive that could not be read `major`, a rule `prove` could
+  make no violation for `minor`, and a document not in force is named, as
+  `info`, on its first line. `formatGitlab`, `formatGithub`, `runAnnotations`
+  and `proveAnnotations` are the API.
+- **`formatVersion: 1` on the run's `--json` and on `query --json`**, as
+  `prove --json` has had from the start: a field removed or renamed moves it,
+  a field added does not. Both documents are otherwise unchanged; this is one
+  field more, first in each.
 - **`io` on `loadRuleSet` and `queryRules`, too.** A query found and read the
   specs, and asked whether each path exists, through the filesystem whatever
   the caller had; it now goes through the door it is given, as a run does, so

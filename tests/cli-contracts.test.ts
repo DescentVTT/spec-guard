@@ -88,7 +88,7 @@ describe('--format', () => {
 
   it('names the formats it has when given one it does not', () => {
     expect(() => parseArgs(['--format', 'yaml'], DEMO_REPO)).toThrow(
-      'Unknown format "yaml". Expected human, json or sarif.',
+      'Unknown format "yaml". Expected human, json, sarif, github or gitlab.',
     );
   });
 });

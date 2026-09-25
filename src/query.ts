@@ -344,9 +344,16 @@ export function formatQuery(report: QueryReport): string {
   return out.join('\n');
 }
 
+/**
+ * The version of `query --json`'s document, which moves when a field is removed
+ * or renamed and not when one is added. It came late, at 1, since nothing had
+ * been removed or renamed before it did.
+ */
+export const QUERY_FORMAT_VERSION = 1;
+
 /** The JSON form of a query, stable enough for a script to depend on. */
 export function formatQueryJson(report: QueryReport): string {
-  return JSON.stringify({ ...report, durationMs: Math.round(report.durationMs * 1000) / 1000 }, null, 2);
+  return JSON.stringify({ formatVersion: QUERY_FORMAT_VERSION, ...report, durationMs: Math.round(report.durationMs * 1000) / 1000 }, null, 2);
 }
 
 /** Whether a location lies in any of the queried paths. */
