@@ -16,7 +16,19 @@ import { excludeListError } from './glob.js';
 import { nodeIo, readText, watchTree } from './io.js';
 import { createMcpHandler, serveStdio } from './mcp.js';
 import { formatQuery, formatQueryJson, queryRules } from './query.js';
-import { formatBaselines, formatConfigUse, formatJson, formatReport, formatSarif, shouldUseAscii, shouldUseColor } from './reporter.js';
+import { proveSpecGuard } from './prove.js';
+import {
+  formatBaselines,
+  formatConfigUse,
+  formatJson,
+  formatProve,
+  formatProveJson,
+  formatProveSarif,
+  formatReport,
+  formatSarif,
+  shouldUseAscii,
+  shouldUseColor,
+} from './reporter.js';
 import { DEFAULT_CONCURRENCY, DEFAULT_MAX_SNIPPETS, runSpecGuard, splitList, type RunOptions } from './runner.js';
 import { createSession, runWatch } from './watch.js';
 import type { EnginePreference } from './engine.js';
@@ -45,8 +57,8 @@ export interface CliIO {
   onInterrupt?: (handler: () => void) => () => void;
 }
 
-/** What the command line asked for: a run, a query, or a server. */
-export type Command = 'check' | 'query' | 'mcp';
+/** What the command line asked for: a run, a query, a server, or a proof that the rules can fail. */
+export type Command = 'check' | 'query' | 'mcp' | 'prove';
 
 /** How a finished run is written out. */
 export type OutputFormat = 'human' | 'json' | 'sarif';
@@ -115,6 +127,8 @@ Usage
   spec-guard [patterns...] [options]     execute the directives in the specs
   spec-guard query <paths...> [options]  list the rules in force for files or directories
   spec-guard mcp [options]               serve the rules to an AI agent over MCP on stdio
+  spec-guard prove [patterns...] [options]
+                                         show each rule a violation of itself, in memory, and report any that pass
 
 Patterns
   Globs or paths to the Markdown specs to execute. A directory expands to the
@@ -166,6 +180,11 @@ Directives
   An assertion whose scope holds no files fails; add allow-empty="true" to allow it.
   A document whose status is draft, proposed, rejected, deprecated, superseded
   or archived is reported and not executed; --ignore-status runs it anyway.
+
+prove adds, changes or removes files in memory only - never on disk - to make
+the violation each rule forbids, and runs the rule over that tree. A rule that
+still passes survived, and exits 1; one no violation could be made for is
+unprovable, and exits 1 under --strict.
 
 query answers from the specs alone, without reading the codebase, so it works
 for a file that does not exist yet. mcp offers the same answer, and a check,
@@ -224,6 +243,9 @@ const NOT_FOR: Record<Exclude<Command, 'check'>, ReadonlySet<string>> = {
     '--color',
   ]),
   mcp: new Set(['--verbose', '--watch', '--fail-fast', '--json', '--format', '--print-baseline', '--allow-empty', '--color', '--no-color']),
+  // A proof runs every rule, one at a time, with the scanner reading through a
+  // door ripgrep cannot see through, and prints no snippets.
+  prove: new Set(['--watch', '--fail-fast', '--print-baseline', '--engine', '--concurrency', '--max-snippets']),
 };
 
 /**
@@ -247,7 +269,7 @@ const LONG_NAMES: Readonly<Record<string, string>> = { '-v': '--verbose' };
 
 /** Minimal, dependency-free argv parser. Supports `--flag value` and `--flag=value`. */
 export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
-  const command: Command = argv[0] === 'query' || argv[0] === 'mcp' ? argv[0] : 'check';
+  const command: Command = argv[0] === 'query' || argv[0] === 'mcp' || argv[0] === 'prove' ? argv[0] : 'check';
   const specs: string[] = [];
   const options: CliOptions = {
     command,
@@ -444,6 +466,18 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
 /** The configurable options a query reads; the rest are about running rules. */
 const QUERY_KEYS: ReadonlySet<ConfigKey> = new Set<ConfigKey>(['specs', 'exclude', 'ignoreStatus', 'includeSpecs', 'defaultSkips']);
 
+/** The configurable options a proof reads: what decides whether a rule passes, and not how a run is scheduled. */
+const PROVE_KEYS: ReadonlySet<ConfigKey> = new Set<ConfigKey>([
+  'specs',
+  'exclude',
+  'strict',
+  'allowMissingTargets',
+  'allowEmptyScope',
+  'ignoreStatus',
+  'includeSpecs',
+  'defaultSkips',
+]);
+
 /** Where each key of a configuration lands on the command line's options. */
 const SETTERS: { [Key in ConfigKey]-?: (options: CliOptions, value: NonNullable<ProjectConfig[Key]>) => void } = {
   specs: (options, value) => {
@@ -497,7 +531,9 @@ export function applyConfig(options: CliOptions, config: ProjectConfig, file = '
   for (const key of CONFIG_KEYS) {
     const value = config[key];
     if (value === undefined) continue;
-    if (options.command === 'query' ? !QUERY_KEYS.has(key) : options.watch && key === 'engine') continue;
+    const reads =
+      options.command === 'query' ? QUERY_KEYS.has(key) : options.command === 'prove' ? PROVE_KEYS.has(key) : !(options.watch && key === 'engine');
+    if (!reads) continue;
     if (options.fromCommandLine.has(key)) {
       overridden.push(key);
       continue;
@@ -675,6 +711,54 @@ async function runMcp(options: CliOptions, commandLine: CliOptions, io: CliIO, u
   return EXIT_OK;
 }
 
+/**
+ * `spec-guard prove`: each rule shown a violation of itself, in memory. ADR-0016.
+ *
+ * Exit 1 when a rule survived, or a directive could not be read; under
+ * `--strict`, when a rule is unprovable too, since a rule nobody can show
+ * failing is analysis that could not be completed.
+ */
+async function runProve(options: CliOptions, io: CliIO, use: ConfigUse | undefined): Promise<number> {
+  let report;
+  try {
+    report = {
+      ...(await proveSpecGuard({
+        patterns: options.patterns,
+        root: options.root,
+        allowMissingTargets: options.allowMissingTargets,
+        strictTargets: options.strictTargets,
+        allowEmptyScope: options.allowEmptyScope,
+        includeSpecs: options.includeSpecs,
+        defaultSkips: options.defaultSkips,
+        exclude: options.exclude,
+        ignoreStatus: options.ignoreStatus,
+      })),
+      config: use,
+    };
+  } catch (error) {
+    io.stderr(`spec-guard: ${error instanceof Error ? error.message : String(error)}`);
+    return EXIT_ERROR;
+  }
+
+  if (report.summary.specs === 0 && options.format === 'human') {
+    io.stderr(`spec-guard: no spec files matched ${options.patterns.map((p) => `"${p}"`).join(', ')}`);
+    return options.allowEmpty ? EXIT_OK : EXIT_ERROR;
+  }
+  io.stdout(
+    options.format === 'sarif'
+      ? formatProveSarif(report, { version: version() })
+      : options.format === 'json'
+        ? formatProveJson(report)
+        : formatProve(report, {
+            color: shouldUseColor({ isTTY: io.isTTY }, options.color, io.env),
+            verbose: options.verbose,
+            ascii: shouldUseAscii(io.env),
+          }),
+  );
+  if (report.summary.specs === 0) return options.allowEmpty ? EXIT_OK : EXIT_ERROR;
+  return report.ok && !(options.strictTargets && report.summary.unprovable > 0) ? EXIT_OK : EXIT_FAILED;
+}
+
 /** Runs the CLI and resolves to the process exit code. */
 export async function main(argv: readonly string[] = process.argv.slice(2), io: CliIO = defaultIO()): Promise<number> {
   let options: CliOptions;
@@ -704,6 +788,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2), io: 
 
   if (options.command === 'query') return runQuery(options, io, use);
   if (options.command === 'mcp') return runMcp(options, commandLine, io, use);
+  if (options.command === 'prove') return runProve(options, io, use);
   if (options.watch) return runWatchSession(commandLine, io);
 
   let report;

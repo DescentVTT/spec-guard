@@ -81,6 +81,11 @@ export type { WalkedFile, WalkedPath, WalkOptions } from './glob.js';
 export { nodeIo, readText, watchTree } from './io.js';
 export type { DirectoryReader, Io, TreeListener, TreeWatcher } from './io.js';
 
+export { overlayIo, readOnce } from './overlay.js';
+export type { TreeEdit } from './overlay.js';
+
+export { proveSpecGuard, PROVE_NAME } from './prove.js';
+export type { ProveOptions } from './prove.js';
 
 export { contentHash, createMemo, NO_MEMO } from './memo.js';
 export type { Memo, SessionMemo } from './memo.js';
@@ -212,8 +217,12 @@ export {
   formatConfigUse,
   formatJson,
   formatOptionLines,
+  formatProve,
+  formatProveJson,
+  formatProveSarif,
   formatReport,
   formatSarif,
+  PROVE_FORMAT_VERSION,
   shouldUseAscii,
   shouldUseColor,
 } from './reporter.js';
@@ -233,6 +242,11 @@ export type {
   InactiveSpec,
   MatchLocation,
   ParseResult,
+  ProveClaim,
+  ProveOutcome,
+  ProveProbe,
+  ProveReport,
+  ProveResult,
   RatchetMode,
   RunReport,
   RunSummary,
@@ -243,4 +257,5 @@ export type {
   StaleBaselineEntry,
   StructureClaim,
   StructureQuery,
+  TreeChange,
 } from './types.js';

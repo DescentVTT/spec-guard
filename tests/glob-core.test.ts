@@ -23,6 +23,7 @@ import {
   globPredicate,
   globToRegExp,
   modulePatternError,
+  moduleWitness,
   normalizeExclude,
   normalizeGlob,
   pathPatternError,
@@ -111,6 +112,17 @@ describe('a whole-path pattern', () => {
 
   it('throws for a pattern it cannot read', () => {
     expect(() => createPathMatcher('[a')).toThrow('invalid glob pattern "[a": a "[" is never closed');
+  });
+});
+
+describe('a name a module pattern matches', () => {
+  it('is the pattern itself for a literal, one just below it for a glob, and none for what is not a pattern', () => {
+    expect(moduleWitness('node:fs')).toBe('node:fs');
+    expect(moduleWitness('src/db')).toBe('src/db');
+    expect(moduleWitness('@app/db/**')).toMatch(/^@app\/db\/[^/]+$/);
+    expect(moduleWitness('[x')).toBeNull();
+    // A path never holds a NUL, so nothing matches this.
+    expect(moduleWitness('db\u0000')).toBeNull();
   });
 });
 

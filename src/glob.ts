@@ -18,7 +18,7 @@ import path from 'node:path';
 
 import { nodeIo, type Io } from './io.js';
 import { DEFAULT_SCOPE, type ScopePolicy, type SkipReason } from './scope.js';
-import { parseGlob, type Glob, type GlobOptions, type GlobParse } from './vendor/spec-core/pattern/index.js';
+import { globWitness, parseGlob, type Glob, type GlobOptions, type GlobParse } from './vendor/spec-core/pattern/index.js';
 
 const MAGIC_RE = /[*?[\]{}]/;
 
@@ -278,6 +278,21 @@ export function globPatternError(pattern: string): string | null {
 /** Why a module pattern or a layer cannot be read, or null when it can. */
 export function modulePatternError(pattern: string, kind: 'module' | 'layer' = 'module'): string | null {
   return refusal(readExclude(pattern), kind, pattern);
+}
+
+/**
+ * A name a module pattern or a layer matches, or null when it matches none.
+ *
+ * The shortest spec-core's witness search finds, so a literal is itself -
+ * `node:fs`, `src/db` - and `@app/db/**` is a name just below `@app/db`.
+ * `spec-guard prove` imports it, to show a rule about the module that it can
+ * fail (ADR-0016).
+ */
+export function moduleWitness(pattern: string): string | null {
+  const { parsed } = readExclude(pattern);
+  if (!parsed.ok) return null;
+  const found = globWitness([parsed.glob]);
+  return found.kind === 'found' ? found.path : null;
 }
 
 /** Why a pattern read against a whole path - `dirs=`, a required entry's name - cannot be read, or null. */

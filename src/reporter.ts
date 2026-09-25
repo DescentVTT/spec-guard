@@ -10,7 +10,7 @@
 import { createHash } from 'node:crypto';
 
 import { mergeLedgers, tallyLedger, type ScopeLedger } from './scope.js';
-import type { AssertionResult, ConfigUse, DirectiveError } from './types.js';
+import type { AssertionResult, ConfigUse, DirectiveError, ProveClaim, ProveOutcome, ProveReport, ProveResult } from './types.js';
 import type { RunResult } from './runner.js';
 
 export interface ReporterOptions {
@@ -635,6 +635,206 @@ export function formatSarif(report: RunResult, options: { version?: string } = {
                 name: rule.id,
                 shortDescription: { text: rule.text },
               })),
+            },
+          },
+          results,
+        },
+      ],
+    },
+    null,
+    2,
+  );
+}
+
+/* -------------------------------------------------------------------- prove */
+
+/** What each outcome is called where a person reads it. */
+const PROVE_WORDS: Readonly<Record<ProveOutcome, string>> = {
+  killed: 'seen to fail',
+  survived: 'passed with a violation in place',
+  unprovable: 'no violation could be made',
+};
+
+/** The claim a probe crossed, as a report names it. */
+const CLAIM_WORDS: Readonly<Record<ProveClaim, string>> = { max: 'maximum', min: 'minimum', present: 'presence' };
+
+function formatProveResult(
+  result: ProveResult,
+  paint: ReturnType<typeof createPainter>,
+  glyphs: ReturnType<typeof symbols>,
+): string[] {
+  const glyph =
+    result.outcome === 'killed'
+      ? paint(glyphs.pass, 'green')
+      : result.outcome === 'survived'
+        ? paint(glyphs.fail, 'red', 'bold')
+        : paint(glyphs.skip, 'yellow');
+  const lines = [
+    `${glyph} ${paint(formatLocation(result), 'bold')}  ${paint(`@${result.kind}`, 'magenta')}  ${PROVE_WORDS[result.outcome]}`,
+    `    ${result.description}`,
+  ];
+  for (const probe of result.probes) {
+    const verdict = probe.outcome === 'killed' ? paint('and it failed', 'green') : paint('and it still passed', 'red', 'bold');
+    lines.push(`    ${CLAIM_WORDS[probe.claim]}: ${probe.violation}, ${verdict}: ${paint(probe.message, 'dim')}`);
+  }
+  if (result.unprovable !== undefined) lines.push(`    ${paint(result.unprovable, 'yellow')}`);
+  if (result.reason !== undefined) lines.push(`    ${paint(`reason: ${result.reason}`, 'dim')}`);
+  return lines;
+}
+
+/**
+ * Renders what `spec-guard prove` found, for a person.
+ *
+ * A rule that survived is the finding, and is printed whatever the options;
+ * so is one no violation could be made for, since a rule nobody can show
+ * failing is not yet one anybody should trust. A rule seen to fail is printed
+ * under `--verbose`, with the violation that failed it. Survivors come first.
+ */
+export function formatProve(report: ProveReport, options: ReporterOptions): string {
+  const paint = createPainter(options.color);
+  const glyphs = symbols(options.ascii ?? false);
+  const { summary } = report;
+  const lines = [
+    `${paint('spec-guard prove', 'bold', 'blue')} ${paint(`${countLabel(summary.specs, 'spec')} · ${countLabel(summary.total, 'rule')}`, 'dim')}`,
+    '',
+  ];
+
+  for (const outcome of ['survived', 'unprovable', 'killed'] as const) {
+    if (outcome === 'killed' && !options.verbose) continue;
+    for (const result of report.results.filter((entry) => entry.outcome === outcome)) {
+      lines.push(...formatProveResult(result, paint, glyphs), '');
+    }
+  }
+
+  for (const error of report.errors) lines.push(...formatError(error, paint, glyphs), '');
+
+  for (const spec of report.inactiveSpecs) {
+    lines.push(paint(`${glyphs.skip} ${spec.file} is ${spec.label} - ${countLabel(spec.directives, 'rule')} not proved`, 'dim'));
+  }
+  if (report.inactiveSpecs.length > 0) lines.push('');
+
+  const optionLines = formatOptionLines(report.config, report.exclude);
+  if (optionLines.length > 0) lines.push(...optionLines, '');
+
+  const parts = [
+    paint(`${summary.killed} seen to fail`, 'green'),
+    summary.survived > 0 ? paint(`${summary.survived} survived`, 'red', 'bold') : null,
+    summary.unprovable > 0 ? paint(`${summary.unprovable} unprovable`, 'yellow') : null,
+    report.errors.length > 0 ? paint(`${report.errors.length} invalid`, 'yellow') : null,
+    summary.inactive > 0 ? paint(`${summary.inactive} not in force`, 'dim') : null,
+    paint(formatDuration(report.durationMs), 'dim'),
+  ].filter((part): part is string => part !== null);
+  lines.push(parts.join(paint(' · ', 'dim')));
+
+  if (summary.survived > 0) {
+    const them = summary.survived === 1 ? 'itself' : 'themselves';
+    lines.push(paint(`${glyphs.fail} ${countLabel(summary.survived, 'rule')} passed with a violation of ${them} in place`, 'red', 'bold'));
+  } else if (summary.total === 0) {
+    lines.push(paint(`${glyphs.warn} no rule was proved, so nothing was shown`, 'yellow'));
+  } else if (summary.killed === summary.total) {
+    lines.push(paint(`${glyphs.pass} every rule in force was seen to fail`, 'green'));
+  }
+  return lines.join('\n');
+}
+
+/**
+ * The version of `spec-guard prove --json`'s document. A field removed or
+ * renamed moves it; a field added does not.
+ */
+export const PROVE_FORMAT_VERSION = 1;
+
+/** What `spec-guard prove` found, for a script. */
+export function formatProveJson(report: ProveReport): string {
+  return JSON.stringify(
+    {
+      formatVersion: PROVE_FORMAT_VERSION,
+      ok: report.ok,
+      root: report.root,
+      durationMs: Math.round(report.durationMs * 1000) / 1000,
+      summary: report.summary,
+      specFiles: report.specFiles,
+      results: report.results.map((result) => ({
+        outcome: result.outcome,
+        kind: result.kind,
+        spec: { file: result.location.relativeFile, line: result.location.line, column: result.location.column },
+        description: result.description,
+        reason: result.reason,
+        unprovable: result.unprovable,
+        probes: result.probes,
+        durationMs: Math.round(result.durationMs * 1000) / 1000,
+      })),
+      errors: report.errors.map((error) => ({
+        spec: { file: error.location.relativeFile, line: error.location.line, column: error.location.column },
+        message: error.message,
+        raw: error.raw,
+      })),
+      inactiveSpecs: report.inactiveSpecs,
+      exclude: report.exclude,
+      config: report.config,
+    },
+    null,
+    2,
+  );
+}
+
+/** One rule per finding `spec-guard prove` makes. */
+const PROVE_RULES: ReadonlyArray<{ id: string; text: string }> = [
+  { id: 'rule-cannot-fail', text: 'A rule that passed with a violation of itself in place.' },
+  { id: 'rule-unprovable', text: 'A rule no violation could be made for.' },
+  { id: 'invalid-directive', text: 'A directive that could not be parsed, so nothing was checked.' },
+];
+
+/**
+ * What `spec-guard prove` found, for code scanning.
+ *
+ * A rule that survived is an error on its directive, which is where the fix
+ * goes: a target that reaches the code, a glob that names its kind, a bound
+ * that can be crossed. A rule no violation could be made for is a note there,
+ * which GitHub shows without failing anything. A rule seen to fail is not a
+ * finding and is not a result.
+ */
+export function formatProveSarif(report: ProveReport, options: { version?: string } = {}): string {
+  const results = report.results
+    .filter((result) => result.outcome !== 'killed')
+    .map((result) => {
+      const survived = result.outcome === 'survived';
+      const detail = survived
+        ? result.probes
+            .filter((probe) => probe.outcome === 'survived')
+            .map((probe) => `${probe.violation}, and it still passed: ${probe.message}`)
+            .join('; ')
+        : (result.unprovable as string);
+      return {
+        ruleId: survived ? 'rule-cannot-fail' : 'rule-unprovable',
+        level: survived ? SARIF_LEVEL : 'note',
+        message: { text: `${result.description}: ${detail}` },
+        locations: [sarifLocation(result.location.relativeFile, result.location.line, result.location.column)],
+        partialFingerprints: {
+          specGuardAssertion: fingerprint([result.location.relativeFile, result.kind, result.description]),
+        },
+      };
+    });
+  for (const error of report.errors) {
+    results.push({
+      ruleId: 'invalid-directive',
+      level: SARIF_LEVEL,
+      message: { text: error.message },
+      locations: [sarifLocation(error.location.relativeFile, error.location.line, error.location.column)],
+      partialFingerprints: { specGuardAssertion: fingerprint([error.location.relativeFile, 'invalid', error.message]) },
+    });
+  }
+  return JSON.stringify(
+    {
+      $schema: 'https://json.schemastore.org/sarif-2.1.0.json',
+      version: '2.1.0',
+      runs: [
+        {
+          tool: {
+            driver: {
+              name: 'spec-guard prove',
+              informationUri: 'https://github.com/DescentVTT/spec-guard',
+              version: options.version ?? '0.0.0',
+              rules: PROVE_RULES.map((rule) => ({ id: rule.id, name: rule.id, shortDescription: { text: rule.text } })),
             },
           },
           results,

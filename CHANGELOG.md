@@ -9,6 +9,20 @@ with the flag that restores the previous behaviour.
 
 ### Added
 
+- **`spec-guard prove`: can each rule actually fail?** A passing rule cannot
+  say whether the code holds or the rule cannot see the code. `prove` shows
+  each rule in force a violation of itself - a file holding the forbidden text,
+  a file importing the forbidden module, a cycle, an import across layers, a
+  misnamed file, a required entry or a partner taken away, a required file
+  removed - and runs the rule over it, in memory, through the door every read
+  goes through: nothing is written to disk and nothing touches git. Each rule
+  is `killed`, `survived` (the finding, with the violation shown) or
+  `unprovable` (with the reason). Exit 1 when a rule survived, and under
+  `--strict` when one is unprovable; `--json` is versioned by `formatVersion`,
+  and `--format sarif` puts a survivor on its directive.
+  `proveSpecGuard` is the same for a caller of the API. Run over this
+  repository's own 71 rules, it found one that could not fail as written.
+  [ADR-0016](docs/adr/0016-rules-seen-to-fail.md).
 - **`RunOptions.io`: a run over a tree that is not on disk.** `runSpecGuard`
   reads through the `Io` it is given - finding and reading the specs, checking
   targets exist, walking them, scanning files, reading imports and listing

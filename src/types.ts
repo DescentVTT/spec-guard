@@ -397,3 +397,76 @@ export interface RunReport {
   /** What the command line took from the project's configuration, when it took anything. */
   config?: ConfigUse;
 }
+
+/* -------------------------------------------------------------------- prove */
+
+/**
+ * The bound of a rule a violation was made to cross: its maximum, a minimum
+ * above zero, or, for `@assert-present`, the files it names. ADR-0016.
+ */
+export type ProveClaim = 'max' | 'min' | 'present';
+
+/** What `spec-guard prove` found for a rule. */
+export type ProveOutcome = 'killed' | 'survived' | 'unprovable';
+
+/** One change a violation made to the tree, in memory and nowhere else. */
+export interface TreeChange {
+  /** Path relative to the root, forward slashes. */
+  path: string;
+  change: 'added' | 'replaced' | 'removed';
+  /** How many bytes an added or replaced file holds now. */
+  bytes?: number;
+}
+
+/** A violation made to cross one claim of a rule, and what the rule said about it. */
+export interface ProveProbe {
+  claim: ProveClaim;
+  /** `killed` when the rule failed on the claim; `survived` when it still passed. */
+  outcome: 'killed' | 'survived';
+  /** The violation, as a sentence: what was added, put or removed, and where. */
+  violation: string;
+  changes: TreeChange[];
+  /** The rule's own message over the changed tree. */
+  message: string;
+  /** What the rule counted over the changed tree. */
+  actual: number;
+}
+
+export interface ProveResult {
+  kind: DirectiveKind;
+  location: SourceLocation;
+  description: string;
+  reason?: string;
+  outcome: ProveOutcome;
+  /** Why no violation could be made, when the outcome is `unprovable`. */
+  unprovable?: string;
+  /**
+   * One probe per claim a violation could be made for, in order: the maximum,
+   * then the minimum. A rule survives when any probe survives.
+   */
+  probes: ProveProbe[];
+  durationMs: number;
+}
+
+export interface ProveReport {
+  /** Whether no rule survived and every directive could be read. */
+  ok: boolean;
+  root: string;
+  durationMs: number;
+  summary: {
+    specs: number;
+    total: number;
+    killed: number;
+    survived: number;
+    unprovable: number;
+    /** Rules not proved because their document is not in force. */
+    inactive: number;
+  };
+  results: ProveResult[];
+  errors: DirectiveError[];
+  inactiveSpecs: InactiveSpec[];
+  exclude: string[];
+  config?: ConfigUse;
+  /** Spec files that were read, relative to the root. */
+  specFiles: string[];
+}
