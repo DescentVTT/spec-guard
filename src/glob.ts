@@ -446,7 +446,9 @@ function expandBraces(tokens: readonly string[]): Array<readonly string[]> {
   const options: string[][] = [[]];
   let depth = 0;
   for (const token of tokens.slice(open + 1, close)) {
-    if (token === ',' && depth === 0) {
+    // Below 1 rather than at 0: the depth never goes below 0, and read this
+    // way its sign decides something, where at 0 either sign would do.
+    if (token === ',' && depth < 1) {
       options.push([]);
     } else {
       depth += nesting(token);
