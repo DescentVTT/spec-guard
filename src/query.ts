@@ -31,6 +31,11 @@ export interface RuleSetOptions {
   defaultSkips?: boolean;
   /** The project's exclusions, which govern what each rule covers as they do in a run. */
   exclude?: readonly string[];
+  /**
+   * The door the specs are found and read through, as a run's `io` is
+   * (ADR-0014). The filesystem when none is given.
+   */
+  io?: Io;
 }
 
 /** Every rule the specs state, resolved, with the document that states it. */
@@ -64,7 +69,7 @@ export function viewDocument(document: SpecDocument): DocumentView {
  */
 export async function loadRuleSet(options: RuleSetOptions): Promise<RuleSet> {
   const exclude = checkProjectExcludes(options.exclude);
-  const specs = await readSpecs(options.patterns, options.root);
+  const specs = await readSpecs(options.patterns, options.root, options.io);
   const context = {
     root: options.root,
     excludeFiles: specExclusions(specs.files, options.includeSpecs ?? false),
@@ -228,7 +233,7 @@ export function answerQuery(ruleSet: RuleSet, paths: ReadonlyArray<QueryPath & {
 /** Loads the rules once and answers for every path. */
 export async function queryRules(options: QueryOptions): Promise<QueryReport> {
   const startedAt = performance.now();
-  const paths = await Promise.all(options.paths.map((input) => resolveQueryPath(input, options.root)));
+  const paths = await Promise.all(options.paths.map((input) => resolveQueryPath(input, options.root, options.io)));
   const ruleSet = await loadRuleSet(options);
   return { ...answerQuery(ruleSet, paths, options.includeInactive ?? false), durationMs: elapsed(startedAt) };
 }
