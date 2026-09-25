@@ -1,0 +1,16 @@
+export {
+  basename,
+  dirname,
+  extname,
+  isAbsolutePath,
+  isInside,
+  isRelativeReference,
+  joinPosix,
+  normalise,
+  normalisePosix,
+  relativePath,
+  resolveInside,
+  segments,
+  splitReference,
+  toPosix,
+} from './posix.js';

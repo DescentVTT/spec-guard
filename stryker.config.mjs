@@ -32,7 +32,11 @@ export default {
   coverageAnalysis: 'perTest',
 
   // types.ts is type-only and index.ts is pure re-exports: nothing to mutate.
-  mutate: ['src/**/*.ts', '!src/types.ts', '!src/index.ts'],
+  // src/vendor is spec-core's copy, measured by spec-core's own sweep under a
+  // higher gate; mutating it here would pad or dilute this score with code this
+  // repository does not own, and a fix would have to be made there anyway
+  // (ADR-0015). Every shard inherits this, the last one through mutateFor.
+  mutate: ['src/**/*.ts', '!src/types.ts', '!src/index.ts', '!src/vendor/**'],
 
   // Stryker's sandbox rewrites relative paths in a tsconfig that reaches
   // outside the project. Ours does not (no external `extends` or

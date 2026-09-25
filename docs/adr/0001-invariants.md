@@ -47,7 +47,14 @@ is why both can be tested on plain strings.
 
 **Strict typing, no escape hatches.**
 
-<!-- @assert-absence target="src" symbol=": any" reason="strict typing is the point of a spec tool" -->
+<!-- @assert-absence target="src" symbol=": any\b" regex="true" reason="strict typing is the point of a spec tool" -->
+
+The first rule was a literal `: any` until 2026-09-26, when it failed on
+`last ? a : anyDirectories(b)` in the copy of spec-core (ADR-0015). A word
+boundary cannot be added with `word="true"`: that bounds both ends of the
+match, and the character before `: any` in `value: any` is a letter, so the
+rule would have stopped matching the thing it forbids. The boundary goes after
+`any` alone.
 <!-- @assert-absence target="src" symbol="@ts-ignore" -->
 
 **The published surface exists.**
