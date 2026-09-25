@@ -24,6 +24,7 @@ import {
   planRun,
   reportRun,
   runSpecGuard,
+  RIPGREP_THROUGH_IO,
   type RunResult,
 } from '../src/runner.js';
 import { readSpecs } from '../src/specs.js';
@@ -175,6 +176,22 @@ describe('every read goes through the door', () => {
     expect(report.summary).toMatchObject({ specs: 0, total: 0 });
   });
 
+  it('and runSpecGuard given that door says the same, whichever engine it was asked for', async () => {
+    // The run a caller of the API makes, rather than one assembled here. Were
+    // any of its readers left on the filesystem, it would find nothing at a
+    // root the disk does not have, and say something else.
+    const onDisk = await makeTempRepo(FILES);
+    temporary.push(onDisk);
+    await fs.mkdir(path.join(onDisk, 'empty'));
+    const expected = comparable(await runSpecGuard({ patterns: PATTERNS, root: onDisk, engine: 'javascript' }));
+
+    const io = memoryIo(VIRTUAL, FILES, ['empty']);
+    for (const engine of ['auto', 'javascript', undefined] as const) {
+      const report = await runSpecGuard({ patterns: PATTERNS, root: VIRTUAL, io, ...(engine === undefined ? {} : { engine }) });
+      expect(comparable(report), String(engine)).toEqual(expected);
+    }
+  });
+
   it('reaches the walk, the enumeration, the scanner, the import index, the tree index and a query', async () => {
     const io = memoryIo(VIRTUAL, FILES, ['empty']);
     const at = (relative: string): string => path.join(VIRTUAL, relative);
@@ -210,6 +227,139 @@ describe('every read goes through the door', () => {
 
     expect(await resolveQueryPath('src/domain', VIRTUAL, io)).toMatchObject({ shape: 'directory', exists: true });
     expect(await resolveQueryPath('src/gone.ts', VIRTUAL, io)).toMatchObject({ shape: 'file', exists: false });
+  });
+});
+
+describe('a run over a tree the disk does not have', () => {
+  /** A Map from path to contents, and the four questions a run asks of it. */
+  function mapIo(root: string, files: Record<string, string>): Io & { reads: string[] } {
+    const contents = new Map(Object.entries(files).map(([relative, text]) => [path.resolve(root, relative), Buffer.from(text)]));
+    const directories = new Set<string>();
+    for (const file of contents.keys()) {
+      for (let directory = path.dirname(file); !directories.has(directory); directory = path.dirname(directory)) {
+        directories.add(directory);
+        if (directory === path.resolve(root)) break;
+      }
+    }
+    const missing = (target: string): Error => Object.assign(new Error(`ENOENT: ${target}`), { code: 'ENOENT' });
+    const kind = (target: string): 'file' | 'directory' | undefined =>
+      contents.has(path.resolve(target)) ? 'file' : directories.has(path.resolve(target)) ? 'directory' : undefined;
+    const reads: string[] = [];
+    return {
+      reads,
+      async readDirectory(directory) {
+        if (kind(directory) !== 'directory') throw missing(directory);
+        const names = new Set([...contents.keys(), ...directories].filter((entry) => path.dirname(entry) === path.resolve(directory) && entry !== path.resolve(directory)));
+        return [...names].map((entry) => ({
+          name: path.basename(entry),
+          isDirectory: () => kind(entry) === 'directory',
+          isFile: () => kind(entry) === 'file',
+          isSymbolicLink: () => false,
+        })) as never;
+      },
+      async stat(target) {
+        const found = kind(target);
+        if (found === undefined) return null;
+        return { isDirectory: () => found === 'directory', isFile: () => found === 'file', size: contents.get(path.resolve(target))?.length ?? 0 } as never;
+      },
+      async readFile(file) {
+        const bytes = contents.get(path.resolve(file));
+        if (bytes === undefined) throw missing(file);
+        reads.push(path.relative(root, file).replaceAll('\\', '/'));
+        return bytes;
+      },
+      async realpath(target) {
+        if (kind(target) === undefined) throw missing(target);
+        return path.resolve(target);
+      },
+    };
+  }
+
+  const SPEC = [
+    '# Payments',
+    '<!-- @assert-absence target="src" symbol="LegacyGateway" -->',
+    '<!-- @assert-import-absence target="src" module="legacy-sdk" -->',
+    '<!-- @assert-structure target="src" glob="*.ts" pattern="*.service.ts" -->',
+    '',
+  ].join('\n');
+  const CLEAN = { 'docs/payments.md': SPEC, 'src/pay.service.ts': 'export const pay = 1;\n' };
+
+  it('finds a violation that is in memory and not on disk', async () => {
+    const root = await makeTempRepo(CLEAN);
+    temporary.push(root);
+
+    // On disk the tree is clean, and the run says so.
+    const onDisk = await runSpecGuard({ patterns: ['docs/*.md'], root });
+    expect(onDisk.ok).toBe(true);
+    expect(onDisk.summary).toMatchObject({ total: 3, passed: 3 });
+
+    // The same root through a door onto an edited copy: the forbidden name,
+    // the forbidden import and a misnamed file exist only in memory.
+    const io = mapIo(root, {
+      ...CLEAN,
+      'src/pay.service.ts': "import sdk from 'legacy-sdk';\nexport const pay = new LegacyGateway();\n",
+      'src/helpers.ts': '',
+    });
+    const inMemory = await runSpecGuard({ patterns: ['docs/*.md'], root, io });
+
+    expect(inMemory.ok).toBe(false);
+    expect(inMemory.engine).toBe('javascript');
+    expect(inMemory.results.map((result) => [result.kind, result.ok, result.matches.map((match) => `${match.file}:${match.line}`)])).toEqual([
+      ['assert-absence', false, ['src/pay.service.ts:2']],
+      ['assert-import-absence', false, ['src/pay.service.ts:1']],
+      ['assert-structure', false, ['src/helpers.ts:0']],
+    ]);
+    // Read through the door, and the disk left as it was.
+    expect(io.reads).toEqual(expect.arrayContaining(['docs/payments.md', 'src/pay.service.ts']));
+    expect(await fs.readFile(path.join(root, 'src/pay.service.ts'), 'utf8')).toBe('export const pay = 1;\n');
+  });
+
+  it('refuses ripgrep, which would read the disk around the door, and says what to ask for instead', async () => {
+    const root = await makeTempRepo(CLEAN);
+    temporary.push(root);
+    const io = mapIo(root, CLEAN);
+
+    await expect(runSpecGuard({ patterns: ['docs/*.md'], root, io, engine: 'ripgrep' })).rejects.toThrow(RIPGREP_THROUGH_IO);
+    expect(RIPGREP_THROUGH_IO).toBe(
+      'engine "ripgrep" cannot read through the io this run was given: ripgrep reads the disk itself, in a process of its own. Leave engine unset, or set it to "auto" or "javascript".',
+    );
+    // Anything the engine resolver would take for ripgrep, not only its name.
+    // Without a door, ripgrep is still ripgrep: runner.test.ts runs it.
+    await expect(runSpecGuard({ patterns: ['docs/*.md'], root, io, engine: 'rg' as never })).rejects.toThrow(RIPGREP_THROUGH_IO);
+    // Refused before any rule ran, and so before the tree was read.
+    expect(io.reads).toEqual(['docs/payments.md', 'docs/payments.md']);
+  });
+
+  it('fails when the door fails, rather than falling back to the disk', async () => {
+    // A failed search falls back to the scanner, and the shared scanner reads
+    // the filesystem. Through a caller's door the scanner is its own fallback,
+    // so what the door could not answer is the run's failure and not a quiet
+    // answer from the disk - which here is clean.
+    const root = await makeTempRepo({ 'src/a.ts': 'export const a = 1;\n' });
+    temporary.push(root);
+    const tree = mapIo(root, {
+      'docs/a.md': '<!-- @assert-absence target="src" symbol="LegacyGateway" allow-empty="true" -->\n',
+      'src/a.ts': 'new LegacyGateway();\n',
+    });
+    const failing: Io = {
+      ...tree,
+      stat: async (target) => {
+        if (target.endsWith('a.ts')) throw new Error('the door could not stat a.ts');
+        return tree.stat(target);
+      },
+    };
+    await expect(runSpecGuard({ patterns: ['docs/*.md'], root, io: failing })).rejects.toThrow('the door could not stat a.ts');
+  });
+
+  it('searches with the scanner under auto, however large the tree', async () => {
+    // auto hands a tree past the small-tree budget to ripgrep, which reads the
+    // disk - here, a root with nothing under it - and would find nothing.
+    const root = await makeTempRepo({});
+    temporary.push(root);
+    const files: Record<string, string> = { 'docs/a.md': '<!-- @assert-count target="src" symbol="Widget" expected="2000" -->\n' };
+    for (let index = 0; index < 1000; index++) files[`src/d${index % 20}/f${index}.ts`] = `Widget Widget\n${'x'.repeat(1100)}\n`;
+    const report = await runSpecGuard({ patterns: ['docs/*.md'], root, io: mapIo(root, files) });
+    expect(report.results[0]).toMatchObject({ ok: true, actual: 2000, engine: 'javascript' });
   });
 });
 

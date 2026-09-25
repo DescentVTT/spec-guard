@@ -450,6 +450,15 @@ recording one.
 
 <!-- @assert-import-absence target="src" module="node:fs, node:fs/promises, fs, fs/promises" exclude="src/io.ts" reason="watch mode can only evict what it saw being read, and it sees reads at one door" -->
 
+Since 2026-09-26 a caller of the API can hand a run a door of its own, as
+`RunOptions.io`, and every read `runSpecGuard` makes goes through it. The run
+had the door all along and passed the Node one to every reader by name. With a
+caller's door, `engine: 'ripgrep'` is refused, for the reason watch mode does
+not use it, and `auto` is the scanner. The scanner is its own fallback, as it
+is in a session: the shared one reads the filesystem.
+
+<!-- @assert-absence target="src/runner.ts" symbol="io: nodeIo" reason="a run reads through the door it was given, and through the filesystem only when it was given none" -->
+
 **Watch mode does not use ripgrep.** ripgrep reads files in another process,
 where no door can see them. Its cost is also a process per pass: ADR-0004
 measured 126 ms or more per search on Windows and 12 ms or more on Linux. So

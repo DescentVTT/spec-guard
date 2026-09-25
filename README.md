@@ -1241,6 +1241,30 @@ observed count, match locations, warnings and timings. The parser
 (`parseDirectives`) and reporter (`formatReport`, `formatJson`) are pure
 functions you can use on their own.
 
+A run reads the tree through one interface, `Io` - list a directory, `stat` a
+path, read a file, resolve a real path - and `nodeIo` is the filesystem. Pass
+your own as `io` and every read the run makes goes through it: finding and
+reading the specs, checking targets exist, walking them, scanning files, reading
+imports and listing directories. That is how to run the rules over a tree that
+is not on disk, or not as the disk has it:
+
+```ts
+import { nodeIo, runSpecGuard, type Io } from '@descent-vtt/spec-guard';
+
+// The disk, except for one file edited in memory.
+const edited: Io = {
+  ...nodeIo,
+  readFile: async (file) =>
+    file === '/repo/src/pay.ts' ? Buffer.from('new LegacyGateway();\n') : nodeIo.readFile(file),
+};
+
+const report = await runSpecGuard({ patterns: ['docs/**/*.md'], root: '/repo', io: edited });
+```
+
+ripgrep reads the disk itself, in a process of its own, so no `io` can reach
+it: `engine: 'ripgrep'` with an `io` is an error, and `auto` with one searches
+with the built-in scanner.
+
 ## Design decisions
 
 This tool was specified loosely and built opinionatedly. Where the
