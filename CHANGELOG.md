@@ -5,6 +5,35 @@ All notable changes to this project are documented here. Versions follow
 may change in a minor release — each such change is listed under **Changed**
 with the flag that restores the previous behaviour.
 
+## Unreleased
+
+### Fixed
+
+- **Three fence shapes were read the wrong way round.** Directives inside code
+  never execute, and what counts as code is decided by `maskCode`. It now
+  follows CommonMark in two places it did not, and departs from it in one on
+  purpose:
+  - **A backtick fence's info string may not hold a backtick.** A line that
+    reads ```` ```js`x ```` is prose that opens with a code span. Read as a
+    fence, it hid every line under it, a real directive included, until
+    something closed it - and nothing said a rule had gone quiet.
+  - **A closing fence has no info string.** Inside a block opened by three
+    backticks, a line of three backticks followed by `js` is a line of the
+    block. It used to close it, and a directive shown after it executed.
+  - **A fence may be indented any amount.** CommonMark counts its three spaces
+    from the list item a fence sits in, so a fence in a `1.` item nested in a
+    `-` item is five or more spaces from the margin. It was not recognised, and
+    a directive shown inside it executed: always behind `~~~`, and behind
+    backticks whenever the prose above mentioned one, since the two fence lines
+    otherwise paired as a code span by accident. The price is paid by an
+    indented code block - four spaces, outside any list - whose text is a fence
+    line: it now opens a block. The sibling tools that read these documents
+    make the same trade.
+
+  Every Markdown file in this repository is masked exactly as before, and a
+  test holds that, along with random documents built from the lines both rules
+  read alike. This repository's own specs execute the same 66 assertions.
+
 ## 0.11.0
 
 The literal this lexer never read. A JavaScript or TypeScript regular

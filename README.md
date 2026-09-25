@@ -1257,6 +1257,11 @@ the syntax must not execute it. Masking preserves byte offsets, so reported line
 numbers stay exact. (This is subtle: pairing backtick runs the naive way
 desynchronises after a stray unmatched run and un-masks real prose. spec-guard
 uses CommonMark's equal-length pairing rule, and there is a regression test.)
+Fences follow CommonMark as well - a backtick fence's info string holds no
+backtick, and a closing fence holds no info string - except that a fence may be
+indented any amount, so that one inside a nested list item is still a fence.
+The price is an indented code block whose text is a fence line, which opens a
+block.
 
 **A document's lifecycle status is read; a directive's is not.** Status is
 document-level and visible in every rendered Markdown view. A per-directive

@@ -343,6 +343,41 @@ export interface ParseContext {
 }
 
 /**
+ * A line that may open a fenced code block: three or more backticks or tildes,
+ * then the info string, after any amount of indentation.
+ *
+ * Any amount, where CommonMark allows three spaces. Its limit is measured from
+ * the edge of the block the fence sits in, so a fence inside a `1.` item nested
+ * in a `-` item sits five or more spaces in and is still a fence. Measured from
+ * the margin it was not one, so a documented example of a directive in such a
+ * fence executed. Measuring from the item would need a model of list items
+ * this parser does not have, and the price of not measuring is paid by one
+ * shape only: an indented code block - four spaces, outside any list - whose
+ * text is a fence line. It now opens a block, which hides every line until a
+ * fence closes it. The sibling tools that read these documents make the same
+ * trade.
+ *
+ * No `$`: `[^\n]*` already runs to the end of the line, so the anchor decided
+ * nothing, and a character that decides nothing is one no test can hold.
+ */
+const FENCE_RE = /^[ \t]*(`{3,}|~{3,})([^\n]*)/gm;
+
+/**
+ * An info string that is no info string at all, which is what a closing fence
+ * must have: ```` ```js ```` inside a block is a line of the block. The `\r` is
+ * a CRLF document's line ending, which `[^\n]*` leaves on the info string.
+ */
+const BARE_FENCE_RE = /^[ \t]*\r?$/;
+
+/** A fence line: where it starts and ends, its run of markers, and whether it can close a block. */
+interface Fence {
+  index: number;
+  end: number;
+  marker: string;
+  closes: boolean;
+}
+
+/**
  * Blanks out fenced code blocks and inline code spans, preserving every byte
  * offset and newline so that reported line/column numbers stay exact.
  */
@@ -355,27 +390,37 @@ export function maskCode(source: string): string {
   // budget on reading specs; see ADR-0012. Offsets still survive, for the reason
   // `maskRanges` gives.
 
-  // Fenced code blocks: ``` or ~~~ (3+ markers), optionally indented up to 3 spaces.
-  const fenceRe = /^[ \t]{0,3}(`{3,}|~{3,})[^\n]*$/gm;
+  // Fenced code blocks, by CommonMark's rules less its indentation limit.
   let match: RegExpExecArray | null;
-  const fences: Array<{ index: number; end: number; marker: string }> = [];
-  while ((match = fenceRe.exec(source)) !== null) {
-    fences.push({ index: match.index, end: match.index + match[0].length, marker: match[1] as string });
+  const fences: Fence[] = [];
+  FENCE_RE.lastIndex = 0;
+  while ((match = FENCE_RE.exec(source)) !== null) {
+    const marker = match[1] as string;
+    const info = match[2] as string;
+    // A backtick fence's info string may not hold a backtick. ```` ```js`x ````
+    // is a line of prose that begins with a code span, and read as a fence it
+    // hid every line under it - a real directive among them - until something
+    // closed it. A tilde fence's info string may hold anything.
+    if (marker[0] === '`' && info.includes('`')) continue;
+    fences.push({ index: match.index, end: match.index + match[0].length, marker, closes: BARE_FENCE_RE.test(info) });
   }
   const consumed: Array<[number, number]> = [];
+  // Where the last block ended. Blocks are found in document order, so a fence
+  // before this point is a line inside one of them.
+  let blockEnd = 0;
   for (let i = 0; i < fences.length; i++) {
-    const open = fences[i] as { index: number; end: number; marker: string };
-    if (consumed.some(([s, e]) => open.index >= s && open.index < e)) continue;
-    const char = open.marker[0] as string;
+    const open = fences[i] as Fence;
+    if (open.index < blockEnd) continue;
     let closeEnd = source.length;
     for (let j = i + 1; j < fences.length; j++) {
-      const candidate = fences[j] as { index: number; end: number; marker: string };
-      if (candidate.marker[0] === char && candidate.marker.length >= open.marker.length) {
+      const candidate = fences[j] as Fence;
+      if (candidate.closes && candidate.marker[0] === open.marker[0] && candidate.marker.length >= open.marker.length) {
         closeEnd = candidate.end;
         break;
       }
     }
     consumed.push([open.index, closeEnd]);
+    blockEnd = closeEnd;
   }
 
   // Inline code spans, using CommonMark's rule: a run of N backticks is closed
