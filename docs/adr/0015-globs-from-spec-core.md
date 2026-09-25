@@ -32,8 +32,9 @@ copies the modules it uses, and verifies the copy by hash.
 ### The copy
 
 `src/vendor/spec-core/` holds spec-core's `pattern` module, the `path` module it
-imports, and `jsonrpc`, copied from commit `124b028` by spec-core's
-`scripts/vendor.mjs`. `VENDOR.json` records the commit and the SHA-256 of every
+imports, and `jsonrpc`, copied by spec-core's `scripts/vendor.mjs`: first from
+commit `124b028`, then again from `f085f29`, which changed `jsonrpc` alone, for
+the server (below). `VENDOR.json` records the commit and the SHA-256 of every
 file. Nothing in this repository edits them.
 
 <!-- @assert-present file="src/vendor/spec-core/VENDOR.json, tests/vendor.test.ts" reason="a copy nobody verifies is a fork nobody meant" -->
@@ -59,13 +60,13 @@ file. Nothing in this repository edits them.
   module has a test of its own name leaves `src/vendor` out, since its tests
   are spec-core's.
 
-### `jsonrpc` is copied and not yet used
+### `jsonrpc`: copied first, used once it agreed
 
 spec-core's `jsonrpc` module was extracted from `src/mcp.ts` and generalised:
 `createMcpServer({ name, version, instructions, tools, resources, prompts })`
 and `serveLines`. Moving the server onto it was the plan, on one condition:
 that `tests/mcp.test.ts` and `tests/mcp-stdio.test.ts` pass with every
-assertion unchanged. They would not:
+assertion unchanged. At `124b028` they would not:
 
 - `prompts/list` would answer an empty list. This server answers `Method not
   found`, and a test asserts it for both eras: the server has no prompts, and a
@@ -74,9 +75,26 @@ assertion unchanged. They would not:
   (`path, include_inactive`), where this server says `path and
   include_inactive`, and two tests assert the words.
 
-So `src/mcp.ts` is unchanged. The first difference is a decision about the
-protocol, not a detail of the port, and it belongs to whoever next changes the
-server. The copy stays so that it can be made without another vendoring round.
+The first is a decision about the protocol rather than a detail of the port,
+so it was made in spec-core rather than here, and `f085f29` made both: a
+method for a capability the server did not declare is answered as any unknown
+method is, and a list of arguments ends in "and". With that copy `src/mcp.ts`
+keeps what is spec-guard's - its instructions, its two tools, the rules and
+documents it serves - and hands the protocol to `createMcpServer` and
+`serveLines`: classifying each request, the two eras, dispatch, the shape of
+each result, and the stdio framing. Every test of the server passes as it was
+written. The protocol's names the module exported are re-exported from the
+copy, so a caller of the API finds them where it did.
+
+<!-- @assert-import-count target="src/mcp.ts" module="src/vendor/spec-core/jsonrpc" min="1" reason="the server speaks the protocol through spec-core's copy" -->
+<!-- @assert-absence target="src" symbol="'2026-07-28'" exclude="src/vendor" reason="the revisions served are named once, in the copy; a second list is a second protocol" -->
+
+Two behaviours came with the copy. A tool that throws is reported to the model
+as `spec-guard failed: ...` by the copy, as it was by the server, and a path
+outside the root - the model's to fix - is still caught first and reported
+alone. And the line reader flushes its decoder when the input ends, so a last
+line cut inside a UTF-8 character is read as far as it goes rather than
+dropped.
 
 ### Every pattern is read by spec-core, in a named dialect
 

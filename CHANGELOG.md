@@ -110,6 +110,14 @@ with the flag that restores the previous behaviour.
   `done`, `closed`, `archive` and every other near word stay in force, and
   [ADR-0010](docs/adr/0010-spec-status.md)'s amendment says why this word and
   no other.
+- **The MCP server speaks the protocol through spec-core.** Classifying each
+  request, the two eras, dispatch, result shapes and the stdio framing are
+  spec-core's `jsonrpc` module, copied from `f085f29` and verified by hash;
+  `src/mcp.ts` keeps the instructions, the tools and the resources. What a
+  client sees is unchanged, and every test of the server passes as it was
+  written. One edge moved: a last line cut inside a UTF-8 character when stdin
+  closes is read as far as it goes rather than dropped. The protocol's names
+  are still exported from the package. [ADR-0015](docs/adr/0015-globs-from-spec-core.md).
 
 ## 0.11.0
 
