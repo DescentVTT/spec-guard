@@ -48,8 +48,10 @@ export default {
   // Stryker prepends "// @ts-nocheck" to every file it copies, because a
   // mutant can easily produce a type error. Its default glob covers tests/ as
   // well, which rewrites the fixture codebase and shifts every line number the
-  // suite asserts on. Only the mutated sources need it.
-  disableTypeChecks: 'src/**/*.ts',
+  // suite asserts on. Only the mutated sources need it, and they all sit
+  // directly in src: the copy of spec-core below it is verified by hash, and
+  // a prepended line fails tests/vendor.test.ts in every sandbox.
+  disableTypeChecks: 'src/*.ts',
 
   reporters: ['html', 'clear-text', 'progress'],
   htmlReporter: { fileName: 'reports/mutation/index.html' },
