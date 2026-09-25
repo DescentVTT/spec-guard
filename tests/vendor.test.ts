@@ -57,8 +57,8 @@ describe('the copy of spec-core', () => {
   });
 
   it('holds the modules this tool reads, and the one they read', () => {
-    // pattern for every glob, and path because pattern imports it. jsonrpc was
-    // copied for the MCP server and is not yet read by it: ADR-0015 says why.
+    // pattern for every glob, path because pattern imports it, and jsonrpc
+    // for the MCP server's protocol: ADR-0015.
     expect(Object.keys(record.modules)).toEqual(['jsonrpc', 'path', 'pattern']);
   });
 

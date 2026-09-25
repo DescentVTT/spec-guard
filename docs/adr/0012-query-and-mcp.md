@@ -140,7 +140,10 @@ set it places in the graph.
 ### The MCP server: no SDK, both eras
 
 `spec-guard mcp` is a stdio server in `src/mcp.ts`, about 600 lines with
-comments. The official server package is `@modelcontextprotocol/server` 2.0.0 at
+comments when this was written. Its protocol layer - everything beneath the
+tools and resources - has since moved to spec-core's `jsonrpc` module, copied
+into `src/vendor` ([ADR-0015](0015-globs-from-spec-core.md)), and the rest of
+this section describes the two together. The official server package is `@modelcontextprotocol/server` 2.0.0 at
 6.3 MB unpacked, which needs `@modelcontextprotocol/core` at 1.3 MB and `zod` 4
 at 6.1 MB. The 1.x `@modelcontextprotocol/sdk` has 17 direct dependencies,
 Express and Hono among them. spec-guard is 0.7 MB unpacked with none, and the
