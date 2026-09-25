@@ -178,6 +178,7 @@ export {
   resolveQueryPath,
   viewDocument,
   QueryPathError,
+  QUERY_FORMAT_VERSION,
 } from './query.js';
 export type { PathRules, QueryOptions, QueryReport, RuleSet, RuleSetOptions } from './query.js';
 
@@ -215,6 +216,8 @@ export {
   createPainter,
   formatBaselines,
   formatConfigUse,
+  formatGithub,
+  formatGitlab,
   formatJson,
   formatOptionLines,
   formatProve,
@@ -222,11 +225,14 @@ export {
   formatProveSarif,
   formatReport,
   formatSarif,
+  proveAnnotations,
+  runAnnotations,
   PROVE_FORMAT_VERSION,
+  RUN_FORMAT_VERSION,
   shouldUseAscii,
   shouldUseColor,
 } from './reporter.js';
-export type { ReporterOptions } from './reporter.js';
+export type { Annotation, GitlabSeverity, ReporterOptions } from './reporter.js';
 
 export type {
   Assertion,

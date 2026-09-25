@@ -11,7 +11,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { formatJson, formatReport } from '../src/reporter.js';
+import { formatJson, formatReport, RUN_FORMAT_VERSION } from '../src/reporter.js';
 import { EMPTY_LEDGER } from '../src/scope.js';
 import { runSpecGuard, type RunResult } from '../src/runner.js';
 import { DEMO_REPO } from './helpers.js';
@@ -163,6 +163,13 @@ describe('exact rendered output', () => {
     const parsed = JSON.parse(formatJson(fixture())) as Record<string, unknown>;
     expect(parsed.exclude).toEqual([]);
     expect(Object.keys(parsed).slice(-2)).toEqual(['inactiveSpecs', 'exclude']);
+  });
+
+  it('versions the JSON document, first, at 1', () => {
+    const parsed = JSON.parse(formatJson(fixture())) as Record<string, unknown>;
+    expect(RUN_FORMAT_VERSION).toBe(1);
+    expect(parsed.formatVersion).toBe(1);
+    expect(Object.keys(parsed)[0]).toBe('formatVersion');
   });
 
   it('renders an assert-present pass by listing its files', () => {

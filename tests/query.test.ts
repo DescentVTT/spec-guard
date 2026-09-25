@@ -493,7 +493,9 @@ describe('formatQuery', () => {
   it('writes JSON with the duration rounded to microseconds', async () => {
     const report = await queryRules({ patterns: ['docs/untitled.md'], root, paths: ['src/domain/user.ts'] });
     const json = JSON.parse(formatQueryJson({ ...report, durationMs: 1.23456789 })) as Record<string, unknown>;
-    expect(json).toEqual({ ...report, durationMs: 1.235 });
+    expect(json).toEqual({ formatVersion: 1, ...report, durationMs: 1.235 });
+    // First, where a reader looks before deciding how to read the rest.
+    expect(Object.keys(json)[0]).toBe('formatVersion');
     expect(formatQueryJson(report)).toContain('\n  "root": ');
   });
 });
@@ -552,7 +554,7 @@ describe('parseArgs for the commands', () => {
     expect(() => parseArgs(['query', 'src', '--format', 'sarif'], root)).toThrow(
       new UsageError('spec-guard query has no sarif format: it lists rules, not results. Expected human or json.'),
     );
-    expect(() => parseArgs(['query', 'src', '--format', 'xml'], root)).toThrow(new UsageError('Unknown format "xml". Expected human, json or sarif.'));
+    expect(() => parseArgs(['query', 'src', '--format', 'xml'], root)).toThrow(new UsageError('Unknown format "xml". Expected human or json.'));
   });
 
   // A script that passes --no-color to every command it runs was refused here.

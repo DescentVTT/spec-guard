@@ -10,7 +10,7 @@
 import { createHash } from 'node:crypto';
 
 import { mergeLedgers, tallyLedger, type ScopeLedger } from './scope.js';
-import type { AssertionResult, ConfigUse, DirectiveError, ProveClaim, ProveOutcome, ProveReport, ProveResult } from './types.js';
+import type { AssertionResult, ConfigUse, DirectiveError, InactiveSpec, ProveClaim, ProveOutcome, ProveReport, ProveResult } from './types.js';
 import type { RunResult } from './runner.js';
 
 export interface ReporterOptions {
@@ -406,10 +406,20 @@ export function formatBaselines(report: RunResult): string {
   return lines.join('\n').trimEnd();
 }
 
+/**
+ * The version of a run's `--json` document. A field removed or renamed moves
+ * it; a field added does not. The family contract (spec-core's ADR-0005) asks
+ * it of every machine-readable output. The run's document went without one
+ * for eleven releases, and got it at 1, since nothing had been removed or
+ * renamed in them.
+ */
+export const RUN_FORMAT_VERSION = 1;
+
 /** Machine-readable output for CI consumers. */
 export function formatJson(report: RunResult): string {
   return JSON.stringify(
     {
+      formatVersion: RUN_FORMAT_VERSION,
       ok: report.ok,
       root: report.root,
       engine: report.engine,
@@ -844,4 +854,162 @@ export function formatProveSarif(report: ProveReport, options: { version?: strin
     null,
     2,
   );
+}
+
+/* -------------------------------------------------------- gitlab and github */
+
+/** GitLab Code Quality's words for how much a finding matters, in the four this tool uses. */
+export type GitlabSeverity = 'critical' | 'major' | 'minor' | 'info';
+
+/**
+ * One finding, placed, before any format is chosen for it.
+ *
+ * Every format that puts findings on lines - GitLab's Code Quality report and
+ * GitHub's workflow commands here, SARIF above - says the same few things: which
+ * rule, how bad, where, and what. Written once per report and rendered by each
+ * format, so the two cannot come to disagree about which findings a run had.
+ */
+export interface Annotation {
+  /** The rule's id: GitLab's `check_name`, GitHub's `title`. */
+  rule: string;
+  /** How GitHub shows it: `error`, `warning` or `notice`. */
+  level: 'error' | 'warning' | 'notice';
+  severity: GitlabSeverity;
+  /** Root-relative path, forward slashes. */
+  file: string;
+  /** 1-based; a finding about a whole file is placed on its first line. */
+  line: number;
+  message: string;
+}
+
+/**
+ * A finding as GitLab Code Quality reads it.
+ *
+ * The fingerprint is the SHA-256 of the rule, the file and the message, which is
+ * what GitLab compares between a merge request and its target to tell a finding
+ * that is new from one that was already there. The same three things are one
+ * finding, so a second copy of them is not written.
+ */
+export function formatGitlab(annotations: readonly Annotation[]): string {
+  const seen = new Set<string>();
+  const issues = [];
+  for (const annotation of annotations) {
+    const fingerprint = createHash('sha256').update([annotation.rule, annotation.file, annotation.message].join('\u0000')).digest('hex');
+    if (seen.has(fingerprint)) continue;
+    seen.add(fingerprint);
+    issues.push({
+      description: annotation.message,
+      check_name: annotation.rule,
+      fingerprint,
+      severity: annotation.severity,
+      location: { path: annotation.file, lines: { begin: Math.max(annotation.line, 1) } },
+    });
+  }
+  return JSON.stringify(issues, null, 2);
+}
+
+/** A workflow command's message: `%`, and the line breaks that would end the command. */
+function escapeData(text: string): string {
+  return text.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+}
+
+/** A workflow command's property: as a message, and the `:` and `,` that would end the property. */
+function escapeProperty(text: string): string {
+  return escapeData(text).replace(/:/g, '%3A').replace(/,/g, '%2C');
+}
+
+/**
+ * Findings as GitHub Actions workflow commands, one line each, which a job's log
+ * turns into annotations on the pull request's diff without an upload step.
+ * Nothing at all when there is nothing to annotate.
+ */
+export function formatGithub(annotations: readonly Annotation[]): string {
+  return annotations
+    .map(
+      (annotation) =>
+        `::${annotation.level} file=${escapeProperty(annotation.file)},line=${Math.max(annotation.line, 1)},title=${escapeProperty(annotation.rule)}::${escapeData(annotation.message)}`,
+    )
+    .join('\n');
+}
+
+/** Where a document that is not in force is named, in a format with no room for a note beside the findings. */
+function inactiveAnnotations(inactive: readonly InactiveSpec[], what: 'assertion' | 'rule', done: 'executed' | 'proved'): Annotation[] {
+  return inactive.map((spec) => ({
+    rule: 'not-in-force',
+    level: 'notice',
+    severity: 'info',
+    file: spec.file,
+    line: 1,
+    message: `${spec.file} is ${spec.label}, so ${spec.directives === 1 ? `its 1 ${what} was` : `its ${spec.directives} ${what}s were`} not ${done}.`,
+  }));
+}
+
+/** A directive that could not be read: nothing it states was checked. */
+function errorAnnotations(errors: readonly DirectiveError[]): Annotation[] {
+  return errors.map((error) => ({
+    rule: 'invalid-directive',
+    level: 'error',
+    severity: 'major',
+    file: error.location.relativeFile,
+    line: error.location.line,
+    message: error.message,
+  }));
+}
+
+/**
+ * A run's findings, placed as SARIF places them.
+ *
+ * Each failing assertion is one finding, on its first offending line, since the
+ * thing that broke is the rule; one with no match - a missing target, an empty
+ * scope, a directory missing an entry - sits on its directive. `critical`,
+ * because it fails the run. A directive that could not be read fails the run
+ * too, and is `major`: it is the rule, not the code, that needs the fix. A
+ * document not in force is `info`, named rather than left out, for ADR-0010's
+ * reason.
+ */
+export function runAnnotations(report: RunResult): Annotation[] {
+  const failed = report.results
+    .filter((result) => !result.ok)
+    .map((result): Annotation => {
+      const match = result.claim === 'required' ? undefined : result.matches[0];
+      return {
+        rule: result.kind,
+        level: 'error',
+        severity: 'critical',
+        file: match?.file ?? result.location.relativeFile,
+        line: match?.line ?? result.location.line,
+        message: `${result.description}: ${result.message} (${result.location.relativeFile}:${result.location.line})`,
+      };
+    });
+  return [...failed, ...errorAnnotations(report.errors), ...inactiveAnnotations(report.inactiveSpecs, 'assertion', 'executed')];
+}
+
+/**
+ * What `spec-guard prove` found, placed on each rule's directive.
+ *
+ * A rule that survived is `critical`: it passed with a violation of itself in
+ * place, and fails the proof. One no violation could be made for is `minor`, a
+ * notice, as it is a note in SARIF. A rule seen to fail is not a finding.
+ */
+export function proveAnnotations(report: ProveReport): Annotation[] {
+  const results = report.results
+    .filter((result) => result.outcome !== 'killed')
+    .map((result): Annotation => {
+      const survived = result.outcome === 'survived';
+      const detail = survived
+        ? result.probes
+            .filter((probe) => probe.outcome === 'survived')
+            .map((probe) => `${probe.violation}, and it still passed: ${probe.message}`)
+            .join('; ')
+        : (result.unprovable as string);
+      return {
+        rule: survived ? 'rule-cannot-fail' : 'rule-unprovable',
+        level: survived ? 'error' : 'notice',
+        severity: survived ? 'critical' : 'minor',
+        file: result.location.relativeFile,
+        line: result.location.line,
+        message: `${result.description}: ${detail}`,
+      };
+    });
+  return [...results, ...errorAnnotations(report.errors), ...inactiveAnnotations(report.inactiveSpecs, 'rule', 'proved')];
 }

@@ -20,12 +20,16 @@ import { proveSpecGuard } from './prove.js';
 import {
   formatBaselines,
   formatConfigUse,
+  formatGithub,
+  formatGitlab,
   formatJson,
   formatProve,
   formatProveJson,
   formatProveSarif,
   formatReport,
   formatSarif,
+  proveAnnotations,
+  runAnnotations,
   shouldUseAscii,
   shouldUseColor,
 } from './reporter.js';
@@ -61,7 +65,26 @@ export interface CliIO {
 export type Command = 'check' | 'query' | 'mcp' | 'prove';
 
 /** How a finished run is written out. */
-export type OutputFormat = 'human' | 'json' | 'sarif';
+export type OutputFormat = 'human' | 'json' | 'sarif' | 'github' | 'gitlab';
+
+/**
+ * The formats each command writes. A command that lists rules rather than
+ * findings has nothing to put on a line of code, so it has no SARIF, GitHub or
+ * GitLab form; `mcp` writes the protocol, and refuses `--format` altogether.
+ */
+const FORMATS: Readonly<Record<Exclude<Command, 'mcp'>, readonly OutputFormat[]>> = {
+  check: ['human', 'json', 'sarif', 'github', 'gitlab'],
+  prove: ['human', 'json', 'sarif', 'github', 'gitlab'],
+  query: ['human', 'json'],
+};
+
+/** What a command without line-level formats lists instead of results, for the message refusing one. */
+const LISTS: Readonly<Partial<Record<Command, string>>> = { query: 'rules' };
+
+/** `a`, `a or b`, `a, b or c`. */
+function either(words: readonly string[]): string {
+  return words.length === 1 ? (words[0] as string) : `${words.slice(0, -1).join(', ')} or ${words[words.length - 1] as string}`;
+}
 
 export interface CliOptions {
   command: Command;
@@ -142,7 +165,8 @@ Options
       --watch             Run again as the tree changes, until Ctrl+C (human output only)
       --fail-fast         Stop at the first failing assertion
       --json              Emit a machine-readable JSON report (same as --format json)
-      --format <name>     human | json | sarif  (sarif uploads to GitHub code scanning)
+      --format <name>     human | json | sarif | github | gitlab  (sarif uploads to code scanning,
+                          github annotates a pull request from the log, gitlab is Code Quality)
       --engine <name>     auto | rg | js  (default: auto - scanner for small trees, ripgrep for big ones)
       --strict            Treat analysis that could not be completed as a failure
       --allow-missing-targets
@@ -353,12 +377,16 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
         options.format = 'json';
         break;
       case '--format': {
-        const value = nextValue().toLowerCase();
-        if (command === 'query' && value === 'sarif') {
-          throw new UsageError('spec-guard query has no sarif format: it lists rules, not results. Expected human or json.');
-        }
-        if (value !== 'human' && value !== 'json' && value !== 'sarif') {
-          throw new UsageError(`Unknown format "${value}". Expected human, json or sarif.`);
+        const value = nextValue().toLowerCase() as OutputFormat;
+        // mcp refused --format above, so every command that gets here writes one.
+        const formats = FORMATS[command as Exclude<Command, 'mcp'>];
+        if (!formats.includes(value)) {
+          const lists = LISTS[command];
+          throw new UsageError(
+            lists !== undefined && FORMATS.check.includes(value)
+              ? `spec-guard ${command} has no ${value} format: it lists ${lists}, not results. Expected ${either(formats)}.`
+              : `Unknown format "${value}". Expected ${either(formats)}.`,
+          );
         }
         options.format = value;
         options.json = value === 'json';
@@ -740,21 +768,26 @@ async function runProve(options: CliOptions, io: CliIO, use: ConfigUse | undefin
     return EXIT_ERROR;
   }
 
-  if (report.summary.specs === 0 && options.format === 'human') {
+  if (report.summary.specs === 0 && (options.format === 'human' || options.format === 'github')) {
     io.stderr(`spec-guard: no spec files matched ${options.patterns.map((p) => `"${p}"`).join(', ')}`);
     return options.allowEmpty ? EXIT_OK : EXIT_ERROR;
   }
-  io.stdout(
+  const written =
     options.format === 'sarif'
       ? formatProveSarif(report, { version: version() })
       : options.format === 'json'
         ? formatProveJson(report)
-        : formatProve(report, {
-            color: shouldUseColor({ isTTY: io.isTTY }, options.color, io.env),
-            verbose: options.verbose,
-            ascii: shouldUseAscii(io.env),
-          }),
-  );
+        : options.format === 'gitlab'
+          ? formatGitlab(proveAnnotations(report))
+          : options.format === 'github'
+            ? formatGithub(proveAnnotations(report))
+            : formatProve(report, {
+                color: shouldUseColor({ isTTY: io.isTTY }, options.color, io.env),
+                verbose: options.verbose,
+                ascii: shouldUseAscii(io.env),
+              });
+  // GitHub's commands are one per finding, and a proof with none has no line to write.
+  if (written !== '') io.stdout(written);
   if (report.summary.specs === 0) return options.allowEmpty ? EXIT_OK : EXIT_ERROR;
   return report.ok && !(options.strictTargets && report.summary.unprovable > 0) ? EXIT_OK : EXIT_FAILED;
 }
@@ -805,8 +838,13 @@ export async function main(argv: readonly string[] = process.argv.slice(2), io: 
   }
 
   if (report.summary.specs === 0) {
-    if (options.format !== 'human') {
-      io.stdout(options.format === 'sarif' ? formatSarif(report, { version: version() }) : formatJson(report));
+    // A document a script reads is still written, empty, for the script to
+    // read. GitHub's commands have nothing to annotate, and the person reading
+    // the job's log is told why, as a person at a terminal is.
+    if (options.format === 'sarif' || options.format === 'json' || options.format === 'gitlab') {
+      io.stdout(
+        options.format === 'sarif' ? formatSarif(report, { version: version() }) : options.format === 'gitlab' ? formatGitlab([]) : formatJson(report),
+      );
     } else {
       io.stderr(`spec-guard: no spec files matched ${options.patterns.map((p) => `"${p}"`).join(', ')}`);
     }
@@ -824,6 +862,11 @@ export async function main(argv: readonly string[] = process.argv.slice(2), io: 
     io.stdout(formatSarif(report, { version: version() }));
   } else if (options.format === 'json') {
     io.stdout(formatJson(report));
+  } else if (options.format === 'gitlab') {
+    io.stdout(formatGitlab(runAnnotations(report)));
+  } else if (options.format === 'github') {
+    const annotations = formatGithub(runAnnotations(report));
+    if (annotations !== '') io.stdout(annotations);
   } else {
     io.stdout(
       formatReport(
