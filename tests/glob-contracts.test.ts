@@ -50,6 +50,12 @@ describe('what a glob compiles to', () => {
     // An unclosed group is a literal, not a syntax error.
     ['a[b', '^a\\[b$'],
     ['a{b', '^a\\{b$'],
+    // Two groups side by side. Searching for the second's close from one place
+    // early finds the first's, and the compiler never gets past it: the ADR
+    // naming rule `[0-9][0-9][0-9][0-9]-*.md` held this until spec-core read
+    // it instead (ADR-0015), so the compiler now holds it for itself.
+    ['[0-9][0-9]-*.md', '^[0-9][0-9]-[^/]*\\.md$'],
+    ['{a,b}{c,d}', '^(?:a|b)(?:c|d)$'],
     // Windows separators are normalised before anything else happens, so a
     // backslash never reaches the escaper.
     ['src\\a.ts', '^src\\/a\\.ts$'],
@@ -91,11 +97,56 @@ describe('the include matcher', () => {
     expect(matches('src/deep/a.ts')).toBe(false);
   });
 
-  it('strips a leading ./ only from the front', () => {
-    // Unanchored, the same replacement turns `a/./b` into `a/b` and quietly
-    // matches a path the pattern did not name.
+  it('reads a . segment as no segment, wherever it is', () => {
+    // It used to strip only a leading ./ and read `src/./a.ts` as a literal
+    // that matched nothing, as ripgrep did. spec-core drops a `.` segment
+    // anywhere, since `src/./a.ts` names `src/a.ts` and nothing else, and
+    // ripgrep is handed the pattern without it (ADR-0015).
     expect(createGlobMatcher(['./src/a.ts'])('src/a.ts')).toBe(true);
-    expect(createGlobMatcher(['src/./a.ts'])('src/a.ts')).toBe(false);
+    expect(createGlobMatcher(['src/./a.ts'])('src/a.ts')).toBe(true);
+    expect(createGlobMatcher(['src/./a.ts'])('src/b/a.ts')).toBe(false);
+  });
+
+  it('anchors a glob with a leading slash to the root, as ripgrep reads -g /src', () => {
+    // spec-core's ripgrep dialect reads the slash as the filesystem's root,
+    // under which no relative path lies: the scanner matched nothing for it
+    // while ripgrep matched the root's files.
+    expect(createGlobMatcher(['/*.ts'])('a.ts')).toBe(true);
+    expect(createGlobMatcher(['/*.ts'])('src/a.ts')).toBe(false);
+    expect(createGlobMatcher(['/src/*.ts'])('src/a.ts')).toBe(true);
+    expect(createGlobMatcher(['//src/*.ts'])('src/a.ts')).toBe(true);
+    // A literal names the one file, as without the slash.
+    expect(createGlobMatcher(['/README.md'])('README.md')).toBe(true);
+    expect(createGlobMatcher(['/README.md'])('docs/README.md')).toBe(false);
+    expect(createGlobMatcher(['/src'])('src/a.ts')).toBe(false);
+  });
+
+  it('reads ** inside a segment as *, never across directories', () => {
+    // As .gitignore, bash, minimatch and ripgrep read it. The RegExp this
+    // replaced read `src/**.ts` as `src/.*\.ts` and matched src/deep/a.ts,
+    // which ripgrep did not.
+    expect(createGlobMatcher(['src/**.ts'])('src/a.ts')).toBe(true);
+    expect(createGlobMatcher(['src/**.ts'])('src/deep/a.ts')).toBe(false);
+    expect(createExcludeMatcher(['src/**.ts'])('src/deep/a.ts')).toBe(false);
+  });
+
+  it('decides for each alternative of a brace group whether it is anchored', () => {
+    const matches = createGlobMatcher(['{src/*.ts,*.md}']);
+    expect(matches('src/a.ts')).toBe(true);
+    expect(matches('docs/deep/a.md')).toBe(true);
+    expect(matches('lib/a.ts')).toBe(false);
+  });
+
+  it('is case-sensitive on every host', () => {
+    expect(createGlobMatcher(['*.TS'])('a.ts')).toBe(false);
+    expect(createExcludeMatcher(['Tests'])('tests/a.ts')).toBe(false);
+  });
+
+  it('refuses a pattern it cannot read, naming it', () => {
+    expect(() => createGlobMatcher(['*.ts', 'src/[a.ts'])).toThrow('invalid glob pattern "src/[a.ts": a "[" is never closed');
+    expect(() => createExcludeMatcher(['+(a|b)'])).toThrow(
+      'invalid exclude pattern "+(a|b)": extended globs such as "+(a|b)" are not supported',
+    );
   });
 
   it('reads a trailing slash as "everything under here"', () => {
@@ -133,12 +184,10 @@ describe('the exclude matcher', () => {
     expect(createExcludeMatcher(['src/config//'])('src/config/a.ts')).toBe(true);
   });
 
-  it('strips a leading ./ only from the front, here too', () => {
-    // The same anchored replacement as the include matcher, and it needs the
-    // same test: unanchored it turns `src/./a.ts` into `src/a.ts` and excludes
-    // a file the pattern did not name.
+  it('reads a . segment as no segment, here too', () => {
     expect(createExcludeMatcher(['./src/a.ts'])('src/a.ts')).toBe(true);
-    expect(createExcludeMatcher(['src/./a.ts'])('src/a.ts')).toBe(false);
+    expect(createExcludeMatcher(['src/./a.ts'])('src/a.ts')).toBe(true);
+    expect(createExcludeMatcher(['src/./a.ts'])('lib/src/a.ts')).toBe(false);
   });
 
   it('anchors a pattern with a leading slash to the root, as .gitignore and ripgrep do', () => {
@@ -155,18 +204,13 @@ describe('the exclude matcher', () => {
     expect(createExcludeMatcher(['src\\config'])('other/src/config/a.ts')).toBe(false);
   });
 
-  it('never tests the empty prefix of a path', () => {
-    // The ancestor loop stops at depth 1, because the empty string is not an
-    // ancestor of anything. Running it to depth 0 tests `''`, and a pattern
-    // that matches the empty string then excludes every file in the tree - an
-    // assertion that inspects nothing and passes.
-    //
-    // `{dist/**,}` is that pattern, and the trailing comma that produces it is
-    // an ordinary typo. It has to contain a slash to reach this branch at all.
-    const excluded = createExcludeMatcher(['{dist/**,}']);
-
-    expect(excluded('dist/a.js')).toBe(true);
-    expect(excluded('src/a.ts')).toBe(false);
+  it('refuses an alternative that names no path, rather than excluding everything', () => {
+    // `{dist/**,}` is an ordinary typo, and its empty alternative matches the
+    // empty string. The ancestor loop this replaced had to stop short of the
+    // empty prefix, or that alternative excluded every file in the tree and an
+    // assertion inspected nothing and passed. spec-core refuses it outright.
+    expect(excludePatternError('{dist/**,}')).toBe('invalid exclude pattern "{dist/**,}": the pattern names no path');
+    expect(() => createExcludeMatcher(['{dist/**,}'])).toThrow('invalid exclude pattern "{dist/**,}"');
   });
 });
 

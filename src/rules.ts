@@ -17,7 +17,7 @@
 
 import path from 'node:path';
 
-import { createExcludeMatcher, createGlobMatcher, globToRegExp } from './glob.js';
+import { createExcludeMatcher, createGlobMatcher, createPathMatcher } from './glob.js';
 import { isGraphFile } from './graph.js';
 import { ANALYSABLE_EXTENSIONS } from './imports.js';
 import { layerMatcher } from './layers.js';
@@ -87,7 +87,7 @@ export function governs(assertion: Assertion, query: QueryPath): boolean {
   // when the directory it sits in is one the rule holds to its entries: that is
   // what someone creating the file needs to know about its neighbours.
   if (structure?.claim === 'required') {
-    const dirs = structure.dirs === undefined ? null : globToRegExp(structure.dirs);
+    const dirs = structure.dirs === undefined ? null : createPathMatcher(structure.dirs);
     const selects = (directory: string): boolean =>
       !excluded(directory) &&
       assertion.targets.some((target) =>
@@ -96,7 +96,7 @@ export function governs(assertion: Assertion, query: QueryPath): boolean {
           : directory !== target &&
             within(directory, target) &&
             !skippedOnTheWay(target, directory, options, false) &&
-            dirs.test(path.posix.relative(target, directory)),
+            dirs(path.posix.relative(target, directory)),
       );
     if (query.shape === 'file') return selects(path.posix.dirname(query.path));
     // Without `dirs` nothing below a target is selected, so a directory is

@@ -67,6 +67,7 @@ export {
   excludePatternError,
   expandSpecPatterns,
   globBase,
+  globPatternError,
   globToRegExp,
   isGlob,
   normalizeExclude,
@@ -79,6 +80,7 @@ export type { WalkedFile, WalkedPath, WalkOptions } from './glob.js';
 
 export { nodeIo, readText, watchTree } from './io.js';
 export type { DirectoryReader, Io, TreeListener, TreeWatcher } from './io.js';
+
 
 export { contentHash, createMemo, NO_MEMO } from './memo.js';
 export type { Memo, SessionMemo } from './memo.js';

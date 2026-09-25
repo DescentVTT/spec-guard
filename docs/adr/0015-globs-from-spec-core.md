@@ -77,3 +77,142 @@ assertion unchanged. They would not:
 So `src/mcp.ts` is unchanged. The first difference is a decision about the
 protocol, not a detail of the port, and it belongs to whoever next changes the
 server. The copy stays so that it can be made without another vendoring round.
+
+### Every pattern is read by spec-core, in a named dialect
+
+`src/glob.ts` is still where spec-guard reads a pattern, and it hands every one
+to spec-core's `parseGlob`, case-sensitively on every host. Directory walking
+and the scope policy stay in spec-guard, as spec-core's ADR-0001 says they
+should: they are what makes each tool's scope its own.
+
+| Pattern | Dialect | What that means |
+| --- | --- | --- |
+| `glob=`, a structure rule's `pattern=`, a spec pattern | `ripgrep` | no `/`: a file name at any depth; a `/`: the whole path |
+| `glob=` with a leading `/` | `path`, the slash dropped | anchored at the root, as ripgrep reads `-g /src/*.ts` |
+| `exclude=`, `module=`, a layer in `order=` | `gitignore` | a path or any directory above it; anchored when it holds a `/` anywhere but at its end |
+| `dirs=`, a required entry's name | `path`, a literal naming one path | the whole path below a target, or a name in a directory |
+
+A spec pattern is walked from its literal base and matched below it, so a base
+outside the root, `../shared/docs/*.md`, or on a drive, `C:/repo/docs/*.md`,
+is never read as a glob. spec-core refuses `..` in a glob, as it should, and
+spec-guard has always found specs outside the root.
+
+<!-- @assert-import-absence target="src" module="src/vendor/spec-core/pattern" exclude="src/glob.ts, src/vendor" reason="one module reads patterns, so every attribute has one reading and one place to change it" -->
+<!-- @assert-absence target="src" symbol="globToRegExp(" exclude="src/glob.ts" reason="no pattern a spec supplies is compiled to a RegExp, which can backtrack" -->
+
+`globToRegExp` stays exported, marked deprecated, because callers of the API
+may use it. Nothing in `src` calls it. `tests/glob-core.test.ts` rebuilds the
+two matchers it used to drive and holds spec-core to them on every path of a
+generated universe, for every pattern the two read alike, and to the
+differences below, so the adoption changed exactly what this ADR says it did.
+
+### What a user sees change
+
+- **A malformed pattern is refused.** An unclosed `[` or `{`, an extended glob
+  such as `+(a|b)`, a `..`, a range that runs backwards: a directive holding one
+  is an invalid directive, and one given in the configuration or to `--exclude`
+  is exit 2, as a spec pattern on the command line is. Each used to be read as a
+  literal, or as whatever the regular expression it compiled to happened to
+  mean, and a typo read as a literal is a filter that matches nothing and passes.
+  `module=`, `order=`, `pattern=`, `dirs=` and `required=` were not validated at
+  all, and are now.
+- **`**` inside a segment is `*`.** `src/**.ts` matches `src/a.ts` and not
+  `src/deep/a.ts`, as `.gitignore`, bash, minimatch and ripgrep read it. The
+  scanner crossed directories and ripgrep did not, so the same rule counted
+  differently on either side of the size where `auto` changes engine.
+- **No pattern takes long.** spec-core's automaton keeps a set of live states,
+  so a match costs the pattern's size times the path's length. `*-*-*-*-*-*x`
+  against a name of 121 dashes took **55 seconds** under the RegExp, measured on
+  this repository's Windows machine with Node 24.18.1 (28 seconds in spec-core's
+  measurement). It now takes under a millisecond, and a test bounds it at a
+  second, in the matcher and in a run.
+- **A list attribute splits on commas**, as it always did, so a brace group with
+  a comma in it cannot be written in a directive: `glob="*.{ts,tsx}"` was
+  always `*.{ts` and `tsx}`, two literals to the scanner and an error to
+  ripgrep. It is now refused, and the message says why and to list the patterns
+  instead. A configuration's `exclude` is a JSON array, where a brace group
+  keeps its commas.
+- **A `.` or empty segment is no segment**, so `src/./a.ts` means `src/a.ts`.
+  It used to match nothing under either engine.
+- **A leading `/` anchors a `glob=`** at the root, as it anchors an `exclude=`.
+  ripgrep always read it so; the scanner matched nothing.
+- **An alternative that names no path is refused.** `{dist/**,}` is an ordinary
+  typo whose empty alternative matched the empty string. Only the loop that
+  tested a path's ancestors stopping short of the empty one kept it from
+  excluding the whole tree.
+
+### Both engines, one reading
+
+ADR-0014 gave ripgrep the pattern as the scanner normalised it, and a parity
+matrix held the two to each other. Normalised is not read. ripgrep's globset
+parses the same syntax as spec-core, and with `@vscode/ripgrep` 1.18.0
+(ripgrep 15.0.0) it still read these differently from the scanner:
+
+| Pattern | Scanner | ripgrep, given the pattern as normalised |
+| --- | --- | --- |
+| `glob="{src/*.ts,*.md}"` | `src/*.ts`, and a `.md` at any depth | the root's `.md` only: globset anchors a glob holding a `/` anywhere |
+| `glob="{,src/}a.ts"` | `a.ts` at any depth, and `src/a.ts` | `src/a.ts` only |
+| `glob="src/./a.ts"`, `glob="src//a.ts"` | `src/a.ts` | nothing |
+| `glob="}a.ts"` | the file `}a.ts` | an error: an unopened alternate group |
+| `exclude="{src/tests,*.log}"` | `src/tests`, and a `.log` at any depth | `src/tests`, and the root's `.log` |
+| a target that is a file, `glob="*.md"` | nothing | the file, whatever its name |
+| a target inside `exclude="tests"` | nothing | everything under it |
+
+The last two are not about syntax. ripgrep applies no glob to a path it is
+handed on its command line, only to what it walks into.
+
+Two decisions close them, and `tests/glob-parity.test.ts` states the files each
+shape must find, under each engine:
+
+- **ripgrep is handed spec-core's reading, spelled for globset.**
+  `ripgrepGlobs` expands a pattern's braces into one glob per alternative, as
+  spec-core expands them; drops `.` and empty segments; writes a lone `}` as the
+  class `[}]`; and anchors each alternative, or not, by its own shape - a
+  leading `/` where it must be anchored and `**/` where an alternative starting
+  with `!` must not become a negation. `tests/glob-core.test.ts` holds that
+  spelling to spec-core's reading on every path of a universe of 3,615, for 28
+  patterns chosen for each piece of syntax, and the parity tests hold ripgrep to
+  the same reading on a real tree. Removing the spelling fails six of them.
+- **ripgrep's list is held to the scanner's filters.** A file ripgrep names is
+  kept only if `glob` admits it and no `exclude` does, which is the question the
+  walk asks of every file it finds. ripgrep still prunes what it can, which is
+  where its speed is; it no longer decides what is in scope. Removing the
+  filter fails the three cases about targets.
+
+Where the two could still differ, the filter makes ripgrep's reading only ever
+the wider one, and a wider pre-filter costs a file read, never a count.
+
+### What it costs
+
+A Thompson automaton pays for a set of live states on every character, where
+V8 compiles a RegExp to machine code. Asked of every path, the matching was 26
+times slower: 261 ms against 10, over the 10,446 paths in this repository's
+`node_modules`, for three globs and four exclusions. `globPredicate` asks the
+automaton less often, and never answers for it:
+
+- a pattern that is one segment in every alternative - `*.ts`, `tests`,
+  `node:fs`, the shapes most rules use - is decided by a path's last segment
+  (a glob) or by any one of its segments (an exclusion), and a tree repeats its
+  names: those paths hold 6,714 distinct segments. Each is asked once;
+- any other pattern can only match below the directories spec-core names as its
+  `bases`, and a path outside all of them is answered without asking.
+
+The same seven patterns then took 83 to 95 ms, nearly all of it for
+`**/dist/**`, which is neither. A whole run over `node_modules` with three
+rules, scanner only, in five alternating rounds against the previous commit:
+a median of 2,250 ms against 2,116, and a best of 1,297 against 1,507, which is
+this machine's noise. The counts were identical.
+
+### Held to the mutation bar
+
+Stryker over `glob.ts` and the lines of `engine.ts` this changed: every mutant of
+the new reading is killed, or times out in the loop that finds a brace's
+close, but two. Both are equivalent by spec-core's own reading of its options:
+`dialect: ''` and `literal: ''` fall through to exactly what `path` with
+`literal: 'file'` means, a literal naming one path. The brace expander was
+first written over characters, as spec-core's is, and the module scored 94%,
+with 25 survivors in the expander alone. Its loops read one past the end with
+`charAt`, which answers the empty string, so `<=` for `<` decided nothing, and
+its class scanner had branches only a malformed pattern reaches, which never
+gets that far. Rewritten over tokens, with a class as one token, it has
+neither.

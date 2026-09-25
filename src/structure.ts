@@ -15,7 +15,8 @@ import { comparePaths } from './engine.js';
 import {
   createExcludeMatcher,
   createGlobMatcher,
-  globToRegExp,
+  createPathMatcher,
+  pathPatternError,
   isGlob,
   toPosix,
   walkPaths,
@@ -139,10 +140,10 @@ async function kindOf(index: TreeIndex, relativePath: string): Promise<'file' | 
  */
 async function holds(index: TreeIndex, directory: string, entry: string): Promise<boolean> {
   const wantsDirectory = entry.endsWith('/');
-  const named = globToRegExp(path.posix.basename(entry));
+  const named = createPathMatcher(path.posix.basename(entry));
   const listing = await index.listing(path.posix.join(directory, path.posix.dirname(entry)));
   return [...(listing?.values() ?? [])].some(
-    (item) => named.test(item.name) && (wantsDirectory ? item.isDirectory() : item.isFile()),
+    (item) => named(item.name) && (wantsDirectory ? item.isDirectory() : item.isFile()),
   );
 }
 
@@ -205,7 +206,8 @@ export function requiredEntryIssue(entry: string): string | null {
   if (segments.slice(0, -1).some(isGlob)) {
     return `Required entry "${entry}" can use a glob only in its last segment.`;
   }
-  return null;
+  const unreadable = pathPatternError(segments[segments.length - 1] as string);
+  return unreadable === null ? null : `Required entry "${entry}" has an ${unreadable}.`;
 }
 
 /* ---------------------------------------------------------------- the check */
@@ -253,7 +255,7 @@ export async function checkStructure(
   const excluded = createExcludeMatcher(request.excludeGlobs);
   const included = createGlobMatcher(request.globs);
   const required = query.claim === 'required';
-  const selects = query.dirs === undefined ? null : globToRegExp(query.dirs);
+  const selects = query.dirs === undefined ? null : createPathMatcher(query.dirs);
   const missing: string[] = [];
   const notDirectories: string[] = [];
   const gaps = new Set<string>();
@@ -276,7 +278,7 @@ export async function checkStructure(
       for (const gap of tree.gaps) gaps.add(gap);
       if (selects !== null) {
         for (const directory of tree.directories) {
-          if (!excluded(directory) && selects.test(path.posix.relative(target, directory))) add(directory, target);
+          if (!excluded(directory) && selects(path.posix.relative(target, directory))) add(directory, target);
         }
       } else {
         for (const file of tree.files) if (included(file) && !excluded(file)) add(file, target);

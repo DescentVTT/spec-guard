@@ -311,6 +311,13 @@ an exclusion it already applied. The one choice that was not forced is
 case in the parity matrix. Layer orders and import modules use the same matcher,
 so a leading `/` anchors there too, where it matched nothing.
 
+**Amended 2026-09-26.** One normalised pattern was not yet one reading. ripgrep
+still read braces, `.` segments and a lone `}` differently, and applied no
+filter at all to a target named on its command line. Since then both engines
+read every pattern as spec-core's glob engine does: the scanner through it, and
+ripgrep through globs spelled from its reading, with its list held to the
+scanner's filters. ADR-0015 has the shapes and the measurements.
+
 <!-- @assert-absence target="src/engine.ts" symbol="push('--glob', glob)" reason="ripgrep is given the pattern the scanner reads, never the pattern as written" -->
 
 **Patterns that can never exclude anything are refused**, by `excludePatternError`,
