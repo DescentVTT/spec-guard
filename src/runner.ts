@@ -11,12 +11,14 @@ import path from "node:path";
 import {
   comparePaths,
   createCachedEngine,
+  createJavaScriptEngine,
   enumerateCandidates,
   passKey,
   resolveEngine,
   runSearches,
   ANY_FILE_PROBE,
   ROOT_TARGETS,
+  type CachedEngine,
   type Engine,
   type EnginePreference,
   type SearchRequest,
@@ -138,6 +140,18 @@ export interface RunOptions {
    * malformed directive is an error whatever is selected.
    */
   select?: (assertion: Assertion) => boolean;
+  /**
+   * The door every read of the run goes through: finding and reading the specs,
+   * checking targets exist, walking them, scanning files, reading imports and
+   * listing directories. The filesystem, when unset. ADR-0014.
+   *
+   * For a caller whose tree is not on disk, or not as the disk has it - one
+   * that changes a file in memory to see which rule notices. ripgrep reads the
+   * disk itself, in a process of its own where no door reaches, so an `io` with
+   * `engine: 'ripgrep'` is refused rather than answered from the disk, and an
+   * `io` with `auto` searches with the scanner.
+   */
+  io?: Io;
 }
 
 export interface RunResult extends RunReport {
@@ -1729,27 +1743,51 @@ export function reportRun(
   };
 }
 
+/**
+ * Why a run given a door of its caller's cannot search with ripgrep.
+ *
+ * Exported so a test can hold the words; the refusal is the only thing a
+ * caller who asked for both learns.
+ */
+export const RIPGREP_THROUGH_IO =
+  'engine "ripgrep" cannot read through the io this run was given: ripgrep reads the disk itself, in a process of its own. Leave engine unset, or set it to "auto" or "javascript".';
+
+/**
+ * The engine a run searches with.
+ *
+ * A caller's door gets the scanner reading through it, for `auto` as for
+ * `javascript`: the adaptive engine hands a large tree to ripgrep, which reads
+ * around any door. Anything `resolveEngine` would take for ripgrep is refused.
+ * The scanner is its own fallback, as a watch session's is (ADR-0014), because
+ * the shared one reads the filesystem.
+ */
+async function runEngine(preference: EnginePreference, io: Io | undefined): Promise<CachedEngine> {
+  if (io === undefined) return createCachedEngine(await resolveEngine(preference));
+  if (preference !== "auto" && preference !== "javascript") throw new Error(RIPGREP_THROUGH_IO);
+  const scanner = createJavaScriptEngine(io);
+  return createCachedEngine(scanner, scanner);
+}
+
 /** Reads, parses and executes every directive found in the given spec files. */
 export async function runSpecGuard(options: RunOptions): Promise<RunResult> {
   const startedAt = performance.now();
   const root = path.resolve(options.root ?? process.cwd());
-  const plan = planRun(await readSpecs(options.patterns, root), root, options);
+  const io = options.io ?? nodeIo;
+  const plan = planRun(await readSpecs(options.patterns, root, io), root, options);
   const assertions = plan.assertions;
 
-  const engine = createCachedEngine(
-    await resolveEngine(options.engine ?? "auto"),
-  );
+  const engine = await runEngine(options.engine ?? "auto", options.io);
   const executeOptions: ExecuteOptions = {
     root,
-    io: nodeIo,
+    io,
     engine,
     allowMissingTargets: options.allowMissingTargets ?? false,
     strictTargets: options.strictTargets ?? false,
     allowEmptyScope: options.allowEmptyScope ?? false,
     maxSnippets: options.maxSnippets ?? DEFAULT_MAX_SNIPPETS,
-    imports: createImportIndex(),
-    hasFiles: createScopeProbe(),
-    tree: createTreeIndex(root),
+    imports: createImportIndex(io),
+    hasFiles: createScopeProbe(io),
+    tree: createTreeIndex(root, io),
   };
   const results: AssertionResult[] = [];
 

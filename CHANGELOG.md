@@ -7,6 +7,19 @@ with the flag that restores the previous behaviour.
 
 ## Unreleased
 
+### Added
+
+- **`RunOptions.io`: a run over a tree that is not on disk.** `runSpecGuard`
+  reads through the `Io` it is given - finding and reading the specs, checking
+  targets exist, walking them, scanning files, reading imports and listing
+  directories - and through `nodeIo` when it is given none, as before. The run
+  had the door all along and handed the filesystem to every reader itself.
+  ripgrep reads the disk in a process of its own, where no door reaches, so
+  `engine: 'ripgrep'` with an `io` is refused with a message that says so, and
+  `auto` with one searches with the built-in scanner. A search that fails
+  outright through the door fails the run, rather than falling back to the
+  scanner that reads the disk. [ADR-0014](docs/adr/0014-configuration-and-watch.md).
+
 ### Fixed
 
 - **Three fence shapes were read the wrong way round.** Directives inside code
