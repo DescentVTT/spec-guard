@@ -357,17 +357,37 @@ describe('what is not a status', () => {
 });
 
 describe('which words withhold a document', () => {
-  it('is exactly these five', () => {
+  it('is exactly these six', () => {
     // Written out rather than derived. Every word here is another way for a
     // rule to stop being enforced, so the list growing is a decision someone
-    // has to make on purpose and a reviewer gets to see in a diff.
+    // has to make on purpose and a reviewer gets to see in a diff. It grew
+    // once, by `archived`, and ADR-0010's amendment says why that word and no
+    // other.
     expect([...INACTIVE_STATUSES].sort()).toEqual([
+      'archived',
       'deprecated',
       'draft',
       'proposed',
       'rejected',
       'superseded',
     ]);
+  });
+
+  it('withholds an archived brief, and nothing merely near the word', () => {
+    // `archived` is what spec-brief writes when it closes a round. The words
+    // around it are ones a live document can carry - a brief that is `done`
+    // is the one whose rules about the finished state should start holding -
+    // so they stay in force, like every word nobody decided about.
+    expect(parseStatus('---\nid: 0042\nstatus: archived\n---\n\n# Brief 0042\n')).toEqual({
+      value: 'archived',
+      label: 'archived',
+      source: 'frontmatter',
+      active: false,
+    });
+    expect(parseStatus('## Status\n\nArchived on 2026-09-26.\n')?.active).toBe(false);
+    for (const word of ['archive', 'Archival', 'unarchived', 'done', 'closed', 'complete', 'obsolete', 'inactive']) {
+      expect(parseStatus(`---\nstatus: ${word}\n---\n`)?.active, word).toBe(true);
+    }
   });
 
   it('leaves an unrecognised word in force', () => {
@@ -405,6 +425,26 @@ describe('a document that is not in force', () => {
     expect(executed.ok).toBe(false);
     expect(executed.summary).toMatchObject({ total: 1, failed: 1, inactive: 0 });
     expect(executed.inactiveSpecs).toEqual([]);
+  });
+
+  it('does not execute an archived brief, and --ignore-status does', async () => {
+    // A closed round's brief: its premise ("Legacy is still here") was true
+    // when the round opened and the round made it false. Executed, it fails.
+    const root = await repo({
+      'briefs/archive/0042-retire-legacy.md': `---\nid: 0042\nstatus: archived\n---\n\n# Retire Legacy\n\n${VIOLATION}`,
+      ...CODE,
+    });
+
+    const withheld = await run(root, ['briefs/**/*.md']);
+    expect(withheld.ok).toBe(true);
+    expect(withheld.summary).toMatchObject({ specs: 1, total: 0, inactive: 1 });
+    expect(withheld.inactiveSpecs).toEqual([
+      { file: 'briefs/archive/0042-retire-legacy.md', status: 'archived', label: 'archived', directives: 1 },
+    ]);
+
+    const executed = await run(root, ['briefs/**/*.md'], { ignoreStatus: true });
+    expect(executed.ok).toBe(false);
+    expect(executed.summary).toMatchObject({ total: 1, failed: 1, inactive: 0 });
   });
 
   it('is named in the report, with the line it declared and what it cost', async () => {

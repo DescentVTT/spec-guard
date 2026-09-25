@@ -152,7 +152,7 @@ export const INSTRUCTIONS =
   'Before creating or changing a file, call get_architectural_rules with its path to learn the rules in force there: ' +
   'imports it must not make, the layer it belongs to, what it must be named and the files it needs beside it, text it must not contain. ' +
   'After changing files, call check_architecture with their paths to find violations before CI does. ' +
-  'Rules in draft, proposed, rejected, deprecated or superseded documents are not in force and are only counted.';
+  'Rules in draft, proposed, rejected, deprecated, superseded or archived documents are not in force and are only counted.';
 
 const READ_ONLY = { readOnlyHint: true, idempotentHint: true, openWorldHint: false };
 
@@ -176,7 +176,7 @@ export const TOOLS: readonly JsonObject[] = [
         },
         include_inactive: {
           type: 'boolean',
-          description: 'Also list rules from draft, proposed, rejected, deprecated and superseded documents.',
+          description: 'Also list rules from draft, proposed, rejected, deprecated, superseded and archived documents.',
         },
       },
       required: ['path'],

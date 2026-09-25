@@ -107,11 +107,11 @@ half of `runSpecGuard`, moved out rather than copied, because a copy of the
 status rule is a second opinion on which documents are in force.
 
 A query lists the rules of documents in force. The rules of a draft, proposed,
-rejected, deprecated or superseded document that would govern the path are
-**counted and their documents named**, and listed only with `--ignore-status`
-(`include_inactive` over MCP). An agent told "nothing governs this file" while a
-proposal about to govern it sits in `docs/adr/` has been told something false by
-omission, which is the report ADR-0010 exists to prevent.
+rejected, deprecated, superseded or archived document that would govern the
+path are **counted and their documents named**, and listed only with
+`--ignore-status` (`include_inactive` over MCP). An agent told "nothing governs
+this file" while a proposal about to govern it sits in `docs/adr/` has been told
+something false by omission, which is the report ADR-0010 exists to prevent.
 
 A listed rule from such a document carries `inForce: false`, and its document's
 status. A query does not pretend `--ignore-status` changed what the document says.

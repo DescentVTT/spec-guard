@@ -34,6 +34,19 @@ with the flag that restores the previous behaviour.
   test holds that, along with random documents built from the lines both rules
   read alike. This repository's own specs execute the same 66 assertions.
 
+### Changed
+
+- **`archived` withholds a document**, a sixth word beside `draft`,
+  `proposed`, `rejected`, `deprecated` and `superseded`. `spec-brief` closes a
+  task brief's round by setting `status: archived` and moving the brief to an
+  archive directory. Its directives stated the round's premises and goals,
+  which are history once the round is closed, and executed anyway they failed.
+  An archived document is still parsed, validated and named in every output
+  format. `--ignore-status` executes it as before. The list stays closed:
+  `done`, `closed`, `archive` and every other near word stay in force, and
+  [ADR-0010](docs/adr/0010-spec-status.md)'s amendment says why this word and
+  no other.
+
 ## 0.11.0
 
 The literal this lexer never read. A JavaScript or TypeScript regular

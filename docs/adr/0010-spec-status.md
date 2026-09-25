@@ -40,7 +40,8 @@ that mechanism safe rather than about parsing a heading.
 `draft`, `proposed`, `rejected`, `deprecated`, `superseded` - the words that mean
 "not in force" in Nygard's template and in MADR's between them, plus `draft`,
 which is the one people actually type. A document carrying any of them is
-parsed, validated, reported by name, and not executed.
+parsed, validated, reported by name, and not executed. A sixth, `archived`, was
+added later; see [Amended 2026-09-26](#amended-2026-09-26-archived).
 
 <!-- @assert-count target="src/parser.ts" symbol="INACTIVE_STATUSES" min="2" reason="the closed list has to stay wired into the status reader" -->
 
@@ -206,3 +207,29 @@ still happens, the sentence that no longer lies about an empty run - is spent on
 making that cost visible rather than on making it small.
 
 <!-- @assert-count target="tests/spec-status.test.ts" symbol="ignoreStatus" min="2" reason="a test that a withheld rule did not fail is worth nothing without the control showing it would have" -->
+
+## Amended 2026-09-26: `archived`
+
+A task brief has a life as well. `spec-brief` closes a round by setting
+`status: archived` in the brief's front-matter and moving it to an archive
+directory, and the brief stays as the record of what the round was for. Its
+directives stated the round's premises ("`LedgerClient` does not exist yet") and
+its goals, and once the round is closed they are history: its own work made the
+premises false. Executed anyway, they fail, and the remedies were the two this
+ADR refused for a superseded ADR - gut the record or leave CI red. A goal that
+should outlive the round belongs in an ADR, as a surviving rule of a superseded
+ADR belongs in the one that superseded it.
+
+<!-- @assert-count target="src/parser.ts" symbol="'archived'" expected="1" reason="the sixth word is in the closed list, and in no second list beside it" -->
+
+This word and no other. Every word on the list is a way for a document to go
+dark, so a word joins only when it cannot mean anything but "kept for the
+record, not in force". `archived` is written by a tool as the last step of
+closing a round, never typed into a document still meant to govern. The words
+near it are not: `done`, `complete` and `closed` describe a brief whose goals
+were met - which is when rules about the finished state should start holding -
+and `inactive`, `obsolete` and `retired` are words nothing writes and anyone
+might. They stay in force, as do `archive` and `archival`, by the rule above.
+
+Everything else here applies unchanged: an archived document is parsed,
+validated and named in every output format, and `--ignore-status` executes it.
