@@ -16,6 +16,7 @@ import type {
   ConfigUse,
   DirectiveError,
   InactiveSpec,
+  MaskedDirective,
   ProveClaim,
   ProveOutcome,
   ProveReport,
@@ -245,6 +246,36 @@ function formatSpecWarnings(warnings: readonly SpecWarning[] | undefined, paint:
   return lines.length === 0 ? [] : [...lines, ''];
 }
 
+/** How many locations the line about masked directives names before it counts the rest. */
+const MASKED_SHOWN = 5;
+
+/**
+ * The one line that counts the directive-shaped comments no rule was read
+ * from, and says where: dim, as a withheld document is, since most are
+ * examples shown on purpose. The first few are named, and every one under
+ * `--verbose`; JSON names them all.
+ */
+function formatMasked(masked: readonly MaskedDirective[] | undefined, paint: ReturnType<typeof createPainter>, glyphs: ReturnType<typeof symbols>, verbose: boolean): string[] {
+  const all = masked ?? [];
+  if (all.length === 0) return [];
+  const shown = verbose ? all : all.slice(0, MASKED_SHOWN);
+  const places = shown.map(({ location }) => `${location.relativeFile}:${location.line}`).join(', ');
+  const rest = all.length - shown.length;
+  const was = all.length === 1 ? 'was' : 'were';
+  return [
+    paint(
+      `${glyphs.skip} ${countLabel(all.length, 'directive-shaped comment')} in code, raw HTML or front matter ${was} not run: ${places}${rest > 0 ? ` and ${rest} more` : ''}`,
+      'dim',
+    ),
+    '',
+  ];
+}
+
+/** Directive-shaped comments as a script reads them, each with what hid it. */
+function maskedJson(masked: readonly MaskedDirective[] | undefined): Array<{ spec: { file: string; line: number; column: number }; inside: string }> {
+  return (masked ?? []).map(({ location, inside }) => ({ spec: { file: location.relativeFile, line: location.line, column: location.column }, inside }));
+}
+
 /** A document's warnings as a script reads them, placed as errors are. */
 function specWarningsJson(warnings: readonly SpecWarning[] | undefined): Array<{ spec: { file: string; line: number; column: number }; message: string }> {
   return (warnings ?? []).map((warning) => ({
@@ -373,6 +404,7 @@ export function formatReport(report: RunResult, options: ReporterOptions, maxSni
     lines.push(paint(`${glyphs.skip} ${spec.file} is ${spec.label} - ${detail}`, 'dim'));
   }
   if (report.inactiveSpecs.length > 0) lines.push('');
+  lines.push(...formatMasked(report.maskedDirectives, paint, glyphs, options.verbose));
 
   const optionLines = formatOptionLines(report.config, report.exclude);
   if (optionLines.length > 0) lines.push(...optionLines, '');
@@ -496,6 +528,7 @@ export function formatJson(report: RunResult): string {
       })),
       warnings: report.warnings,
       specWarnings: specWarningsJson(report.specWarnings),
+      maskedDirectives: maskedJson(report.maskedDirectives),
       inactiveSpecs: report.inactiveSpecs,
       // Always present, as every other list is: an audit records "no project
       // exclusions" as surely as it records which.
@@ -763,6 +796,7 @@ export function formatProve(report: ProveReport, options: ReporterOptions): stri
     lines.push(paint(`${glyphs.skip} ${spec.file} is ${spec.label} - ${countLabel(spec.directives, 'rule')} not proved`, 'dim'));
   }
   if (report.inactiveSpecs.length > 0) lines.push('');
+  lines.push(...formatMasked(report.maskedDirectives, paint, glyphs, options.verbose));
 
   const optionLines = formatOptionLines(report.config, report.exclude);
   if (optionLines.length > 0) lines.push(...optionLines, '');
@@ -820,6 +854,7 @@ export function formatProveJson(report: ProveReport): string {
         raw: error.raw,
       })),
       specWarnings: specWarningsJson(report.specWarnings),
+      maskedDirectives: maskedJson(report.maskedDirectives),
       inactiveSpecs: report.inactiveSpecs,
       exclude: report.exclude,
       config: report.config,
