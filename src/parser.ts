@@ -31,6 +31,7 @@ import type {
   ParseResult,
   SourceLocation,
   SpecStatus,
+  SpecWarning,
 } from './types.js';
 
 /** Every directive spec-guard understands. */
@@ -206,21 +207,53 @@ function toStatus(raw: string, source: SpecStatus['source']): SpecStatus | undef
   return { value, label, source, active: !INACTIVE_STATUSES.has(value) };
 }
 
+/** A document's status as read, or why front matter's could not be, and on which line. */
+interface StatusReading {
+  status?: SpecStatus;
+  problem?: { line: number; message: string };
+}
+
 /**
- * The status front matter declares, read as YAML reads it.
+ * The status front matter declares, read as YAML reads it, or undefined when
+ * front matter names none.
  *
  * spec-core's reader, which the family's tools share: a quoted value is taken
  * up to its closing quote and a plain one up to a comment, as the one-line
  * reader this replaced did - MADR's own template quotes the status, and
  * `"proposed" # decided at review` is proposed. Quotes and `#` are syntax here
- * and nowhere else. A value the reader refuses - one continued onto the next
- * line, text after a closing quote, `: ` in a plain value - declares nothing,
- * which leaves the document in force.
+ * and nowhere else.
+ *
+ * A `status` key decides, whether or not its value can be read. One the reader
+ * refuses - continued onto the next line, text after a closing quote, `: ` in
+ * a plain value - or one with no word in it declares no status, which leaves
+ * the document in force, and says why. It used to be skipped, and then a
+ * `## Status` section or a `Status:` line further down was read in its place:
+ * `status: "accepted" (2024-05-01)` above a section still saying `Proposed`
+ * took an accepted decision out of force.
  */
-function fromFrontmatter(scan: MarkdownScan): SpecStatus | undefined {
+function fromFrontmatter(scan: MarkdownScan): StatusReading | undefined {
   if (scan.frontMatter === null) return undefined;
   const entry = findEntry(readFrontMatter(scan.text.slice(0, scan.frontMatter.bodyStart)), 'status');
-  return entry?.value.kind === 'scalar' ? toStatus(entry.value.scalar.text, 'frontmatter') : undefined;
+  if (entry === undefined) return undefined;
+  const { value } = entry;
+  const status = value.kind === 'scalar' ? toStatus(value.scalar.text, 'frontmatter') : undefined;
+  if (status !== undefined) return { status };
+  const reason =
+    value.kind === 'unsupported'
+      ? value.reason
+      : value.kind === 'list'
+        ? 'a list is not a status'
+        : value.scalar.text.trim() === ''
+          ? 'it is empty'
+          : `"${value.scalar.text}" does not begin with a word`;
+  return {
+    problem: {
+      // The reader counts lines from 0 in the text the scan read, which is the
+      // document's own lines after any byte-order mark.
+      line: entry.line + 1,
+      message: `the status in front matter cannot be read (${reason}), so its status is unrecognised and the document stays in force; a status written below the front matter is not read in its place`,
+    },
+  };
 }
 
 /**
@@ -270,19 +303,21 @@ function fromLabel(scan: MarkdownScan): SpecStatus | undefined {
  *
  * Three spellings are recognised because three are in use, including two in
  * this repository's own ADRs: YAML front-matter (MADR), a `## Status` section
- * (Nygard), and a bold `**Status:**` label. Front-matter wins when present -
- * it is machine-readable metadata rather than a convention read out of prose.
+ * (Nygard), and a bold `**Status:**` label. Front-matter wins when it has a
+ * `status` key, readable or not - it is machine-readable metadata rather than
+ * a convention read out of prose, and a value it cannot read is no licence to
+ * read the prose instead.
  *
  * The section and the label are read with code masked, so a document that
  * documents this syntax inside a fence - this project's README does - is not
  * read as declaring a status.
  */
 export function parseStatus(source: string): SpecStatus | undefined {
-  return statusOf(scanMarkdown(source));
+  return statusOf(scanMarkdown(source)).status;
 }
 
-function statusOf(scan: MarkdownScan): SpecStatus | undefined {
-  return fromFrontmatter(scan) ?? fromHeading(scan) ?? fromLabel(scan);
+function statusOf(scan: MarkdownScan): StatusReading {
+  return fromFrontmatter(scan) ?? { status: fromHeading(scan) ?? fromLabel(scan) };
 }
 
 /**
@@ -442,6 +477,13 @@ function directivesOf(source: string, scan: MarkdownScan, context: ParseContext)
     directives.push({ kind: kind as DirectiveKind, attributes, location, raw });
   }
 
-  const status = statusOf(scan);
-  return status ? { directives, errors, status } : { directives, errors };
+  const { status, problem } = statusOf(scan);
+  const warnings: SpecWarning[] =
+    problem === undefined ? [] : [{ location: { file: context.file, relativeFile: context.relativeFile, line: problem.line, column: 1 }, message: problem.message }];
+  return {
+    directives,
+    errors,
+    ...(status === undefined ? {} : { status }),
+    ...(warnings.length === 0 ? {} : { warnings }),
+  };
 }

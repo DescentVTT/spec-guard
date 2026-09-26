@@ -609,6 +609,7 @@ describe('check_architecture', () => {
       errors: [],
       inactiveSpecs: [{ file: 'docs/adr/0002-clocks.md', status: 'proposed', label: 'proposed', directives: 1 }],
       warnings: [],
+      specWarnings: [],
     });
     expect(structured['failures']).toEqual([
       {

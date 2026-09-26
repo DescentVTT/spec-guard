@@ -10,7 +10,18 @@
 import { createHash } from 'node:crypto';
 
 import { mergeLedgers, tallyLedger, type ScopeLedger } from './scope.js';
-import type { AssertionResult, CitesReport, ConfigUse, DirectiveError, InactiveSpec, ProveClaim, ProveOutcome, ProveReport, ProveResult } from './types.js';
+import type {
+  AssertionResult,
+  CitesReport,
+  ConfigUse,
+  DirectiveError,
+  InactiveSpec,
+  ProveClaim,
+  ProveOutcome,
+  ProveReport,
+  ProveResult,
+  SpecWarning,
+} from './types.js';
 import type { RunResult } from './runner.js';
 
 export interface ReporterOptions {
@@ -224,6 +235,25 @@ function formatError(
 }
 
 /**
+ * What changed how a document was read, on the line it happened. Yellow, as a
+ * note is: nothing failed, but a rule may not have run where it was written.
+ */
+function formatSpecWarnings(warnings: readonly SpecWarning[] | undefined, paint: ReturnType<typeof createPainter>, glyphs: ReturnType<typeof symbols>): string[] {
+  const lines = (warnings ?? []).map(
+    (warning) => `${paint(glyphs.warn, 'yellow')} ${paint(`${warning.location.relativeFile}:${warning.location.line}  ${warning.message}`, 'yellow')}`,
+  );
+  return lines.length === 0 ? [] : [...lines, ''];
+}
+
+/** A document's warnings as a script reads them, placed as errors are. */
+function specWarningsJson(warnings: readonly SpecWarning[] | undefined): Array<{ spec: { file: string; line: number; column: number }; message: string }> {
+  return (warnings ?? []).map((warning) => ({
+    spec: { file: warning.location.relativeFile, line: warning.location.line, column: warning.location.column },
+    message: warning.message,
+  }));
+}
+
+/**
  * The line that says which options came from a project's configuration.
  *
  * Unpainted, in every report that took any: an option in a file nobody is
@@ -289,6 +319,7 @@ export function formatReport(report: RunResult, options: ReporterOptions, maxSni
     lines.push(`${paint(glyphs.warn, 'yellow')} ${paint(warning, 'yellow')}`);
   }
   if (report.warnings.length > 0) lines.push('');
+  lines.push(...formatSpecWarnings(report.specWarnings, paint, glyphs));
 
   // A passing assertion's own warnings - references that could not be resolved,
   // files no layer constrains, a target that is not there - print whether or not
@@ -464,6 +495,7 @@ export function formatJson(report: RunResult): string {
         raw: error.raw,
       })),
       warnings: report.warnings,
+      specWarnings: specWarningsJson(report.specWarnings),
       inactiveSpecs: report.inactiveSpecs,
       // Always present, as every other list is: an audit records "no project
       // exclusions" as surely as it records which.
@@ -515,14 +547,22 @@ const SARIF_RULES: ReadonlyArray<{ id: string; text: string }> = [
  * which GitHub surfaces as run information rather than as an alert.
  */
 function inactiveNotifications(report: RunResult): Array<{ level: string; message: { text: string } }> {
-  return report.inactiveSpecs.map((spec) => ({
-    level: 'note',
-    message: {
-      text:
-        `${spec.file} is ${spec.label}, so ` +
-        `${spec.directives === 1 ? 'its 1 assertion was' : `its ${spec.directives} assertions were`} not executed.`,
-    },
-  }));
+  return [
+    ...report.inactiveSpecs.map((spec) => ({
+      level: 'note',
+      message: {
+        text:
+          `${spec.file} is ${spec.label}, so ` +
+          `${spec.directives === 1 ? 'its 1 assertion was' : `its ${spec.directives} assertions were`} not executed.`,
+      },
+    })),
+    // A document read differently from how it was written runs different
+    // rules, and the page a reviewer reads would otherwise not say so.
+    ...(report.specWarnings ?? []).map((warning) => ({
+      level: 'warning',
+      message: { text: `${warning.location.relativeFile}:${warning.location.line} ${warning.message}` },
+    })),
+  ];
 }
 
 interface SarifLocation {
@@ -628,7 +668,7 @@ export function formatSarif(report: RunResult, options: { version?: string } = {
         {
           // Present only when there is something to say. An empty invocations
           // block is noise in every consumer that renders one.
-          ...(report.inactiveSpecs.length > 0
+          ...(report.inactiveSpecs.length + (report.specWarnings?.length ?? 0) > 0
             ? {
                 invocations: [
                   { executionSuccessful: report.ok, toolExecutionNotifications: inactiveNotifications(report) },
@@ -717,6 +757,7 @@ export function formatProve(report: ProveReport, options: ReporterOptions): stri
   }
 
   for (const error of report.errors) lines.push(...formatError(error, paint, glyphs), '');
+  lines.push(...formatSpecWarnings(report.specWarnings, paint, glyphs));
 
   for (const spec of report.inactiveSpecs) {
     lines.push(paint(`${glyphs.skip} ${spec.file} is ${spec.label} - ${countLabel(spec.directives, 'rule')} not proved`, 'dim'));
@@ -778,6 +819,7 @@ export function formatProveJson(report: ProveReport): string {
         message: error.message,
         raw: error.raw,
       })),
+      specWarnings: specWarningsJson(report.specWarnings),
       inactiveSpecs: report.inactiveSpecs,
       exclude: report.exclude,
       config: report.config,
@@ -944,6 +986,18 @@ function inactiveAnnotations(inactive: readonly InactiveSpec[], what: 'assertion
   }));
 }
 
+/** What changed how a document was read, on the line it happened: a warning, which fails nothing. */
+function warningAnnotations(warnings: readonly SpecWarning[] | undefined): Annotation[] {
+  return (warnings ?? []).map((warning) => ({
+    rule: 'spec-warning',
+    level: 'warning',
+    severity: 'minor',
+    file: warning.location.relativeFile,
+    line: warning.location.line,
+    message: warning.message,
+  }));
+}
+
 /** A directive that could not be read: nothing it states was checked. */
 function errorAnnotations(errors: readonly DirectiveError[]): Annotation[] {
   return errors.map((error) => ({
@@ -981,7 +1035,12 @@ export function runAnnotations(report: RunResult): Annotation[] {
         message: `${result.description}: ${result.message} (${result.location.relativeFile}:${result.location.line})`,
       };
     });
-  return [...failed, ...errorAnnotations(report.errors), ...inactiveAnnotations(report.inactiveSpecs, 'assertion', 'executed')];
+  return [
+    ...failed,
+    ...errorAnnotations(report.errors),
+    ...warningAnnotations(report.specWarnings),
+    ...inactiveAnnotations(report.inactiveSpecs, 'assertion', 'executed'),
+  ];
 }
 
 /**
@@ -1011,7 +1070,12 @@ export function proveAnnotations(report: ProveReport): Annotation[] {
         message: `${result.description}: ${detail}`,
       };
     });
-  return [...results, ...errorAnnotations(report.errors), ...inactiveAnnotations(report.inactiveSpecs, 'rule', 'proved')];
+  return [
+    ...results,
+    ...errorAnnotations(report.errors),
+    ...warningAnnotations(report.specWarnings),
+    ...inactiveAnnotations(report.inactiveSpecs, 'rule', 'proved'),
+  ];
 }
 
 /* -------------------------------------------------------------------- cites */
