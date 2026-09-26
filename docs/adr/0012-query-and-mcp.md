@@ -219,6 +219,11 @@ answered.
   executed, and is still resolved, so a malformed directive is an error whatever
   is selected.
 
+A third tool, `get_dependents(paths, depth?, include_inactive?)`, was added on
+2026-09-26, annotated as these two are: `spec-guard impact`, answered with the
+document `impact --json` writes ([ADR-0018](0018-impact.md)'s amendment). The
+instructions name all three and when to call each.
+
 A bad argument is a tool error the model can read, with `isError: true`. An
 unknown tool or a malformed request is a protocol error. Each result carries the
 data as `structuredContent` and a human rendering as its text. The specification

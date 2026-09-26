@@ -886,6 +886,12 @@ to its checks.
 | --- | --- |
 | `get_architectural_rules(path, include_inactive?)` | The query above, as text and as structured content |
 | `check_architecture(paths?)` | A run. Given paths, only the rules that govern them, each over its whole scope, with every violation marked as in those paths or not |
+| `get_dependents(paths, depth?, include_inactive?)` | [`impact`](#who-depends-on-this---impact): the files that import each path, however far away, with the import that leads there, the imports that could not be followed, and the rules in play. The structured content is the document `impact --json` writes |
+
+All three are marked read-only, idempotent and closed-world. The server's
+instructions tell an agent when to call each: the rules before creating or
+changing a file, the dependents before changing a file others import, and the
+check after changing files.
 
 | Resource | What it holds |
 | --- | --- |
@@ -1059,7 +1065,8 @@ src/db/client.ts
 A directory asks about every file under it. `--depth <n>` stops `n` imports
 away; cycles are safe. `--ignore-status` lists rules from documents not in
 force, which are otherwise counted, as `query` does. `--json` is versioned by
-`formatVersion`. A path that does not exist exits 2.
+`formatVersion`. A path that does not exist exits 2. The MCP server answers the
+same question as `get_dependents`, with the same document.
 [ADR-0018](docs/adr/0018-impact.md) has the table and what it leaves out.
 
 ## CLI

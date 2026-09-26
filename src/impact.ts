@@ -443,7 +443,16 @@ export function formatImpact(report: ImpactReport): string {
  */
 export const IMPACT_FORMAT_VERSION = 1;
 
+/**
+ * The document `impact --json` writes, and the MCP server's `get_dependents`
+ * answers with as its structured content: one object, so the two cannot
+ * drift apart.
+ */
+export function impactDocument(report: ImpactReport): { formatVersion: number } & ImpactReport {
+  return { formatVersion: IMPACT_FORMAT_VERSION, ...report, durationMs: Math.round(report.durationMs * 1000) / 1000 };
+}
+
 /** The JSON form of an impact report. */
 export function formatImpactJson(report: ImpactReport): string {
-  return JSON.stringify({ formatVersion: IMPACT_FORMAT_VERSION, ...report, durationMs: Math.round(report.durationMs * 1000) / 1000 }, null, 2);
+  return JSON.stringify(impactDocument(report), null, 2);
 }

@@ -7,12 +7,13 @@
  * copied into `src/vendor` and verified by hash (ADR-0015). It was written
  * here first and moved there so that a second server in the family does not
  * relearn it. What is spec-guard's, and stays here, is what the server says:
- * its instructions, its two tools, and the rules and documents it serves as
+ * its instructions, its three tools, and the rules and documents it serves as
  * resources. ADR-0012 has the rest, including what this server deliberately
- * does not implement.
+ * does not implement; ADR-0018 has `get_dependents`.
  */
 
 import { toPosix } from './glob.js';
+import { formatImpact, ImpactError, impactDocument, impactOf } from './impact.js';
 import { nodeIo, readText } from './io.js';
 import { formatReport } from './reporter.js';
 import { elapsed, runSpecGuard, type RunOptions } from './runner.js';
@@ -71,6 +72,8 @@ export const INSTRUCTIONS =
   'spec-guard enforces the architecture decisions written in this project\'s Markdown specs and ADRs. ' +
   'Before creating or changing a file, call get_architectural_rules with its path to learn the rules in force there: ' +
   'imports it must not make, the layer it belongs to, what it must be named and the files it needs beside it, text it must not contain. ' +
+  'Before changing a file that other files import - renaming or removing an export, changing what a function takes or returns - ' +
+  'call get_dependents with its path to learn every file the change can reach and the rules in force over them. ' +
   'After changing files, call check_architecture with their paths to find violations before CI does. ' +
   'Rules in draft, proposed, rejected, deprecated, superseded or archived documents are not in force and are only counted.';
 
@@ -125,8 +128,45 @@ const CHECK_ARCHITECTURE = {
   annotations: READ_ONLY,
 };
 
+const GET_DEPENDENTS = {
+  name: 'get_dependents',
+  title: 'Files that depend on a path',
+  description:
+    'Lists the files that import each given file or directory, directly or through other files, ' +
+    'each with how many imports away it is and the import that leads there, ' +
+    'and the architecture rules in force that govern the paths or any of those files. ' +
+    'Call it before changing a file that other files import - renaming or removing an export, changing a signature - ' +
+    'to see everything the change can reach. ' +
+    'Relative JavaScript, TypeScript and Python imports are followed; an import that cannot be resolved is listed, ' +
+    'and Go, Rust, C# and absolute Python imports, which name modules rather than files, are counted, never guessed, ' +
+    'so a short list is not mistaken for a complete one. Reads the codebase on disk, so every path must exist.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      paths: {
+        type: 'array',
+        items: { type: 'string' },
+        minItems: 1,
+        description: 'Files or directories that exist, relative to the project root or absolute inside it.',
+      },
+      depth: {
+        type: 'integer',
+        minimum: 1,
+        description: 'Follow dependents at most this many imports away. Omit to follow every one.',
+      },
+      include_inactive: {
+        type: 'boolean',
+        description: 'Also list rules from draft, proposed, rejected, deprecated, superseded and archived documents.',
+      },
+    },
+    required: ['paths'],
+    additionalProperties: false,
+  },
+  annotations: READ_ONLY,
+};
+
 /** What `tools/list` answers, in the order it lists them. */
-export const TOOLS: readonly JsonObject[] = [GET_RULES, CHECK_ARCHITECTURE];
+export const TOOLS: readonly JsonObject[] = [GET_RULES, CHECK_ARCHITECTURE, GET_DEPENDENTS];
 
 export const RULES_URI = 'spec://rules';
 export const DOCUMENT_URI_PREFIX = 'spec://doc/';
@@ -187,17 +227,18 @@ export interface McpServerOptions {
 /**
  * One of the server's tools.
  *
- * A path argument outside the root is the model's to fix, so it hears the
- * message alone. Anything else a tool throws is caught by the protocol layer
- * and reported after the server's name, "spec-guard failed: ...", which is
- * still better than a protocol failure the model cannot read.
+ * A path argument outside the root, or one that must exist and does not, is
+ * the model's to fix, so it hears the message alone. Anything else a tool
+ * throws is caught by the protocol layer and reported after the server's name,
+ * "spec-guard failed: ...", which is still better than a protocol failure the
+ * model cannot read.
  */
 function tool(descriptor: JsonObject & { name: string }, run: (args: JsonObject) => Promise<ToolOutcome>): ToolDefinition {
   return {
     descriptor,
     call: (args) =>
       run(args).catch((error: unknown) => {
-        if (error instanceof QueryPathError) return toolError(error.message);
+        if (error instanceof QueryPathError || error instanceof ImpactError) return toolError(error.message);
         throw error;
       }),
   };
@@ -308,6 +349,39 @@ export function createMcpHandler(options: McpServerOptions): (message: unknown) 
     return { text, structured };
   }
 
+  /**
+   * `spec-guard impact`, answered as `impact --json` answers: the same
+   * document, and the human report as the text. Unlike the other two tools it
+   * answers without specs, as the command does, since who imports a file does
+   * not depend on them; the report says no rules are shown.
+   */
+  async function getDependents(args: JsonObject): Promise<ToolOutcome> {
+    const unknown = unknownArguments(args, ['paths', 'depth', 'include_inactive']);
+    if (unknown) return unknown;
+    const paths = args['paths'];
+    if (!Array.isArray(paths) || paths.length === 0 || !paths.every((entry) => typeof entry === 'string')) {
+      return toolError('"paths" is required and must be a non-empty array of strings.');
+    }
+    const depth = args['depth'];
+    if (depth !== undefined && !(Number.isInteger(depth) && (depth as number) >= 1)) {
+      return toolError('"depth" must be a whole number of 1 or more: a depth of 0 would follow no import.');
+    }
+    const settings = await current();
+    const includeInactive = args['include_inactive'] ?? settings.run?.ignoreStatus ?? false;
+    if (typeof includeInactive !== 'boolean') return toolError('"include_inactive" must be true or false.');
+
+    const report = {
+      ...(await impactOf({
+        ...ruleSetOptions(settings),
+        paths: paths as string[],
+        ...(depth === undefined ? {} : { depth: depth as number }),
+        includeInactive,
+      })),
+      config: settings.config,
+    };
+    return { text: formatImpact(report), structured: { ...impactDocument(report) } };
+  }
+
   function rulesResource(ruleSet: RuleSet): JsonObject {
     return {
       root: toPosix(options.root),
@@ -374,7 +448,7 @@ export function createMcpHandler(options: McpServerOptions): (message: unknown) 
     name: SERVER_NAME,
     version: options.version,
     instructions: INSTRUCTIONS,
-    tools: [tool(GET_RULES, getRules), tool(CHECK_ARCHITECTURE, checkArchitecture)],
+    tools: [tool(GET_RULES, getRules), tool(CHECK_ARCHITECTURE, checkArchitecture), tool(GET_DEPENDENTS, getDependents)],
     resources,
   });
 }

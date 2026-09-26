@@ -197,6 +197,7 @@ describe.skipIf(!built)('spec-guard mcp, as a client launches it', () => {
         '{"jsonrpc":"2.0","method":"notifications/initialized"}',
         '{"jsonrpc":"2.0","id":2,"method":"tools/list"}',
         '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"get_architectural_rules","arguments":{"path":"src/runner.ts"}}}',
+        '{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"get_dependents","arguments":{"paths":["src/impact.ts"],"depth":1}}}',
       ],
       SPECS,
     );
@@ -204,12 +205,15 @@ describe.skipIf(!built)('spec-guard mcp, as a client launches it', () => {
     expect(outcome.code).toBe(0);
     const messages = outcome.stdout.split('\n').filter((line) => line.length > 0).map((line) => JSON.parse(line) as { id: number; result: Record<string, unknown> });
     expect(outcome.stdout.endsWith('\n')).toBe(true);
-    expect(messages.map((message) => message.id).sort()).toEqual([1, 2, 3]);
+    expect(messages.map((message) => message.id).sort()).toEqual([1, 2, 3, 4]);
     const byId = new Map(messages.map((message) => [message.id, message.result]));
     expect(byId.get(1)).toMatchObject({ protocolVersion: '2025-11-25', serverInfo: { name: 'spec-guard' } });
-    expect((byId.get(2)?.['tools'] as Array<{ name: string }>).map((entry) => entry.name)).toEqual(['get_architectural_rules', 'check_architecture']);
+    expect((byId.get(2)?.['tools'] as Array<{ name: string }>).map((entry) => entry.name)).toEqual(['get_architectural_rules', 'check_architecture', 'get_dependents']);
     const rules = byId.get(3)?.['structuredContent'] as { results: Array<{ rules: Array<{ kind: string }> }> };
     expect(rules.results[0]?.rules.map((rule) => rule.kind)).toContain('assert-layers');
+    // The server's own dependents: the command line and the server import impact.
+    const dependents = byId.get(4)?.['structuredContent'] as { results: Array<{ dependents: Array<{ file: string }> }> };
+    expect(dependents.results[0]?.dependents.map((dependent) => dependent.file)).toEqual(expect.arrayContaining(['src/cli.ts', 'src/mcp.ts']));
     expect(outcome.stderr).toContain('MCP server on stdio');
   });
 
