@@ -624,17 +624,50 @@ export function globBase(pattern: string): { base: string; rest: string } {
   return { base: base.join('/'), rest: segments.slice(index).join('/') };
 }
 
+/** A spec glob, read: where its walk starts, and what below there it matches. */
+interface SpecGlob {
+  /** The literal directories the pattern starts with, and whether they are absolute. */
+  base: string;
+  absolute: boolean;
+  normalized: string;
+  reading: Reading;
+}
+
+/**
+ * A spec pattern that holds glob syntax, read.
+ *
+ * Walked from its literal base and matched below it, so the base is never read
+ * as a glob: `../shared/docs/*.md` names a directory outside the root, whose
+ * `..` a glob may not hold, and `C:/repo/docs/*.md` a drive. What is below is
+ * read as `glob=` reads the pattern: `*.md` by name at any depth, `docs/*.md`
+ * as the whole path.
+ */
+function readSpecGlob(pattern: string): SpecGlob {
+  const normalized = normalizeGlob(toPosix(pattern));
+  const absolute = path.isAbsolute(normalized);
+  const { base, rest } = globBase(normalized);
+  // With no base, what is left is the whole pattern, and reads as glob= does.
+  // Below a base every alternative is anchored, since each holds the base's `/`.
+  return { base, absolute, normalized, reading: base === '' && !absolute ? readInclude(rest) : readWhole(rest) };
+}
+
+/**
+ * Why a spec pattern cannot be read, or null when it can.
+ *
+ * Asked by the command line and the configuration before anything runs, in the
+ * words `expandSpecPatterns` would throw. A path with no glob syntax is a path,
+ * found or not; only a glob can be malformed.
+ */
+export function specPatternError(pattern: string): string | null {
+  return isGlob(toPosix(pattern)) ? refusal(readSpecGlob(pattern).reading, 'spec', pattern) : null;
+}
+
 /**
  * Expands CLI spec patterns into a sorted, de-duplicated list of absolute file
  * paths. Plain paths are taken literally; a directory expands to the Markdown
- * files it contains.
- *
- * A glob is walked from its literal base and matched below it, so the base is
- * never read as a glob: `../shared/docs/*.md` names a directory outside the
- * root, whose `..` a glob may not hold, and `C:/repo/docs/*.md` a drive. What
- * is below is read as `glob=` reads the pattern: `*.md` by name at any depth,
- * `docs/*.md` as the whole path. A pattern spec-core refuses is an error that
- * names it, where it used to be read as a literal and match nothing.
+ * files it contains; a glob is read by `readSpecGlob`. A pattern spec-core
+ * refuses is an error that names it, where it used to be read as a literal and
+ * match nothing.
  */
 export async function expandSpecPatterns(
   patterns: readonly string[],
@@ -662,13 +695,9 @@ export async function expandSpecPatterns(
       continue;
     }
 
-    const normalized = normalizeGlob(pattern);
-    const isAbsolutePattern = path.isAbsolute(normalized);
-    const { base, rest } = globBase(normalized);
-    const walkRoot = isAbsolutePattern ? base || path.parse(normalized).root : path.resolve(root, base);
-    // With no base, what is left is the whole pattern, and reads as glob= does.
-    // Below a base every alternative is anchored, since each holds the base's `/`.
-    const matches = matcherOf(base === '' && !isAbsolutePattern ? readInclude(rest) : readWhole(rest), 'spec', rawPattern);
+    const { base, absolute, normalized, reading } = readSpecGlob(pattern);
+    const walkRoot = absolute ? base || path.parse(normalized).root : path.resolve(root, base);
+    const matches = matcherOf(reading, 'spec', rawPattern);
 
     for await (const file of walkPaths(walkRoot, { io })) {
       if (matches(file.relativePath)) found.add(file.absolutePath);

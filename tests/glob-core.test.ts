@@ -30,9 +30,10 @@ import {
   patternListError,
   patternShape,
   ripgrepGlobs,
+  specPatternError,
   type PatternShape,
 } from '../src/glob.js';
-import { EXIT_ERROR, EXIT_OK, main, type CliIO } from '../src/cli.js';
+import { EXIT_ERROR, EXIT_FAILED, EXIT_OK, main, type CliIO } from '../src/cli.js';
 import { parseDirectives } from '../src/parser.js';
 import { resolveDirective, runSpecGuard } from '../src/runner.js';
 import { compileGlob } from '../src/vendor/spec-core/pattern/index.js';
@@ -604,5 +605,126 @@ describe('the command line', () => {
     const { code, out } = await run({ ...PROJECT, '.spec-guard.json': JSON.stringify({ exclude: ['src/{gen,out}'] }) }, ['--engine', 'js']);
     expect(code).toBe(EXIT_OK);
     expect(out.join('\n')).toContain('options from .spec-guard.json: exclude (src/{gen,out})');
+  });
+});
+
+/* ------------------------------------------------- ** inside a name, everywhere */
+
+describe('** inside a name, wherever a pattern is given', () => {
+  // The review's repro. `docs/**.md` found both ADRs under 0.11.0, whose
+  // RegExp crossed directories, and the nested one fails. Read as `*`, as the
+  // first copy of spec-core read it, the run found one spec and passed.
+  const REASON = '"**" means any number of directories only as a whole segment: write "docs/**/*.md" for any depth, or "*.md" for one level';
+  const TREE = {
+    'docs/adr/0001-kept.md': '# ADR-0001\n\n<!-- @assert-absence target="src" symbol="Nowhere" -->\n',
+    'docs/adr/nested/0002-broken.md': '# ADR-0002\n\n<!-- @assert-absence target="src" symbol="LegacyGateway" -->\n',
+    'src/main.ts': 'export const gateway = "LegacyGateway";\n',
+    'src/deep/a.ts': 'LegacyGateway;\n',
+  };
+  const temporary: string[] = [];
+  afterAll(async () => {
+    await Promise.all(temporary.splice(0).map(removeTempRepo));
+  });
+
+  async function run(files: Record<string, string>, argv: string[]): Promise<{ code: number; out: string[]; err: string[] }> {
+    const root = await makeTempRepo(files);
+    temporary.push(root);
+    const out: string[] = [];
+    const err: string[] = [];
+    const cli: CliIO = { stdout: (text) => out.push(text), stderr: (text) => err.push(text), env: { NO_COLOR: '1' }, cwd: root, isTTY: false };
+    return { code: await main(argv, cli), out, err };
+  }
+
+  it('is refused in the configuration\'s specs, naming the file, where the nested ADR used to fail the run', async () => {
+    const configured = await run({ ...TREE, 'package.json': JSON.stringify({ specGuard: { specs: ['docs/**.md'] } }) }, ['--engine', 'js']);
+    expect(configured.code).toBe(EXIT_ERROR);
+    expect(configured.out).toEqual([]);
+    expect(configured.err).toEqual([`spec-guard: package.json: "specGuard.specs" has an invalid spec pattern "docs/**.md": ${REASON}.`]);
+
+    // What the message says to write finds both, and the nested one fails.
+    const fixed = await run({ ...TREE, 'package.json': JSON.stringify({ specGuard: { specs: ['docs/**/*.md'] } }) }, ['--engine', 'js', '--json']);
+    expect(fixed.code).toBe(EXIT_FAILED);
+    const report = JSON.parse(fixed.out.join('\n')) as { summary: { specs: number; failed: number } };
+    expect(report.summary).toMatchObject({ specs: 2, failed: 1 });
+
+    const standalone = await run({ ...TREE, '.spec-guard.json': JSON.stringify({ specs: ['README.md', 'docs/**.md'] }) }, ['--engine', 'js']);
+    expect(standalone.code).toBe(EXIT_ERROR);
+    expect(standalone.err).toEqual([`spec-guard: .spec-guard.json: "specs" has an invalid spec pattern "docs/**.md": ${REASON}.`]);
+  });
+
+  it.each([
+    [['docs/**.md']],
+    [['--spec', 'docs/**.md']],
+    [['README.md', '--spec=docs/adr/**.md']],
+  ])('is refused on the command line: %j', async (argv) => {
+    const pattern = argv.find((arg) => arg.includes('**.md'))?.replace('--spec=', '') as string;
+    const { code, out, err } = await run(TREE, [...argv, '--engine', 'js']);
+    expect(code).toBe(EXIT_ERROR);
+    expect(out).toEqual([]);
+    expect(err).toEqual([`spec-guard: invalid spec pattern "${pattern}": ${REASON}`]);
+  });
+
+  it.each([['query', 'src/main.ts'], ['impact', 'src/main.ts'], ['cites'], ['prove'], ['mcp']])(
+    'is refused by spec-guard %s before it answers anything',
+    async (...command) => {
+      const { code, out, err } = await run(TREE, [...command, '--spec', 'docs/**.md']);
+      expect(code).toBe(EXIT_ERROR);
+      expect(out).toEqual([]);
+      expect(err).toEqual([`spec-guard: invalid spec pattern "docs/**.md": ${REASON}`]);
+    },
+  );
+
+  it('is refused in the configuration\'s exclude and in --exclude', async () => {
+    const option = await run(TREE, ['docs/**/*.md', '--exclude', 'src/**.ts', '--engine', 'js']);
+    expect(option.code).toBe(EXIT_ERROR);
+    expect(option.err[0]).toBe(`Option --exclude has an invalid exclude pattern "src/**.ts": ${REASON}.`);
+
+    const configured = await run({ ...TREE, '.spec-guard.json': JSON.stringify({ exclude: ['src/**.ts'] }) }, ['docs/**/*.md', '--engine', 'js']);
+    expect(configured.code).toBe(EXIT_ERROR);
+    expect(configured.err).toEqual([`spec-guard: .spec-guard.json: "exclude" has an invalid exclude pattern "src/**.ts": ${REASON}.`]);
+  });
+
+  it.each([
+    ['glob="src/**.ts"', 'Attribute "glob" has an invalid glob pattern "src/**.ts"'],
+    ['exclude="src/**.ts"', 'Attribute "exclude" has an invalid exclude pattern "src/**.ts"'],
+  ])('makes a directive with %s invalid, in force or not, and fails the run', async (attribute, message) => {
+    const directive = `<!-- @assert-absence target="src" symbol="LegacyGateway" ${attribute} -->`;
+    const tree = {
+      'docs/rules.md': `# Rules\n\n${directive}\n`,
+      'docs/draft.md': `# Draft\n\n**Status:** draft\n\n${directive}\n`,
+      'src/deep/a.ts': 'export {};\n',
+    };
+    const { code, out } = await run(tree, ['docs/*.md', '--engine', 'js', '--json']);
+    expect(code).toBe(EXIT_FAILED);
+    const report = JSON.parse(out.join('\n')) as { summary: { total: number; inactive: number }; errors: Array<{ spec: { file: string }; message: string }> };
+    expect(report.summary.total).toBe(0);
+    expect(report.errors.map((error) => [error.spec.file, error.message])).toEqual([
+      ['docs/draft.md', `${message}: ${REASON}.`],
+      ['docs/rules.md', `${message}: ${REASON}.`],
+    ]);
+  });
+
+  it.each([
+    ['<!-- @assert-import-absence target="src" module="db**" -->', 'Attribute "module" has an invalid module pattern "db**"'],
+    ['<!-- @assert-layers target="src" order="domain, infra**" -->', 'Attribute "order" has an invalid layer pattern "infra**"'],
+    ['<!-- @assert-structure target="src" pattern="**.ts" -->', 'Attribute "pattern" has an invalid glob pattern "**.ts"'],
+    ['<!-- @assert-structure target="packages" dirs="pkg**" required="package.json" -->', 'Attribute "dirs" has an invalid glob pattern "pkg**"'],
+    ['<!-- @assert-structure target="packages" required="**.json" -->', 'Required entry "**.json" has an invalid glob pattern "**.json"'],
+  ])('makes %s invalid', (source, message) => {
+    const { directives } = parseDirectives(source, { file: path.resolve('/virtual/docs/a.md'), relativeFile: 'docs/a.md' });
+    const resolved = resolveDirective(directives[0] as NonNullable<(typeof directives)[0]>, { root: path.resolve('/virtual'), excludeFiles: new Set() });
+    expect('error' in resolved ? resolved.error.message : null).toBe(`${message}: ${REASON}.`);
+  });
+
+  it('is named by specPatternError as expandSpecPatterns would name it, and a path without glob syntax is never refused', async () => {
+    expect(specPatternError('docs/**.md')).toBe(`invalid spec pattern "docs/**.md": ${REASON}`);
+    expect(specPatternError('**.md')).toBe(`invalid spec pattern "**.md": ${REASON}`);
+    expect(specPatternError('../shared/**/*.md')).toBeNull();
+    expect(specPatternError('docs/**/*.md')).toBeNull();
+    expect(specPatternError('notes/+(a|b).md')).toBeNull();
+    const root = path.resolve('/virtual/specs');
+    await expect(expandSpecPatterns(['docs/**.md'], root, undefined, memoryIo(root, { 'docs/a.md': '' }))).rejects.toThrow(
+      specPatternError('docs/**.md') as string,
+    );
   });
 });

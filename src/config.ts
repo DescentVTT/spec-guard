@@ -11,7 +11,7 @@
 
 import { citeFilesError, citeIdError } from './cites.js';
 import type { EnginePreference } from './engine.js';
-import { excludeListError } from './glob.js';
+import { excludeListError, patternListError, specPatternError } from './glob.js';
 import type { CiteFamily } from './types.js';
 
 /** The name the options sit under in `package.json`. */
@@ -120,10 +120,16 @@ function isObject(value: unknown): value is Record<string, unknown> {
  */
 function checkValue(key: ConfigKey, value: unknown): string | null {
   switch (key) {
-    case 'specs':
-      return Array.isArray(value) && value.length > 0 && value.every((entry) => typeof entry === 'string' && entry.trim() !== '')
-        ? null
-        : `must be a non-empty list of spec globs, got ${describe(value)}`;
+    case 'specs': {
+      if (!(Array.isArray(value) && value.length > 0 && value.every((entry) => typeof entry === 'string' && entry.trim() !== ''))) {
+        return `must be a non-empty list of spec globs, got ${describe(value)}`;
+      }
+      // Refused here, where the file and the key can be named, rather than when
+      // the run expands it: `docs/**.md` read either way it could be read
+      // would find a different set of documents than someone meant.
+      const error = patternListError(value as string[], specPatternError);
+      return error === null ? null : `has an ${error}`;
+    }
     case 'exclude': {
       if (!(Array.isArray(value) && value.every((entry) => typeof entry === 'string' && entry.trim() !== ''))) {
         return `must be a list of paths or globs to exclude, got ${describe(value)}`;
