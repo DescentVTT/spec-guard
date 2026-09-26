@@ -24,7 +24,7 @@ import {
   type ImpactOptions,
   type ImpactReport,
 } from '../src/impact.js';
-import { DEMO_REPO, FIXTURES_DIR, memoryIo } from './helpers.js';
+import { DEMO_REPO, FIXTURES_DIR, makeTempRepo, memoryIo, removeTempRepo } from './helpers.js';
 
 const ROOT = path.resolve('/virtual/impact');
 
@@ -122,7 +122,7 @@ describe('the graph, read backwards', () => {
 });
 
 describe('a relative Python import', () => {
-  const files = new Set(['app/__init__.py', 'app/db.py', 'app/api/__init__.py', 'app/types.pyi', '__init__.py', 'top.py', 'app/sub/x.py']);
+  const files = new Set(['app/__init__.py', 'app/db.py', 'app/api/__init__.py', 'app/types.pyi', '__init__.py', 'top.py', 'app/sub/x.py', 'stubs/__init__.pyi', 'stubs/pkg/__init__.pyi']);
 
   it('names the module beside it, a package, a stub, or else the package the name comes from', () => {
     expect(resolvePython('.db', 'app/api.py', files)).toBe('app/db.py');
@@ -132,11 +132,16 @@ describe('a relative Python import', () => {
     expect(resolvePython('..db', 'app/sub/x.py', files)).toBe('app/db.py');
     expect(resolvePython('..top', 'app/x.py', files)).toBe('top.py');
     expect(resolvePython('..NAME', 'app/x.py', files)).toBe('__init__.py');
+    expect(resolvePython('.pkg', 'stubs/x.py', files)).toBe('stubs/pkg/__init__.pyi');
+    expect(resolvePython('.NAME', 'stubs/x.py', files)).toBe('stubs/__init__.pyi');
   });
 
   it('names nothing when neither the module nor the package is a file the walk found', () => {
     expect(resolvePython('.db', 'lib/x.py', files)).toBeNull();
     expect(resolvePython('...db', 'app/x.py', files)).toBeNull();
+    // One dot names the root's own package; two would climb out of it.
+    expect(resolvePython('.top', 'x.py', files)).toBe('top.py');
+    expect(resolvePython('..top', 'x.py', files)).toBeNull();
   });
 });
 
@@ -182,6 +187,23 @@ describe('the walk back from a path', () => {
     expect(dependentsOf({ importers: twice }, ['x'])).toEqual([{ file: 'y', depth: 1, via: { imports: 'x', line: 3, specifier: './x.js' } }]);
     expect(dependentsOf({ importers: new Map() }, ['x'])).toEqual([]);
   });
+
+  it('walks each step in path order, so a file reached from two is reached through the first of them by path', () => {
+    const edge = (from: string, line: number) => ({ from, reference: { specifier: 'x', kind: 'import' as const, typeOnly: false, line, column: 1 } });
+    // t1 is imported by z and t2 by a, so the next step is found as z, a; m
+    // imports both, and is reached through a, which comes first by path.
+    const graph = new Map([
+      ['t1', [edge('z', 1)]],
+      ['t2', [edge('a', 1)]],
+      ['z', [edge('m', 5)]],
+      ['a', [edge('m', 9)]],
+    ]);
+    expect(dependentsOf({ importers: graph }, ['t1', 't2'])).toEqual([
+      { file: 'a', depth: 1, via: { imports: 't2', line: 1, specifier: 'x' } },
+      { file: 'z', depth: 1, via: { imports: 't1', line: 1, specifier: 'x' } },
+      { file: 'm', depth: 2, via: { imports: 'a', line: 9, specifier: 'x' } },
+    ]);
+  });
 });
 
 /* ------------------------------------------------------------------- report */
@@ -215,6 +237,18 @@ describe('the answer for a path', () => {
       '4 src/ui/button.js <- src/ui/view.tsx:1',
     ]);
     expect(dependents(report, 1)).toEqual(['1 src/ui/view.tsx <- src/app/cache.ts:1', '2 src/ui/button.js <- src/ui/view.tsx:1']);
+    // A file both paths reach is governed once.
+    expect(report.rules.find((rule) => rule.kind === 'assert-absence')?.governs).toEqual(['src/ui/view.tsx', 'src/ui/button.js']);
+  });
+
+  it('counts what it does not follow most first', async () => {
+    const report = await impact(['src/db/client.ts'], {}, { ...TREE, 'rs/src/more.rs': 'use a::b;\nuse c::d;\n' });
+    expect(report.unfollowed.map(({ kind, references }) => [kind, references])).toEqual([
+      ['Rust use', 4],
+      ['C# using', 2],
+      ['Go import', 2],
+      ['absolute Python import', 2],
+    ]);
   });
 
   it('follows relative Python imports, and counts the absolute ones', async () => {
@@ -294,6 +328,17 @@ describe('the rules in play', () => {
     expect(report.rules.map((rule) => [rule.kind, rule.governs])).toEqual([['assert-import-absence', ['py']]]);
     const none = await impact(['py'], { patterns: ['nowhere/*.md'] });
     expect([none.specFiles, none.rules, none.withheld, none.documents]).toEqual([[], [], { rules: 0, documents: [] }, []]);
+  });
+
+  it('lists the rules of documents not in force, when asked, and says whose they are', async () => {
+    const report = await impact(['src/app/cache.ts'], { includeInactive: true, depth: 1 });
+    expect(formatImpact(report)).toContain(
+      '\n  ADR-0002: Draft  (docs/adr/0002-draft.md, proposed - not in force)\n    :5 @assert-absence  "Date.now" must not appear in src/app\n      governs: src/app/cache.ts\n',
+    );
+    const two = await impact(['src/app/cache.ts'], { depth: 1 }, { ...TREE, 'docs/adr/0004-old.md': '**Status:** superseded\n\n<!-- @assert-absence target="src" symbol="x" -->\n' });
+    expect(formatImpact(two)).toContain(
+      '\n  2 more rules would govern them if docs/adr/0002-draft.md, docs/adr/0004-old.md were in force; --ignore-status lists them\n',
+    );
   });
 
   it('reports the directives that could not be read', async () => {
@@ -440,6 +485,32 @@ describe('spec-guard impact', () => {
     const parsed = JSON.parse(json.out[0] as string) as { formatVersion: number; depth: number; config?: unknown };
     expect([parsed.formatVersion, parsed.depth]).toEqual([1, 1]);
     expect(parsed.config).toMatchObject({ file: 'package.json', applied: ['specs', 'exclude'] });
+  });
+
+  it('passes the options it takes on: the specs, the exclusions, the default skips and --ignore-status', async () => {
+    const root = await makeTempRepo({
+      'rules/a.md': '**Status:** draft\n\n<!-- @assert-absence target="src" symbol="x" -->\n',
+      'src/a.ts': 'export {};\n',
+      'src/b.ts': "import './a.js';\n",
+      'gen/c.ts': "import '../src/a.js';\n",
+      'node_modules/d/i.js': "require('../../src/a.ts');\n",
+    });
+    try {
+      const at = async (...argv: string[]) => {
+        const out: string[] = [];
+        const io: CliIO = { stdout: (text) => out.push(text), stderr: () => {}, env: {}, cwd: root, isTTY: false };
+        expect(await main(['impact', 'src/a.ts', '--json', ...argv], io)).toBe(EXIT_OK);
+        const json = JSON.parse(out[0] as string) as ImpactReport;
+        return { dependents: json.results[0]?.dependents.map(({ file }) => file), rules: json.rules.length, specs: json.specFiles };
+      };
+      expect(await at()).toEqual({ dependents: ['gen/c.ts', 'src/b.ts'], rules: 0, specs: [] });
+      expect(await at('--spec', 'rules/*.md')).toEqual({ dependents: ['gen/c.ts', 'src/b.ts'], rules: 0, specs: ['rules/a.md'] });
+      expect(await at('--spec', 'rules/*.md', '--ignore-status')).toEqual({ dependents: ['gen/c.ts', 'src/b.ts'], rules: 1, specs: ['rules/a.md'] });
+      expect(await at('--exclude', 'gen')).toMatchObject({ dependents: ['src/b.ts'] });
+      expect(await at('--no-default-skips')).toMatchObject({ dependents: ['gen/c.ts', 'node_modules/d/i.js', 'src/b.ts'] });
+    } finally {
+      await removeTempRepo(root);
+    }
   });
 
   it('exits 2 for a path that is not there', async () => {
