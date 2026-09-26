@@ -639,3 +639,49 @@ describe('what was not inspected', () => {
     expect(parsed.results[0].skipped).toEqual([{ path: 'a.bin', reason: 'binary', matches: 2 }]);
   });
 });
+
+describe('directive-shaped comments no rule was read from', () => {
+  const passing = (lines: number[]): RunResult =>
+    fixture({
+      ok: true,
+      summary: { specs: 1, total: 1, passed: 1, failed: 0, skipped: 0, inactive: 0 },
+      results: [passingResult],
+      maskedDirectives: lines.map((line) => ({ location: location(line), inside: 'fenced code' })),
+    });
+
+  it('are one dim line above the summary, naming the first five, and every one under --verbose', () => {
+    const many = passing([7, 8, 9, 10, 11, 12, 13]);
+    expect(formatReport(many, { color: false, verbose: false }).split('\n')).toEqual([
+      'spec-guard 1 spec · 1 assertion · ripgrep',
+      '',
+      '○ 7 directive-shaped comments in code, raw HTML or front matter were not run: docs/a.md:7, docs/a.md:8, docs/a.md:9, docs/a.md:10, docs/a.md:11 and 2 more',
+      '',
+      '1 passed · 12ms',
+      '✔ every spec assertion holds',
+    ]);
+    expect(formatReport(many, { color: false, verbose: true }).split('\n')[4]).toBe(
+      '○ 7 directive-shaped comments in code, raw HTML or front matter were not run: docs/a.md:7, docs/a.md:8, docs/a.md:9, docs/a.md:10, docs/a.md:11, docs/a.md:12, docs/a.md:13',
+    );
+    const five = formatReport(passing([1, 2, 3, 4, 5]), { color: false, verbose: false }).split('\n')[2];
+    expect(five).toBe('○ 5 directive-shaped comments in code, raw HTML or front matter were not run: docs/a.md:1, docs/a.md:2, docs/a.md:3, docs/a.md:4, docs/a.md:5');
+  });
+
+  it('say "was" of one, dimmed, in ASCII where the console needs it', () => {
+    expect(formatReport(passing([7]), { color: false, verbose: false, ascii: true }).split('\n')[2]).toBe(
+      'o 1 directive-shaped comment in code, raw HTML or front matter was not run: docs/a.md:7',
+    );
+    expect(formatReport(passing([7]), { color: true, verbose: false }).split('\n')[2]).toBe(
+      `${ESC}[2m○ 1 directive-shaped comment in code, raw HTML or front matter was not run: docs/a.md:7${ESC}[0m`,
+    );
+  });
+
+  it('are no line at all when there are none, and an empty list in JSON', () => {
+    expect(formatReport(passing([]), { color: false, verbose: false }).split('\n')).toEqual([
+      'spec-guard 1 spec · 1 assertion · ripgrep',
+      '',
+      '1 passed · 12ms',
+      '✔ every spec assertion holds',
+    ]);
+    expect((JSON.parse(formatJson(fixture())) as { maskedDirectives: unknown }).maskedDirectives).toEqual([]);
+  });
+});

@@ -84,6 +84,18 @@ with the flag that restores the previous behaviour.
   make no violation for `minor`, and a document not in force is named, as
   `info`, on its first line. `formatGitlab`, `formatGithub`, `runAnnotations`
   and `proveAnnotations` are the API.
+- **What was not run is counted.** A comment shaped like a directive in code,
+  raw HTML or front matter is not run, and a report now says how many and
+  where: one dim line in the human report - "7 directive-shaped comments in
+  code, raw HTML or front matter were not run: README.md:120, ..." - naming
+  the first five, or every one under `--verbose`, and `maskedDirectives` in
+  the `--json` of a run and of `prove`, each with what hid it. Most are
+  examples; the ones that are not are rules 0.11.0 ran that this release does
+  not, such as a directive in an indented line or under a leading `---` read
+  as front matter. Warnings about how a document was read - a front-matter
+  status that cannot be read, a block never closed - are `specWarnings`.
+  Both fields are added, so no `formatVersion` moves.
+  [ADR-0002](docs/adr/0002-directive-format.md)'s amendment.
 - **`formatVersion: 1` on the run's `--json` and on `query --json`**, as
   `prove --json` has had from the start: a field removed or renamed moves it,
   a field added does not. Both documents are otherwise unchanged; this is one

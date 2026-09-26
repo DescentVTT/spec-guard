@@ -18,6 +18,7 @@ import { describe, expect, it } from 'vitest';
 
 import { EXIT_FAILED, main, type CliIO } from '../src/cli.js';
 import { maskCode, parseAttributes, parseDirectives, ALLOWED_ATTRIBUTES, KINDS } from '../src/parser.js';
+import { formatJson } from '../src/reporter.js';
 import { runSpecGuard } from '../src/runner.js';
 import { makeTempRepo, removeTempRepo } from './helpers.js';
 
@@ -507,6 +508,65 @@ describe('a block never closed', () => {
       expect(report.summary.total).toBe(1);
       expect(report.specWarnings?.map(({ location, message }) => [location.relativeFile, location.line, message.slice(0, 32)])).toEqual([
         ['docs/a.md', 5, 'the code fence ```sh opened here'],
+      ]);
+    } finally {
+      await removeTempRepo(root);
+    }
+  });
+});
+
+describe('a directive-shaped comment in text no directive is read from', () => {
+  const RULE = '<!-- @assert-absence target="src" symbol="X" -->';
+  const maskedIn = (source: string) => parseDirectives(source, context).masked?.map(({ location, inside }) => [location.line, location.column, inside]);
+
+  it('is counted with where it is and what hid it', () => {
+    // Each of these ran under 0.11.0 or reads as prose to someone skimming the
+    // source, and none runs now: the report has to say where they went.
+    expect(maskedIn(`prose\n\n    ${RULE}\n`)).toEqual([[3, 5, 'indented code']]);
+    expect(maskedIn(`# T\n\n<pre>\n${RULE}\n`)).toEqual([[4, 1, 'raw HTML']]);
+    expect(maskedIn(`---\n${RULE}\n---\n\n# T\n`)).toEqual([[2, 1, 'front matter']]);
+    expect(maskedIn(`+++\n${RULE}\n+++\n`)).toEqual([[2, 1, 'front matter']]);
+    expect(maskedIn(`\`\`\`md\n${RULE}\n\`\`\`\n`)).toEqual([[2, 1, 'fenced code']]);
+    expect(maskedIn(`Write \`${RULE}\` above the rule.\n`)).toEqual([[1, 8, 'code span']]);
+  });
+
+  it('is placed behind a byte-order mark where a directive there would be', () => {
+    expect(maskedIn(`${String.fromCharCode(0xfeff)}\`${RULE}\`\n`)).toEqual([[1, 3, 'code span']]);
+  });
+
+  it('is any kind that begins with assert, known or not, and nothing else', () => {
+    const source = `\`\`\`\n<!--@assert-bogus x -->\n<!-- @note hello -->\n<!-- @Assert-Count symbol="Y" -->\n\`\`\`\n`;
+    expect(maskedIn(source)).toEqual([
+      [2, 1, 'fenced code'],
+      [4, 1, 'fenced code'],
+    ]);
+  });
+
+  it('is not one that is read, as a directive or as an error, and a document with none says nothing', () => {
+    const read = parseDirectives(`${RULE}\n<!-- @assert-bogus -->\n`, context);
+    expect(read.directives).toHaveLength(1);
+    expect(read.errors).toHaveLength(1);
+    expect(read.masked).toBeUndefined();
+    expect(parseDirectives('# Nothing to see\n\n```\ncode\n```\n', context).masked).toBeUndefined();
+  });
+
+  it('reaches the report and its JSON, and fails nothing', async () => {
+    const root = await makeTempRepo({
+      'docs/a.md': `# A\n\n${RULE}\n\n\`\`\`md\n${RULE}\n\`\`\`\n\n    ${RULE}\n`,
+      'src/a.ts': 'export {};\n',
+    });
+    try {
+      const report = await runSpecGuard({ patterns: ['docs/*.md'], root, engine: 'javascript' });
+      expect(report.ok).toBe(true);
+      expect(report.summary.total).toBe(1);
+      expect(report.maskedDirectives?.map(({ location, inside }) => [location.relativeFile, location.line, inside])).toEqual([
+        ['docs/a.md', 6, 'fenced code'],
+        ['docs/a.md', 9, 'indented code'],
+      ]);
+      const json = JSON.parse(formatJson(report)) as { maskedDirectives: unknown };
+      expect(json.maskedDirectives).toEqual([
+        { spec: { file: 'docs/a.md', line: 6, column: 1 }, inside: 'fenced code' },
+        { spec: { file: 'docs/a.md', line: 9, column: 5 }, inside: 'indented code' },
       ]);
     } finally {
       await removeTempRepo(root);

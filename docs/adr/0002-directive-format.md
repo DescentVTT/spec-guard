@@ -121,6 +121,22 @@ The three fence shapes fixed in this release stay fixed. Beyond them, where
   line, as a warning that fails nothing, in every format. A block that ends
   with its block quote, or holds nothing after its opener, hides nothing and
   is not one.
+- **A directive masked is still counted.** A comment shaped like a directive -
+  `<!--`, an `@`, a kind beginning `assert` - that sits in code, raw HTML or
+  front matter is not run, as before, and the report counts them and names
+  where: one dim line in the human report (the first five places, every one
+  under `--verbose`), and `maskedDirectives` in JSON, each with what hid it -
+  `fenced code`, `indented code`, `code span`, `raw HTML` or `front
+  matter`. Most are examples shown on purpose, which is why it is a count and
+  not a warning. But every shape above that moved a directive into code - an
+  indented line, a `---` thematic break read as front matter, TOML front
+  matter, a `<pre>` never closed - was a rule 0.11.0 ran and this one does
+  not, and before this line nothing in a report showed the difference. The
+  directives are found in the source as written, and kept when their `<!--`
+  is blanked in the masked copy; a document with no `@assert` in it costs one
+  substring search. Over this repository's ADRs, README and changelog, 486 KB,
+  `parseDocument` took a median of 23.1 ms against 22.7 ms without it,
+  interleaved in one process.
 
 A document's title is its first level-one heading as the scanner reads it: an
 underlined one is a title, one kept in a comment is not, a code span in it is

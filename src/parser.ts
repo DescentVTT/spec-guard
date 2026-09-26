@@ -23,11 +23,13 @@
  */
 
 import { lineStarts, locate } from './text.js';
-import { findEntry, readFrontMatter, scanMarkdown, titleOf, type MarkdownScan } from './vendor/spec-core/markdown/index.js';
+import { findEntry, readFrontMatter, scanMarkdown, titleOf, type Block, type MarkdownScan } from './vendor/spec-core/markdown/index.js';
 import type {
   Directive,
   DirectiveError,
   DirectiveKind,
+  MaskedContext,
+  MaskedDirective,
   ParseResult,
   SourceLocation,
   SpecStatus,
@@ -372,6 +374,8 @@ function unclosedBlocks(scan: MarkdownScan): Array<{ line: number; message: stri
 }
 
 const DIRECTIVE_RE = /<!--\s*@([a-zA-Z][\w-]*)([\s\S]*?)-->/g;
+/** The opening of a directive, `<!-- @kind`, wherever it is written. */
+const DIRECTIVE_SHAPE_RE = /<!--\s*@([a-zA-Z][\w-]*)/g;
 const ATTRIBUTE_RE =
   /([a-zA-Z][\w-]*)(?:\s*=\s*(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|([^\s"'=<>`]+)))?/g;
 
@@ -513,10 +517,41 @@ function directivesOf(source: string, scan: MarkdownScan, context: ParseContext)
     ...(problem === undefined ? [] : [{ location: at(problem.line), message: problem.message }]),
     ...unclosedBlocks(scan).map(({ line, message }) => ({ location: at(line), message })),
   ];
+  const hidden = maskedDirectives(source, masked, scan, starts, context);
   return {
     directives,
     errors,
     ...(status === undefined ? {} : { status }),
     ...(warnings.length === 0 ? {} : { warnings }),
+    ...(hidden.length === 0 ? {} : { masked: hidden }),
   };
+}
+
+/**
+ * Every directive-shaped comment the masked copy blanked: `<!--`, an `@`, and
+ * a kind that begins with `assert`, as the parser's own test of what "clearly
+ * meant to be a directive" is.
+ *
+ * Found in the source as written, where the parser reads the masked copy, and
+ * kept when its `<!--` is blanked there. Most documents hold no `@assert` at
+ * all, and those cost one substring search.
+ */
+function maskedDirectives(source: string, view: string, scan: MarkdownScan, starts: readonly number[], context: ParseContext): MaskedDirective[] {
+  if (!source.includes('@assert')) return [];
+  const found: MaskedDirective[] = [];
+  for (const match of source.matchAll(DIRECTIVE_SHAPE_RE)) {
+    if (view.startsWith('<!--', match.index) || !(match[1] as string).toLowerCase().startsWith('assert')) continue;
+    const { line, column } = locate(starts, match.index);
+    found.push({ location: { file: context.file, relativeFile: context.relativeFile, line, column }, inside: maskedBy(scan, match.index - scan.bom) });
+  }
+  return found;
+}
+
+const BLOCKS: Readonly<Record<Block['kind'], MaskedContext>> = { fenced: 'fenced code', indented: 'indented code', html: 'raw HTML' };
+
+/** What blanked an offset of the scanned text: the front matter, a block, or else a code span, the one construct left. */
+function maskedBy(scan: MarkdownScan, offset: number): MaskedContext {
+  if (scan.frontMatter !== null && offset < scan.bodyStart) return 'front matter';
+  const block = scan.blocks.find((candidate) => candidate.start <= offset && offset < candidate.end);
+  return block === undefined ? 'code span' : BLOCKS[block.kind];
 }

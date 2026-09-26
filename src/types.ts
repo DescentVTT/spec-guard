@@ -109,6 +109,23 @@ export interface SpecWarning {
   message: string;
 }
 
+/** What hides a directive-shaped comment from being read as a directive. */
+export type MaskedContext = 'fenced code' | 'indented code' | 'code span' | 'raw HTML' | 'front matter';
+
+/**
+ * A comment shaped like a directive - `<!-- @assert-...` - that was not read as
+ * one, because it sits in text no directive is read from.
+ *
+ * Usually an example, shown on purpose. But which text is code decides which
+ * rules run, and a document whose code ends somewhere other than where its
+ * author thinks - an indented line, a `---` read as front matter - loses its
+ * rules without a word. So they are counted and named, never run.
+ */
+export interface MaskedDirective {
+  location: SourceLocation;
+  inside: MaskedContext;
+}
+
 export interface ParseResult {
   directives: Directive[];
   errors: DirectiveError[];
@@ -116,6 +133,8 @@ export interface ParseResult {
   status?: SpecStatus;
   /** Present only when there is something to say. */
   warnings?: SpecWarning[];
+  /** Present only when there are any. */
+  masked?: MaskedDirective[];
 }
 
 /** A spec file whose status withheld its directives from execution. */
@@ -404,6 +423,12 @@ export interface RunReport {
    */
   specWarnings?: SpecWarning[];
   /**
+   * Directive-shaped comments in code, raw HTML or front matter, which no rule
+   * was read from. Counted and named, as a withheld document is, so that text
+   * read as code by accident is not a rule gone quiet without a word.
+   */
+  maskedDirectives?: MaskedDirective[];
+  /**
    * The project's exclusions, added to every rule that takes `exclude`, and
    * empty when there were none.
    *
@@ -486,6 +511,8 @@ export interface ProveReport {
   inactiveSpecs: InactiveSpec[];
   /** As a run's: what changed how a document was read. */
   specWarnings?: SpecWarning[];
+  /** As a run's: directive-shaped comments no rule was read from. */
+  maskedDirectives?: MaskedDirective[];
   exclude: string[];
   config?: ConfigUse;
   /** Spec files that were read, relative to the root. */

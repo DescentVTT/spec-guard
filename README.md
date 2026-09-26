@@ -1539,6 +1539,14 @@ Masking preserves every offset and line terminator, so reported line numbers
 stay exact. [ADR-0002](docs/adr/0002-directive-format.md)'s amendment lists
 where this differs from 0.11.0.
 
+What is masked is still counted. A comment shaped like a directive -
+`<!-- @assert-...` - in code, raw HTML or front matter is not run, and the
+report says how many there were and where, on one line (every one under
+`--verbose`, and in `maskedDirectives` in JSON), so text read as code by
+accident is not a rule gone quiet without a word. A code fence or raw-text
+block that is never closed, which makes the rest of its document code, is a
+warning on its opening line.
+
 **A document's lifecycle status is read; a directive's is not.** Status is
 document-level and visible in every rendered Markdown view. A per-directive
 `if-status` attribute would be a switch disabling one assertion inside an

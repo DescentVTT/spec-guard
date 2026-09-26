@@ -1100,6 +1100,20 @@ describe('the report, rendered', () => {
     expect(formatProve(quiet, { color: false, verbose: false }).split('\n').at(-1)).toBe('1 seen to fail · 1 unprovable · 3 not in force · 1.23s');
   });
 
+  it('says how a document was read, and what was not run, as a run does', () => {
+    const noted: ProveReport = {
+      ...REPORT,
+      specWarnings: [{ location: at('docs/rules.md', 9), message: 'the code fence ``` opened here is never closed' }],
+      maskedDirectives: [{ location: at('docs/rules.md', 12), inside: 'fenced code' }],
+    };
+    const lines = formatProve(noted, { color: false, verbose: false }).split('\n');
+    expect(lines).toContain('⚠ docs/rules.md:9  the code fence ``` opened here is never closed');
+    expect(lines).toContain('○ 1 directive-shaped comment in code, raw HTML or front matter was not run: docs/rules.md:12');
+    const json = JSON.parse(formatProveJson(noted)) as { specWarnings: unknown[]; maskedDirectives: unknown[] };
+    expect(json.specWarnings).toEqual([{ spec: { file: 'docs/rules.md', line: 9, column: 1 }, message: 'the code fence ``` opened here is never closed' }]);
+    expect(json.maskedDirectives).toEqual([{ spec: { file: 'docs/rules.md', line: 12, column: 1 }, inside: 'fenced code' }]);
+  });
+
   it('writes a JSON document a script can read, with durations to the microsecond', () => {
     const document = JSON.parse(formatProveJson(REPORT)) as Record<string, unknown>;
     expect(document).toEqual({
@@ -1121,6 +1135,7 @@ describe('the report, rendered', () => {
       })),
       errors: [{ spec: { file: 'docs/typo.md', line: 9, column: 1 }, message: 'Unknown attribute "expct".', raw: '<!-- @assert-count expct="1"\n  target="src" -->' }],
       specWarnings: [],
+      maskedDirectives: [],
       inactiveSpecs: REPORT.inactiveSpecs,
       exclude: ['gen'],
       config: REPORT.config,

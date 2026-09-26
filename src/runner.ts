@@ -72,6 +72,7 @@ import type {
   DirectiveError,
   EngineName,
   InactiveSpec,
+  MaskedDirective,
   MatchLocation,
   RatchetMode,
   RunReport,
@@ -1653,6 +1654,8 @@ export interface RunPlan {
   inactiveSpecs: InactiveSpec[];
   /** What changed how a document was read, in file order. */
   warnings: SpecWarning[];
+  /** Directive-shaped comments no rule was read from, in file order. */
+  masked: MaskedDirective[];
   /** The project's exclusions every rule was resolved with. */
   exclude: string[];
 }
@@ -1731,7 +1734,7 @@ export function planRun(
     if ("error" in resolved) errors.push(resolved.error);
   }
 
-  return { root, specFiles: specs.files, assertions, withheld: withheld.length, errors, inactiveSpecs, warnings: specs.warnings, exclude };
+  return { root, specFiles: specs.files, assertions, withheld: withheld.length, errors, inactiveSpecs, warnings: specs.warnings, masked: specs.masked, exclude };
 }
 
 /**
@@ -1777,6 +1780,7 @@ export function reportRun(
     warnings,
     inactiveSpecs: plan.inactiveSpecs,
     specWarnings: plan.warnings,
+    maskedDirectives: plan.masked,
     exclude: plan.exclude,
     specFiles: plan.specFiles.map((file) => specPath(plan.root, file)),
   };

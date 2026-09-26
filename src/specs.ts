@@ -16,7 +16,7 @@ import { expandSpecPatterns, toPosix } from './glob.js';
 import { nodeIo, type Io } from './io.js';
 import { NO_MEMO, type Memo } from './memo.js';
 import { parseDocument } from './parser.js';
-import type { Directive, DirectiveError, SpecStatus, SpecWarning } from './types.js';
+import type { Directive, DirectiveError, MaskedDirective, SpecStatus, SpecWarning } from './types.js';
 
 /** One spec document, as read. */
 export interface SpecDocument {
@@ -48,6 +48,8 @@ export interface SpecSet {
   errors: DirectiveError[];
   /** What changed how a document was read, in file order: see `SpecWarning`. */
   warnings: SpecWarning[];
+  /** Directive-shaped comments in text no directive is read from, in file order. */
+  masked: MaskedDirective[];
 }
 
 /** The root-relative display path of a spec file. */
@@ -63,6 +65,7 @@ export async function readSpecs(patterns: readonly string[], root: string, io: I
   const documents: SpecDocument[] = [];
   const errors: DirectiveError[] = [];
   const warnings: SpecWarning[] = [];
+  const masked: MaskedDirective[] = [];
 
   // Read in batches the size of the engine's read limit, then handled in file
   // order. One read at a time took 0.9s over 1,200 specs, and an unbounded
@@ -91,6 +94,7 @@ export async function readSpecs(patterns: readonly string[], root: string, io: I
     const parsed = memo.remember(source, [file, relativeFile], () => parseDocument(source.toString('utf8'), { file, relativeFile }));
     errors.push(...parsed.errors);
     warnings.push(...(parsed.warnings ?? []));
+    masked.push(...(parsed.masked ?? []));
     documents.push({
       file,
       relativeFile,
@@ -101,5 +105,5 @@ export async function readSpecs(patterns: readonly string[], root: string, io: I
     });
   });
 
-  return { files, documents, errors, warnings };
+  return { files, documents, errors, warnings, masked };
 }
