@@ -5,7 +5,10 @@ All notable changes to this project are documented here. Versions follow
 may change in a minor release — each such change is listed under **Changed**
 with the flag that restores the previous behaviour.
 
-## Unreleased
+## 0.12.2
+
+A packaging fix: the tarball no longer carries spec-core's internal README.
+Nothing a command does has changed.
 
 ### Fixed
 

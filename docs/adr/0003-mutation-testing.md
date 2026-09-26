@@ -1555,6 +1555,13 @@ ran high where they were least measured: `runner.ts` and `text.ts` took 7m35s
 against 15.2 minutes, and `cli.ts` alone 8m18s against 15.1, so the next
 split starts from this run's logs rather than 398fe94's.
 
+### 0.12.2: nothing to measure but the same sweep
+
+0.12.2 changes `package.json`'s `files` and a test, and no source. CI's full
+sweep of 0a76cbf (run 36262864467) came out at **99.20% over 11,549 mutants
+with 89 survivors**, the same survivors on the same source lines as 0.12.1;
+the shards took from 5m47s to 15m47s.
+
 ### 0.12.1: a memo, and no survivor added
 
 CI's full sweep of be3182b (run 36258388795) came out at **99.20% over 11,549
