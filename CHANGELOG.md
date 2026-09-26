@@ -5,7 +5,15 @@ All notable changes to this project are documented here. Versions follow
 may change in a minor release — each such change is listed under **Changed**
 with the flag that restores the previous behaviour.
 
-## Unreleased
+## 0.12.0
+
+The family's core, and three commands. Patterns and Markdown are read through
+spec-core, copied in and checked by hash: a pattern that cannot be read is
+refused rather than matched as a literal, a glob no longer backtracks, and
+directives are found as CommonMark finds code, comments and front matter.
+`prove` shows every rule in force catching a violation, `cites` holds code
+comments to the specs they cite, and `impact` names who depends on a path.
+`archived` withholds a document.
 
 ### Upgrading
 
@@ -226,6 +234,10 @@ counts. What can differ, and where this changelog says why:
 
 ### Changed
 
+- **Mutation testing in CI runs in eight shards**, not four. Three of the four
+  took 23 to 28 minutes on the sweep that merged this release's code, and the
+  fourth was cancelled at the 30-minute job limit. ADR-0003 has the per-file
+  minutes and the split; the longest of the eight took 16m16s.
 - **A pattern that cannot be read is refused.** An unclosed `[` or `{`, an
   extended glob such as `+(a|b)` (a group holding a `|`: `C++(notes).md` and
   `*(2017).md` are names with parentheses), a `..`, or a range that runs

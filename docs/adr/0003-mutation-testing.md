@@ -1544,6 +1544,17 @@ A branch's incremental run is split the same way, so it takes eight jobs too.
 The job limit, the gate, the per-mutant timeout and the static mutants are all
 unchanged.
 
+CI's full sweep of the branch that carried both 0.12.0 sections (9da7514, run
+36226174109) came out at **99.20% over 11,537 mutants with 89 survivors**,
+against 99.01% over 8,644 with 83 at 0.11.0. The difference is the accounting
+above: eight of 0.11.0's went with the code they were in, and the fourteen this
+release's code added and nobody can kill joined the rest. No coverage is 3, as
+it was. The shards took 7m35s, 16m16s, 15m45s, 8m18s, 12m46s, 14m08s, 12m13s
+and 5m56s, and the sweep 19m38s from the first job to the score. The estimates
+ran high where they were least measured: `runner.ts` and `text.ts` took 7m35s
+against 15.2 minutes, and `cli.ts` alone 8m18s against 15.1, so the next
+split starts from this run's logs rather than 398fe94's.
+
 <!-- @assert-present file="scripts/mutation-shards.mjs,scripts/mutation-timeline.mjs,stryker.shard.config.mjs,tests/mutation-shards.test.ts" reason="the sweep is only one sweep if the merge that checks it exists" -->
 <!-- @assert-count target="stryker.config.mjs" symbol="related: false }" expected="1" reason="with related tests on, which tests a shard runs depends on the files it holds; see 0.9.0 in this ADR" -->
 <!-- @assert-absence target=".github/workflows" symbol="--ignoreStatic" reason="780 static mutants are 10% of the sweep; leaving them out lowers the gate" -->
