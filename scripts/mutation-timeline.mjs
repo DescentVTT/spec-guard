@@ -18,6 +18,11 @@
  *   gh run view <run> --job <job> --log > sweep.log
  *   node scripts/mutation-timeline.mjs <report: mutation.json or index.html> sweep.log
  *
+ * A shard cancelled at its time limit leaves a log and no report. The script
+ * reads only a report's counts, so any report of the same tree will do, such
+ * as a pull request's merged one cut down to the shard's files; a stretch the
+ * log never reached prints as "?".
+ *
  * scripts/mutation-shards.mjs balances its shards on these numbers.
  */
 
