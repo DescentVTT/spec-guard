@@ -396,6 +396,9 @@ describe('the rules in play', () => {
     expect(formatImpact(report)).toContain(
       '\n  ADR-0002: Draft  (docs/adr/0002-draft.md, proposed - not in force)\n    :5 @assert-absence  "Date.now" must not appear in src/app\n      governs: src/app/cache.ts\n',
     );
+    // Listed, it is not also counted as one more that --ignore-status would list.
+    expect(report.withheld.rules).toBe(1);
+    expect(formatImpact(report)).not.toContain('would govern them if');
     const two = await impact(['src/app/cache.ts'], { depth: 1 }, { ...TREE, 'docs/adr/0004-old.md': '**Status:** superseded\n\n<!-- @assert-absence target="src" symbol="x" -->\n' });
     expect(formatImpact(two)).toContain(
       '\n  2 more rules would govern them if docs/adr/0002-draft.md, docs/adr/0004-old.md were in force; --ignore-status lists them\n',
