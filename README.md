@@ -1485,6 +1485,10 @@ decide whether a rule passes, and an `io` too, and returns each rule's outcome
 with the violations it was shown. `overlayIo` is the door it makes them behind,
 and is there for a caller who wants to try a change of its own.
 
+`findCitations` and `impactOf` are `spec-guard cites` and `spec-guard impact`,
+and take an `io` as well; so do `loadRuleSet` and `queryRules`. Each command's
+JSON is the report its function returns, with a `formatVersion` in front.
+
 ## Design decisions
 
 This tool was specified loosely and built opinionatedly. Where the
@@ -1601,7 +1605,9 @@ and [`docs/adr/0002-directive-format.md`](docs/adr/0002-directive-format.md) are
 executed against this repository on every CI run. The CLI never calls
 `console.log`, nothing outside the engine spawns a process, and the parser and
 reporter never touch the filesystem - because those documents say so, and the
-build fails if they stop being true.
+build fails if they stop being true. CI proves every one of those rules can
+fail, and `spec-guard cites` holds every ADR a comment in the code cites to
+existing and being in force.
 
 This README is executable too:
 
