@@ -416,6 +416,10 @@ class RipgrepEngine implements Engine {
     patterns: string[],
   ): Promise<{ files: CandidateFile[]; unreadable: string[] }> {
     return new Promise((resolve, reject) => {
+      // Built before ripgrep starts, where a pattern that cannot be read
+      // rejects the search. Built once it had finished, the throw came from an
+      // event handler, which nothing awaits, and ended the process.
+      const inScope = scopeFilter(request.options);
       const child = spawn(this.binary, buildRipgrepArgs(request, patterns), {
         cwd: request.root,
         windowsHide: true,
@@ -442,7 +446,6 @@ class RipgrepEngine implements Engine {
           reject(new Error(ripgrepFailureMessage(code, errors)));
           return;
         }
-        const inScope = scopeFilter(request.options);
         resolve({
           files: parseRipgrepFiles(Buffer.concat(stdout).toString('utf8'), request.root, request.options.excludeFiles).filter(
             (file) => inScope(file.relativePath),

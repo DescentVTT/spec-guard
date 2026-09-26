@@ -127,6 +127,20 @@ describe('the scanner', () => {
 });
 
 describe.runIf(rgPath)('ripgrep', () => {
+  it('rejects a search over a pattern spec-core refuses, before it starts, as the scanner does', async () => {
+    // A directive's patterns are refused before any search, so only a caller
+    // of the engine meets this; it used to end the process from ripgrep's
+    // close handler.
+    process.env.SPEC_GUARD_RG = rgPath as string;
+    resetRipgrepProbe();
+    const engine = await resolveEngine('ripgrep');
+    const root = await tree();
+    for (const entry of [{ name: 'glob', globs: ['src/**.ts'], files: [] }, { name: 'exclude', exclude: ['src/**.ts'], files: [] }]) {
+      await expect(engine.search(request(root, entry))).rejects.toThrow(/invalid (glob|exclude) pattern "src\/\*\*\.ts"/);
+      await expect(javascriptEngine.search(request(root, entry))).rejects.toThrow(/invalid (glob|exclude) pattern "src\/\*\*\.ts"/);
+    }
+  });
+
   it.each(cases)('$name', async (entry) => {
     process.env.SPEC_GUARD_RG = rgPath as string;
     resetRipgrepProbe();
