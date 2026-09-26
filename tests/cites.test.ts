@@ -191,7 +191,7 @@ describe('an id another owner qualifies', () => {
 
   it('is this project\'s after an ordinary word, punctuation, or nothing', () => {
     // Must-not-match.
-    for (const text of ['see ADR-7', 'per ADR-7', '(ADR-7)', 'e.g. ADR-7', 'ADR-7', 'and ADR-7', 're: ADR-7', 'it ADR-7', 'itself ADR-7', 'cf. ADR-7', 's ADR-7', "' ADR-7", "'s ADR-7", '- ADR-7', 'a- ADR-7', 'spec-core,ADR-7', 'spec-coreADR-7', "it's ADR-7", "That's ADR-7", 'here’s ADR-7', "let's ADR-7", "this's ADR-7", "there's ADR-7", "what's ADR-7", "who's ADR-7", "where's ADR-7", "how's ADR-7", "when's ADR-7", "why's ADR-7", "he's ADR-7", "she's ADR-7"]) {
+    for (const text of ['see ADR-7', 'per ADR-7', '(ADR-7)', 'e.g. ADR-7', 'ADR-7', 'and ADR-7', 're: ADR-7', 'it ADR-7', 'itself ADR-7', 'cf. ADR-7', 's ADR-7', "' ADR-7", "'s ADR-7", '- ADR-7', 'a- ADR-7', 'spec-core,ADR-7', 'spec-coreADR-7', 'bits ADR-7', "it's ADR-7", "That's ADR-7", 'here’s ADR-7', "let's ADR-7", "this's ADR-7", "there's ADR-7", "what's ADR-7", "who's ADR-7", "where's ADR-7", "how's ADR-7", "when's ADR-7", "why's ADR-7", "he's ADR-7", "she's ADR-7"]) {
       expect(at(text), text).toBe(false);
     }
   });
@@ -273,6 +273,8 @@ describe('the families a project\'s specs imply', () => {
       deriveFamilies([
         { file: 'docs/adr/0001-a.md', title: 'ADR-0001: A' },
         { file: 'docs/adr/0002-b.md', title: 'ADR-2 - B' },
+        // A number later in a name is not a series' number.
+        { file: 'docs/adr/v2-notes.md', title: 'Notes' },
         { file: 'docs/adr/README.md', title: 'Decisions' },
         { file: 'docs/rfcs/12-x.md', title: 'RFC-12: X' },
         { file: 'README.md' },
@@ -299,6 +301,7 @@ describe('the families a project\'s specs imply', () => {
       [{ file: 'docs/adr/0001-a.md' }],
       [{ file: 'docs/adr/0001-a.md', title: 'ADR-0001a: glued' }],
       [{ file: 'docs/adr/0001-a.md', title: 'ADR 0001: spaced' }],
+      [{ file: 'docs/adr/0001-a.md', title: 'See ADR-0001: an id, but not first' }],
     ];
     for (const documents of cases) expect(deriveFamilies(documents), JSON.stringify(documents)).toEqual({ families: [], notes: [note('docs/adr')] });
     expect(deriveFamilies([{ file: '0001-a.md', title: 'x' }]).notes).toEqual([note('the root')]);
@@ -492,6 +495,35 @@ describe('a scan', () => {
     ]);
   });
 
+  it('skips the document itself where its status names it, and stops in a loop the chain runs into', async () => {
+    const report = await cites(
+      { 'src/a.ts': '// ADR-2\n// ADR-5\n' },
+      {
+        io: memoryIo(ROOT, {
+          'd/2-b.md': '**Status:** superseded: ADR-2 gave way to ADR-3',
+          'd/3-c.md': '',
+          'd/5-e.md': '**Status:** superseded by ADR-6',
+          'd/6-f.md': '**Status:** superseded by ADR-7',
+          'd/7-g.md': '**Status:** superseded by ADR-6',
+          'src/a.ts': '// ADR-2\n// ADR-5\n',
+        }),
+        families: [{ id: 'ADR-{n}', files: 'd/{n}-*.md' }],
+      },
+    );
+    expect(report.findings.map((finding) => [finding.cited, finding.successor, finding.hint])).toEqual([
+      ['ADR-2', 'ADR-3', 'd/2-b.md says "superseded: ADR-2 gave way to ADR-3"'],
+      ['ADR-5', undefined, 'd/5-e.md says "superseded by ADR-6", and names no successor in force; cite the decision in force instead, or take the citation out'],
+    ]);
+  });
+
+  it('names the nearest numbers, not the nearest names, when numbers are not padded', async () => {
+    const report = await cites(
+      { 'src/a.ts': '// ADR-5\n' },
+      { io: memoryIo(ROOT, { 'd/9-a.md': '', 'd/10-b.md': '', 'd/2-c.md': '', 'src/a.ts': '// ADR-5\n' }), families: [{ id: 'ADR-{n}', files: 'd/{n}-*.md' }] },
+    );
+    expect(report.findings[0]?.hint).toBe('no document matching d/{n}-*.md has the number 5; the nearest are ADR-2 and ADR-9');
+  });
+
   it('says so when a chain of more than one stale successor is followed', async () => {
     const report = await cites(
       { 'src/a.ts': '// ADR-1\n' },
@@ -594,12 +626,43 @@ describe('a scan', () => {
   });
 
   it('reads only the paths it is given, each once, a file or a directory', async () => {
-    const files = { 'src/a.ts': '// ADR-0099\n', 'src/deep/b.ts': '// ADR-0098\n', 'lib/c.ts': '// ADR-0097\n' };
+    const files = { 'src/a.ts': '// ADR-0099\n', 'src/deep/b.ts': '// ADR-0098\n', 'src/deep/c.ts': '// ADR-0096\n', 'lib/c.ts': '// ADR-0097\n' };
     expect(found(await cites(files, { paths: ['src/deep', 'lib/c.ts', 'src/deep/b.ts'] }))).toEqual([
       'lib/c.ts:1:4 ghost-citation ADR-0097',
       'src/deep/b.ts:1:4 ghost-citation ADR-0098',
+      'src/deep/c.ts:1:4 ghost-citation ADR-0096',
     ]);
-    expect(found(await cites(files, { paths: ['.'] }))).toHaveLength(3);
+    expect(found(await cites(files, { paths: ['.'] }))).toHaveLength(4);
+    // A path that is not there holds nothing, and is not an error to the API;
+    // the command line refuses it before it gets here.
+    expect(found(await cites(files, { paths: ['nowhere'] }))).toEqual([]);
+  });
+
+  it('reads no more than the engine\'s read limit of files at once', async () => {
+    const files = Object.fromEntries(Array.from({ length: 40 }, (_, index) => [`src/f${index}.ts`, '// ADR-0001\n']));
+    const base = memoryIo(ROOT, { ...DOCS, ...files });
+    let open = 0;
+    let most = 0;
+    const io = {
+      ...base,
+      readFile: async (file: string) => {
+        open += 1;
+        most = Math.max(most, open);
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        open -= 1;
+        return base.readFile(file);
+      },
+    };
+    const report = await findCitations({ root: ROOT, patterns: ['docs/**/*.md'], io });
+    expect(report.summary.files).toBe(40);
+    expect(most).toBe(16);
+  });
+
+  it('takes as long as it says it took', async () => {
+    const before = performance.now();
+    const report = await cites({ 'src/a.ts': '// ADR-0001\n' });
+    expect(report.durationMs).toBeGreaterThanOrEqual(0);
+    expect(report.durationMs).toBeLessThanOrEqual(performance.now() - before);
   });
 
   it('names each file it could not read in full, and passes under --strict only when there are none', async () => {
@@ -697,9 +760,10 @@ describe('a Rust workspace citing its ADRs', () => {
     ]);
     expect(report.summary).toEqual({ files: 6, citations: 21, ghosts: 3, stale: 7, qualified: 2, unclassified: 1 });
     expect(report.gaps).toEqual([]);
-    expect(report.families.map(({ id, documents }) => [id, documents])).toEqual([
-      ['ADR-{n}', 10],
-      ['RFC-{n}', 2],
+    expect(report.notes).toEqual([]);
+    expect(report.families.map(({ id, documents, source }) => [id, documents, source])).toEqual([
+      ['ADR-{n}', 10, 'config'],
+      ['RFC-{n}', 2, 'config'],
     ]);
   });
 
@@ -777,6 +841,39 @@ describe('the report', () => {
       'spec-guard cites no families',
       '',
       '○ 1 file in no language spec-guard knows the comments of, and not read: .png 1',
+    ]);
+  });
+
+  it('names a configured family without saying where it came from, and counts files and ids in the plural', () => {
+    const configured: CitesReport = {
+      ...report,
+      families: [{ id: 'ADR-{n}', files: 'docs/adr/{n}-*.md', source: 'config', documents: 1 }],
+      findings: [],
+      gaps: [
+        { file: 'a.ts', reason: 'binary', detail: 'holds a NUL byte, so it is not text' },
+        { file: 'b.ts', reason: 'lost-scan', detail: 'a string or comment was never closed, so what follows it may be misread' },
+      ],
+      unclassified: [],
+      notes: ['a note'],
+      summary: { files: 3, citations: 0, ghosts: 0, stale: 0, qualified: 2, unclassified: 0 },
+      config: { file: '.spec-guard.json', applied: ['cites'], overridden: [] },
+      durationMs: 1,
+    };
+    expect(formatCites(configured, { color: false, verbose: false }).split('\n')).toEqual([
+      'spec-guard cites ADR-{n} (1 document matching docs/adr/{n}-*.md)',
+      '',
+      '○ 2 files could not be read in full, so a citation in them may have been missed:',
+      '    a.ts holds a NUL byte, so it is not text',
+      '    b.ts a string or comment was never closed, so what follows it may be misread',
+      '',
+      "○ 2 ids name another project's document, as spec-core's ADR-0005 does, and were not checked",
+      '',
+      '○ a note',
+      '',
+      'options from .spec-guard.json: cites',
+      '',
+      '0 citations in 3 files · 1ms',
+      '✔ every citation names a document in force',
     ]);
   });
 

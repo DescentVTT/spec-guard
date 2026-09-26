@@ -511,6 +511,13 @@ describe('applyConfig', () => {
     expect(options.engine).toBe('auto');
   });
 
+  it('applies to impact what a query reads', () => {
+    const options = parseArgs(['impact', 'src'], cwd);
+    expect(applyConfig(options, everything)).toEqual({ file: 'package.json', applied: ['specs', 'exclude', 'ignoreStatus', 'includeSpecs', 'defaultSkips'], overridden: [] });
+    expect(options).toMatchObject({ strictTargets: false, engine: 'auto' });
+    expect(options.cites).toBeUndefined();
+  });
+
   it('applies cites to spec-guard cites alone, with what else it reads, and a copy of each family', () => {
     const options = parseArgs(['cites'], cwd);
     expect(applyConfig(options, everything)).toEqual({ file: 'package.json', applied: ['specs', 'exclude', 'strict', 'defaultSkips', 'cites'], overridden: [] });

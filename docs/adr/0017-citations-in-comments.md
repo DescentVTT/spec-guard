@@ -227,3 +227,25 @@ A tree of 3,000 TypeScript files of about 2 KB, one citing in three, is read in
 under a second on the development machine, against a test budget of ten.
 `node_modules` and this repository together, 4,573 source files read with the
 default skips off, took 1.8 to 2.4 s.
+
+### Held to the mutation bar
+
+One local sweep of `cites.ts`, before its last round of tests, scored 95.4%:
+634 mutants killed, 12 timed out, 31 survived. The survivors that were real -
+a directory named alongside one of its own files, a successor chain that runs
+into a loop past its start, numbers whose file names are not padded, a
+configured family's source, the reads held to the engine's limit - now have
+tests, and guards no input could reach were taken out rather than tested.
+What is left is equivalent by construction, and named so that a sweep that
+reports it is not read as a gap:
+
+- the nearest ids compare against a number no document has, so `<` and `<=`,
+  or `>` and `>=`, find the same ones;
+- an unreadable document is read as the empty text, and any text with no
+  title and no status line is read the same;
+- when there is no family the walk is skipped, and a walk of a path that is
+  not there finds the same nothing.
+
+The regular expressions that use `\p{L}` are not mutated at all: Stryker's
+regex parser does not read Unicode property escapes. The sweep that measures
+this file is CI's.
