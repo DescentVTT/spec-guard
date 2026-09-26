@@ -458,10 +458,11 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
         // mcp refused --format above, so every command that gets here writes one.
         const formats = FORMATS[command as Exclude<Command, 'mcp'>];
         if (!formats.includes(value)) {
-          const lists = LISTS[command];
+          // Only a command that lists leaves out one of check's formats, so
+          // one refused here is refused by a command LISTS names.
           throw new UsageError(
-            lists !== undefined && FORMATS.check.includes(value)
-              ? `spec-guard ${command} has no ${value} format: it lists ${lists}, not results. Expected ${either(formats)}.`
+            FORMATS.check.includes(value)
+              ? `spec-guard ${command} has no ${value} format: it lists ${LISTS[command] as string}, not results. Expected ${either(formats)}.`
               : `Unknown format "${value}". Expected ${either(formats)}.`,
           );
         }
@@ -905,7 +906,8 @@ async function runImpact(options: CliOptions, io: CliIO, use: ConfigUse | undefi
       patterns: options.patterns,
       root: options.root,
       paths: options.paths,
-      ...(options.depth === undefined ? {} : { depth: options.depth }),
+      // Absent and undefined are one answer to impactOf: every dependent.
+      depth: options.depth,
       includeInactive: options.ignoreStatus,
       includeSpecs: options.includeSpecs,
       defaultSkips: options.defaultSkips,
@@ -941,7 +943,8 @@ async function runCites(options: CliOptions, io: CliIO, use: ConfigUse | undefin
       ...(await findCitations({
         root: options.root,
         patterns: options.patterns,
-        ...(options.cites === undefined ? {} : { families: options.cites }),
+        // Undefined, as absent, derives the families from the specs.
+        families: options.cites,
         ...(paths.length === 0 ? {} : { paths: paths.map((entry) => entry.path) }),
         exclude: options.exclude,
         defaultSkips: options.defaultSkips,

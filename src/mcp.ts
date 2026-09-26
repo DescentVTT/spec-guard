@@ -28,7 +28,7 @@ import {
   type RuleSet,
 } from './query.js';
 import { governs, viewRule, type QueryPath } from './rules.js';
-import type { ConfigUse } from './types.js';
+import type { ConfigUse, SpecWarning } from './types.js';
 import {
   createMcpServer,
   serveLines,
@@ -342,7 +342,8 @@ export function createMcpHandler(options: McpServerOptions): (message: unknown) 
       inactiveSpecs: report.inactiveSpecs,
       warnings: report.warnings,
       // A document read differently from how it was written: see ADR-0010 and ADR-0002.
-      specWarnings: (report.specWarnings ?? []).map((warning) => ({
+      // A run always reports them; the type leaves them out only for a result a caller built.
+      specWarnings: (report.specWarnings as SpecWarning[]).map((warning) => ({
         file: warning.location.relativeFile,
         line: warning.location.line,
         message: warning.message,
@@ -380,7 +381,8 @@ export function createMcpHandler(options: McpServerOptions): (message: unknown) 
       ...(await impactOf({
         ...ruleSetOptions(settings),
         paths: paths as string[],
-        ...(depth === undefined ? {} : { depth: depth as number }),
+        // Absent and undefined are one answer to impactOf: every dependent.
+        depth: depth as number | undefined,
         includeInactive,
       })),
       config: settings.config,
