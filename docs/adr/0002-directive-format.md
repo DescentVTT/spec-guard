@@ -133,13 +133,15 @@ The three fence shapes fixed in this release stay fixed. Beyond them, where
   matter, a `<pre>` never closed - was a rule 0.11.0 ran and this one does
   not, and before this line nothing in a report showed the difference. The
   directives are found in the source as written, and kept when their `<!--`
-  is blanked in the masked copy; a document with no `@assert` in it, in any
-  case, costs one search. That search decides what the work costs and never
-  what it finds, so a mutation sweep that deletes it survives by
-  construction. Over this repository's ADRs, README and changelog, about
-  490 KB, `parseDocument` took a median of 23.1 ms against 22.7 ms without
-  it, interleaved in one process, and 23.1 ms against 23.4 ms measured
-  again: within the noise.
+  is blanked in the masked copy, by one search for the `<!-- @` each begins
+  with. A search for `@assert`, in any case, used to run first to spare a
+  document without one the rest. It could decide nothing the second search
+  does not, and it saved nothing: over this repository's ADRs, README and
+  changelog, about 490 KB, `parseDocument` took a median of 23.1 ms against
+  22.7 ms without it, interleaved in one process, and 23.1 ms against
+  23.4 ms measured again, within the noise; over 330 Markdown files from
+  `node_modules`, 312 of them with no `@assert`, the two searches took nearly
+  three times as long as the one. So it is gone, and ADR-0003 counts it.
 
 A document's title is its first level-one heading as the scanner reads it: an
 underlined one is a title, one kept in a comment is not, a code span in it is
