@@ -124,7 +124,6 @@ export async function buildReverseGraph(options: { root: string; exclude: readon
     files.push(entry.relativePath);
     absolute.set(entry.relativePath, entry.absolutePath);
   }
-  files.sort(comparePaths);
   const walked = new Set(files);
   const javascript = new Set(files.filter(isGraphFile));
   const python = files.filter((file) => languageFor(file) === 'python');
@@ -401,7 +400,7 @@ export function formatImpact(report: ImpactReport): string {
   if (unlisted > 0) {
     out.push(
       '',
-      `  ${plural(unlisted, 'more rule', 'more rules')} would govern them if ${report.withheld.documents.join(', ')} ${report.withheld.documents.length === 1 ? 'were' : 'were all'} in force; --ignore-status lists ${unlisted === 1 ? 'it' : 'them'}`,
+      `  ${plural(unlisted, 'more rule', 'more rules')} would govern them if ${report.withheld.documents.join(', ')} were in force; --ignore-status lists ${unlisted === 1 ? 'it' : 'them'}`,
     );
   }
   out.push('');

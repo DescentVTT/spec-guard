@@ -44,12 +44,15 @@ const DIGIT = /^[0-9]$/;
 // separates. Fixed here, and never built from anything a project wrote.
 const WORD = /^[\p{L}\p{N}_]$/u;
 
+// Both are asked about the character past either end of a text too, which is
+// undefined: a pattern of one character never matches the word "undefined"
+// that `test` makes of it, so there is no end of the text to test for first.
 function isDigit(char: string | undefined): boolean {
-  return char !== undefined && DIGIT.test(char);
+  return DIGIT.test(char as string);
 }
 
 function isWord(char: string | undefined): boolean {
-  return char !== undefined && WORD.test(char);
+  return WORD.test(char as string);
 }
 
 /** How many times `{n}` occurs in a template. */
@@ -177,31 +180,32 @@ export interface Citation {
 }
 
 /**
- * Every id in `text[from, to)`, in order of position.
+ * Every id in a text, in order of position; the ids of one template before
+ * another's where two begin at one place.
  *
  * For each template: its literal prefix, then a run of digits, then its
  * suffix, with no letter, digit or underscore running into either end - so
  * `XADR-1` and `ADR-12a` are not `ADR-{n}` citations, and `ADR-12.` is. The
- * characters just outside the range are consulted too, since a comment's text
- * does not end in the middle of a word.
+ * whole text is read, once per template; which ids lie in a comment is
+ * `inComments`'s question.
  */
-export function scanCitations(text: string, templates: readonly IdTemplate[], from = 0, to = text.length): Citation[] {
+export function scanCitations(text: string, templates: readonly IdTemplate[]): Citation[] {
   const found: Citation[] = [];
   templates.forEach(({ prefix, suffix }, family) => {
     const needsBoundaryBefore = isWord(prefix[0]);
-    for (let at = text.indexOf(prefix, from); at !== -1 && at < to; at = text.indexOf(prefix, at + 1)) {
+    for (let at = text.indexOf(prefix); at !== -1; at = text.indexOf(prefix, at + 1)) {
       if (needsBoundaryBefore && isWord(text[at - 1])) continue;
       const digitsStart = at + prefix.length;
       let digitsEnd = digitsStart;
-      while (digitsEnd < to && isDigit(text[digitsEnd])) digitsEnd += 1;
-      if (digitsEnd === digitsStart) continue;
+      while (isDigit(text[digitsEnd])) digitsEnd += 1;
+      if (digitsEnd === digitsStart || !text.startsWith(suffix, digitsEnd)) continue;
       const end = digitsEnd + suffix.length;
-      if (end > to || !text.startsWith(suffix, digitsEnd)) continue;
       if (isWord(text[end - 1]) && isWord(text[end])) continue;
       found.push({ family, start: at, end, number: numberKey(text.slice(digitsStart, digitsEnd)), written: text.slice(at, end) });
     }
   });
-  return found.sort((a, b) => a.start - b.start || a.family - b.family);
+  // Stable, so ids at one place keep the order of their templates.
+  return found.sort((a, b) => a.start - b.start);
 }
 
 /** Words whose `'s` is `is` or `us` rather than a possessive: `it's ADR-7` is this project's. */
@@ -227,11 +231,13 @@ const NAME = /^[\p{L}\p{N}_\-/'’]$/u;
  * reported that is not wrong.
  */
 export function qualified(text: string, start: number): boolean {
+  // Neither loop needs to stop at the start of the text: before it is
+  // undefined, which is no space and no character of a name.
   let end = start;
-  while (end > 0 && (text[end - 1] === ' ' || text[end - 1] === '\t')) end -= 1;
+  while (text[end - 1] === ' ' || text[end - 1] === '\t') end -= 1;
   if (end === start) return false;
   let begin = end;
-  while (begin > 0 && NAME.test(text[begin - 1] as string)) begin -= 1;
+  while (NAME.test(text[begin - 1] as string)) begin -= 1;
   const word = text.slice(begin, end);
   if (/^(?:its|their)$/i.test(word)) return true;
   const possessive = /^(.*\p{L})['’]s$/u.exec(word);
@@ -268,7 +274,8 @@ export function inComments(citations: readonly Citation[], comments: ReadonlyArr
 const NOT_YET: ReadonlySet<string> = new Set(['draft', 'proposed']);
 
 export function isStale(status: string | undefined): boolean {
-  return status !== undefined && INACTIVE_STATUSES.has(status) && !NOT_YET.has(status);
+  // A document with no status is in no list, so there is nothing to test first.
+  return INACTIVE_STATUSES.has(status as string) && !NOT_YET.has(status as string);
 }
 
 /** A document of a family, as a citation needs to know it. */
@@ -371,8 +378,9 @@ export function deriveFamilies(documents: ReadonlyArray<{ file: string; title?: 
       }),
     );
     const where = directory === '' ? 'the root' : directory;
-    const [prefix] = prefixes;
-    if (prefixes.size !== 1 || prefix === null || prefix === undefined) {
+    // A series has a member, so the set has at least one entry.
+    const prefix = [...prefixes][0] as string | null;
+    if (prefixes.size !== 1 || prefix === null) {
       notes.push(
         `${where} holds numbered specs whose titles do not all begin with one id and their own number, such as ADR-0001 in 0001-x.md, so how they are cited is not guessed; name them in "cites" to check citations of them`,
       );
@@ -412,15 +420,14 @@ export class CitesError extends Error {}
 /** The nearest ids a family has on either side of a number: what a typo most likely meant. */
 function nearest(family: ResolvedFamily, number: string): string[] {
   const wanted = BigInt(number);
-  let below: { value: bigint; spelled: string } | undefined;
-  let above: { value: bigint; spelled: string } | undefined;
-  for (const [key, [first]] of family.documents) {
-    const value = BigInt(key);
-    const spelled = (first as CitedDocument).spelled;
-    if (value < wanted && (below === undefined || value > below.value)) below = { value, spelled };
-    if (value > wanted && (above === undefined || value < above.value)) above = { value, spelled };
-  }
-  return [below, above].filter((side) => side !== undefined).map((side) => idOf(family, side.spelled));
+  // Numbers as big as a comment writes them, so compared as BigInt; the
+  // difference's sign is all a sort needs, and Number keeps it.
+  const values = [...family.documents.keys()].map((key) => BigInt(key)).sort((a, b) => Number(a - b));
+  // The cited number is no document's, so nothing equals it.
+  const sides = [values.filter((value) => value < wanted).pop(), values.find((value) => value > wanted)];
+  return sides
+    .filter((side) => side !== undefined)
+    .map((side) => idOf(family, ((family.documents.get(side.toString()) as CitedDocument[])[0] as CitedDocument).spelled));
 }
 
 /** Where a stale document's status line points, followed until a document in force, or null. */
@@ -430,7 +437,8 @@ function successorOf(document: CitedDocument, own: { family: number; number: str
   const chain: string[] = [];
   let current = document;
   for (;;) {
-    const label = current.status?.label ?? '';
+    // Only a stale document is followed, and a stale document has a status.
+    const label = (current.status as SpecStatus).label;
     const next = scanCitations(label, templates).find((citation) => !seen.has(`${citation.family}\u0000${citation.number}`));
     if (next === undefined) return null;
     seen.add(`${next.family}\u0000${next.number}`);

@@ -40,8 +40,8 @@ const ROOT = path.resolve('/virtual/cites');
 const ADR = parseIdTemplate('ADR-{n}');
 
 /** What a scan of one text found: the ids as written, with their numbers. */
-const ids = (text: string, templates = [ADR], from?: number, to?: number): Array<[string, string]> =>
-  scanCitations(text, templates, from, to).map((citation) => [citation.written, citation.number]);
+const ids = (text: string, templates = [ADR]): Array<[string, string]> =>
+  scanCitations(text, templates).map((citation) => [citation.written, citation.number]);
 
 /* ---------------------------------------------------------------- templates */
 
@@ -113,7 +113,7 @@ describe('a files template', () => {
   });
 
   it('compares numbers as numbers', () => {
-    expect([numberKey('0007'), numberKey('7'), numberKey('007'), numberKey('0'), numberKey('000'), numberKey('10')]).toEqual(['7', '7', '7', '0', '0', '10']);
+    expect([numberKey('0007'), numberKey('7'), numberKey('007'), numberKey('0'), numberKey('000'), numberKey('10'), numberKey('100'), numberKey('0100')]).toEqual(['7', '7', '7', '0', '0', '10', '100', '100']);
   });
 });
 
@@ -162,12 +162,21 @@ describe('the scanner', () => {
     ]);
   });
 
-  it('reads only inside the range it is given, where the number must end', () => {
-    expect(ids('ADR-1 ADR-2 ADR-3', [ADR], 6, 11)).toEqual([['ADR-2', '2']]);
-    expect(ids('ADR-1 ADR-2 ADR-3', [ADR], 6, 10)).toEqual([]);
-    // A number that runs on past the range is not an id that ends inside it.
-    expect(ids('ADR-12', [ADR], 0, 5)).toEqual([]);
-    expect(ids('ADR-12 ', [ADR], 0, 6)).toEqual([['ADR-12', '12']]);
+  it('keeps the order of the templates for ids that begin at one place', () => {
+    const templates = [parseIdTemplate('ADR-{n}-x'), ADR];
+    expect(scanCitations('ADR-1-x', templates).map(({ family, written }) => [family, written])).toEqual([
+      [0, 'ADR-1-x'],
+      [1, 'ADR-1'],
+    ]);
+    expect(scanCitations('ADR-1-x', [...templates].reverse()).map(({ family, written }) => [family, written])).toEqual([
+      [0, 'ADR-1'],
+      [1, 'ADR-1-x'],
+    ]);
+  });
+
+  it('reads an id at either end of the text, and a suffix the text ends before', () => {
+    expect(ids('ADR-12')).toEqual([['ADR-12', '12']]);
+    expect(ids('ADR-3-', [parseIdTemplate('ADR-{n}-x')])).toEqual([]);
   });
 });
 
@@ -182,7 +191,7 @@ describe('an id another owner qualifies', () => {
 
   it('is this project\'s after an ordinary word, punctuation, or nothing', () => {
     // Must-not-match.
-    for (const text of ['see ADR-7', 'per ADR-7', '(ADR-7)', 'e.g. ADR-7', 'ADR-7', 'and ADR-7', 're: ADR-7', 'it ADR-7', 'itself ADR-7', 'cf. ADR-7', 's ADR-7', "' ADR-7", "'s ADR-7", '- ADR-7', 'a- ADR-7', 'spec-core,ADR-7', 'spec-coreADR-7', "it's ADR-7", "That's ADR-7", 'here’s ADR-7', "let's ADR-7"]) {
+    for (const text of ['see ADR-7', 'per ADR-7', '(ADR-7)', 'e.g. ADR-7', 'ADR-7', 'and ADR-7', 're: ADR-7', 'it ADR-7', 'itself ADR-7', 'cf. ADR-7', 's ADR-7', "' ADR-7", "'s ADR-7", '- ADR-7', 'a- ADR-7', 'spec-core,ADR-7', 'spec-coreADR-7', "it's ADR-7", "That's ADR-7", 'here’s ADR-7', "let's ADR-7", "this's ADR-7", "there's ADR-7", "what's ADR-7", "who's ADR-7", "where's ADR-7", "how's ADR-7", "when's ADR-7", "why's ADR-7", "he's ADR-7", "she's ADR-7"]) {
       expect(at(text), text).toBe(false);
     }
   });
@@ -199,6 +208,16 @@ describe('the citations inside comments', () => {
     // One that runs past the comment's end is not inside it.
     expect(inComments(scanCitations('x ADR-12 y', [ADR]), [[0, 7]])).toEqual([]);
     expect(inComments(scanCitations('x ADR-12 y', [ADR]), [])).toEqual([]);
+  });
+
+  it('are kept when they start where a comment starts, end where it ends, or start where the comment before ends', () => {
+    const kept = (text: string, comments: Array<[number, number]>): string[] => inComments(scanCitations(text, [ADR]), comments).map(({ written }) => written);
+    expect(kept('ADR-1', [[0, 5]])).toEqual(['ADR-1']);
+    // Two comments touching: the first ends where the id starts.
+    expect(kept('/**/ADR-2', [
+      [0, 4],
+      [4, 9],
+    ])).toEqual(['ADR-2']);
   });
 });
 
@@ -534,7 +553,7 @@ describe('a scan', () => {
         'README.md': '<!-- ADR-0099 -->\n',
         'notes/a.markdown': '<!-- ADR-0099 -->\n',
         'notes/b.mdx': '<!-- ADR-0099 -->\n',
-        'docs/spec.txt': '',
+        'docs/spec.html': '<!-- ADR-0099 -->',
         'docs/adr/0007-x.html': '<!-- ADR-0099 -->',
         'build/out.js': '// ADR-0099\n',
         'node_modules/pkg/index.js': '// ADR-0099\n',
@@ -544,7 +563,7 @@ describe('a scan', () => {
         'src/a.ts': '// ADR-0001\n',
       },
       {
-        patterns: ['docs/**/*.md', 'docs/spec.txt'],
+        patterns: ['docs/**/*.md', 'docs/spec.html'],
         families: [
           { id: 'ADR-{n}', files: 'docs/adr/{n}-*.md' },
           { id: 'X-{n}', files: 'docs/adr/{n}-*.html' },
@@ -926,6 +945,25 @@ describe('spec-guard cites', () => {
       expect((await run(['cites', '--strict'], plain)).code).toBe(EXIT_FAILED);
     } finally {
       await removeTempRepo(plain);
+    }
+  });
+
+  it('passes the exclusions and the default skips on to the scan', async () => {
+    const tree = await makeTempRepo({
+      'docs/adr/0001-a.md': '# ADR-0001: A\n',
+      'gen/a.ts': '// ADR-0009\n',
+      'node_modules/x/i.js': '// ADR-0008\n',
+    });
+    try {
+      const ghosts = async (...argv: string[]) => {
+        const { out } = await run(['cites', '--json', ...argv], tree);
+        return (JSON.parse(out[0] as string) as CitesReport).findings.map(({ file }) => file);
+      };
+      expect(await ghosts()).toEqual(['gen/a.ts']);
+      expect(await ghosts('--exclude', 'gen')).toEqual([]);
+      expect(await ghosts('--no-default-skips')).toEqual(['gen/a.ts', 'node_modules/x/i.js']);
+    } finally {
+      await removeTempRepo(tree);
     }
   });
 
