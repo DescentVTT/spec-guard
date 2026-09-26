@@ -919,6 +919,52 @@ describe('the report', () => {
     expect(painted).toContain('\u001b[33m\u001b[1m⚠\u001b[0m src/a.ts:1 cites ADR-0002');
   });
 
+  it('paints every part of the report, and joins two families and two extensions, when colour is on', () => {
+    // A colour nobody asserts is a colour that can be dropped, and a join
+    // tested with one element is a separator that can be anything.
+    const E = String.fromCharCode(27);
+    const [R, B, D, RED, GREEN, YELLOW, BLUE] = ['0m', '1m', '2m', '31m', '32m', '33m', '34m'].map((code) => `${E}[${code}`);
+    const painted: CitesReport = {
+      ...report,
+      families: [...report.families, { id: 'RFC-{n}', files: 'docs/rfcs/{n}*.md', source: 'derived', documents: 2 }],
+      unclassified: [
+        { extension: '.png', files: 2 },
+        { extension: '.bin', files: 1 },
+      ],
+      notes: ['a note'],
+      summary: { ...report.summary, unclassified: 3 },
+      durationMs: 12,
+    };
+    expect(formatCites(painted, { color: true, verbose: false }).split('\n')).toEqual([
+      `${B}${BLUE}spec-guard cites${R} ${D}ADR-{n} (7 documents matching docs/adr/{n}*.md, read off the specs' titles); RFC-{n} (2 documents matching docs/rfcs/{n}*.md, read off the specs' titles)${R}`,
+      '',
+      `${RED}${B}✖${R} src/a.ts:1 cites ADR-0007, which no document defines  ${D}ghost-citation${R}`,
+      `    ${D}hint: no document matching docs/adr/{n}*.md has the number 7; the nearest are ADR-0006 and ADR-0009${R}`,
+      `${YELLOW}${B}⚠${R} src/a.ts:1 cites ADR-0002, which is superseded - cite ADR-0003 instead  ${D}stale-citation${R}`,
+      `    ${D}hint: docs/adr/0002-old.md says "Superseded by ADR-0003."${R}`,
+      '',
+      `${YELLOW}○ 1 file could not be read in full, so a citation in it may have been missed:${R}`,
+      '    src/lost.ts a string or comment was never closed, so what follows it may be misread',
+      '',
+      `${D}○ 3 files in no language spec-guard knows the comments of, and not read: .png 2, .bin 1${R}`,
+      '',
+      `${D}○ 1 id names another project's document, as spec-core's ADR-0005 does, and was not checked${R}`,
+      '',
+      `${D}○ a note${R}`,
+      '',
+      [`2 citations in 2 files`, `${RED}${B}1 ghost${R}`, `${YELLOW}1 stale${R}`, `${D}12ms${R}`].join(`${D} · ${R}`),
+      `${RED}${B}✖ 1 citation names a document that does not exist${R}`,
+    ]);
+
+    // Each way the report can end, in its own colour.
+    const last = (value: CitesReport): string => formatCites(value, { color: true, verbose: false }).split('\n').at(-1) as string;
+    const clean = { ...report, findings: [], gaps: [], summary: { ...report.summary, ghosts: 0, stale: 0 } };
+    expect(last({ ...clean, families: [] })).toBe(`${YELLOW}⚠ no citation was looked for, so nothing was checked${R}`);
+    expect(last({ ...clean, summary: { ...clean.summary, files: 0 } })).toBe(`${YELLOW}⚠ no source file was read, so nothing was checked${R}`);
+    expect(last({ ...clean, summary: { ...clean.summary, stale: 1 }, ok: true })).toBe(`${YELLOW}${B}⚠ 1 citation names a document no longer in force${R}`);
+    expect(last(clean)).toBe(`${GREEN}✔ every citation names a document in force${R}`);
+  });
+
   it('is versioned JSON for a script', () => {
     const json = JSON.parse(formatCitesJson({ ...report, durationMs: 1.23456 })) as Record<string, unknown>;
     expect(Object.keys(json)).toEqual(['formatVersion', 'ok', 'root', 'durationMs', 'families', 'summary', 'findings', 'gaps', 'unclassified', 'notes', 'exclude']);
@@ -959,6 +1005,23 @@ describe('the report', () => {
     expect(quiet.runs[0]).not.toHaveProperty('invocations');
     const noted = JSON.parse(formatCitesSarif({ ...report, gaps: [], notes: ['a note'] })) as typeof sarif;
     expect(noted.runs[0]?.invocations?.[0]?.toolExecutionNotifications).toEqual([{ level: 'note', message: { text: 'a note' } }]);
+  });
+
+  it('is SARIF that declares its schema, its tool and both of its rules, whole', () => {
+    // A serialisation format is a contract with a machine that is not in the
+    // room: a rule's description or the tool's address left empty is a page
+    // that renders with a hole in it, and nothing here would notice.
+    const sarif = JSON.parse(formatCitesSarif(report)) as { $schema: string; version: string; runs: Array<{ tool: { driver: unknown } }> };
+    expect([sarif.$schema, sarif.version]).toEqual(['https://json.schemastore.org/sarif-2.1.0.json', '2.1.0']);
+    expect(sarif.runs[0]?.tool.driver).toEqual({
+      name: 'spec-guard cites',
+      informationUri: 'https://github.com/DescentVTT/spec-guard',
+      version: '0.0.0',
+      rules: [
+        { id: 'ghost-citation', name: 'ghost-citation', shortDescription: { text: 'A comment cites a document that does not exist.' } },
+        { id: 'stale-citation', name: 'stale-citation', shortDescription: { text: 'A comment cites a document that is no longer in force.' } },
+      ],
+    });
   });
 
   it('places each finding, and each file read in part, for GitLab and GitHub', () => {
