@@ -5,6 +5,14 @@ All notable changes to this project are documented here. Versions follow
 may change in a minor release — each such change is listed under **Changed**
 with the flag that restores the previous behaviour.
 
+## Unreleased
+
+### Fixed
+
+- **The package ships one README, its own.** `files` named `README.md`,
+  which npm reads as a name at any depth, so the tarball carried spec-core's
+  vendored README beside the licence it ships; the entry is `/README.md`.
+
 ## 0.12.1
 
 The query is fast again. A warm `query` in the MCP server took 27 ms over this
