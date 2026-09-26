@@ -507,14 +507,18 @@ describe('a front-matter status that cannot be read', () => {
 
     const human = formatReport(report, { color: false, verbose: false });
     expect(human).toContain(`⚠ docs/a.md:2  ${said('text follows a closing quote')}`);
-    const json = JSON.parse(formatJson(report)) as { specWarnings: Array<{ spec: { file: string; line: number }; message: string }> };
+    const json = JSON.parse(formatJson(report)) as { specWarnings: Array<{ spec: { file: string; line: number }; kind: string; message: string }> };
     expect(json.specWarnings.map(({ spec }) => [spec.file, spec.line])).toEqual([['docs/a.md', 2], ['docs/b.md', 2]]);
     const sarif = JSON.parse(formatSarif(report)) as { runs: Array<{ invocations?: Array<{ toolExecutionNotifications: Array<{ level: string; message: { text: string } }> }> }> };
-    expect(sarif.runs[0]?.invocations?.[0]?.toolExecutionNotifications.map(({ level }) => level)).toEqual(['warning', 'warning']);
-    expect(runAnnotations(report).filter(({ rule }) => rule === 'spec-warning').map(({ file, line, level }) => [file, line, level])).toEqual([
-      ['docs/a.md', 2, 'warning'],
-      ['docs/b.md', 2, 'warning'],
+    expect(sarif.runs[0]?.invocations?.[0]?.toolExecutionNotifications).toEqual([
+      { level: 'warning', message: { text: `docs/a.md:2 ${said('text follows a closing quote')}` } },
+      { level: 'warning', message: { text: `docs/b.md:2 ${said('a plain value cannot contain ": "; quote it')}` } },
     ]);
+    expect(runAnnotations(report).filter(({ rule }) => rule === 'spec-warning')).toEqual([
+      { rule: 'spec-warning', identity: ['spec-warning', 'docs/a.md', 'unreadable-status'], level: 'warning', severity: 'minor', file: 'docs/a.md', line: 2, message: said('text follows a closing quote') },
+      { rule: 'spec-warning', identity: ['spec-warning', 'docs/b.md', 'unreadable-status'], level: 'warning', severity: 'minor', file: 'docs/b.md', line: 2, message: said('a plain value cannot contain ": "; quote it') },
+    ]);
+    expect(json.specWarnings.map(({ kind }) => kind)).toEqual(['unreadable-status', 'unreadable-status']);
   });
 });
 

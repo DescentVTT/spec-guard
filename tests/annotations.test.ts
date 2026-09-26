@@ -174,6 +174,14 @@ describe('a proof\'s findings', () => {
       `"there" must not appear in src: ${report.results[1]?.unprovable as string}`,
     );
     expect(annotations[3]?.message).toBe('docs/draft.md is draft, so its 1 rule was not proved.');
+    // Each identity is what the finding is about: the rule's document, kind
+    // and statement, never the violation tried or the count it found.
+    expect(annotations.map(({ identity }) => identity)).toEqual([
+      ['rule-cannot-fail', 'docs/rules.md', 'assert-absence', '"Legacy" must not appear in src'],
+      ['rule-unprovable', 'docs/rules.md', 'assert-absence', '"there" must not appear in src'],
+      ['invalid-directive', 'docs/rules.md', 'Unknown directive "@assert-bogus". Expected one of: @assert-absence, @assert-count, @assert-present, @assert-import-absence, @assert-import-count, @assert-import-cycle, @assert-layers, @assert-structure.'],
+      ['not-in-force', 'docs/draft.md'],
+    ]);
   });
 });
 

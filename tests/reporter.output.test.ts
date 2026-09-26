@@ -685,3 +685,41 @@ describe('directive-shaped comments no rule was read from', () => {
     expect((JSON.parse(formatJson(fixture())) as { maskedDirectives: unknown }).maskedDirectives).toEqual([]);
   });
 });
+
+describe('what changed how a spec document was read', () => {
+  const passing = fixture({
+    ok: true,
+    summary: { specs: 1, total: 1, passed: 1, failed: 0, skipped: 0, inactive: 0 },
+    results: [passingResult],
+    warnings: ['ripgrep failed, fell back to the JavaScript engine (x)'],
+    specWarnings: [
+      { location: location(3), kind: 'unclosed-block', message: 'the code fence ``` opened here is never closed' },
+      { location: location(9), kind: 'unreadable-status', message: 'the status in front matter cannot be read' },
+    ],
+  });
+
+  it('is a yellow line each, after the run\'s own warnings, set off by a blank line', () => {
+    expect(formatReport(passing, { color: false, verbose: false }).split('\n')).toEqual([
+      'spec-guard 1 spec · 1 assertion · ripgrep',
+      '',
+      '⚠ ripgrep failed, fell back to the JavaScript engine (x)',
+      '',
+      '⚠ docs/a.md:3  the code fence ``` opened here is never closed',
+      '⚠ docs/a.md:9  the status in front matter cannot be read',
+      '',
+      '1 passed · 12ms',
+      '✔ every spec assertion holds',
+    ]);
+    expect(formatReport(passing, { color: true, verbose: false }).split('\n')[4]).toBe(
+      `${ESC}[33m⚠${ESC}[0m ${ESC}[33mdocs/a.md:3  the code fence \`\`\` opened here is never closed${ESC}[0m`,
+    );
+  });
+
+  it('is in JSON with its place and its kind', () => {
+    expect((JSON.parse(formatJson(passing)) as { specWarnings: unknown }).specWarnings).toEqual([
+      { spec: { file: 'docs/a.md', line: 3, column: 1 }, kind: 'unclosed-block', message: 'the code fence ``` opened here is never closed' },
+      { spec: { file: 'docs/a.md', line: 9, column: 1 }, kind: 'unreadable-status', message: 'the status in front matter cannot be read' },
+    ]);
+    expect((JSON.parse(formatJson(fixture())) as { specWarnings: unknown }).specWarnings).toEqual([]);
+  });
+});
