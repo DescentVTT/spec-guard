@@ -1085,6 +1085,18 @@ describe('spec-guard cites', () => {
 
 /* --------------------------------------------------------------- budget */
 
+/**
+ * Whether the code under test is instrumented, by coverage or by Stryker.
+ * Instrumented, every statement costs several times more, so a wall-clock
+ * budget is a claim about the code as shipped and is checked only there -
+ * CI's sweep measured this tree at 10.009 s in Stryker's initial run, and
+ * under a second on its own. What a run finds is checked in both.
+ */
+function instrumented(): boolean {
+  const worker = (globalThis as Record<string, unknown>)['__vitest_worker__'] as { config?: { coverage?: { enabled?: boolean } } } | undefined;
+  return '__stryker__' in globalThis || worker?.config?.coverage?.enabled === true;
+}
+
 describe('a tree of thousands of files', () => {
   let root: string;
   const FILES = 3000;
@@ -1116,7 +1128,7 @@ describe('a tree of thousands of files', () => {
     expect(report.summary).toMatchObject({ files: FILES, citations: FILES / 3, ghosts: 0, stale: FILES / 6 });
     // Measured at under a second on the development machine; the budget
     // leaves room for a loaded one.
-    expect(took).toBeLessThan(10_000);
+    if (!instrumented()) expect(took).toBeLessThan(10_000);
   }, 60_000);
 
   it('reads a file of many comments in one pass, not one pass per comment', async () => {
@@ -1127,6 +1139,6 @@ describe('a tree of thousands of files', () => {
     const started = performance.now();
     const report = await cites({ 'src/big.ts': source }, { paths: ['src/big.ts'] });
     expect(report.summary).toMatchObject({ files: 1, citations: 1, ghosts: 0 });
-    expect(performance.now() - started).toBeLessThan(2_000);
+    if (!instrumented()) expect(performance.now() - started).toBeLessThan(2_000);
   }, 60_000);
 });
