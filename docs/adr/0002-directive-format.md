@@ -178,5 +178,13 @@ mask alone of the three. It takes 18% off a warm query, measured together:
 23.9 ms against 29.3 ms over the specs this repository names, still past the
 20 ms, and 19.2 ms against 23.2 ms over the ADRs alone, where the 23.1 ms above
 was most likely measured. 0.11.0 took 8.0 and 6.6 ms beside them.
-[ADR-0012](0012-query-and-mcp.md)'s amendment of 2026-09-27 has the
-measurement, and the server's memo is still not made.
+
+The server's was made after it: `createDocumentMemo`, the watch session's memo
+keyed as a spec is keyed there, which the MCP server reads the specs through.
+Every spec is still read on every request, and a document is parsed again only
+when its bytes change. A warm query takes 6.3 ms over the specs this
+repository names and 6.0 ms over the ADRs alone, against 23.8 and 18.7 ms
+without it: the scan is paid once per document and edit, and the 20 ms holds
+again. A command run once takes no memo and pays for every scan, as it did.
+[ADR-0012](0012-query-and-mcp.md)'s amendment of 2026-09-27 has both
+measurements.

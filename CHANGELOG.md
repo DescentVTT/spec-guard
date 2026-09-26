@@ -7,6 +7,18 @@ with the flag that restores the previous behaviour.
 
 ## Unreleased
 
+### Added
+
+- **`createDocumentMemo`, and `documents` on `runSpecGuard`, `loadRuleSet`,
+  `queryRules` and `impactOf`**: parsed spec documents kept from one call to
+  the next, for a process that reads the specs on every request. Every spec
+  is still found and read, so an edit is seen by the next call; a document is
+  parsed again only when its bytes change. It holds one parse of each
+  document the spec set read last names, and forgets one removed, left out or
+  edited at the next read. The MCP server keeps one for its lifetime; a
+  command run once takes none, and parses every document and hashes none, as
+  before.
+
 ### Fixed
 
 - **The README's and the changelog's links to the ADRs lead somewhere on
@@ -33,16 +45,19 @@ with the flag that restores the previous behaviour.
   status, title and warning reads as it did, and a run, `prove` and `cites` of
   this repository answer as they did.
   [ADR-0015](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0015-globs-from-spec-core.md).
-- **A warm query takes 18% less time, and meets its budget only over the
-  ADRs.** A query of one path, as a running server answers it, took a median
-  of 23.9 ms against 0.12.0's 29.3 ms over this repository's 19 specs,
-  measured together in one process, where ADR-0012 set out to meet 20 ms; over
-  its 18 ADRs alone, where the 23 ms recorded for 0.12.0 was most likely
-  measured, 19.2 ms against 23.2 ms. 0.11.0, before spec-core's scanner, took
-  8.0 and 6.6 ms beside them. What reading a spec still costs is the scan the
-  parser reads.
+- **A warm query in the MCP server meets its 20 ms budget again**, over
+  this repository's 19 specs as over its 18 ADRs. 0.12.0 had lost it to
+  spec-core's scanner, which costs about three times what the parser it
+  replaced did. Measured together in one process, a query of one path took a
+  median of 6.3 ms, against 23.8 ms with `8840d36`'s lazy scan alone,
+  27.4 ms for 0.12.0 and 7.9 ms for 0.11.0; over the ADRs alone, 6.0 ms
+  against 18.7, 22.4 and 6.3 ms. The lazy scan takes 13 to 21% off, run to
+  run; the rest is the server parsing only a document whose bytes changed. A server's first
+  request, and one after an edit, still parse what they read: 24.3 ms for a
+  first request here. The 23 ms recorded for 0.12.0 was most likely measured
+  over the ADRs alone; over the specs this repository names it was 29 ms.
   [ADR-0012](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0012-query-and-mcp.md)'s
-  amendment has the measurement, and what is left to make.
+  amendment has both measurements.
 
 ## 0.12.0
 
