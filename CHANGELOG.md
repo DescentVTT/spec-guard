@@ -62,8 +62,9 @@ with the flag that restores the previous behaviour.
   `unprovable` (with the reason). Exit 1 when a rule survived, and under
   `--strict` when one is unprovable; `--json` is versioned by `formatVersion`,
   and `--format sarif` puts a survivor on its directive.
-  `proveSpecGuard` is the same for a caller of the API. Run over this
-  repository's own 71 rules, it found one that could not fail as written.
+  `proveSpecGuard` is the same for a caller of the API. The first proof of
+  this repository's own rules found one that could not fail as written, and
+  CI now proves every rule the repository states on each change.
   [ADR-0016](docs/adr/0016-rules-seen-to-fail.md).
 - **`RunOptions.io`: a run over a tree that is not on disk.** `runSpecGuard`
   reads through the `Io` it is given - finding and reading the specs, checking

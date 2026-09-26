@@ -1108,7 +1108,7 @@ spec-guard impact <paths...>           # the files that depend on each path, and
 | `--print-baseline` | Print the `baseline="..."` that would exempt today's violations, and exit |
 | `--no-default-skips` / `--default-skips` | Search `.git`, `.hg`, `.svn` and `node_modules` too |
 | `--exclude <globs>` | Paths no assertion looks at, beside each directive's own `exclude`. Repeatable; replaces the configuration's list, and `--exclude=` clears it |
-| `--ignore-status` / `--no-ignore-status` | Execute directives in draft, proposed and superseded documents too |
+| `--ignore-status` / `--no-ignore-status` | Execute directives in documents not in force too: draft, proposed, rejected, deprecated, superseded or archived |
 | `--include-specs` / `--no-include-specs` | Also count matches inside the spec files themselves |
 | `--max-snippets <n>` | Failure snippets per assertion (default 5) |
 | `--concurrency <n>` | Search passes in flight at once (default 8) |

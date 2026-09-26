@@ -196,7 +196,7 @@ Options
       --print-baseline    Print the baseline="..." that would exempt today's violations, and exit
       --no-default-skips  Search .git, .hg, .svn and node_modules too
       --exclude <globs>   Paths no assertion looks at, beside each directive's exclude; repeatable
-      --ignore-status     Execute directives in draft, proposed and superseded documents too
+      --ignore-status     Execute directives in documents not in force too (see Directives)
       --include-specs     Also count matches inside the spec files themselves
       --max-snippets <n>  Failure snippets per assertion (default: ${DEFAULT_MAX_SNIPPETS})
       --concurrency <n>   Assertions executed in parallel (default: ${DEFAULT_CONCURRENCY})
@@ -247,8 +247,9 @@ modules, and are counted rather than followed; an import that names no file is
 listed, never guessed at.
 
 query answers from the specs alone, without reading the codebase, so it works
-for a file that does not exist yet. mcp offers the same answer, and a check,
-as the tools get_architectural_rules and check_architecture.
+for a file that does not exist yet. mcp offers the same answer, a check and
+impact's, as the tools get_architectural_rules, check_architecture and
+get_dependents.
 
 Exit codes
   0 all assertions passed   1 an assertion failed   2 spec-guard could not run
