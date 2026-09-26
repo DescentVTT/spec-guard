@@ -29,6 +29,7 @@ import {
   type McpServerOptions,
   type OutgoingMessage,
 } from '../src/mcp.js';
+import { EXIT_OK, main, type CliIO } from '../src/cli.js';
 import { makeTempRepo, removeTempRepo } from './helpers.js';
 
 const MODERN = '2026-07-28';
@@ -238,6 +239,7 @@ describe('the legacy era: initialize, then requests with no version on them', ()
       await request('tools/list'),
       await request('tools/call', { name: 'get_architectural_rules', arguments: { path: 'src/app/service.ts' } }),
       await request('tools/call', { name: 'check_architecture', arguments: { paths: ['src/domain'] } }),
+      await request('tools/call', { name: 'get_dependents', arguments: { paths: ['src/domain'] } }),
       await request('resources/list'),
       await request('resources/templates/list'),
       await request('resources/read', { uri: 'spec://rules' }),
@@ -362,10 +364,13 @@ describe('the era helpers', () => {
 /* --------------------------------------------------------------------- tools */
 
 describe('tools/list', () => {
-  it('lists the two tools, read-only and closed-world, with schemas that refuse extra arguments', async () => {
+  it('lists the three tools, read-only and closed-world, with schemas that refuse extra arguments', async () => {
     const listed = (await result('tools/list')) as { tools: Array<Record<string, unknown>> };
     expect(listed).toEqual({ tools: TOOLS });
-    expect(listed.tools.map((entry) => entry['name'])).toEqual(['get_architectural_rules', 'check_architecture']);
+    // Pinned as a list on purpose: a tool added or dropped is a decision about
+    // what an agent is offered, and should arrive here as a diff. The third,
+    // get_dependents, was added on 2026-09-26 (ADR-0018).
+    expect(listed.tools.map((entry) => entry['name'])).toEqual(['get_architectural_rules', 'check_architecture', 'get_dependents']);
     for (const entry of listed.tools) {
       expect(entry['annotations']).toEqual({ readOnlyHint: true, idempotentHint: true, openWorldHint: false });
       expect(entry['inputSchema']).toMatchObject({ type: 'object', additionalProperties: false });
@@ -388,11 +393,24 @@ describe('tools/list', () => {
           'Given paths, runs only the rules that govern them - each over its whole scope, so a count or a cycle is judged ' +
           'exactly as CI judges it - and marks which violations lie in those paths. Save your edits before calling.',
       ],
+      [
+        'Files that depend on a path',
+        'Lists the files that import each given file or directory, directly or through other files, ' +
+          'each with how many imports away it is and the import that leads there, ' +
+          'and the architecture rules in force that govern the paths or any of those files. ' +
+          'Call it before changing a file that other files import - renaming or removing an export, changing a signature - ' +
+          'to see everything the change can reach. ' +
+          'Relative JavaScript, TypeScript and Python imports are followed; an import that cannot be resolved is listed, ' +
+          'and Go, Rust, C# and absolute Python imports, which name modules rather than files, are counted, never guessed, ' +
+          'so a short list is not mistaken for a complete one. Reads the codebase on disk, so every path must exist.',
+      ],
     ]);
     expect(INSTRUCTIONS).toBe(
       "spec-guard enforces the architecture decisions written in this project's Markdown specs and ADRs. " +
         'Before creating or changing a file, call get_architectural_rules with its path to learn the rules in force there: ' +
         'imports it must not make, the layer it belongs to, what it must be named and the files it needs beside it, text it must not contain. ' +
+        'Before changing a file that other files import - renaming or removing an export, changing what a function takes or returns - ' +
+        'call get_dependents with its path to learn every file the change can reach and the rules in force over them. ' +
         'After changing files, call check_architecture with their paths to find violations before CI does. ' +
         'Rules in draft, proposed, rejected, deprecated, superseded or archived documents are not in force and are only counted.',
     );
@@ -414,6 +432,21 @@ describe('tools/list', () => {
           description: 'Files or directories to check the rules of, relative to the project root. Omit to run every rule.',
         },
       },
+      additionalProperties: false,
+    });
+    expect(listed.tools[2]?.['inputSchema']).toEqual({
+      type: 'object',
+      properties: {
+        paths: {
+          type: 'array',
+          items: { type: 'string' },
+          minItems: 1,
+          description: 'Files or directories that exist, relative to the project root or absolute inside it.',
+        },
+        depth: { type: 'integer', minimum: 1, description: 'Follow dependents at most this many imports away. Omit to follow every one.' },
+        include_inactive: { type: 'boolean', description: 'Also list rules from draft, proposed, rejected, deprecated, superseded and archived documents.' },
+      },
+      required: ['paths'],
       additionalProperties: false,
     });
   });
@@ -687,6 +720,105 @@ describe('check_architecture', () => {
     const called = await tool('check_architecture', {}, { patterns: ['nowhere/*.md'] });
     expect(called).toMatchObject({ isError: true });
     expect(called.content[0]?.text).toBe(`No spec files matched "nowhere/*.md" under ${root}. Start the server with --spec <glob> or --root <dir> pointing at the project.`);
+  });
+});
+
+describe('get_dependents', () => {
+  /** What `spec-guard impact --json` writes for the same question, from the command line. */
+  async function impactJson(...argv: string[]): Promise<Record<string, unknown>> {
+    const out: string[] = [];
+    const io: CliIO = { stdout: (text) => out.push(text), stderr: () => {}, env: {}, cwd: root, isTTY: false };
+    expect(await main(['impact', ...argv, '--json', '--spec', 'docs/**/*.md', '--root', root], io)).toBe(EXIT_OK);
+    return JSON.parse(out[0] as string) as Record<string, unknown>;
+  }
+
+  /** A report with its timing taken out, which is the one thing two answers need not share. */
+  const timeless = (report: Record<string, unknown> | undefined): Record<string, unknown> => ({ ...report, durationMs: 0 });
+
+  it('answers with the document impact --json writes, and its report as the text', async () => {
+    const called = await tool('get_dependents', { paths: ['src/domain/user.ts'] });
+    expect(called).not.toHaveProperty('isError');
+    expect(timeless(called.structuredContent)).toEqual(timeless(await impactJson('src/domain/user.ts')));
+
+    // And what that document holds: the file that imports it, with the
+    // import, and the rules over both, the draft's counted and named.
+    const structured = called.structuredContent as {
+      formatVersion: number;
+      results: unknown[];
+      rules: Array<{ kind: string; governs: string[] }>;
+      withheld: unknown;
+    };
+    expect(structured.formatVersion).toBe(1);
+    expect(structured.results).toEqual([
+      {
+        path: 'src/domain/user.ts',
+        shape: 'file',
+        files: ['src/domain/user.ts'],
+        dependents: [{ file: 'src/app/service.ts', depth: 1, via: { imports: 'src/domain/user.ts', line: 1, specifier: '../domain/user.js' } }],
+      },
+    ]);
+    expect(structured.rules.map((rule) => [rule.kind, rule.governs])).toEqual([
+      ['assert-layers', ['src/domain/user.ts', 'src/app/service.ts']],
+      ['assert-import-absence', ['src/domain/user.ts']],
+      ['assert-absence', ['src/domain/user.ts', 'src/app/service.ts']],
+    ]);
+    expect(structured.withheld).toEqual({ rules: 1, documents: ['docs/adr/0002-clocks.md'] });
+    expect(called.content).toHaveLength(1);
+    expect(called.content[0]?.text).toContain('src/domain/user.ts\n  1 file depends on it, 1 directly\n    1  src/app/service.ts  imports src/domain/user.ts (line 1)\n');
+    expect(called.content[0]?.text).toContain('3 rules govern these files, from 1 document');
+  });
+
+  it('takes a depth and a directory, as the command does', async () => {
+    const called = await tool('get_dependents', { paths: ['src/domain'], depth: 1 });
+    expect(timeless(called.structuredContent)).toEqual(timeless(await impactJson('src/domain', '--depth', '1')));
+    expect(called.structuredContent).toMatchObject({ depth: 1, results: [{ path: 'src/domain', shape: 'directory', files: ['src/domain/user.ts'] }] });
+    expect(called.content[0]?.text).toContain('only dependents up to 1 import away are shown (--depth 1)');
+  });
+
+  it('lists the rules of documents not in force when asked, or when the server was started with --ignore-status', async () => {
+    const listed = async (args: Record<string, unknown>, overrides: Partial<McpServerOptions> = {}): Promise<unknown[]> =>
+      ((await tool('get_dependents', { paths: ['src/domain/user.ts'], ...args }, overrides)).structuredContent as { rules: Array<{ document: string; inForce: boolean }> }).rules
+        .filter((rule) => !rule.inForce)
+        .map((rule) => rule.document);
+    expect(await listed({})).toEqual([]);
+    expect(await listed({ include_inactive: true })).toEqual(['docs/adr/0002-clocks.md']);
+    expect(await listed({}, { run: { ignoreStatus: true } })).toEqual(['docs/adr/0002-clocks.md']);
+    expect(await listed({ include_inactive: false }, { run: { ignoreStatus: true } })).toEqual([]);
+  });
+
+  it('answers without specs, as the command does, since who imports a file does not depend on them', async () => {
+    const called = await tool('get_dependents', { paths: ['src/domain/user.ts'] }, { patterns: ['nowhere/*.md'] });
+    expect(called).not.toHaveProperty('isError');
+    expect(called.structuredContent).toMatchObject({ specFiles: [], rules: [], results: [{ dependents: [{ file: 'src/app/service.ts' }] }] });
+    expect(called.content[0]?.text).toContain('no spec files matched, so no rules are shown');
+  });
+
+  it('tells the model what to fix about its arguments, as a tool error it can read', async () => {
+    const paths = '"paths" is required and must be a non-empty array of strings.';
+    const depth = '"depth" must be a whole number of 1 or more: a depth of 0 would follow no import.';
+    const cases: Array<[unknown, string]> = [
+      [{}, paths],
+      [{ paths: 'src' }, paths],
+      [{ paths: [] }, paths],
+      [{ paths: ['src', 3] }, paths],
+      [{ paths: ['src'], depth: 0 }, depth],
+      [{ paths: ['src'], depth: 1.5 }, depth],
+      [{ paths: ['src'], depth: '2' }, depth],
+      [{ paths: ['src'], include_inactive: 'yes' }, '"include_inactive" must be true or false.'],
+      [{ path: 'src' }, 'Unknown argument "path"; this tool takes paths, depth and include_inactive.'],
+      [{ paths: ['src/domain/gone.ts'] }, '"src/domain/gone.ts" does not exist, so nothing depends on it yet'],
+      [{ paths: ['../elsewhere'] }, `"../elsewhere" is outside the root ${root.replace(/\\/g, '/')}.`],
+    ];
+    for (const [args, message] of cases) {
+      expect(await tool('get_dependents', args), JSON.stringify(args)).toEqual({ content: [{ type: 'text', text: message }], isError: true });
+    }
+    expect(await tool('get_dependents')).toEqual({ content: [{ type: 'text', text: paths }], isError: true });
+  });
+
+  it('reports a failure inside spec-guard to the model rather than as a protocol error', async () => {
+    const called = await tool('get_dependents', { paths: ['src'] }, { patterns: ['docs/[z-a]*.md'] });
+    expect(Object.keys(called).sort()).toEqual(['content', 'isError']);
+    expect(called.content[0]?.text).toBe('spec-guard failed: invalid spec pattern "docs/[z-a]*.md": the range "z-a" runs backwards');
   });
 });
 

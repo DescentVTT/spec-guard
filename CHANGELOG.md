@@ -21,6 +21,15 @@ with the flag that restores the previous behaviour.
   alias or a dynamic `import(name)` is listed, never guessed. `--depth <n>`,
   `--ignore-status`, and `--json` with `formatVersion`. `impactOf` is the
   API. [ADR-0018](docs/adr/0018-impact.md).
+- **`get_dependents` on the MCP server**, a third tool beside
+  `get_architectural_rules` and `check_architecture`: `impact` for a list of
+  paths, with `depth` and `include_inactive`. Its structured content is the
+  document `impact --json` writes and its text the command's report, and it is
+  annotated read-only, as the other two are. Its description, and the server's
+  instructions, tell an agent to call it before changing a file others import.
+  A path that does not exist is a tool error the model can read. A client
+  that pinned the tool list sees three. `impactDocument` is the API for the
+  document both answer with. ADR-0018's amendment.
 - **`spec-guard cites`: do the comments cite decisions in force?** A comment
   such as `// ADR-0011: the domain imports no infrastructure` is a claim, and it
   goes stale when the document is never written or is superseded. `cites` reads

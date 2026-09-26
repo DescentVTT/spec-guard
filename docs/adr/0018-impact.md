@@ -116,9 +116,10 @@ form: the answer is a list of files and rules, not findings with places.
   Every import of `pkg.sub.mod` runs `pkg/__init__.py`, but read that way every
   module of a package depends on the package's `__init__`, which says nothing a
   reader can act on.
-- **An MCP tool.** The server's tools are pinned by its tests, which the move
-  onto spec-core's protocol layer kept unchanged; adding `impact` there is the
-  next step, and a decision about what an agent is offered.
+- **An MCP tool**, when this was written. The server's tools are pinned by its
+  tests, which the move onto spec-core's protocol layer kept unchanged, and
+  adding `impact` there was a decision about what an agent is offered. The
+  amendment below makes it.
 
 ## Consequences
 
@@ -138,3 +139,38 @@ starts in - have tests. One survivor is equivalent: `normalizeModule` is
 handed `'python'` for a relative Python import, and Python is its general
 case, so any other language name gives the same path. The sweep that measures
 this file is CI's.
+
+## Amended 2026-09-26: `get_dependents` on the MCP server
+
+The agent the question is for is the one editing the file, and it asks through
+the server rather than a terminal. `spec-guard mcp` offers a third tool,
+`get_dependents(paths, depth?, include_inactive?)`, beside
+[ADR-0012](0012-query-and-mcp.md)'s two.
+
+- **It is `impact`, answered as `impact --json` answers.** Its structured
+  content is the document the command writes - `formatVersion`, each path's
+  dependents with their depth and the import that leads there, the unresolved
+  imports, the references counted rather than followed, and the rules in play
+  with the files each governs - built by the one function both call,
+  `impactDocument`, and a test holds the two answers equal field for field. Its
+  text is the command's human report.
+- **It is read-only**, idempotent and closed-world, as the other two are: it
+  reads the specs and the tree, and writes nothing.
+- **Its description says when to call it**: before changing a file that other
+  files import - renaming or removing an export, changing a signature - to see
+  everything the change can reach. The server's instructions say the same,
+  between the rules to read before an edit and the check to run after one.
+- **Its arguments are the command's**: paths, which must exist, a depth of 1
+  or more, and `include_inactive`, which defaults to the server's
+  `--ignore-status` as `get_architectural_rules`'s does. A path that does not
+  exist or lies outside the root is a tool error the model can read, as a path
+  outside the root is for the other tools.
+- **It answers without specs**, where the other two refuse: who imports a file
+  does not depend on them, and the command answers the same way, saying that no
+  rules are shown.
+
+The tests that pin the tool list pin three names now, in `tests/mcp.test.ts`
+and over the built binary in `tests/e2e.test.ts`, with the new descriptor, its
+schema and the instructions pinned whole.
+
+<!-- @assert-count target="src/mcp.ts" symbol="impactDocument" min="2" reason="get_dependents answers with the document impact --json writes, built by the same function" -->
