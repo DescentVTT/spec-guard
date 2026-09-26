@@ -207,6 +207,8 @@ describe('a predicate over one compiled glob', () => {
     ['tests/', 'exclude', 'any'],
     ['*.test.ts', 'exclude', 'any'],
     ['{tests,dist}', 'exclude', 'any'],
+    ['tests/.', 'exclude', 'any'],
+    ['tests/{.}', 'exclude', 'any'],
     ['/tests', 'exclude', 'whole'],
     ['src/tests', 'exclude', 'whole'],
     ['**/dist/**', 'exclude', 'whole'],

@@ -189,6 +189,10 @@ describe('the exclude matcher', () => {
     expect(createExcludeMatcher(['./src/a.ts'])('src/a.ts')).toBe(true);
     expect(createExcludeMatcher(['src/./a.ts'])('src/a.ts')).toBe(true);
     expect(createExcludeMatcher(['src/./a.ts'])('lib/src/a.ts')).toBe(false);
+    // One name and a `.` is one segment, so it floats as the name alone does,
+    // and so it does when the `.` is what a brace group expands to.
+    expect(createExcludeMatcher(['tests/.'])('src/tests/a.ts')).toBe(true);
+    expect(createExcludeMatcher(['tests/{.}'])('src/tests/a.ts')).toBe(true);
   });
 
   it('anchors a pattern with a leading slash to the root, as .gitignore and ripgrep do', () => {
