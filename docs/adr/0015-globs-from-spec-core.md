@@ -155,6 +155,17 @@ differences below, so the adoption changed exactly what this ADR says it did.
   the three: `"specs": ["docs/**.md"]` stopped finding every nested ADR, and a
   run that had failed on one of them passed, one spec fewer, with nothing said.
   A reading every tool shares is not available, so none is guessed at.
+
+  A refusal is only loud where it is asked for, so every door asks. A spec
+  pattern in the configuration's `specs` is refused where the file is read,
+  naming the file and the key, and one on the command line - positional or
+  `--spec` - before any command starts, so `query`, `impact`, `cites`,
+  `prove`, `mcp` and a watch session refuse it as a run does rather than each
+  answering from fewer documents. Both are exit 2, as `exclude` in the
+  configuration and `--exclude` are. In a directive, `glob=`, `exclude=`,
+  `module=`, `order=`, `pattern=`, `dirs=` and `required=` make it invalid,
+  exit 1, in a document not in force as in one that is. `specPatternError` is
+  the check, in the words `expandSpecPatterns` throws.
 - **No pattern takes long.** spec-core's automaton keeps a set of live states,
   so a match costs the pattern's size times the path's length. `*-*-*-*-*-*x`
   against a name of 121 dashes took **55 seconds** under the RegExp, measured on

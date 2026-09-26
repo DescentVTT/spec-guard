@@ -14,7 +14,7 @@ import type { Readable } from 'node:stream';
 import { CitesError, findCitations } from './cites.js';
 import { CONFIG_KEYS, ConfigError, engineNamed, findConfig, type ConfigKey, type ProjectConfig } from './config.js';
 import { formatImpact, formatImpactJson, impactOf } from './impact.js';
-import { excludeListError } from './glob.js';
+import { excludeListError, patternListError, specPatternError } from './glob.js';
 import { nodeIo, readText, watchTree } from './io.js';
 import { createMcpHandler, serveStdio } from './mcp.js';
 import { formatQuery, formatQueryJson, queryRules, resolveQueryPath } from './query.js';
@@ -985,6 +985,14 @@ export async function main(argv: readonly string[] = process.argv.slice(2), io: 
   if (options.version) {
     io.stdout(version());
     return EXIT_OK;
+  }
+  // Before any command starts, so a server, a watch session and a proof refuse
+  // a pattern as a run does, rather than each answering with fewer documents.
+  // The configuration's are refused where it is read, naming the file.
+  const patternError = patternListError(options.patterns, specPatternError);
+  if (patternError !== null) {
+    io.stderr(`spec-guard: ${patternError}`);
+    return EXIT_ERROR;
   }
   // Read after --help and --version, which must work in a project whose
   // package.json is broken, and before anything that runs a rule.

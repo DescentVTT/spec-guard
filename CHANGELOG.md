@@ -183,8 +183,12 @@ with the flag that restores the previous behaviour.
   used to cross directories under the scanner and not under ripgrep, so a rule
   counted differently by engine; read as `*`, as `.gitignore` reads it,
   `"specs": ["docs/**.md"]` would quietly have stopped finding every nested
-  document. In a directive the directive is invalid; in a spec pattern, the
-  configuration or `--exclude`, it is exit 2.
+  document. In a directive the directive is invalid, in a draft as in a
+  document in force. A spec pattern is refused before any command starts: in
+  the configuration's `specs`, naming the file, and on the command line or in
+  `--spec`, for `query`, `impact`, `cites`, `prove` and `mcp` as for a run -
+  exit 2, as `exclude` in the configuration and `--exclude` are.
+  `specPatternError` is the check, for a caller of the API.
 - **A `.` or empty segment is no segment** (`src/./a.ts` is `src/a.ts`), and
   **a leading `/` anchors a `glob`** at the root, as it anchors an `exclude`.
   Both matched nothing in the scanner before; ripgrep already anchored.

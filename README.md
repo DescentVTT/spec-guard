@@ -159,13 +159,20 @@ can never exclude anything:
 - **`.` or `/`**, the root itself.
 
 So is any pattern the glob engine cannot read - an unclosed `[` or `{`, an
-extended glob such as `+(a|b)`, a range that runs backwards - rather than being
-read as a literal that excludes nothing. The same goes for `glob`, `module`,
-`order` and the structure rules' patterns, and for a spec pattern on the command
-line.
+extended glob such as `+(a|b)`, a range that runs backwards, `**` inside a
+name - rather than being read as a literal that excludes nothing. The same goes
+for `glob`, `module`, `order` and the structure rules' patterns, and for a spec
+pattern.
 
-In a directive a refused pattern is an invalid directive; in the configuration
-or `--exclude` it is exit 2.
+`**` means any number of directories only as a whole segment. `docs/**.md` is
+refused, with the two ways to say what was meant: `docs/**/*.md` for any depth,
+`*.md` for one level. The tools it could have come from read it three ways,
+and a spec pattern read the narrow way drops every nested document without a
+word.
+
+In a directive a refused pattern is an invalid directive, whether or not its
+document is in force; in the configuration's `specs` or `exclude`, a spec
+pattern on the command line or `--spec`, or `--exclude`, it is exit 2.
 
 List attributes accept commas or whitespace, so both of these work:
 

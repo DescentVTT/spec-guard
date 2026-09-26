@@ -72,6 +72,7 @@ export {
   isGlob,
   normalizeExclude,
   normalizeGlob,
+  specPatternError,
   toPosix,
   walkFiles,
   walkPaths,
