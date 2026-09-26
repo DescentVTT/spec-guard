@@ -76,17 +76,22 @@ with the flag that restores the previous behaviour.
   `auto` with one searches with the built-in scanner. A search that fails
   outright through the door fails the run, rather than falling back to the
   scanner that reads the disk. [ADR-0014](docs/adr/0014-configuration-and-watch.md).
-- **`--format gitlab` and `--format github`**, for the run and for `prove`.
-  `gitlab` writes a GitLab Code Quality report - `description`, `check_name`,
-  a `fingerprint` that is the SHA-256 of the rule, the file and the message,
-  a `severity` and a `location` - which a merge request shows beside its
-  changes. `github` writes one workflow command per finding, which a job's log
+- **`--format gitlab` and `--format github`**, for the run, `prove` and
+  `cites`. `gitlab` writes a GitLab Code Quality report - `description`,
+  `check_name`, a `fingerprint`, a `severity` and a `location` - which a
+  merge request shows beside its changes. The fingerprint is the SHA-256 of
+  what a finding is about - a rule's document, kind, subject and targets, as
+  SARIF's is; a citation's file, family and id; a document's path - and never
+  of its message, which holds the count of matches and the directive's line:
+  one more match, or a line added above a directive, would otherwise have
+  closed every open issue and opened a new one. Findings that share an
+  identity, one ghost cited on two lines, are numbered in order. `github` writes one workflow command per finding, which a job's log
   turns into an annotation on the pull request with no upload step. Both place
   the findings SARIF places: a failing assertion or a surviving rule is
   `critical`, a directive that could not be read `major`, a rule `prove` could
   make no violation for `minor`, and a document not in force is named, as
-  `info`, on its first line. `formatGitlab`, `formatGithub`, `runAnnotations`
-  and `proveAnnotations` are the API.
+  `info`, on its first line. `formatGitlab`, `formatGithub`, `runAnnotations`,
+  `proveAnnotations` and `citesAnnotations` are the API.
 - **What was not run is counted.** A comment shaped like a directive in code,
   raw HTML or front matter is not run, and a report now says how many and
   where: one dim line in the human report - "7 directive-shaped comments in
