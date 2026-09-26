@@ -211,6 +211,9 @@ describe('an id another owner qualifies', () => {
       'page.html#ADR-7',
       'https://example.com/?id=ADR-7',
       'https://example.com/search?ADR-7',
+      // A relative link has no :// to give it away: its query does.
+      'decisions.html?id=ADR-7',
+      'decisions.html?ADR-7',
       'https://example.com/adr/decision-ADR-7',
       '<https://example.com/(ADR-7)>',
     ]) {
@@ -280,6 +283,29 @@ describe('the documents of a family', () => {
     // The default skips apply, and --no-default-skips reads them too.
     expect([...(await findDocuments({ id: 'ADR-{n}', files: 'docs/adr/**/{n}-*.md' }, ROOT, io, false)).keys()]).toEqual(['1', '2', '3']);
     expect([...(await findDocuments({ id: 'ADR-{n}', files: 'docs/adr/**/{n}-*.md' }, ROOT, io, true)).keys()]).toEqual(['1', '2']);
+  });
+
+  it('are read no more than the engine\'s read limit at once, however many a family has', async () => {
+    // Twelve hundred ADRs is a real repository, and a read of every one at
+    // once is what the limit is there to prevent: the answer is the same
+    // either way, so only the reads in flight can tell.
+    const numbered = (index: number): string => String(index + 1).padStart(4, '0');
+    const base = memoryIo(ROOT, Object.fromEntries(Array.from({ length: 40 }, (_, index) => [`docs/adr/${numbered(index)}-d.md`, `# ADR-${numbered(index)}: D\n`])));
+    let open = 0;
+    let most = 0;
+    const io = {
+      ...base,
+      readFile: async (file: string) => {
+        open += 1;
+        most = Math.max(most, open);
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        open -= 1;
+        return base.readFile(file);
+      },
+    };
+    const documents = await findDocuments({ id: 'ADR-{n}', files: 'docs/adr/{n}-*.md' }, ROOT, io, true);
+    expect(documents.size).toBe(40);
+    expect(most).toBe(16);
   });
 
   it('are walked from the root when the template has no literal directory, and an unreadable one has no status', async () => {
@@ -668,7 +694,10 @@ describe('a scan', () => {
       'src/deep/b.ts:1:4 ghost-citation ADR-0098',
       'src/deep/c.ts:1:4 ghost-citation ADR-0096',
     ]);
-    expect(found(await cites(files, { paths: ['.'] }))).toHaveLength(4);
+    // The root, as `spec-guard cites .` names it, is the whole tree with every
+    // path spelled as the tree spells it: no `./` in front of any of them.
+    expect(found(await cites(files, { paths: ['.'] }))).toEqual(found(await cites(files)));
+    expect(found(await cites(files))).toHaveLength(4);
     // A path that is not there holds nothing, and is not an error to the API;
     // the command line refuses it before it gets here.
     expect(found(await cites(files, { paths: ['nowhere'] }))).toEqual([]);
