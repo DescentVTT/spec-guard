@@ -478,6 +478,11 @@ describe('a block never closed', () => {
     expect(warningsOf('# T\n\n~~~\nx\n')).toEqual([
       [3, 'the code fence ~~~ opened here is never closed, so lines 3 to 4, the rest of the document, are read as code, and no directive in them runs'],
     ]);
+    // Named as written, without the three spaces a fence may be indented by
+    // or the spaces after its info string.
+    expect(warningsOf('# T\n\n   ```ts  \nx\n')).toEqual([
+      [3, 'the code fence ```ts opened here is never closed, so lines 3 to 4, the rest of the document, are read as code, and no directive in them runs'],
+    ]);
     // The fence a list item holds, three columns past its text, is one too.
     expect(warningsOf('- a\n\n     ```\n     x\n')?.map(([line]) => line)).toEqual([3]);
   });
@@ -528,6 +533,8 @@ describe('a directive-shaped comment in text no directive is read from', () => {
     expect(maskedIn(`+++\n${RULE}\n+++\n`)).toEqual([[2, 1, 'front matter']]);
     expect(maskedIn(`\`\`\`md\n${RULE}\n\`\`\`\n`)).toEqual([[2, 1, 'fenced code']]);
     expect(maskedIn(`Write \`${RULE}\` above the rule.\n`)).toEqual([[1, 8, 'code span']]);
+    // A code span is what hides it when no block holds it, whatever block comes after.
+    expect(maskedIn(`Write \`${RULE}\` above the rule.\n\n\`\`\`\ncode\n\`\`\`\n`)).toEqual([[1, 8, 'code span']]);
   });
 
   it('is placed behind a byte-order mark where a directive there would be', () => {
@@ -550,6 +557,9 @@ describe('a directive-shaped comment in text no directive is read from', () => {
     expect(read.errors).toHaveLength(1);
     expect(read.masked).toBeUndefined();
     expect(parseDirectives('# Nothing to see\n\n```\ncode\n```\n', context).masked).toBeUndefined();
+    // Nothing to say is no key at all - no status, no warnings, nothing masked -
+    // for a caller that asks which keys the result has.
+    expect(parseDirectives('# Nothing to see\n\n```\ncode\n```\n', context)).toStrictEqual({ directives: [], errors: [] });
   });
 
   it('reaches the report and its JSON, and fails nothing', async () => {
