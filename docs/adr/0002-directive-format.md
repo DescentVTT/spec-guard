@@ -171,3 +171,12 @@ profile puts a fifth of the scan in links and tables. The remedy is either
 spec-core's - a scan that finds only what it is asked for - or the server's, a
 memo of parsed documents keyed by their bytes, as a watch session keeps
 ([ADR-0014](0014-configuration-and-watch.md)); neither is made here.
+
+spec-core's was made next, in `8840d36`, copied here: links, list items and the
+directives mask are made the first time each is read, and the parser reads the
+mask alone of the three. It takes 18% off a warm query, measured together:
+23.9 ms against 29.3 ms over the specs this repository names, still past the
+20 ms, and 19.2 ms against 23.2 ms over the ADRs alone, where the 23.1 ms above
+was most likely measured. 0.11.0 took 8.0 and 6.6 ms beside them.
+[ADR-0012](0012-query-and-mcp.md)'s amendment of 2026-09-27 has the
+measurement, and the server's memo is still not made.
