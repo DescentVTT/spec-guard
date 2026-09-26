@@ -357,7 +357,8 @@ function titleIn(scan: MarkdownScan): string | undefined {
 function unclosedBlocks(scan: MarkdownScan): Array<{ line: number; message: string }> {
   const found: Array<{ line: number; message: string }> = [];
   for (const block of scan.blocks) {
-    if (block.closed || block.kind === 'indented' || scan.text.slice(block.end).trim() !== '') continue;
+    // An indented block is always closed: it ends where the indentation does.
+    if (block.closed || scan.text.slice(block.end).trim() !== '') continue;
     if (scan.lines.slice(block.line, block.endLine).every((line) => line.blank)) continue;
     const opener = (scan.lines[block.line - 1] as { content: string }).content.trim();
     // A raw-text block's first line starts with its tag, or it would be none.
@@ -549,9 +550,13 @@ function maskedDirectives(source: string, view: string, scan: MarkdownScan, star
 
 const BLOCKS: Readonly<Record<Block['kind'], MaskedContext>> = { fenced: 'fenced code', indented: 'indented code', html: 'raw HTML' };
 
-/** What blanked an offset of the scanned text: the front matter, a block, or else a code span, the one construct left. */
+/**
+ * What blanked an offset of the scanned text: the front matter, a block, or
+ * else a code span, the one construct left. The body starts at 0 in a document
+ * with no front matter, so nothing is before it.
+ */
 function maskedBy(scan: MarkdownScan, offset: number): MaskedContext {
-  if (scan.frontMatter !== null && offset < scan.bodyStart) return 'front matter';
+  if (offset < scan.bodyStart) return 'front matter';
   const block = scan.blocks.find((candidate) => candidate.start <= offset && offset < candidate.end);
   return block === undefined ? 'code span' : BLOCKS[block.kind];
 }

@@ -134,7 +134,8 @@ The three fence shapes fixed in this release stay fixed. Beyond them, where
   not, and before this line nothing in a report showed the difference. The
   directives are found in the source as written, and kept when their `<!--`
   is blanked in the masked copy; a document with no `@assert` in it costs one
-  substring search. Over this repository's ADRs, README and changelog, 486 KB,
+  substring search. That search decides what the work costs and never what it
+  finds, so a mutation sweep that deletes it survives by construction. Over this repository's ADRs, README and changelog, 486 KB,
   `parseDocument` took a median of 23.1 ms against 22.7 ms without it,
   interleaved in one process.
 
