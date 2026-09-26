@@ -39,8 +39,10 @@ the server (below). A third copy, from `4f2826a`, added `markdown` and the
 byte as they were ([ADR-0002](0002-directive-format.md)'s amendment). A fourth,
 from `cbe2223`, changed `pattern` and `markdown`: two stars inside a name and
 an extended glob are refused as below, and the scanner reads a list item's
-columns. `VENDOR.json` records the commit and the SHA-256 of every file.
-Nothing in this repository edits them.
+columns. A fifth, from `8840d36`, changed `markdown` alone: an image inside a
+link's text is listed after the link, and links, list items and the directives
+mask are made the first time each is read. `VENDOR.json` records the commit
+and the SHA-256 of every file. Nothing in this repository edits them.
 
 spec-core's `LICENSE` lies beside the copies, and `package.json` names it in
 `files`: the package carries spec-core's compiled code under

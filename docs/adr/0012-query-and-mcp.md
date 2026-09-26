@@ -299,6 +299,12 @@ linearly with their size in bytes.
   budget is really for the server.
 - **The budget does not hold at 1,300 specs.** A repository with that many ADRs
   pays half a second per query.
+- **0.12.0 lost it for this repository's specs, and a memo won it back.**
+  Reading a spec through spec-core's scanner costs about three times what
+  reading it here did, and a server now parses only a document whose bytes
+  changed;
+  [Amended 2026-09-27](#amended-2026-09-27-the-budget-after-spec-cores-scanner-and-with-a-memo)
+  has the figures.
 
 Three changes produced the second column, each measured before it was made:
 
@@ -410,7 +416,127 @@ modern request, which the specification permits a server to answer.
 
 **Caching the rules in the server.** It would save milliseconds and serve a
 stale answer. Reading the specs costs less than the model's time to read the
-answer.
+answer. The server does now keep parsed documents, which is not this: it reads
+every spec on every request and parses one again when its bytes changed
+(Amended 2026-09-27).
 
 **Serialising JSON into the text content,** as the specification suggests. It
 doubles what the model reads, and the text is the part it reads.
+
+## Amended 2026-09-27: the budget, after spec-core's scanner and with a memo
+
+0.12.0 reads every spec through spec-core's Markdown scanner
+([ADR-0002](0002-directive-format.md)'s amendment), and the scanner made the
+links, list items, tables and three masks of every document, most of which
+nothing here reads. ADR-0002 recorded the price: a warm query of one path took
+23.1 ms against 8.8 ms, past this ADR's 20 ms. ADR-0002 named two remedies,
+and both are made. spec-core's `8840d36` makes links, list items and the
+directives mask the first time each is read; that brought a query back under
+the budget over the ADRs alone, and not over the specs this repository names,
+which add its README. The server then kept what it parsed, and a warm query
+is under the budget over both, in a quarter of the time.
+
+### The lazy scan
+
+spec-guard reads the directives mask, so what a query stops paying for with
+`8840d36` is links and list items. It was measured as above: four builds
+interleaved in one process, the order rotating each round, 30 rounds to warm
+and 300 timed, for a query of `src/parser.ts`. The builds are 0.11.0, whose
+parser the scanner replaced; `0960e15`, the commit that recorded the 23.1 ms;
+`origin/main`, with 0.12.0's copy of spec-core, `cbe2223`; and `8840d36`'s
+copy. All four gave the same answer before any was timed. The specs are the
+ones this repository's configuration names - `docs/**/*.md` and `README.md`,
+19 documents, 452 KB, 82 rules, of which 32 govern the path - and,
+separately, the ADRs alone: 18 documents, 363 KB, 81 rules. The machine was a
+Windows one with 16 logical processors, as above, at 8-22% CPU, and the
+benchmark ran at high priority. Each figure is a median.
+
+| Build | This repository's specs | The ADRs alone |
+| --- | --- | --- |
+| 0.11.0, before the scanner | 8.0 ms | 6.6 ms |
+| `0960e15`, which recorded 23.1 ms | 28.2 ms | 22.2 ms |
+| 0.12.0, `cbe2223` | 29.3 ms | 23.2 ms |
+| the lazy scan, `8840d36` | **23.9 ms** | **19.2 ms** |
+
+- **For this repository's specs the lazy scan misses the budget.** They are
+  what `spec-guard mcp` reads here, and what this ADR's own measurement read.
+  It takes 18% off a query, and a query still takes 23.9 ms; the fastest of
+  the 300 took 21.1 ms. A run of the three builds alone, 400 rounds, gave 8.1,
+  28.8 and 23.7 ms.
+- **Over the ADRs alone it holds, narrowly:** 19.2 ms, with a tenth of the
+  queries over 21.6 ms. `0960e15` takes 22.2 ms over them, near the 23.1 ms it
+  recorded, where it takes 28.2 ms over the specs with the README: the 23.1 ms
+  was most likely measured over the ADRs, and so understated what 0.12.0 cost
+  this repository.
+- **The ratio held under load.** Before the machine was quiet, the same
+  comparison ran six times at 25-57% CPU, where everything took up to 1.6 times
+  as long; `8840d36` was 1.19 to 1.26 times as fast as 0.12.0 in every run.
+- **The scan is still most of it.** `parseDocument` over the 19 documents took
+  16.1 ms, against 21.0 ms before and 4.4 ms for 0.11.0's parser: spec-core
+  measured 28% off the scan for what spec-guard reads, and most of that
+  arrives. What every scan still makes - blocks, code spans and comments, the
+  structure and prose masks, and headings, with the tables whose lines a
+  heading may not take - is what the parser reads, or what that is made from.
+  A scan that makes only what it is asked for has gone as far as what
+  spec-guard reads lets it.
+
+### A memo of parsed documents in the server
+
+The other remedy is not to parse at all what was parsed before.
+`createDocumentMemo`, in `src/specs.ts`, is the watch session's memo
+([ADR-0014](0014-configuration-and-watch.md)), keyed as a spec is keyed there:
+by the SHA-256 of the document's bytes and both its paths, which its
+directives' locations carry. `createMcpHandler` makes one per server, and every
+tool and resource that reads the specs reads through it:
+`get_architectural_rules`, `check_architecture`, `get_dependents`,
+`spec://rules` and the resource list.
+
+- **Nothing is served stale.** Every spec is still found and read on every
+  request; only a document whose bytes are the ones it was parsed from is not
+  parsed again. An edit is seen by the next request, which is what caching the
+  rules, rejected under Alternatives above, could not promise.
+  `tests/document-memo.test.ts` holds a rule set, a query, a run, `impact` and
+  the tools to what they answer without the memo, before and after an edit.
+- **It holds one spec set.** Each read sweeps the memo once it has asked for
+  every document, so what it holds is one parse of each document the current
+  spec set names: a document removed, left out by the patterns or edited is
+  gone after the next request. The sweep follows the parse with no `await`
+  between them, so requests the server answers concurrently cannot sweep away
+  each other's documents; a test releases two reads' files at once to hold it
+  to that.
+- **A one-shot command takes none.** A run, `query`, `prove`, `cites` and
+  `impact` on the command line read the specs once per process, and parse
+  every document and hash none, as before. A watch session keeps the memo it
+  always kept.
+
+<!-- @assert-count target="src/mcp.ts" symbol="createDocumentMemo" min="1" reason="the server keeps parsed documents between requests; without them a warm query is past 20 ms again" -->
+<!-- @assert-absence target="src/cli.ts" symbol="createDocumentMemo" reason="a command run once gains nothing from the memo and should not pay for hashing every spec" -->
+
+It was measured as the lazy scan was, with four builds: 0.11.0, 0.12.0, this
+branch before the memo (`2a4a0be`), and this branch with it, whose memo lived
+through every round as a server's lives through its requests. All four gave
+the same answer. The specs are the same two sets, now 453 KB and 364 KB; the
+machine was at 4-12% CPU.
+
+| Build | This repository's specs | The ADRs alone |
+| --- | --- | --- |
+| 0.11.0, before the scanner | 7.9 ms | 6.3 ms |
+| 0.12.0, `cbe2223` | 27.4 ms | 22.4 ms |
+| the lazy scan, `2a4a0be` | 23.8 ms | 18.7 ms |
+| the lazy scan and the memo | **6.3 ms** | **6.0 ms** |
+
+- **The budget holds, over this repository's specs and over the ADRs.** A
+  warm query takes 6.3 ms, against 23.8 ms without the memo: 3.8 times as
+  fast, and faster than 0.11.0, since nothing is parsed. The slowest tenth of
+  the 300 took 7.4 ms or more. What is left is finding, reading and hashing 19
+  files and resolving 82 rules.
+- **The lazy scan came out closer to 0.12.0 here**, 1.15 times as fast over
+  this repository's specs and 1.20 over the ADRs: across every run of the
+  two, it has taken 13 to 21% off.
+- **A first request, and the one after an edit, still parse.** A server's
+  first request parses and hashes every document: 24.3 ms, against 23.8 ms
+  for the same request without a memo, measured beside it. A request after an
+  edit parses what was edited; the README, the largest document here, takes
+  about 3 ms to scan.
+- **1,300 specs were not measured again.** Reading and hashing grow with the
+  bytes too, and the first request there still pays for every parse.

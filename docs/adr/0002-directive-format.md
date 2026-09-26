@@ -61,10 +61,10 @@ it executed, including the ones that passed.
 What is code, what is a comment, where front matter ends and which lines are
 headings is decided by spec-core's `markdown` module - its ADR-0004, exact
 about code and comments by CommonMark's rules - copied into
-`src/vendor/spec-core` from `4f2826a`, and again from `cbe2223`, and verified by hash
-([ADR-0015](0015-globs-from-spec-core.md)). `src/parser.ts` keeps what is
-spec-guard's: the directive grammar, the attribute table, and what a status
-line means ([ADR-0010](0010-spec-status.md)).
+`src/vendor/spec-core` from `4f2826a`, again from `cbe2223` and from
+`8840d36`, and verified by hash ([ADR-0015](0015-globs-from-spec-core.md)).
+`src/parser.ts` keeps what is spec-guard's: the directive grammar, the
+attribute table, and what a status line means ([ADR-0010](0010-spec-status.md)).
 
 Directives are still found in a masked copy of the document: the scanner's
 `directives` mask, which blanks code and front matter and keeps comments. Its
@@ -171,3 +171,20 @@ profile puts a fifth of the scan in links and tables. The remedy is either
 spec-core's - a scan that finds only what it is asked for - or the server's, a
 memo of parsed documents keyed by their bytes, as a watch session keeps
 ([ADR-0014](0014-configuration-and-watch.md)); neither is made here.
+
+spec-core's was made next, in `8840d36`, copied here: links, list items and the
+directives mask are made the first time each is read, and the parser reads the
+mask alone of the three. It takes 18% off a warm query, measured together:
+23.9 ms against 29.3 ms over the specs this repository names, still past the
+20 ms, and 19.2 ms against 23.2 ms over the ADRs alone, where the 23.1 ms above
+was most likely measured. 0.11.0 took 8.0 and 6.6 ms beside them.
+
+The server's was made after it: `createDocumentMemo`, the watch session's memo
+keyed as a spec is keyed there, which the MCP server reads the specs through.
+Every spec is still read on every request, and a document is parsed again only
+when its bytes change. A warm query takes 6.3 ms over the specs this
+repository names and 6.0 ms over the ADRs alone, against 23.8 and 18.7 ms
+without it: the scan is paid once per document and edit, and the 20 ms holds
+again. A command run once takes no memo and pays for every scan, as it did.
+[ADR-0012](0012-query-and-mcp.md)'s amendment of 2026-09-27 has both
+measurements.

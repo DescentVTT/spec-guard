@@ -234,7 +234,10 @@ export interface Link {
   readonly target: string;
   /** The reference label of the reference, shortcut and definition forms; `null` for the others. */
   readonly label: string | null;
-  /** Offsets of the whole construct, a leading `!` included. */
+  /**
+   * Offsets of the whole construct, a leading `!` included. An image may lie
+   * inside a link's text, and is listed after that link.
+   */
   readonly start: number;
   readonly end: number;
   /**

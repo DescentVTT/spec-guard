@@ -49,7 +49,7 @@ import {
   type ListMarker,
 } from './syntax.js';
 import { findTables } from './tables.js';
-import type { Block, BlockKind, FrontMatterBlock, HtmlComment, MarkdownScan, MaskKind, ScannedLine } from './types.js';
+import type { Block, BlockKind, FrontMatterBlock, HtmlComment, MarkdownScan, MaskKind, Masks, ScannedLine } from './types.js';
 
 const BACKTICK = 0x60;
 const BACKSLASH = 0x5c;
@@ -69,10 +69,20 @@ export function scanMarkdown(source: string): MarkdownScan {
     prose: mergeRanges([...front, ...core.comments]),
     directives: mergeRanges([...front, ...core.blocks, ...core.spans]),
   };
-  const masks = {
-    structure: maskRanges(text, ranges.structure),
-    prose: maskRanges(text, ranges.prose),
-    directives: maskRanges(text, ranges.directives),
+  // Headings are read from the structure and prose masks, and every caller
+  // reads headings, so those two are made now. The rest is made the first
+  // time it is read: most callers read one or two of links, list items and
+  // the directives mask, and making all of them for every document was most
+  // of what a spec-guard query spent (ADR-0004).
+  const structure = maskRanges(text, ranges.structure);
+  const prose = maskRanges(text, ranges.prose);
+  const directives = once(() => maskRanges(text, ranges.directives));
+  const masks: Masks = {
+    structure,
+    prose,
+    get directives() {
+      return directives();
+    },
   };
 
   const layout: Layout = {
@@ -81,14 +91,16 @@ export function scanMarkdown(source: string): MarkdownScan {
     lines: core.lines,
     blocks: core.blocks,
     comments: core.comments,
-    structure: masks.structure,
-    prose: masks.prose,
+    structure,
+    prose,
     covered: core.covered,
     continues: core.continues,
   };
   const atx = findAtxHeadings(layout);
   const tables = findTables(layout, atx);
   const headings = findHeadings(layout, atx, tables);
+  const listItems = once(() => findListItems(layout, headings));
+  const links = once(() => findLinks(layout));
 
   return {
     text,
@@ -102,8 +114,12 @@ export function scanMarkdown(source: string): MarkdownScan {
     comments: core.comments,
     masks,
     headings,
-    listItems: findListItems(layout, headings),
-    links: findLinks(layout),
+    get listItems() {
+      return listItems();
+    },
+    get links() {
+      return links();
+    },
     tables,
     isMasked: (offset, mask = 'structure') => inRanges(ranges[mask], offset),
   };
@@ -134,6 +150,15 @@ function readFrontMatterBlock(text: string, index: LineIndex): FrontMatterBlock 
     return { kind, raw: text.slice(start, end), start, end, bodyStart, closeLine: line };
   }
   return null;
+}
+
+/** `make`, run the first time its value is asked for; the same value after. */
+function once<T>(make: () => T): () => T {
+  let made: { readonly value: T } | null = null;
+  return () => {
+    made ??= { value: make() };
+    return made.value;
+  };
 }
 
 type Mutable<T> = { -readonly [K in keyof T]: T[K] };

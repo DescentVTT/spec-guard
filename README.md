@@ -331,9 +331,9 @@ These read the dependency rather than the text, in **five languages**:
 No parser and no new dependency. JavaScript gets a full tokenizer because a
 module reference can appear anywhere in an expression; the other four are read
 by masking comments and string literals with the classifier from
-[ADR-0006](docs/adr/0006-comment-classification.md) and then reading statements
+[ADR-0006](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0006-comment-classification.md) and then reading statements
 off what is left. Tree-sitter would have cost 94 MB unpacked against this
-package's 0.33 MB - [ADR-0008](docs/adr/0008-polyglot-imports.md) has the
+package's 0.33 MB - [ADR-0008](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0008-polyglot-imports.md) has the
 measurements, and the list of things a real parser would genuinely see that
 this does not.
 
@@ -384,7 +384,7 @@ and reported too, so a rule pointed at the wrong tree says "analysed 2 of 3
 files; 1 is in a language whose imports spec-guard cannot read (.razor)" rather than quietly passing - and if *none* of them can be read, the
 assertion fails rather than passing on an empty analysis.
 
-[ADR-0005](docs/adr/0005-import-assertions.md) has the measurements and the
+[ADR-0005](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0005-import-assertions.md) has the measurements and the
 reasoning behind each boundary.
 
 ### `@assert-layers` - dependencies point one way
@@ -546,7 +546,7 @@ did not - a relative path matching no file, or an alias like `@/db` or
 `--strict`. An alias spelled like a real package, `@app/db` through `tsconfig`
 paths, is the one thing it cannot see and cannot report: that would mean
 reading `tsconfig.json`, which is the resolver
-[ADR-0011](docs/adr/0011-layers-and-cycles.md) declines to become, for the
+[ADR-0011](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0011-layers-and-cycles.md) declines to become, for the
 reasons it gives.
 
 ### `@assert-structure` - what files are called, and what comes with them
@@ -639,7 +639,7 @@ src/handlers/invoice.ts (does not exist yet)
       partner: src/handlers/invoice.test.ts
 ```
 
-[ADR-0013](docs/adr/0013-structure-assertions.md) has the design and what it
+[ADR-0013](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0013-structure-assertions.md) has the design and what it
 costs.
 
 ### `@assert-present` - this file exists
@@ -741,7 +741,7 @@ spec-guard docs/adr.md --print-baseline
 ```
 
 prints the attribute that would exempt exactly today's violations, for you to
-paste in. It prints; it does not edit. [ADR-0009](docs/adr/0009-debt-baselines.md)
+paste in. It prints; it does not edit. [ADR-0009](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0009-debt-baselines.md)
 explains why that distinction is the whole design, and why there is no `--fix`
 for architecture rules.
 
@@ -806,7 +806,7 @@ found on the day it is written rather than on the day it is accepted.
 `--ignore-status` runs everything, which is how you ask whether a draft would
 pass if you accepted it today.
 
-[ADR-0010](docs/adr/0010-spec-status.md) has the full reasoning, including why
+[ADR-0010](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0010-spec-status.md) has the full reasoning, including why
 there is no per-directive `if-status` attribute.
 
 ## Asking before writing - `query` and the MCP server
@@ -863,7 +863,7 @@ project's does not.
 
 The arithmetic that decides whether a rule governs a path is tested against the
 walk a real run makes, file for file, under both engines and on randomly
-generated trees. [ADR-0012](docs/adr/0012-query-and-mcp.md) lists the three
+generated trees. [ADR-0012](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0012-query-and-mcp.md) lists the three
 things it cannot see: file content (binary, oversized, unreadable), symbolic
 links, and letter case on case-insensitive filesystems.
 
@@ -958,7 +958,7 @@ and strictness.
 
 A kill means the rule can fail, not that it catches the way the code is
 written: `module="src/db.ts"` is killed by `import 'src/db.ts'` though every
-file imports `./db.js`. [ADR-0016](docs/adr/0016-rules-seen-to-fail.md) has the
+file imports `./db.js`. [ADR-0016](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0016-rules-seen-to-fail.md) has the
 violations for each kind of rule, and what `unprovable` means.
 
 ## Do the comments cite decisions in force? - `cites`
@@ -1026,7 +1026,7 @@ as does a file read in part or a check that looked for nothing. A family whose
 files match no document exits 2. `--json` (versioned by `formatVersion`),
 `--format sarif`, `--format github` and `--format gitlab` carry the same
 findings; `spec-guard cites src lib/a.ts` reads only those paths.
-[ADR-0017](docs/adr/0017-citations-in-comments.md) has the design, and what is
+[ADR-0017](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0017-citations-in-comments.md) has the design, and what is
 out of scope: links to symbols, which need a parser the family does not ship.
 
 ## Who depends on this? - `impact`
@@ -1063,7 +1063,7 @@ src/db/client.ts
 ```
 
 - **Followed**: relative JavaScript and TypeScript imports, by the table the
-  cycle rule uses ([ADR-0011](docs/adr/0011-layers-and-cycles.md)), and relative
+  cycle rule uses ([ADR-0011](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0011-layers-and-cycles.md)), and relative
   Python imports, which name a module beside the importing file.
 - **Counted, not followed**: Go imports, Rust `use`s, C# `using`s and absolute
   Python imports name modules, and which file a module is depends on `go.mod`,
@@ -1081,7 +1081,7 @@ force, which are otherwise counted, as `query` does. `--json` is versioned by
 written, but "no rules" over no specs is nothing measured. `--allow-empty`
 asks for the dependents alone, and exits 0. The MCP server answers the same
 question as `get_dependents`, with the same document.
-[ADR-0018](docs/adr/0018-impact.md) has the table and what it leaves out.
+[ADR-0018](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0018-impact.md) has the table and what it leaves out.
 
 ## CLI
 
@@ -1220,7 +1220,7 @@ pure function of a file's bytes - tokenizing, comment masking, scanning - is
 remembered by the bytes' hash. Each of those is a way to report a tree that no
 longer exists, so a test changes trees at random and requires every report a
 session gives to equal a fresh run's, with six deliberately broken sessions
-that it has to catch. [ADR-0014](docs/adr/0014-configuration-and-watch.md) has
+that it has to catch. [ADR-0014](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0014-configuration-and-watch.md) has
 the design, the measurements and the limits.
 
 On this repository, from a change to the report, in the quietest of four runs
@@ -1403,7 +1403,7 @@ exceeds a budget, in which case ripgrep takes over. The crossover above sits
 between 500 and 1,000 files, which is what the Windows budget of 512 encodes;
 on Linux it is far lower, because what is really being measured is process
 spawn cost. `scripts/bench-engines.mjs` reproduces this, and
-[ADR-0004](docs/adr/0004-adaptive-engine.md) has the full tables.
+[ADR-0004](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0004-adaptive-engine.md) has the full tables.
 
 Treat single measurements from one machine with suspicion. On the development
 machine used here, an absence assertion over 2,000 files measures 303 ms with
@@ -1514,6 +1514,13 @@ and is there for a caller who wants to try a change of its own.
 and take an `io` as well; so do `loadRuleSet` and `queryRules`. Each command's
 JSON is the report its function returns, with a `formatVersion` in front.
 
+A process that reads the specs again for every request, as the MCP server
+does, can keep what it parsed: pass one `createDocumentMemo()` as `documents`
+to `runSpecGuard`, `loadRuleSet`, `queryRules` or `impactOf`, every time. Every
+spec is still found and read, so an edit is seen by the next call; a document
+whose bytes have not changed is not parsed again, and the memo holds only the
+documents of the spec set read last. A single run gains nothing from one.
+
 ## Design decisions
 
 This tool was specified loosely and built opinionatedly. Where the
@@ -1539,7 +1546,7 @@ inside a comment is a character and `<!--` inside a code span is code, and a
 code span ends with its paragraph, so a stray backtick cannot hide the
 directives after it. A fence may be indented with the list item it sits in.
 Masking preserves every offset and line terminator, so reported line numbers
-stay exact. [ADR-0002](docs/adr/0002-directive-format.md)'s amendment lists
+stay exact. [ADR-0002](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0002-directive-format.md)'s amendment lists
 where this differs from 0.11.0.
 
 What is masked is still counted. A comment shaped like a directive -
@@ -1587,7 +1594,7 @@ pattern - `glob`, `exclude`, `module`, a layer, a spec pattern - is read by the
 glob engine the spec-* tools share, copied from spec-core and checked by hash.
 A `RegExp` backtracks: `*-*-*-*-*-*x` took 55 seconds to fail one long file
 name. The automaton cannot, and ripgrep is handed each pattern spelled as the
-automaton reads it ([ADR-0015](docs/adr/0015-globs-from-spec-core.md)).
+automaton reads it ([ADR-0015](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0015-globs-from-spec-core.md)).
 
 **Exit code 2 exists.** "Your specs failed" and "spec-guard could not run" are
 different facts, and CI should be able to tell them apart.
@@ -1604,11 +1611,11 @@ forbidden symbol sat in `.github/workflows/ci.yml`; the scanner and ripgrep also
 disagreed with each other, finding two matches and four on the same tree. Scope
 is now one policy that both engines are driven by, the skip list is four names
 long, and anything spec-guard could not inspect is reported rather than assumed
-clean ([ADR-0007](docs/adr/0007-search-scope.md)).
+clean ([ADR-0007](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0007-search-scope.md)).
 
 **Comments are excluded by default, and the exclusion is reported.** Counting
 the note that records a deletion as an occurrence of the thing deleted punishes
-the documentation this tool exists to keep honest ([ADR-0006](docs/adr/0006-comment-classification.md)).
+the documentation this tool exists to keep honest ([ADR-0006](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0006-comment-classification.md)).
 The reverse risk — a rule that quietly stops checking anything because every
 match now sits in a comment — is why every run says how many matches it dropped.
 
@@ -1625,19 +1632,19 @@ comment and string lexer that already existed, masking the source with it, and
 reading statements off what is left. Tree-sitter would have been the modern
 answer and costs 94 MB unpacked against this package's 0.33 MB; the four things
 a real parser would genuinely see that this cannot are listed in
-[ADR-0008](docs/adr/0008-polyglot-imports.md) rather than glossed over.
+[ADR-0008](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0008-polyglot-imports.md) rather than glossed over.
 
 **There is no `--fix`.** Every edit a machine can make to a failing boundary
 assertion is an edit that records the rule no longer holding: widen the bound,
 add an exclusion, append to the baseline, insert an ignore comment. A one-flag
 path from red to green is a bad button for a person and a much worse one for an
 agent whose loop terminates on a green build. `--print-baseline` prints what you
-could paste; it does not paste it ([ADR-0009](docs/adr/0009-debt-baselines.md)).
+could paste; it does not paste it ([ADR-0009](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0009-debt-baselines.md)).
 
 ## spec-guard checks itself
 
-The invariants in [`docs/adr/0001-invariants.md`](docs/adr/0001-invariants.md)
-and [`docs/adr/0002-directive-format.md`](docs/adr/0002-directive-format.md) are
+The invariants in [`docs/adr/0001-invariants.md`](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0001-invariants.md)
+and [`docs/adr/0002-directive-format.md`](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0002-directive-format.md) are
 executed against this repository on every CI run. The CLI never calls
 `console.log`, nothing outside the engine spawns a process, and the parser and
 reporter never touch the filesystem - because those documents say so, and the
@@ -1677,7 +1684,7 @@ about the survivors matters more than the score. At 0.5.1 every surviving mutant
 was checked individually, and the 101 left then produced byte-identical output.
 Each release since has replayed the survivors its own code added before it
 shipped: they were killed, deleted as dead code, or shown equivalent and
-recorded in [ADR-0003](docs/adr/0003-mutation-testing.md) with the evidence.
+recorded in [ADR-0003](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0003-mutation-testing.md) with the evidence.
 
 That gap is the point. The first run scored 77.23%, and the weakest file was the
 reporter at 65.48% - not because it lacked tests, but because its tests were
@@ -1706,7 +1713,7 @@ applied one at a time and run through a fingerprint of 4,176 observations, and
 that only matters when a second statement follows, a type-only test that marks
 `import A, { B } from 'x'` type-only when loosened, a comment check that opens a
 block comment on `2*3`. All 29 are now tested and all 29 die. All of it is in
-[ADR-0003](docs/adr/0003-mutation-testing.md), including a Stryker limitation
+[ADR-0003](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0003-mutation-testing.md), including a Stryker limitation
 found on the way: a mutant that stops a test file *loading* is reported as
 survived even though the suite is in fact killing it.
 
@@ -1734,7 +1741,7 @@ suite takes hours against 43 minutes of hosted time, and it scores *higher*,
 because far more mutants hang there and Stryker counts a hang as a kill. Linux
 CI is the measurement.
 
-Eight cautionary tales are in [ADR-0003](docs/adr/0003-mutation-testing.md): a
+Eight cautionary tales are in [ADR-0003](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0003-mutation-testing.md): a
 run whose score was pure fiction because the mutants were never activated, a
 tuning knob that lifted the score six points without adding a test, the platform
 gap above, the baseline being re-anchored when a tokenizer arrived, and a score
@@ -1757,7 +1764,7 @@ npm version minor   # or patch / major - writes package.json and makes the tag
 git push origin main --follow-tags
 ```
 
-[`release.yml`](.github/workflows/release.yml) then:
+[`release.yml`](https://github.com/DescentVTT/spec-guard/blob/main/.github/workflows/release.yml) then:
 
 1. refuses the release unless the tag, `package.json` and a `## <version>`
    heading in `CHANGELOG.md` all agree;
