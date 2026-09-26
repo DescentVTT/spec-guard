@@ -9,8 +9,10 @@
  * ADR-0014.
  */
 
+import { citeFilesError, citeIdError } from './cites.js';
 import type { EnginePreference } from './engine.js';
 import { excludeListError } from './glob.js';
+import type { CiteFamily } from './types.js';
 
 /** The name the options sit under in `package.json`. */
 export const CONFIG_KEY = 'specGuard';
@@ -34,6 +36,8 @@ export interface ProjectConfig {
   defaultSkips?: boolean;
   maxSnippets?: number;
   concurrency?: number;
+  /** The documents code comments cite, for `spec-guard cites`: an id template and the files it names. */
+  cites?: CiteFamily[];
 }
 
 export type ConfigKey = keyof ProjectConfig;
@@ -51,6 +55,7 @@ export const CONFIG_KEYS: readonly ConfigKey[] = [
   'defaultSkips',
   'maxSnippets',
   'concurrency',
+  'cites',
 ];
 
 /**
@@ -134,9 +139,40 @@ function checkValue(key: ConfigKey, value: unknown): string | null {
       return Number.isInteger(value) && (value as number) >= 0 ? null : `must be an integer, 0 or more, got ${describe(value)}`;
     case 'concurrency':
       return Number.isInteger(value) && (value as number) >= 1 ? null : `must be an integer, 1 or more, got ${describe(value)}`;
+    case 'cites':
+      return citesIssue(value);
     default:
       return typeof value === 'boolean' ? null : `must be true or false, got ${describe(value)}`;
   }
+}
+
+/** The keys a `cites` entry takes, and no others. */
+const CITE_KEYS: readonly string[] = ['id', 'files'];
+
+/**
+ * What is wrong with a `cites` list, or null.
+ *
+ * Each entry names one family of documents: `{ "id": "ADR-{n}", "files":
+ * "docs/adr/{n}-*.md" }`. A key an entry does not take is refused rather than
+ * ignored, as an unknown option is: `"glob"` written for `"files"` would
+ * otherwise be a family with no documents.
+ */
+function citesIssue(value: unknown): string | null {
+  if (!Array.isArray(value) || value.length === 0) {
+    return `must be a non-empty list of entries such as { "id": "ADR-{n}", "files": "docs/adr/{n}-*.md" }, got ${describe(value)}`;
+  }
+  for (const [index, entry] of value.entries()) {
+    const which = `entry ${index + 1}`;
+    if (!isObject(entry)) return `${which} must be an object with "id" and "files", got ${describe(entry)}`;
+    const unknown = Object.keys(entry).find((key) => !CITE_KEYS.includes(key));
+    if (unknown !== undefined) return `${which} has an unknown key "${unknown}"; an entry takes id and files`;
+    for (const key of CITE_KEYS) {
+      if (typeof entry[key] !== 'string') return `${which} needs "${key}" as a string, got ${describe(entry[key])}`;
+    }
+    const issue = citeIdError(entry['id'] as string) ?? citeFilesError(entry['files'] as string);
+    if (issue !== null) return `${which}: ${issue}`;
+  }
+  return null;
 }
 
 /** Where a configuration came from: the file a report names, and what it said. */

@@ -11,14 +11,19 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import type { Readable } from 'node:stream';
 
+import { CitesError, findCitations } from './cites.js';
 import { CONFIG_KEYS, ConfigError, engineNamed, findConfig, type ConfigKey, type ProjectConfig } from './config.js';
 import { excludeListError } from './glob.js';
 import { nodeIo, readText, watchTree } from './io.js';
 import { createMcpHandler, serveStdio } from './mcp.js';
-import { formatQuery, formatQueryJson, queryRules } from './query.js';
+import { formatQuery, formatQueryJson, queryRules, resolveQueryPath } from './query.js';
 import { proveSpecGuard } from './prove.js';
 import {
+  citesAnnotations,
   formatBaselines,
+  formatCites,
+  formatCitesJson,
+  formatCitesSarif,
   formatConfigUse,
   formatGithub,
   formatGitlab,
@@ -36,7 +41,7 @@ import {
 import { DEFAULT_CONCURRENCY, DEFAULT_MAX_SNIPPETS, runSpecGuard, splitList, type RunOptions } from './runner.js';
 import { createSession, runWatch } from './watch.js';
 import type { EnginePreference } from './engine.js';
-import type { ConfigUse } from './types.js';
+import type { CiteFamily, ConfigUse } from './types.js';
 
 export const EXIT_OK = 0;
 export const EXIT_FAILED = 1;
@@ -61,8 +66,14 @@ export interface CliIO {
   onInterrupt?: (handler: () => void) => () => void;
 }
 
-/** What the command line asked for: a run, a query, a server, or a proof that the rules can fail. */
-export type Command = 'check' | 'query' | 'mcp' | 'prove';
+/**
+ * What the command line asked for: a run, a query, a server, a proof that the
+ * rules can fail, or the citations of specs in code comments.
+ */
+export type Command = 'check' | 'query' | 'mcp' | 'prove' | 'cites';
+
+/** The words that name a command when they come first. */
+const COMMANDS: ReadonlySet<string> = new Set<Command>(['query', 'mcp', 'prove', 'cites']);
 
 /** How a finished run is written out. */
 export type OutputFormat = 'human' | 'json' | 'sarif' | 'github' | 'gitlab';
@@ -75,6 +86,7 @@ export type OutputFormat = 'human' | 'json' | 'sarif' | 'github' | 'gitlab';
 const FORMATS: Readonly<Record<Exclude<Command, 'mcp'>, readonly OutputFormat[]>> = {
   check: ['human', 'json', 'sarif', 'github', 'gitlab'],
   prove: ['human', 'json', 'sarif', 'github', 'gitlab'],
+  cites: ['human', 'json', 'sarif', 'github', 'gitlab'],
   query: ['human', 'json'],
 };
 
@@ -89,8 +101,10 @@ function either(words: readonly string[]): string {
 export interface CliOptions {
   command: Command;
   patterns: string[];
-  /** The paths `spec-guard query` asks about. */
+  /** The paths `spec-guard query` asks about, and the ones `spec-guard cites` reads. */
   paths: string[];
+  /** The documents comments cite, from a configuration; derived from the specs when absent. */
+  cites?: CiteFamily[];
   root: string;
   verbose: boolean;
   failFast: boolean;
@@ -152,11 +166,12 @@ Usage
   spec-guard mcp [options]               serve the rules to an AI agent over MCP on stdio
   spec-guard prove [patterns...] [options]
                                          show each rule a violation of itself, in memory, and report any that pass
+  spec-guard cites [paths...] [options]  check that each spec a code comment cites exists and is in force
 
 Patterns
   Globs or paths to the Markdown specs to execute. A directory expands to the
-  Markdown files inside it. Defaults to "docs/**/*.md" when omitted. query and
-  mcp take theirs from --spec.
+  Markdown files inside it. Defaults to "docs/**/*.md" when omitted. query,
+  mcp and cites take theirs from --spec.
 
 Options
   -r, --root <path>       Codebase root that assertions are resolved against (default: cwd)
@@ -191,6 +206,9 @@ Configuration
   keep them in .spec-guard.json instead, but not in both. A flag wins over the
   file, every on/off option there also takes its opposite (--no-strict,
   --default-skips, ...), and --exclude= with nothing clears exclude.
+  "cites": [{ "id": "ADR-{n}", "files": "docs/adr/{n}-*.md" }] names the
+  documents code comments cite; without it, cites reads them off the titles of
+  numbered specs.
 
 Directives
   <!-- @assert-absence target="src/" symbol="LegacyGateway" exclude="src/legacy/**" -->
@@ -209,6 +227,12 @@ prove adds, changes or removes files in memory only - never on disk - to make
 the violation each rule forbids, and runs the rule over that tree. A rule that
 still passes survived, and exits 1; one no violation could be made for is
 unprovable, and exits 1 under --strict.
+
+cites reads comment text only - not strings, not Markdown - for ids such as
+ADR-0007, ADR-7 and ADR-007, which are one document. A ghost citation names no
+document, and exits 1; a stale one names a document superseded, deprecated,
+rejected or archived, and exits 1 under --strict. A family whose files match no
+document exits 2.
 
 query answers from the specs alone, without reading the codebase, so it works
 for a file that does not exist yet. mcp offers the same answer, and a check,
@@ -270,6 +294,27 @@ const NOT_FOR: Record<Exclude<Command, 'check'>, ReadonlySet<string>> = {
   // A proof runs every rule, one at a time, with the scanner reading through a
   // door ripgrep cannot see through, and prints no snippets.
   prove: new Set(['--watch', '--fail-fast', '--print-baseline', '--engine', '--concurrency', '--max-snippets']),
+  // Citations are read from comments, not from rules: nothing is executed, so
+  // nothing about how rules run applies, and a document's status is the
+  // answer rather than something to ignore.
+  cites: new Set([
+    '--verbose',
+    '--watch',
+    '--fail-fast',
+    '--engine',
+    '--allow-missing-targets',
+    '--no-allow-missing-targets',
+    '--allow-empty-scope',
+    '--no-allow-empty-scope',
+    '--print-baseline',
+    '--ignore-status',
+    '--no-ignore-status',
+    '--include-specs',
+    '--no-include-specs',
+    '--max-snippets',
+    '--concurrency',
+    '--allow-empty',
+  ]),
 };
 
 /**
@@ -293,7 +338,7 @@ const LONG_NAMES: Readonly<Record<string, string>> = { '-v': '--verbose' };
 
 /** Minimal, dependency-free argv parser. Supports `--flag value` and `--flag=value`. */
 export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
-  const command: Command = argv[0] === 'query' || argv[0] === 'mcp' || argv[0] === 'prove' ? argv[0] : 'check';
+  const command: Command = COMMANDS.has(argv[0] as string) ? (argv[0] as Command) : 'check';
   const specs: string[] = [];
   const options: CliOptions = {
     command,
@@ -332,7 +377,7 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
 
     if (onlyPositional || !argument.startsWith('-') || argument === '-') {
       if (command === 'mcp') throw new UsageError(`spec-guard mcp takes no arguments, got "${argument}". Name specs with --spec.`);
-      (command === 'query' ? options.paths : options.patterns).push(argument);
+      (command === 'query' || command === 'cites' ? options.paths : options.patterns).push(argument);
       continue;
     }
     if (argument === '--') {
@@ -494,6 +539,9 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
 /** The configurable options a query reads; the rest are about running rules. */
 const QUERY_KEYS: ReadonlySet<ConfigKey> = new Set<ConfigKey>(['specs', 'exclude', 'ignoreStatus', 'includeSpecs', 'defaultSkips']);
 
+/** The configurable options a citation check reads: which specs, what to leave out, and how strictly. */
+const CITES_KEYS: ReadonlySet<ConfigKey> = new Set<ConfigKey>(['specs', 'exclude', 'strict', 'defaultSkips', 'cites']);
+
 /** The configurable options a proof reads: what decides whether a rule passes, and not how a run is scheduled. */
 const PROVE_KEYS: ReadonlySet<ConfigKey> = new Set<ConfigKey>([
   'specs',
@@ -541,6 +589,9 @@ const SETTERS: { [Key in ConfigKey]-?: (options: CliOptions, value: NonNullable<
   concurrency: (options, value) => {
     options.concurrency = value;
   },
+  cites: (options, value) => {
+    options.cites = value.map((family) => ({ ...family }));
+  },
 };
 
 /**
@@ -560,7 +611,13 @@ export function applyConfig(options: CliOptions, config: ProjectConfig, file = '
     const value = config[key];
     if (value === undefined) continue;
     const reads =
-      options.command === 'query' ? QUERY_KEYS.has(key) : options.command === 'prove' ? PROVE_KEYS.has(key) : !(options.watch && key === 'engine');
+      options.command === 'query'
+        ? QUERY_KEYS.has(key)
+        : options.command === 'prove'
+          ? PROVE_KEYS.has(key)
+          : options.command === 'cites'
+            ? CITES_KEYS.has(key)
+            : key !== 'cites' && !(options.watch && key === 'engine');
     if (!reads) continue;
     if (options.fromCommandLine.has(key)) {
       overridden.push(key);
@@ -792,6 +849,55 @@ async function runProve(options: CliOptions, io: CliIO, use: ConfigUse | undefin
   return report.ok && !(options.strictTargets && report.summary.unprovable > 0) ? EXIT_OK : EXIT_FAILED;
 }
 
+/**
+ * `spec-guard cites`: the specs code comments cite, and whether each is still
+ * there and in force. ADR-0017.
+ *
+ * Exit 1 for a ghost, and under `--strict` for a stale citation or a file
+ * whose comments could not all be read; 2 when the answer could not be
+ * trusted - a family whose files match no document, a path outside the root.
+ */
+async function runCites(options: CliOptions, io: CliIO, use: ConfigUse | undefined): Promise<number> {
+  let report;
+  try {
+    const paths = await Promise.all(options.paths.map((entry) => resolveQueryPath(entry, options.root)));
+    for (const entry of paths) {
+      if (!entry.exists) throw new CitesError(`"${entry.path}" does not exist, so there are no comments in it to read`);
+    }
+    report = {
+      ...(await findCitations({
+        root: options.root,
+        patterns: options.patterns,
+        ...(options.cites === undefined ? {} : { families: options.cites }),
+        ...(paths.length === 0 ? {} : { paths: paths.map((entry) => entry.path) }),
+        exclude: options.exclude,
+        defaultSkips: options.defaultSkips,
+        strict: options.strictTargets,
+      })),
+      config: use,
+    };
+  } catch (error) {
+    io.stderr(`spec-guard: ${error instanceof Error ? error.message : String(error)}`);
+    return EXIT_ERROR;
+  }
+  const written =
+    options.format === 'json'
+      ? formatCitesJson(report)
+      : options.format === 'sarif'
+        ? formatCitesSarif(report, { version: version() })
+        : options.format === 'gitlab'
+          ? formatGitlab(citesAnnotations(report))
+          : options.format === 'github'
+            ? formatGithub(citesAnnotations(report))
+            : formatCites(report, {
+                color: shouldUseColor({ isTTY: io.isTTY }, options.color, io.env),
+                verbose: false,
+                ascii: shouldUseAscii(io.env),
+              });
+  if (written !== '') io.stdout(written);
+  return report.ok ? EXIT_OK : EXIT_FAILED;
+}
+
 /** Runs the CLI and resolves to the process exit code. */
 export async function main(argv: readonly string[] = process.argv.slice(2), io: CliIO = defaultIO()): Promise<number> {
   let options: CliOptions;
@@ -820,6 +926,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2), io: 
   const { use } = configured;
 
   if (options.command === 'query') return runQuery(options, io, use);
+  if (options.command === 'cites') return runCites(options, io, use);
   if (options.command === 'mcp') return runMcp(options, commandLine, io, use);
   if (options.command === 'prove') return runProve(options, io, use);
   if (options.watch) return runWatchSession(commandLine, io);

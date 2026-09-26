@@ -1,0 +1,5 @@
+[package]
+name = "net"
+version = "0.1.0"
+# ADR-0001: one crate per concern, and this is the network one.
+description = "ADR-0100 in a TOML string is not a citation"

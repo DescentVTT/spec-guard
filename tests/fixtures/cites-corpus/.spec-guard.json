@@ -1,0 +1,7 @@
+{
+  "specs": ["docs/**/*.md"],
+  "cites": [
+    { "id": "ADR-{n}", "files": "docs/adr/{n}-*.md" },
+    { "id": "RFC-{n}", "files": "docs/rfcs/rfc-{n}.md" }
+  ]
+}

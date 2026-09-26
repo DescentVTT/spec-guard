@@ -470,3 +470,89 @@ export interface ProveReport {
   /** Spec files that were read, relative to the root. */
   specFiles: string[];
 }
+
+/* -------------------------------------------------------------------- cites */
+
+/**
+ * One family of citable documents, as `.spec-guard.json` names it: an id
+ * template whose `{n}` is a run of digits, and a glob naming the documents
+ * with `{n}` standing for the number. ADR-0017.
+ */
+export interface CiteFamily {
+  /** The id as comments write it, e.g. `ADR-{n}`. */
+  id: string;
+  /** The documents, e.g. `docs/adr/{n}-*.md`. */
+  files: string;
+}
+
+/** What a citation found wrong: the document is not there, or not in force. */
+export type CiteRule = 'ghost-citation' | 'stale-citation';
+
+/** One citation of a document that does not exist or is no longer in force. */
+export interface CiteFinding {
+  rule: CiteRule;
+  /** A ghost is an error; a stale citation a warning, or an error under `--strict`. */
+  severity: 'error' | 'warning';
+  /** The file whose comment cites, root-relative, forward slashes. */
+  file: string;
+  line: number;
+  column: number;
+  /** The id as the comment wrote it: `ADR-7`, `ADR-0007`. */
+  cited: string;
+  /** The family's id template. */
+  family: string;
+  /** The document cited, when there is one. */
+  document?: string;
+  /** Its status word, for a stale citation. */
+  status?: string;
+  /** The id to cite instead, when the document's status line names one in force. */
+  successor?: string;
+  message: string;
+  /** What to do next. */
+  hint: string;
+}
+
+/** A family as a report shows it: where it came from, and what it found. */
+export interface CiteFamilyReport extends CiteFamily {
+  /** `config` when `cites` named it; `derived` when read off the spec files. */
+  source: 'config' | 'derived';
+  /** Documents the glob matched. */
+  documents: number;
+}
+
+/** A file whose comments could not all be read, and why. */
+export interface CiteGap {
+  file: string;
+  reason: 'unreadable' | 'binary' | 'too-large' | 'lost-scan';
+  detail: string;
+}
+
+export interface CitesReport {
+  /** No ghost, and under `--strict` no stale citation and no file left unread. */
+  ok: boolean;
+  root: string;
+  durationMs: number;
+  families: CiteFamilyReport[];
+  summary: {
+    /** Source files whose comments were read. */
+    files: number;
+    /** Citations found, one per file, line and document. */
+    citations: number;
+    ghosts: number;
+    stale: number;
+    /** Ids another owner qualifies - `spec-core's ADR-0005` - which are that owner's documents, and not checked. */
+    qualified: number;
+    /** Files left unread because no comment syntax is known for their extension. */
+    unclassified: number;
+  };
+  /** Ghost and stale citations, by file, line and column. */
+  findings: CiteFinding[];
+  /** Files that should have been read and could not be read in full. */
+  gaps: CiteGap[];
+  /** The extensions of the files left unclassified, most common first, with their counts. */
+  unclassified: Array<{ extension: string; files: number }>;
+  /** What a reader should know about how the families were chosen. */
+  notes: string[];
+  exclude: string[];
+  config?: ConfigUse;
+}

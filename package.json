@@ -71,6 +71,12 @@
     "specs": [
       "docs/**/*.md",
       "README.md"
+    ],
+    "exclude": [
+      "dist",
+      "coverage",
+      "reports",
+      "tests/fixtures"
     ]
   },
   "overrides": {

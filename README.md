@@ -942,6 +942,74 @@ written: `module="src/db.ts"` is killed by `import 'src/db.ts'` though every
 file imports `./db.js`. [ADR-0016](docs/adr/0016-rules-seen-to-fail.md) has the
 violations for each kind of rule, and what `unprovable` means.
 
+## Do the comments cite decisions in force? - `cites`
+
+Code comments cite decisions - `// ADR-0011: the domain imports no
+infrastructure`, `# see ADR-7`, `/* Q-172 */` - and the claim goes stale the
+way code does: the document was never written, or it has since been superseded.
+`spec-guard cites` reads the comment text of every source file for the ids a
+project names, and reports each citation of a document that does not exist or
+is no longer in force:
+
+```bash
+spec-guard cites
+```
+
+```text
+spec-guard cites ADR-{n} (10 documents matching docs/adr/{n}-*.md); RFC-{n} (2 documents matching docs/rfcs/rfc-{n}.md)
+
+⚠ crates/ledger/src/journal.rs:1 cites ADR-0007, which is superseded - cite ADR-0009 instead  stale-citation
+    hint: docs/adr/0007-async-journal.md says "superseded by ADR-0009"
+✖ crates/ledger/src/lib.rs:28 cites ADR-0011, which no document defines  ghost-citation
+    hint: no document matching docs/adr/{n}-*.md has the number 11; the nearest is ADR-0010
+
+21 citations in 6 files · 1 ghost · 1 stale · 22ms
+✖ 1 citation names a document that does not exist
+```
+
+The families of documents are named in the configuration, one entry each - an
+id with `{n}` for the number, and a path glob naming the documents with `{n}`
+in the file name:
+
+```json
+{
+  "cites": [
+    { "id": "ADR-{n}", "files": "docs/adr/{n}-*.md" },
+    { "id": "RFC-{n}", "files": "docs/rfcs/rfc-{n}.md" }
+  ]
+}
+```
+
+- **The number is a number**: `ADR-7`, `ADR-007` and `docs/adr/0007-x.md` are
+  one document. An id has a word boundary on each side, so `XADR-1` and
+  `ADR-12a` are not citations, and one id on one line is one finding however
+  often it is written there.
+- **Without `cites`**, a directory of specs whose names begin with a number, and
+  whose titles all begin with one id and that number (`# ADR-0007: ...` in
+  `0007-x.md`), is read as a family. Anything less is not guessed at: the
+  command exits 0 with a note saying to name the documents.
+- **Comment text only**, as the comment classifier reads it: an id in a string,
+  a raw string or a YAML value is not a citation. Markdown is spec-graph's and
+  is not read, nor are the spec files, the project's `exclude`, and the default
+  skips. Files in a language whose comments spec-guard does not know are
+  counted by extension, and a file read in part - binary, unreadable, or a scan
+  that lost its place - is named.
+- **Another project's ids are not checked**: `spec-core's ADR-0005`,
+  `spec-graph ADR-0017` or `its ADR-12` name a document in another repository,
+  and are counted instead.
+- **Stale** is `superseded`, `deprecated`, `rejected` or `archived`; a draft or
+  proposal cited from the code implementing it is not. The successor is read
+  from the document's status line - `Superseded by ADR-0014` - and followed to
+  the one in force.
+
+A ghost exits 1. A stale citation is a warning, and exits 1 under `--strict`,
+as does a file read in part or a check that looked for nothing. A family whose
+files match no document exits 2. `--json` (versioned by `formatVersion`),
+`--format sarif`, `--format github` and `--format gitlab` carry the same
+findings; `spec-guard cites src lib/a.ts` reads only those paths.
+[ADR-0017](docs/adr/0017-citations-in-comments.md) has the design, and what is
+out of scope: links to symbols, which need a parser the family does not ship.
+
 ## CLI
 
 ```bash
@@ -950,6 +1018,7 @@ spec-guard --watch [patterns...]       # execute them again whenever the tree ch
 spec-guard query <paths...> [options]  # the rules in force for files or directories
 spec-guard mcp [options]               # serve the rules over MCP on stdio
 spec-guard prove [patterns...]         # show each rule a violation of itself, in memory
+spec-guard cites [paths...]            # check each spec a code comment cites exists and is in force
 ```
 
 | Option | Description |
@@ -1017,6 +1086,7 @@ same options, at the top level, in `.spec-guard.json`:
 | `strict`, `allowMissingTargets`, `allowEmptyScope`, `ignoreStatus`, `includeSpecs`, `defaultSkips` | the flag of that name | `true` or `false` |
 | `maxSnippets` | `--max-snippets` | an integer, 0 or more |
 | `concurrency` | `--concurrency` | an integer, 1 or more |
+| `cites` | none; `spec-guard cites` reads it | a non-empty array of `{ "id": "ADR-{n}", "files": "docs/adr/{n}-*.md" }`, and no other key |
 
 - **Only the root's files** are read: the `--root` directory, or the working
   directory. Nothing is inherited from a parent directory.
@@ -1104,8 +1174,8 @@ symbolic link, and anything outside the root. CI stays the authority.
 | Code | Meaning |
 | --- | --- |
 | `0` | Every assertion held |
-| `1` | An assertion failed, or a directive was malformed; for `prove`, a rule survived |
-| `2` | spec-guard could not run: bad usage, a malformed configuration, no spec files matched, `--engine rg` with no ripgrep, a watch that could not start |
+| `1` | An assertion failed, or a directive was malformed; for `prove`, a rule survived; for `cites`, a comment cites a document that does not exist |
+| `2` | spec-guard could not run: bad usage, a malformed configuration, no spec files matched, `--engine rg` with no ripgrep, a watch that could not start, a `cites` family whose files match no document |
 | `130` | A `--watch` session was stopped |
 
 ## CI integration
@@ -1184,14 +1254,17 @@ spec-guard:
       codequality: gl-code-quality-report.json
 ```
 
-Every format places the same findings, and `prove` writes all three:
+Every format places the same findings, and `prove` and `cites` write all three:
 
 | Finding | GitHub | GitLab severity |
 | --- | --- | --- |
 | a failing assertion, on its first offending line or its directive | `error` | `critical` |
 | a rule that survived `prove`, on its directive | `error` | `critical` |
+| a ghost citation (`cites`), on its comment | `error` | `critical` |
 | a directive that could not be read | `error` | `major` |
+| a stale citation (`cites`) | `warning`; `error` under `--strict` | `minor`; `critical` under `--strict` |
 | a rule `prove` could make no violation for | `notice` | `minor` |
+| a file `cites` could read only in part | `notice` | `info` |
 | a document not in force, on its first line | `notice` | `info` |
 
 A GitLab issue's `fingerprint` is the SHA-256 of its rule, file and message,

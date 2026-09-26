@@ -5,7 +5,7 @@
  * available: the comment recording that a symbol was deleted is itself a match
  * for that symbol. `@assert-absence symbol="LegacyThing"` then fails on
  *
- *   // LegacyThing was removed in ADR-398
+ *   // LegacyThing was removed; do not reintroduce it
  *
  * which is the sentence proving the assertion true. So matches are classified
  * and, by default, those inside comments do not count.
