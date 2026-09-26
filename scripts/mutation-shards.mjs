@@ -5,7 +5,8 @@
  * One hosted runner stopped finishing the sweep reliably: 42m39s on f83a743
  * against a 45-minute job limit, and the same source on a slower runner was on
  * pace for about 49. ADR-0003 ("0.9.0: the sweep in parallel shards") has
- * the measurements behind the split and behind the table below.
+ * the measurements behind the split, and its "0.12.0: eight shards" section
+ * those behind the table below.
  *
  * Each shard runs Stryker with stryker.shard.config.mjs, which takes `mutate`
  * from mutateFor() and switches the break threshold off, because a shard is
@@ -28,29 +29,43 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 // replaces, and a separately pinned copy could drift from it.
 import { calculateMutationTestMetrics } from 'mutation-testing-metrics';
 
-// Minutes each file takes, read off the logs of the first two sharded sweeps
-// (68a4da5, 5e0902d) with scripts/mutation-timeline.mjs. Each shard's minutes
-// are scaled to a runner whose initial test run takes 8.0 seconds of test
-// time, since the runners behind these took from 8.0 to 10.3, and the two
-// sweeps are averaged:
+// Minutes each file took in main's full sweep of 398fe94, the merge of
+// 0.12.0's code, read off the shards' logs with scripts/mutation-timeline.mjs.
+// That sweep's last shard was cancelled at the 30-minute limit with 137 static
+// mutants untested. Its files' counts come from the pull request's report of
+// the same tree, and the 137 are put at the pace of the 122 static mutants
+// before them:
 //
-//   runner 7.0   engine 5.3   cli 4.9   parser 4.5   watch 3.5   graph 3.3
-//   mcp 3.3   imports 3.1   glob 2.8   polyglot 2.4   comments 2.3
-//   reporter 2.1   the other eleven files 4.9 between them
+//   cli 15.1   runner 14.7   glob 10.7   imports 10.4   parser 8.1
+//   comments 7.3   engine 7.3   reporter 6.6   polyglot 4.7   graph 4.7
+//   cites 3.9   watch 3.2   config 2.9   specs 1.7   prove 1.7   scope 1.6
+//   impact 1.5   mcp 1.2   structure 1.0   the other eight files 3.4
 //
-// About 49 minutes in all, so three shards could not land near 15 minutes:
-// they took 19 to 21 on the second sweep's runners. Runners differ by a fifth
-// or more, so none of this is good to better than a minute or so. The first
-// shards are listed. The last mutates everything else the base
-// configuration mutates, so a file added later is still mutated without anyone
-// remembering to list it here; the price is that new files all land in one
-// shard. When a shard's sweep passes 20 minutes, re-measure and move files or
-// add a shard (and add it to the workflow's matrix, which the merge checks).
+// About 111 minutes in all, against 52 in 0.11.0's sweep. They are not scaled
+// to a common runner, as earlier tables were: a shard's initial test run now
+// takes as long as the files it instruments make it, so it no longer measures
+// the runner. The runners this sweep had were at the slow end of those the
+// same shards had on eight runs, so these are slow-runner minutes. Runners
+// differ by a fifth or more, so none of this is good to better than a minute
+// or so.
+//
+// cli.ts and runner.ts take about 15 minutes each and a file cannot be split,
+// so the sweep cannot finish much sooner than that; seven listed shards bring
+// the rest up to them. The last mutates everything else the base configuration
+// mutates, so a file added later is still mutated without anyone remembering
+// to list it here. The price is that new files all land in one shard, so it
+// holds only small files and keeps room for them. When a shard's sweep passes
+// 20 minutes, re-measure and move files or add a shard (and add it to the
+// workflow's matrix, which the merge checks).
 export const ASSIGNED = [
-  ['src/runner.ts', 'src/polyglot.ts', 'src/comments.ts', 'src/text.ts'], // 12.3
-  ['src/engine.ts', 'src/graph.ts', 'src/imports.ts', 'src/specs.ts'], // 12.2
-  ['src/parser.ts', 'src/mcp.ts', 'src/glob.ts', 'src/scope.ts', 'src/structure.ts'], // 12.2
-]; // and the rest: 12.7
+  ['src/runner.ts', 'src/text.ts'], // 15.2
+  ['src/imports.ts', 'src/graph.ts'], // 15.1
+  ['src/glob.ts', 'src/scope.ts', 'src/mcp.ts', 'src/structure.ts'], // 14.5
+  ['src/cli.ts'], // 15.1
+  ['src/parser.ts', 'src/engine.ts'], // 15.3
+  ['src/comments.ts', 'src/polyglot.ts', 'src/config.ts'], // 14.8
+  ['src/reporter.ts', 'src/cites.ts', 'src/watch.ts', 'src/specs.ts'], // 15.3
+]; // and the rest: 6.1
 
 export const SHARD_COUNT = ASSIGNED.length + 1;
 
