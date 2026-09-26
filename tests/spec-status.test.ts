@@ -479,6 +479,8 @@ describe('a front-matter status that cannot be read', () => {
     expect(warningOf('---\nid: 7\nstatus: "accepted" (2024-05-01)\n---\n\n## Status\n\nProposed\n')).toEqual([[3, said('text follows a closing quote')]]);
     expect(warningOf('---\nstatus: accepted: x\n---\n\nStatus: draft\n')).toEqual([[2, said('a plain value cannot contain ": "; quote it')]]);
     expect(warningOf('---\nstatus:\n---\n\n## Status\n\nDraft\n')).toEqual([[2, said('it is empty')]]);
+    // Quoted spaces are as empty as nothing at all: there is no word in either.
+    expect(warningOf('---\nstatus: "  "\n---\n')).toEqual([[2, said('it is empty')]]);
     expect(warningOf('---\nstatus: "2024"\n---\n')).toEqual([[2, said('"2024" does not begin with a word')]]);
     expect(warningOf('---\nstatus: [draft]\n---\n')).toEqual([[2, said('a list is not a status')]]);
     expect(warningOf('---\nstatus:\n  [draft]\n---\n')).toEqual([[2, said('an inline list starts on the line after its key; write it after the colon')]]);
