@@ -15,17 +15,19 @@ import { PROJECT_ROOT } from './helpers.js';
 
 const text = (file: string): string => readFileSync(path.join(PROJECT_ROOT, file), 'utf8');
 const files = (JSON.parse(text('package.json')) as { files: string[] }).files;
-const ships = (file: string): boolean => files.some((entry) => file === entry || file.startsWith(`${entry}/`));
+/** An entry with a leading slash is anchored at the root, as npm reads it. */
+const entries = files.map((entry) => entry.replace(/^\//, ''));
+const ships = (file: string): boolean => entries.some((entry) => file === entry || file.startsWith(`${entry}/`));
 
 /** Where an absolute link to a file of this repository points, on its main branch. */
 const REPOSITORY = 'https://github.com/DescentVTT/spec-guard/blob/main/';
 
 /**
- * The Markdown documents the package ships. npm also ships the README beside
- * spec-core's LICENSE, which `files` does not name; it is spec-core's, and
- * read here all the same.
+ * The Markdown documents the package ships. `files` names the README
+ * `/README.md`: npm reads a name with no slash at any depth, and a bare
+ * `README.md` packed spec-core's vendored README beside its licence.
  */
-const DOCUMENTS = ['README.md', 'CHANGELOG.md', 'src/vendor/spec-core/README.md'];
+const DOCUMENTS = ['README.md', 'CHANGELOG.md'];
 
 /** Every link a renderer follows in a document, with the line it is on. */
 function linksOf(document: string): Array<{ target: string; line: number }> {
@@ -36,9 +38,11 @@ function linksOf(document: string): Array<{ target: string; line: number }> {
 }
 
 describe('the documents the package ships', () => {
-  it('are the ones it names in files, and the README npm adds beside the vendored licence', () => {
-    expect(DOCUMENTS.filter((document) => !ships(document))).toEqual(['src/vendor/spec-core/README.md']);
-    expect(files.filter((entry) => entry.endsWith('.md')).sort()).toEqual(['CHANGELOG.md', 'README.md']);
+  it('are the ones it names in files, and no README of spec-core\'s', () => {
+    expect(DOCUMENTS.filter((document) => !ships(document))).toEqual([]);
+    expect(entries.filter((entry) => entry.endsWith('.md')).sort()).toEqual(['CHANGELOG.md', 'README.md']);
+    expect(files).toContain('/README.md');
+    expect(ships('src/vendor/spec-core/README.md')).toBe(false);
   });
 
   it('link to a file the package does not ship by absolute URL, so that the link works on npmjs.com and in node_modules', () => {
