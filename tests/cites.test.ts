@@ -965,6 +965,7 @@ describe('the report', () => {
     expect(citesAnnotations(report)).toEqual([
       {
         rule: 'ghost-citation',
+        identity: ['ghost-citation', 'src/a.ts', 'ADR-{n}', 'ADR-0007'],
         level: 'error',
         severity: 'critical',
         file: 'src/a.ts',
@@ -973,6 +974,7 @@ describe('the report', () => {
       },
       {
         rule: 'stale-citation',
+        identity: ['stale-citation', 'src/a.ts', 'ADR-{n}', 'ADR-0002'],
         level: 'warning',
         severity: 'minor',
         file: 'src/a.ts',
@@ -981,6 +983,7 @@ describe('the report', () => {
       },
       {
         rule: 'unread-comments',
+        identity: ['unread-comments', 'src/lost.ts', 'lost-scan'],
         level: 'notice',
         severity: 'info',
         file: 'src/lost.ts',

@@ -514,8 +514,8 @@ function directivesOf(source: string, scan: MarkdownScan, context: ParseContext)
   const { status, problem } = statusOf(scan);
   const at = (line: number): SourceLocation => ({ file: context.file, relativeFile: context.relativeFile, line, column: 1 });
   const warnings: SpecWarning[] = [
-    ...(problem === undefined ? [] : [{ location: at(problem.line), message: problem.message }]),
-    ...unclosedBlocks(scan).map(({ line, message }) => ({ location: at(line), message })),
+    ...(problem === undefined ? [] : [{ location: at(problem.line), kind: 'unreadable-status' as const, message: problem.message }]),
+    ...unclosedBlocks(scan).map(({ line, message }) => ({ location: at(line), kind: 'unclosed-block' as const, message })),
   ];
   const hidden = maskedDirectives(source, masked, scan, starts, context);
   return {

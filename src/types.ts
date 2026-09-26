@@ -106,6 +106,8 @@ export interface SpecStatus {
  */
 export interface SpecWarning {
   location: SourceLocation;
+  /** Which of them, in words that stay the same while the document changes around it. */
+  kind: 'unreadable-status' | 'unclosed-block';
   message: string;
 }
 

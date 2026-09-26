@@ -56,6 +56,7 @@ describe('a run\'s findings', () => {
     expect(runAnnotations(await run())).toEqual([
       {
         rule: 'assert-absence',
+        identity: ['docs/rules.md', 'assert-absence', 'Legacy', 'src'],
         level: 'error',
         severity: 'critical',
         file: 'src/a.ts',
@@ -64,6 +65,7 @@ describe('a run\'s findings', () => {
       },
       {
         rule: 'assert-present',
+        identity: ['docs/rules.md', 'assert-present', 'docs/gone.md', ''],
         level: 'error',
         severity: 'critical',
         file: 'docs/rules.md',
@@ -72,6 +74,7 @@ describe('a run\'s findings', () => {
       },
       {
         rule: 'invalid-directive',
+        identity: ['invalid-directive', 'docs/rules.md', '@assert-count requires expected="...", min="..." or max="...".'],
         level: 'error',
         severity: 'major',
         file: 'docs/rules.md',
@@ -80,6 +83,7 @@ describe('a run\'s findings', () => {
       },
       {
         rule: 'not-in-force',
+        identity: ['not-in-force', 'docs/old.md'],
         level: 'notice',
         severity: 'info',
         file: 'docs/old.md',
@@ -88,6 +92,7 @@ describe('a run\'s findings', () => {
       },
       {
         rule: 'not-in-force',
+        identity: ['not-in-force', 'docs/older.md'],
         level: 'notice',
         severity: 'info',
         file: 'docs/older.md',
@@ -175,6 +180,7 @@ describe('a proof\'s findings', () => {
 describe('GitLab Code Quality', () => {
   const annotation: Annotation = {
     rule: 'ghost-citation',
+    identity: ['ghost-citation', 'src/ledger.rs', 'ADR-{n}', 'ADR-0099'],
     level: 'error',
     severity: 'critical',
     file: 'src/ledger.rs',
@@ -187,30 +193,41 @@ describe('GitLab Code Quality', () => {
       {
         description: 'src/ledger.rs:12 cites ADR-0099, which no document defines',
         check_name: 'ghost-citation',
-        fingerprint: sha256('ghost-citation', 'src/ledger.rs', 'src/ledger.rs:12 cites ADR-0099, which no document defines'),
+        fingerprint: sha256('ghost-citation', 'src/ledger.rs', 'ADR-{n}', 'ADR-0099'),
         severity: 'critical',
         location: { path: 'src/ledger.rs', lines: { begin: 12 } },
       },
     ]);
   });
 
-  it('fingerprints the rule, the file and the message, each of which tells two issues apart', () => {
-    const fingerprints = gitlab([
-      annotation,
-      { ...annotation, rule: 'stale-citation' },
-      { ...annotation, file: 'src/other.rs' },
-      { ...annotation, message: 'another' },
-      // The line is not part of it: GitLab places an issue by its location.
-      { ...annotation, line: 13 },
-    ]).map((issue) => issue.fingerprint);
-    expect(fingerprints).toHaveLength(4);
-    expect(new Set(fingerprints).size).toBe(4);
-    expect(fingerprints[0]).toMatch(/^[0-9a-f]{64}$/);
+  it('fingerprints what a finding is about, never its message or its line', () => {
+    const fingerprint = (value: Annotation): string => (gitlab([value])[0] as GitlabIssue).fingerprint;
+    // A message holds the count and the directive's line: one more match, or
+    // a line added above the directive, must not make an old issue new.
+    expect(fingerprint({ ...annotation, message: 'src/ledger.rs:13 cites ADR-0099, which no document defines' })).toBe(fingerprint(annotation));
+    expect(fingerprint({ ...annotation, line: 13 })).toBe(fingerprint(annotation));
+    expect(fingerprint({ ...annotation, identity: ['ghost-citation', 'src/ledger.rs', 'ADR-{n}', 'ADR-0098'] })).not.toBe(fingerprint(annotation));
+    expect(fingerprint(annotation)).toMatch(/^[0-9a-f]{64}$/);
   });
 
-  it('writes the same issue once, and a finding about a whole file on its first line', () => {
-    expect(gitlab([annotation, annotation])).toHaveLength(1);
+  it('writes every finding, numbering the ones that share an identity, and a finding about a whole file on its first line', () => {
+    const twice = gitlab([annotation, { ...annotation, line: 30 }, { ...annotation, line: 40 }]);
+    expect(twice.map((issue) => issue.location.lines.begin)).toEqual([12, 30, 40]);
+    expect(twice.map((issue) => issue.fingerprint)).toEqual([
+      sha256('ghost-citation', 'src/ledger.rs', 'ADR-{n}', 'ADR-0099'),
+      sha256('ghost-citation', 'src/ledger.rs', 'ADR-{n}', 'ADR-0099', '1'),
+      sha256('ghost-citation', 'src/ledger.rs', 'ADR-{n}', 'ADR-0099', '2'),
+    ]);
     expect(gitlab([{ ...annotation, line: 0 }])[0]?.location).toEqual({ path: 'src/ledger.rs', lines: { begin: 1 } });
+  });
+
+  it('gives a failing assertion the fingerprint it had while its count and its line change', async () => {
+    const fingerprints = async (tree: Record<string, string>): Promise<string[]> =>
+      gitlab(runAnnotations(await runSpecGuard({ patterns: ['docs/*.md'], root: ROOT, io: memoryIo(ROOT, tree) }))).map((issue) => issue.fingerprint);
+    const before = await fingerprints({ 'docs/r.md': '<!-- @assert-absence target="src" symbol="Legacy" -->\n', 'src/a.ts': 'Legacy;\n' });
+    const after = await fingerprints({ 'docs/r.md': '# Rules\n\nMoved down.\n\n<!-- @assert-absence target="src" symbol="Legacy" -->\n', 'src/a.ts': 'x;\nLegacy;\nLegacy;\n' });
+    expect(after).toEqual(before);
+    expect(before).toHaveLength(1);
   });
 
   it('is written for a run, and is an empty array when no spec matched', async () => {
@@ -236,9 +253,9 @@ describe('GitHub workflow commands', () => {
   it('are one line per finding, at its level, with the file, line and rule as properties', () => {
     expect(
       formatGithub([
-        { rule: 'assert-absence', level: 'error', severity: 'critical', file: 'src/a.ts', line: 2, message: 'no' },
-        { rule: 'rule-unprovable', level: 'notice', severity: 'minor', file: 'docs/r.md', line: 0, message: 'why' },
-        { rule: 'stale-citation', level: 'warning', severity: 'minor', file: 'src/b.ts', line: 7, message: 'old' },
+        { rule: 'assert-absence', identity: [], level: 'error', severity: 'critical', file: 'src/a.ts', line: 2, message: 'no' },
+        { rule: 'rule-unprovable', identity: [], level: 'notice', severity: 'minor', file: 'docs/r.md', line: 0, message: 'why' },
+        { rule: 'stale-citation', identity: [], level: 'warning', severity: 'minor', file: 'src/b.ts', line: 7, message: 'old' },
       ]),
     ).toBe(
       [
@@ -251,7 +268,7 @@ describe('GitHub workflow commands', () => {
 
   it('escape what would end a command early: a percent and line breaks everywhere, and a colon or comma in a property', () => {
     expect(
-      formatGithub([{ rule: 'a:b,c', level: 'error', severity: 'critical', file: 'C:,x%.ts', line: 1, message: '50% done\r\nnext: a, b' }]),
+      formatGithub([{ rule: 'a:b,c', identity: [], level: 'error', severity: 'critical', file: 'C:,x%.ts', line: 1, message: '50% done\r\nnext: a, b' }]),
     ).toBe('::error file=C%3A%2Cx%25.ts,line=1,title=a%3Ab%2Cc::50%25 done%0D%0Anext: a, b');
   });
 

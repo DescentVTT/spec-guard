@@ -277,9 +277,10 @@ function maskedJson(masked: readonly MaskedDirective[] | undefined): Array<{ spe
 }
 
 /** A document's warnings as a script reads them, placed as errors are. */
-function specWarningsJson(warnings: readonly SpecWarning[] | undefined): Array<{ spec: { file: string; line: number; column: number }; message: string }> {
+function specWarningsJson(warnings: readonly SpecWarning[] | undefined): Array<{ spec: { file: string; line: number; column: number }; kind: string; message: string }> {
   return (warnings ?? []).map((warning) => ({
     spec: { file: warning.location.relativeFile, line: warning.location.line, column: warning.location.column },
+    kind: warning.kind,
     message: warning.message,
   }));
 }
@@ -554,6 +555,25 @@ function fingerprint(parts: readonly string[]): string {
   return createHash('sha256').update(parts.join('\u0000')).digest('hex').slice(0, 32);
 }
 
+/**
+ * What an assertion is, whatever it found: its document, its kind, what it is
+ * about and where it looks. Never a count or a line, so an alert stays one
+ * alert while the code it counts changes and the document it sits in grows.
+ */
+function assertionIdentity(result: AssertionResult): string[] {
+  return [
+    result.location.relativeFile,
+    result.kind,
+    // The description only where there is nothing else to tell two
+    // assertions apart. A cycle or layer rule names no symbol and no
+    // file, so two on one target - `types="ignore"` beside the default -
+    // would share an identity and be merged into one alert. Every kind
+    // that has a symbol or a file list keeps the fingerprint it had.
+    result.symbol ?? (result.files.length > 0 ? result.files.join(',') : result.description),
+    result.targets.join(','),
+  ];
+}
+
 /** SARIF severity for anything spec-guard reports. */
 const SARIF_LEVEL = 'error';
 
@@ -662,19 +682,7 @@ export function formatSarif(report: RunResult, options: { version?: string } = {
       // baseline - is anchored on the directive, which is where its fix goes.
       locations: [matches[0] ?? spec],
       relatedLocations: matches[0] ? [...matches.slice(1), spec] : [],
-      partialFingerprints: {
-        specGuardAssertion: fingerprint([
-          result.location.relativeFile,
-          result.kind,
-          // The description only where there is nothing else to tell two
-          // assertions apart. A cycle or layer rule names no symbol and no
-          // file, so two on one target - `types="ignore"` beside the default -
-          // would share an identity and be merged into one alert. Every kind
-          // that has a symbol or a file list keeps the fingerprint it had.
-          result.symbol ?? (result.files.length > 0 ? result.files.join(',') : result.description),
-          result.targets.join(','),
-        ]),
-      },
+      partialFingerprints: { specGuardAssertion: fingerprint(assertionIdentity(result)) },
     });
   }
 
@@ -949,6 +957,13 @@ export type GitlabSeverity = 'critical' | 'major' | 'minor' | 'info';
 export interface Annotation {
   /** The rule's id: GitLab's `check_name`, GitHub's `title`. */
   rule: string;
+  /**
+   * What the finding is about, in parts that stay the same while it stays the
+   * same finding: the rule, the document or file, the subject. Never a count,
+   * a line or a message that holds either, since GitLab tells a new finding
+   * from an old one by the fingerprint made of this.
+   */
+  identity: readonly string[];
   /** How GitHub shows it: `error`, `warning` or `notice`. */
   level: 'error' | 'warning' | 'notice';
   severity: GitlabSeverity;
@@ -962,18 +977,25 @@ export interface Annotation {
 /**
  * A finding as GitLab Code Quality reads it.
  *
- * The fingerprint is the SHA-256 of the rule, the file and the message, which is
- * what GitLab compares between a merge request and its target to tell a finding
- * that is new from one that was already there. The same three things are one
- * finding, so a second copy of them is not written.
+ * The fingerprint is what GitLab compares between a merge request and its
+ * target to tell a finding that is new from one that was already there. It is
+ * the SHA-256 of the annotation's identity - the rule, the document or file,
+ * the subject - and never of its message: a message holds the count of
+ * matches and the directive's line, so one more match, or a line added above
+ * the directive, made every open issue look fixed and a new one appear. Two
+ * findings with one identity, one ghost cited on two lines, are told apart by
+ * the order they come in, each a finding of its own.
  */
 export function formatGitlab(annotations: readonly Annotation[]): string {
-  const seen = new Set<string>();
+  const seen = new Map<string, number>();
   const issues = [];
   for (const annotation of annotations) {
-    const fingerprint = createHash('sha256').update([annotation.rule, annotation.file, annotation.message].join('\u0000')).digest('hex');
-    if (seen.has(fingerprint)) continue;
-    seen.add(fingerprint);
+    const identity = annotation.identity.join('\u0000');
+    const repeat = seen.get(identity) ?? 0;
+    seen.set(identity, repeat + 1);
+    const fingerprint = createHash('sha256')
+      .update(repeat === 0 ? identity : `${identity}\u0000${repeat}`)
+      .digest('hex');
     issues.push({
       description: annotation.message,
       check_name: annotation.rule,
@@ -1013,6 +1035,7 @@ export function formatGithub(annotations: readonly Annotation[]): string {
 function inactiveAnnotations(inactive: readonly InactiveSpec[], what: 'assertion' | 'rule', done: 'executed' | 'proved'): Annotation[] {
   return inactive.map((spec) => ({
     rule: 'not-in-force',
+    identity: ['not-in-force', spec.file],
     level: 'notice',
     severity: 'info',
     file: spec.file,
@@ -1025,6 +1048,7 @@ function inactiveAnnotations(inactive: readonly InactiveSpec[], what: 'assertion
 function warningAnnotations(warnings: readonly SpecWarning[] | undefined): Annotation[] {
   return (warnings ?? []).map((warning) => ({
     rule: 'spec-warning',
+    identity: ['spec-warning', warning.location.relativeFile, warning.kind],
     level: 'warning',
     severity: 'minor',
     file: warning.location.relativeFile,
@@ -1037,6 +1061,7 @@ function warningAnnotations(warnings: readonly SpecWarning[] | undefined): Annot
 function errorAnnotations(errors: readonly DirectiveError[]): Annotation[] {
   return errors.map((error) => ({
     rule: 'invalid-directive',
+    identity: ['invalid-directive', error.location.relativeFile, error.message],
     level: 'error',
     severity: 'major',
     file: error.location.relativeFile,
@@ -1063,6 +1088,7 @@ export function runAnnotations(report: RunResult): Annotation[] {
       const match = result.claim === 'required' ? undefined : result.matches[0];
       return {
         rule: result.kind,
+        identity: assertionIdentity(result),
         level: 'error',
         severity: 'critical',
         file: match?.file ?? result.location.relativeFile,
@@ -1098,6 +1124,7 @@ export function proveAnnotations(report: ProveReport): Annotation[] {
         : (result.unprovable as string);
       return {
         rule: survived ? 'rule-cannot-fail' : 'rule-unprovable',
+        identity: [survived ? 'rule-cannot-fail' : 'rule-unprovable', result.location.relativeFile, result.kind, result.description],
         level: survived ? 'error' : 'notice',
         severity: survived ? 'critical' : 'minor',
         file: result.location.relativeFile,
@@ -1273,6 +1300,7 @@ export function citesAnnotations(report: CitesReport): Annotation[] {
     ...report.findings.map(
       (finding): Annotation => ({
         rule: finding.rule,
+        identity: [finding.rule, finding.file, finding.family, finding.cited],
         level: finding.severity === 'error' ? 'error' : 'warning',
         severity: finding.severity === 'error' ? 'critical' : 'minor',
         file: finding.file,
@@ -1283,6 +1311,7 @@ export function citesAnnotations(report: CitesReport): Annotation[] {
     ...report.gaps.map(
       (gap): Annotation => ({
         rule: 'unread-comments',
+        identity: ['unread-comments', gap.file, gap.reason],
         level: 'notice',
         severity: 'info',
         file: gap.file,
