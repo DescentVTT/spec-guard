@@ -73,6 +73,9 @@ describe('a files template', () => {
     expect(parseFilesTemplate('docs/adr/{n}-*.md')).toEqual({ glob: 'docs/adr/*-*.md', before: '', after: '-*.md' });
     expect(parseFilesTemplate('docs\\rfcs\\rfc-{n}.md')).toEqual({ glob: 'docs/rfcs/rfc-*.md', before: 'rfc-', after: '.md' });
     expect(parseFilesTemplate('{n}')).toEqual({ glob: '*', before: '', after: '' });
+    // A star just after the number is taken in: `**.md` is a glob spec-core refuses.
+    expect(parseFilesTemplate('docs/adr/{n}*.md')).toEqual({ glob: 'docs/adr/*.md', before: '', after: '*.md' });
+    expect(parseFilesTemplate('docs/**/ADR-{n}*.md')).toEqual({ glob: 'docs/**/ADR-*.md', before: 'ADR-', after: '*.md' });
   });
 
   it('is refused without {n}, with it twice, with it in a directory, with glob syntax before it, a digit beside it, or a pattern spec-core refuses', () => {
@@ -84,6 +87,7 @@ describe('a files template', () => {
     expect(citeFilesError('docs/*-{n}.md')).toBe('"docs/*-{n}.md" has glob syntax before {n} in the file name, which has to be literal to say where the number starts');
     expect(citeFilesError('docs/v2{n}.md')).toBe('"docs/v2{n}.md" has a digit beside {n}, where it would run into the number');
     expect(citeFilesError('docs/{n}1.md')).toBe('"docs/{n}1.md" has a digit beside {n}, where it would run into the number');
+    expect(citeFilesError('docs/adr/{n}*.md')).toBeNull();
     expect(citeFilesError('docs/[a/{n}.md')).toMatch(/^"docs\/\[a\/\{n\}\.md": invalid glob pattern "docs\/\[a\/\*\.md": /);
   });
 

@@ -51,7 +51,9 @@ A project names what its comments cite in `.spec-guard.json` (or under
   literal: that is what says where in `0007-ledger.md` or `rfc-12.md` the number
   starts. The whole path is matched with `{n}` read as `*`, and then the name
   is read: the literal before, a run of digits as long as it goes, and a rest
-  the text after `{n}` must match exactly.
+  the text after `{n}` must match exactly. A `*` just after `{n}` is taken
+  into that star, so `{n}*.md` is matched as `*.md`: two stars inside a name
+  are a glob spec-core refuses.
 - The number is compared as a number: `ADR-7`, `ADR-007` and `0007-x.md` are
   one document.
 - An entry with any other key is refused, as an unknown option is: `"glob"`

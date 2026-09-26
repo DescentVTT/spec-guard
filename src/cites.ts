@@ -93,7 +93,7 @@ export function parseIdTemplate(template: string): IdTemplate {
 
 /** A files template, read: the glob that finds the documents, and the name around the number. */
 export interface FilesTemplate {
-  /** The template with `{n}` read as `*`: every path that could be a document. */
+  /** The template with `{n}` read as `*`, taking in a `*` just after it: every path that could be a document. */
   glob: string;
   /** The file name before the number, which is literal. */
   before: string;
@@ -123,8 +123,20 @@ export function citeFilesError(template: string): string | null {
   if (isDigit(before[before.length - 1]) || isDigit(after[0])) {
     return `"${template}" has a digit beside ${NUMBER}, where it would run into the number`;
   }
-  const error = pathPatternError(posix.replace(NUMBER, '*'));
+  const error = pathPatternError(numberGlob(posix));
   return error === null ? null : `"${template}": ${error}`;
+}
+
+/**
+ * A template with its number read as `*`.
+ *
+ * A `*` just after `{n}` is taken in, since digits and then anything is
+ * anything: `{n}*.md`, the shape `deriveFamilies` writes, is `*.md`. Replaced
+ * alone, it would be `**.md`, which spec-core refuses, as two stars inside a
+ * name are read three ways. A second star after it is still refused.
+ */
+function numberGlob(posix: string): string {
+  return posix.replace(posix.includes(`${NUMBER}*`) ? `${NUMBER}*` : NUMBER, '*');
 }
 
 /** A files template, read. Only ever given one `citeFilesError` accepted. */
@@ -132,7 +144,7 @@ export function parseFilesTemplate(template: string): FilesTemplate {
   const posix = toPosix(template);
   const name = posix.slice(posix.lastIndexOf('/') + 1);
   const [before, after] = name.split(NUMBER) as [string, string];
-  return { glob: posix.replace(NUMBER, '*'), before, after };
+  return { glob: numberGlob(posix), before, after };
 }
 
 /** A number as a comparable key: its digits without leading zeros, and `0` for none. */
