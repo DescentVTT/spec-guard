@@ -85,6 +85,25 @@ export { overlayIo, readOnce } from './overlay.js';
 export type { TreeEdit } from './overlay.js';
 
 export { proveSpecGuard, PROVE_NAME } from './prove.js';
+
+export {
+  citeFilesError,
+  citeIdError,
+  deriveFamilies,
+  documentNumber,
+  findCitations,
+  findDocuments,
+  inComments,
+  isStale,
+  numberKey,
+  parseFilesTemplate,
+  parseIdTemplate,
+  qualified,
+  scanCitations,
+  CitesError,
+  NUMBER,
+} from './cites.js';
+export type { Citation, CitedDocument, CitesOptions, FilesTemplate, IdTemplate, ResolvedFamily } from './cites.js';
 export type { ProveOptions } from './prove.js';
 
 export { contentHash, createMemo, NO_MEMO } from './memo.js';
@@ -213,8 +232,12 @@ export {
 export type { ExecuteOptions, ResolveContext, RunOptions, RunPlan, RunResult } from './runner.js';
 
 export {
+  citesAnnotations,
   createPainter,
   formatBaselines,
+  formatCites,
+  formatCitesJson,
+  formatCitesSarif,
   formatConfigUse,
   formatGithub,
   formatGitlab,
@@ -227,6 +250,7 @@ export {
   formatSarif,
   proveAnnotations,
   runAnnotations,
+  CITES_FORMAT_VERSION,
   PROVE_FORMAT_VERSION,
   RUN_FORMAT_VERSION,
   shouldUseAscii,
@@ -239,6 +263,12 @@ export type {
   AssertionResult,
   BaselineEntry,
   Bounds,
+  CiteFamily,
+  CiteFamilyReport,
+  CiteFinding,
+  CiteGap,
+  CiteRule,
+  CitesReport,
   ConfigUse,
   Directive,
   DirectiveError,

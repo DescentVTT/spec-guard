@@ -76,6 +76,7 @@ describe('parseConfig', () => {
       defaultSkips: false,
       maxSnippets: 0,
       concurrency: 1,
+      cites: [{ id: 'ADR-{n}', files: 'docs/adr/{n}-*.md' }],
     };
     expect(parseConfig(manifest(everything))).toEqual({ ...everything, engine: 'javascript' });
     expect(Object.keys(everything)).toEqual(CONFIG_KEYS);
@@ -100,7 +101,7 @@ describe('parseConfig', () => {
 
   it('refuses an unknown key, and lists the keys there are', () => {
     expect(refusal(manifest({ stict: true }))).toBe(
-      'package.json: unknown option "stict" in "specGuard". Options are specs, exclude, engine, strict, allowMissingTargets, allowEmptyScope, ignoreStatus, includeSpecs, defaultSkips, maxSnippets, concurrency.',
+      'package.json: unknown option "stict" in "specGuard". Options are specs, exclude, engine, strict, allowMissingTargets, allowEmptyScope, ignoreStatus, includeSpecs, defaultSkips, maxSnippets, concurrency, cites.',
     );
     // Not a way to reach an object's prototype, either.
     expect(refusal('{"specGuard": {"__proto__": {"strict": true}}}')).toMatch(/^package\.json: unknown option "__proto__"/);
@@ -165,6 +166,33 @@ describe('parseConfig', () => {
     expect(refusal(manifest({ maxSnippets: '2' }))).toBe('package.json: "specGuard.maxSnippets" must be an integer, 0 or more, got "2".');
     expect(refusal(manifest({ concurrency: 0 }))).toBe('package.json: "specGuard.concurrency" must be an integer, 1 or more, got 0.');
     expect(refusal(manifest({ concurrency: { n: 2 } }))).toBe('package.json: "specGuard.concurrency" must be an integer, 1 or more, got an object.');
+  });
+
+  it('reads cites as a list of id and files entries, each held to the template rules, and refuses anything else by entry', () => {
+    const families = [
+      { id: 'ADR-{n}', files: 'docs/adr/{n}-*.md' },
+      { id: 'RFC {n}', files: 'rfcs/rfc-{n}.md' },
+    ];
+    expect(parseConfig(manifest({ cites: families }))).toEqual({ cites: families });
+    const cases: Array<[unknown, string]> = [
+      [[], 'must be a non-empty list of entries such as { "id": "ADR-{n}", "files": "docs/adr/{n}-*.md" }, got an array'],
+      [{ id: 'ADR-{n}' }, 'must be a non-empty list of entries such as { "id": "ADR-{n}", "files": "docs/adr/{n}-*.md" }, got an object'],
+      ['ADR-{n}', 'must be a non-empty list of entries such as { "id": "ADR-{n}", "files": "docs/adr/{n}-*.md" }, got "ADR-{n}"'],
+      [[families[0], 'ADR-{n}'], 'entry 2 must be an object with "id" and "files", got "ADR-{n}"'],
+      [[[1]], 'entry 1 must be an object with "id" and "files", got an array'],
+      [[null], 'entry 1 must be an object with "id" and "files", got null'],
+      [[{ id: 'ADR-{n}', files: 'd/{n}.md', glob: '*.md' }], 'entry 1 has an unknown key "glob"; an entry takes id and files'],
+      [[{ files: 'd/{n}.md' }], 'entry 1 needs "id" as a string, got undefined'],
+      [[{ id: 'ADR-{n}', files: 7 }], 'entry 1 needs "files" as a string, got 7'],
+      [[{ id: 'ADR', files: 'd/{n}.md' }], 'entry 1: "ADR" has no {n}: an id template says where the number goes, as in ADR-{n}'],
+      [[{ id: 'ADR-{n}', files: 'd/*.md' }], 'entry 1: "d/*.md" has no {n}: a files template says where the number is, as in docs/adr/{n}-*.md'],
+    ];
+    for (const [cites, issue] of cases) {
+      expect(refusal(manifest({ cites })), JSON.stringify(cites)).toBe(`package.json: "specGuard.cites" ${issue}.`);
+    }
+    expect(() => parseStandaloneConfig(JSON.stringify({ cites: [{ id: '{n}', files: 'd/{n}.md' }] }))).toThrow(
+      new ConfigError('.spec-guard.json: "cites" entry 1: "{n}" has nothing before {n}, so every number in every comment would be a citation.'),
+    );
   });
 
   it('names the file it was told it is reading', () => {
@@ -348,7 +376,8 @@ describe('flags that a configuration can set', () => {
           process.cwd(),
         ).fromCommandLine,
       ].sort(),
-    ).toEqual([...CONFIG_KEYS].sort());
+      // Every key but cites, which names documents and has no flag.
+    ).toEqual(CONFIG_KEYS.filter((key) => key !== 'cites').sort());
     expect([...parseArgs(['--spec', 'a.md'], process.cwd()).fromCommandLine]).toEqual(['specs']);
     expect([...parseArgs(['query', 'src', '--spec', 'a.md'], process.cwd()).fromCommandLine]).toEqual(['specs']);
   });
@@ -406,11 +435,14 @@ describe('applyConfig', () => {
     defaultSkips: false,
     maxSnippets: 9,
     concurrency: 3,
+    cites: [{ id: 'ADR-{n}', files: 'docs/adr/{n}-*.md' }],
   };
+  /** What a run reads: everything but cites, which is spec-guard cites' own. */
+  const RUN_KEYS = CONFIG_KEYS.filter((key) => key !== 'cites');
 
   it('fills in every option the command line left alone, and says so in the order of the keys', () => {
     const options = parseArgs([], cwd);
-    expect(applyConfig(options, everything)).toEqual({ file: 'package.json', applied: [...CONFIG_KEYS], overridden: [] });
+    expect(applyConfig(options, everything)).toEqual({ file: 'package.json', applied: RUN_KEYS, overridden: [] });
     expect(options).toMatchObject({
       patterns: ['rules/*.md'],
       exclude: ['target'],
@@ -428,7 +460,7 @@ describe('applyConfig', () => {
 
   it('leaves every option the command line set, either way, and names it as overridden', () => {
     const options = parseArgs(['a.md', '--exclude=', '--engine', 'js', '--no-strict', '--no-allow-missing-targets', '--no-allow-empty-scope', '--no-ignore-status', '--no-include-specs', '--default-skips', '--max-snippets', '2', '--concurrency', '4'], cwd);
-    expect(applyConfig(options, everything, 'pkg/package.json')).toEqual({ file: 'pkg/package.json', applied: [], overridden: [...CONFIG_KEYS] });
+    expect(applyConfig(options, everything, 'pkg/package.json')).toEqual({ file: 'pkg/package.json', applied: [], overridden: RUN_KEYS });
     expect(options).toMatchObject({
       patterns: ['a.md'],
       exclude: [],
@@ -475,8 +507,19 @@ describe('applyConfig', () => {
   it('applies to a watch session everything but the engine, which it does not use', () => {
     const options = parseArgs(['--watch'], cwd);
     const use = applyConfig(options, everything);
-    expect(use?.applied).toEqual(CONFIG_KEYS.filter((key) => key !== 'engine'));
+    expect(use?.applied).toEqual(RUN_KEYS.filter((key) => key !== 'engine'));
     expect(options.engine).toBe('auto');
+  });
+
+  it('applies cites to spec-guard cites alone, with what else it reads, and a copy of each family', () => {
+    const options = parseArgs(['cites'], cwd);
+    expect(applyConfig(options, everything)).toEqual({ file: 'package.json', applied: ['specs', 'exclude', 'strict', 'defaultSkips', 'cites'], overridden: [] });
+    expect(options.cites).toEqual([{ id: 'ADR-{n}', files: 'docs/adr/{n}-*.md' }]);
+    (options.cites?.[0] as { id: string }).id = 'X-{n}';
+    expect(everything.cites?.[0]?.id).toBe('ADR-{n}');
+    for (const argv of [[], ['query', 'src'], ['prove'], ['mcp'], ['--watch']]) {
+      expect(applyConfig(parseArgs(argv, cwd), { cites: everything.cites }), argv.join(' ')).toBeUndefined();
+    }
   });
 
   it('says nothing when a configuration had nothing for this command', () => {

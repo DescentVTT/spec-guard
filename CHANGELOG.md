@@ -9,6 +9,25 @@ with the flag that restores the previous behaviour.
 
 ### Added
 
+- **`spec-guard cites`: do the comments cite decisions in force?** A comment
+  such as `// ADR-0011: the domain imports no infrastructure` is a claim, and it
+  goes stale when the document is never written or is superseded. `cites` reads
+  the comment text of every source file - by the classifier's reading, so never
+  a string - for the ids of the families a project names in a new `cites`
+  option, `[{ "id": "ADR-{n}", "files": "docs/adr/{n}-*.md" }]`, where `{n}` is
+  a number (`ADR-7`, `ADR-007` and `0007-x.md` are one document). Without it, a
+  directory of numbered specs whose titles all begin with one id and their own
+  number is read as a family; anything less is a note and exit 0, not a guess.
+  A **ghost** citation, of no document, is an error with the nearest ids as its
+  hint. A **stale** one, of a document superseded, deprecated, rejected or
+  archived, is a warning (an error under `--strict`) that names the successor
+  the document's status line gives, followed to the one in force. Ids another
+  project qualifies - `spec-core's ADR-0005` - are counted and not checked.
+  Markdown, spec files, excluded paths and files in no known language are not
+  read, and are counted. Human, `--json` (with `formatVersion`), SARIF, GitHub
+  and GitLab output; exit 1 on a ghost, 2 for a family whose files match no
+  document. `findCitations` is the API.
+  [ADR-0017](docs/adr/0017-citations-in-comments.md).
 - **`spec-guard prove`: can each rule actually fail?** A passing rule cannot
   say whether the code holds or the rule cannot see the code. `prove` shows
   each rule in force a violation of itself - a file holding the forbidden text,

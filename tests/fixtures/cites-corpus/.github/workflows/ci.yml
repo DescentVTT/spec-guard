@@ -1,0 +1,8 @@
+name: ci
+on: [push]
+# ADR-0008 fixed the wire format, so this job checks it.
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo ADR-0077 is a plain scalar, not a comment

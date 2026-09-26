@@ -10,7 +10,7 @@
 import { createHash } from 'node:crypto';
 
 import { mergeLedgers, tallyLedger, type ScopeLedger } from './scope.js';
-import type { AssertionResult, ConfigUse, DirectiveError, InactiveSpec, ProveClaim, ProveOutcome, ProveReport, ProveResult } from './types.js';
+import type { AssertionResult, CitesReport, ConfigUse, DirectiveError, InactiveSpec, ProveClaim, ProveOutcome, ProveReport, ProveResult } from './types.js';
 import type { RunResult } from './runner.js';
 
 export interface ReporterOptions {
@@ -1012,4 +1012,184 @@ export function proveAnnotations(report: ProveReport): Annotation[] {
       };
     });
   return [...results, ...errorAnnotations(report.errors), ...inactiveAnnotations(report.inactiveSpecs, 'rule', 'proved')];
+}
+
+/* -------------------------------------------------------------------- cites */
+
+/** How a family is introduced: its id, its documents, and where it came from. */
+function familyLine(family: CitesReport['families'][number]): string {
+  const from = family.source === 'derived' ? ", read off the specs' titles" : '';
+  return `${family.id} (${countLabel(family.documents, 'document')} matching ${family.files}${from})`;
+}
+
+/**
+ * Renders what `spec-guard cites` found, for a person.
+ *
+ * Each ghost and each stale citation is printed with the hint that says what
+ * to do. So are the files whose comments could not all be read, and the files
+ * no comment syntax is known for, counted by extension: a citation in either
+ * was not looked at, and a report that stayed quiet about them would read as
+ * though it had been.
+ */
+export function formatCites(report: CitesReport, options: ReporterOptions): string {
+  const paint = createPainter(options.color);
+  const glyphs = symbols(options.ascii ?? false);
+  const { summary } = report;
+  const families = report.families.length === 0 ? 'no families' : report.families.map(familyLine).join('; ');
+  const lines = [`${paint('spec-guard cites', 'bold', 'blue')} ${paint(families, 'dim')}`, ''];
+
+  for (const finding of report.findings) {
+    const glyph = finding.severity === 'error' ? paint(glyphs.fail, 'red', 'bold') : paint(glyphs.warn, 'yellow', 'bold');
+    lines.push(`${glyph} ${finding.message}  ${paint(finding.rule, 'dim')}`, `    ${paint(`hint: ${finding.hint}`, 'dim')}`);
+  }
+  if (report.findings.length > 0) lines.push('');
+
+  if (report.gaps.length > 0) {
+    const them = report.gaps.length === 1 ? 'it' : 'them';
+    lines.push(paint(`${glyphs.skip} ${countLabel(report.gaps.length, 'file')} could not be read in full, so a citation in ${them} may have been missed:`, 'yellow'));
+    for (const gap of report.gaps) lines.push(`    ${gap.file} ${gap.detail}`);
+    lines.push('');
+  }
+  if (summary.unclassified > 0) {
+    const kinds = report.unclassified.map(({ extension, files }) => `${extension} ${files}`).join(', ');
+    lines.push(paint(`${glyphs.skip} ${countLabel(summary.unclassified, 'file')} in no language spec-guard knows the comments of, and not read: ${kinds}`, 'dim'), '');
+  }
+  if (summary.qualified > 0) {
+    const verb = summary.qualified === 1 ? 'names' : 'name';
+    const were = summary.qualified === 1 ? 'was' : 'were';
+    lines.push(paint(`${glyphs.skip} ${countLabel(summary.qualified, 'id')} ${verb} another project's document, as spec-core's ADR-0005 does, and ${were} not checked`, 'dim'), '');
+  }
+  for (const note of report.notes) lines.push(paint(`${glyphs.skip} ${note}`, 'dim'));
+  if (report.notes.length > 0) lines.push('');
+
+  const optionLines = formatOptionLines(report.config, report.exclude);
+  if (optionLines.length > 0) lines.push(...optionLines, '');
+
+  const parts = [
+    `${countLabel(summary.citations, 'citation')} in ${countLabel(summary.files, 'file')}`,
+    summary.ghosts > 0 ? paint(countLabel(summary.ghosts, 'ghost'), 'red', 'bold') : null,
+    summary.stale > 0 ? paint(`${summary.stale} stale`, 'yellow') : null,
+    paint(formatDuration(report.durationMs), 'dim'),
+  ].filter((part): part is string => part !== null);
+  lines.push(parts.join(paint(' · ', 'dim')));
+
+  const names = (count: number): string => `${countLabel(count, 'citation')} ${count === 1 ? 'names' : 'name'}`;
+  if (summary.ghosts > 0) {
+    lines.push(paint(`${glyphs.fail} ${names(summary.ghosts)} a document that does not exist`, 'red', 'bold'));
+  } else if (report.families.length === 0) {
+    lines.push(paint(`${glyphs.warn} no citation was looked for, so nothing was checked`, 'yellow'));
+  } else if (summary.files === 0) {
+    lines.push(paint(`${glyphs.warn} no source file was read, so nothing was checked`, 'yellow'));
+  } else if (summary.stale > 0) {
+    lines.push(paint(`${report.ok ? glyphs.warn : glyphs.fail} ${names(summary.stale)} a document no longer in force`, 'yellow', 'bold'));
+  } else {
+    lines.push(paint(`${glyphs.pass} every citation names a document in force`, 'green'));
+  }
+  return lines.join('\n');
+}
+
+/**
+ * The version of `spec-guard cites --json`'s document. A field removed or
+ * renamed moves it; a field added does not.
+ */
+export const CITES_FORMAT_VERSION = 1;
+
+/** What `spec-guard cites` found, for a script. */
+export function formatCitesJson(report: CitesReport): string {
+  return JSON.stringify(
+    {
+      formatVersion: CITES_FORMAT_VERSION,
+      ok: report.ok,
+      root: report.root,
+      durationMs: Math.round(report.durationMs * 1000) / 1000,
+      families: report.families,
+      summary: report.summary,
+      findings: report.findings,
+      gaps: report.gaps,
+      unclassified: report.unclassified,
+      notes: report.notes,
+      exclude: report.exclude,
+      config: report.config,
+    },
+    null,
+    2,
+  );
+}
+
+const CITE_SARIF_RULES: ReadonlyArray<{ id: string; text: string }> = [
+  { id: 'ghost-citation', text: 'A comment cites a document that does not exist.' },
+  { id: 'stale-citation', text: 'A comment cites a document that is no longer in force.' },
+];
+
+/**
+ * What `spec-guard cites` found, for code scanning: each finding on the line
+ * of the comment, with its hint beneath. The fingerprint is the file, the rule
+ * and the id as written, which survives the comment moving. A file whose
+ * comments could not all be read, and every note, is a notification.
+ */
+export function formatCitesSarif(report: CitesReport, options: { version?: string } = {}): string {
+  const notifications = [
+    ...report.gaps.map((gap) => ({ level: 'warning', message: { text: `${gap.file} ${gap.detail}` } })),
+    ...report.notes.map((note) => ({ level: 'note', message: { text: note } })),
+  ];
+  return JSON.stringify(
+    {
+      $schema: 'https://json.schemastore.org/sarif-2.1.0.json',
+      version: '2.1.0',
+      runs: [
+        {
+          ...(notifications.length > 0 ? { invocations: [{ executionSuccessful: report.ok, toolExecutionNotifications: notifications }] } : {}),
+          tool: {
+            driver: {
+              name: 'spec-guard cites',
+              informationUri: 'https://github.com/DescentVTT/spec-guard',
+              version: options.version ?? '0.0.0',
+              rules: CITE_SARIF_RULES.map((rule) => ({ id: rule.id, name: rule.id, shortDescription: { text: rule.text } })),
+            },
+          },
+          results: report.findings.map((finding) => ({
+            ruleId: finding.rule,
+            level: finding.severity,
+            message: { text: `${finding.message}\n${finding.hint}` },
+            locations: [sarifLocation(finding.file, finding.line, finding.column)],
+            partialFingerprints: { specGuardCitation: fingerprint([finding.file, finding.rule, finding.cited]) },
+          })),
+        },
+      ],
+    },
+    null,
+    2,
+  );
+}
+
+/**
+ * What `spec-guard cites` found, placed for GitLab and GitHub.
+ *
+ * A ghost is `critical`, an error. A stale citation is a warning and `minor`,
+ * and under `--strict`, where it fails the check, an error and `critical`. A
+ * file whose comments could not all be read is a notice on its first line.
+ */
+export function citesAnnotations(report: CitesReport): Annotation[] {
+  return [
+    ...report.findings.map(
+      (finding): Annotation => ({
+        rule: finding.rule,
+        level: finding.severity === 'error' ? 'error' : 'warning',
+        severity: finding.severity === 'error' ? 'critical' : 'minor',
+        file: finding.file,
+        line: finding.line,
+        message: `${finding.message}. ${finding.hint}`,
+      }),
+    ),
+    ...report.gaps.map(
+      (gap): Annotation => ({
+        rule: 'unread-comments',
+        level: 'notice',
+        severity: 'info',
+        file: gap.file,
+        line: 1,
+        message: `${gap.file} ${gap.detail}, so a citation in it may have been missed`,
+      }),
+    ),
+  ];
 }
