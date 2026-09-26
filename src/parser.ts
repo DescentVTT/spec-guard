@@ -377,8 +377,6 @@ function unclosedBlocks(scan: MarkdownScan): Array<{ line: number; message: stri
 const DIRECTIVE_RE = /<!--\s*@([a-zA-Z][\w-]*)([\s\S]*?)-->/g;
 /** The opening of a directive, `<!-- @kind`, wherever it is written. */
 const DIRECTIVE_SHAPE_RE = /<!--\s*@([a-zA-Z][\w-]*)/g;
-/** What every directive-shaped comment holds, in any case: a document without it has none. */
-const ASSERT_RE = /@assert/i;
 const ATTRIBUTE_RE =
   /([a-zA-Z][\w-]*)(?:\s*=\s*(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|([^\s"'=<>`]+)))?/g;
 
@@ -536,12 +534,15 @@ function directivesOf(source: string, scan: MarkdownScan, context: ParseContext)
  * meant to be a directive" is.
  *
  * Found in the source as written, where the parser reads the masked copy, and
- * kept when its `<!--` is blanked there. Most documents hold no `@assert` at
- * all, in any case, and those cost one search. A kind is read in any case, as
- * the parser reads one.
+ * kept when its `<!--` is blanked there. A kind is read in any case, as the
+ * parser reads one.
+ *
+ * One search finds them all, and a document with no `<!-- @` in it costs no
+ * more than that. A search for `@assert` used to come first, to spare the
+ * documents without one; it could decide nothing this one does not, and it
+ * saved nothing measurable (ADR-0002).
  */
 function maskedDirectives(source: string, view: string, scan: MarkdownScan, starts: readonly number[], context: ParseContext): MaskedDirective[] {
-  if (!ASSERT_RE.test(source)) return [];
   const found: MaskedDirective[] = [];
   for (const match of source.matchAll(DIRECTIVE_SHAPE_RE)) {
     if (view.startsWith('<!--', match.index) || !(match[1] as string).toLowerCase().startsWith('assert')) continue;
