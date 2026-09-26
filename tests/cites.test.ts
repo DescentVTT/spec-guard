@@ -31,7 +31,7 @@ import {
   scanCitations,
   type CitesOptions,
 } from '../src/cites.js';
-import { EXIT_ERROR, EXIT_FAILED, EXIT_OK, main, parseArgs, UsageError, type CliIO } from '../src/cli.js';
+import { EXIT_ERROR, EXIT_FAILED, EXIT_OK, main, parseArgs, UsageError, version, type CliIO } from '../src/cli.js';
 import { citesAnnotations, formatCites, formatCitesJson, formatCitesSarif, formatGitlab } from '../src/reporter.js';
 import type { CitesReport } from '../src/types.js';
 import { FIXTURES_DIR, makeTempRepo, memoryIo, removeTempRepo } from './helpers.js';
@@ -1106,6 +1106,24 @@ describe('spec-guard cites', () => {
     expect((await run(['cites', 'src/a.ts', '--format', 'github'], root)).out).toEqual([]);
   });
 
+  it('paints its report on a terminal, as the other commands do, and not through a pipe or under NO_COLOR', async () => {
+    const at = async (isTTY: boolean, env: Record<string, string>): Promise<string> => {
+      const out: string[] = [];
+      const io: CliIO = { stdout: (text) => out.push(text), stderr: () => {}, env, cwd: root, isTTY };
+      await main(['cites'], io);
+      return out.join('\n');
+    };
+    const ESC = String.fromCharCode(27);
+    expect(await at(true, { TERM: 'xterm' })).toContain(`${ESC}[1m${ESC}[34mspec-guard cites${ESC}[0m`);
+    expect(await at(false, { TERM: 'xterm' })).not.toContain(ESC);
+    expect(await at(true, { TERM: 'xterm', NO_COLOR: '1' })).not.toContain(ESC);
+  });
+
+  it('names its own version in SARIF, as the check does', async () => {
+    const sarif = JSON.parse((await run(['cites', '--format', 'sarif'], root)).out[0] as string) as { runs: Array<{ tool: { driver: { version: string } } }> };
+    expect(sarif.runs[0]?.tool.driver.version).toBe(version());
+  });
+
   it('exits 2 for a path outside the root or not there, a family with no documents, and a configuration that cannot be used', async () => {
     const outside = await run(['cites', '../elsewhere'], root);
     expect([outside.code, outside.err[0]]).toEqual([EXIT_ERROR, `spec-guard: "../elsewhere" is outside the root ${root.replace(/\\/g, '/')}.`]);
@@ -1176,7 +1194,26 @@ describe('spec-guard cites', () => {
       strictTargets: true,
     });
     expect(parseArgs(['cites'], ROOT)).toMatchObject({ command: 'cites', paths: [], patterns: ['docs/**/*.md'] });
-    for (const option of ['--verbose', '-v', '--watch', '--fail-fast', '--engine=js', '--allow-missing-targets', '--allow-empty-scope', '--print-baseline', '--ignore-status', '--include-specs', '--max-snippets=1', '--concurrency=1', '--allow-empty']) {
+    // And each one's negation, for the same reason: accepted, it would read as a setting cites has.
+    for (const option of [
+      '--verbose',
+      '-v',
+      '--watch',
+      '--fail-fast',
+      '--engine=js',
+      '--allow-missing-targets',
+      '--no-allow-missing-targets',
+      '--allow-empty-scope',
+      '--no-allow-empty-scope',
+      '--print-baseline',
+      '--ignore-status',
+      '--no-ignore-status',
+      '--include-specs',
+      '--no-include-specs',
+      '--max-snippets=1',
+      '--concurrency=1',
+      '--allow-empty',
+    ]) {
       const name = option.split('=')[0] as string;
       expect(() => parseArgs(['cites', option], ROOT), option).toThrow(new UsageError(`Option ${name} does not apply to spec-guard cites.`));
     }
