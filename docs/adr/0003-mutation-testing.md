@@ -1331,6 +1331,111 @@ except `imports.ts`, which lost the 36 mutants of the two tables that moved to
 growth in about twenty seconds of wall clock and the split still needs no
 rebalancing.
 
+### 0.12.0: eighty-one survivors, each replayed before the release
+
+0.12.0 adds three commands - `prove`, `cites` and `impact` - rebuilds the MCP
+tools around them, and moves the glob reading and the parser's code blocks onto
+spec-core. The pull request's incremental sweep, over a tree identical to
+`main`'s after the merge, left 151 survivors and 8 mutants no test executed.
+Matched against 0.11.0's full sweep by file, mutator, replacement, mutated text
+and the line it sits on, 78 of those 159 were 0.11.0's, its three uncovered
+ones among them and none on a line this release changed; eight more of
+0.11.0's went with the code they were in. The other 81 were this release's.
+
+Each of the 81 was first written into the source by hand, at the span the
+report gives, and the whole suite run. All 81 survived it, so none was an
+artefact of the harness of the kind the 0.5.1 and 0.6.0 sections describe.
+Every kill below was checked the same way, with the new test watched failing.
+
+| File | New | Killed | Removed | Equivalent |
+| --- | --- | --- | --- | --- |
+| `reporter.ts` | 30 | 30 | | |
+| `cli.ts` | 17 | 13 | 3 | 1 |
+| `cites.ts` | 10 | 5 | 1 | 4 |
+| `parser.ts` | 10 | 4 | 1 | 5 |
+| `mcp.ts` | 6 | 3 | 3 | |
+| `impact.ts` | 4 | 2 | | 2 |
+| `glob.ts` | 3 | 1 | | 2 |
+| `prove.ts` | 1 | | 1 | |
+| **total** | **81** | **58** | **9** | **14** |
+
+**Killed: the old habit, and inputs nobody had written down.** Twenty-nine of
+the 58 were the cites report, and they are the 0.1.0 finding again. It was read
+with colour off, over one family and one extension, so every colour argument
+and both of its joins could have been anything; and its SARIF was read field by
+field and never whole, so the schema, the tool's address, the default version
+and both rule descriptions could have been empty. The rest were inputs no test
+had:
+
+- a SARIF report of a result built without spec warnings, which the type
+  allows a caller to leave out and nothing had formatted;
+- `spec-guard cites .`, the spelling of the root the command line itself
+  produces, was counted and never read, and a mutant that kept the `.` wrote
+  every path as `./src/a.ts`;
+- a relative link's query, `decisions.html?id=ADR-7`: every query tested sat
+  behind a `://`, which gives the link away first;
+- a family of more than sixteen documents, which a mutant read all at once and
+  only the reads in flight can tell;
+- the negated flags `impact` and `cites` refuse, which each refusal list held
+  and no test asked about;
+- `impact` with two spec patterns matching nothing, `cites` on a terminal, and
+  the version in `cites --format sarif`;
+- `impact --ignore-status`, which lists a withheld rule and must then not count
+  it again as one more to list;
+- an MCP check over a document with a spec warning, and an MCP server started
+  with no run options;
+- `status: "  "`, empty but not nothing; a fence indented by three spaces and
+  never closed; a code span before a fenced block, where a mutant named the
+  later block as what hid it; a parse with nothing to say, which has no
+  `status` key rather than one holding `undefined`; and `tests/{.}`, a `.`
+  segment made by a brace group;
+- and a proof that throws. Nothing a command line can say makes one, so the
+  `catch` that keeps the exit code at 2 had never run. The test mocks the proof
+  to fail and holds the command to 2 and one line, since the 1 an uncaught
+  error exits with reads as a rule that survived.
+
+**Removed: nine that nothing could decide.**
+
+- `lists !== undefined` in the `--format` refusal: only `query` and `impact`
+  leave out any of check's formats, and both name what they list.
+- Three spreads that passed `depth` or `families` only when it was defined, in
+  the command line and in `get_dependents`: `impactOf` and `findCitations` read
+  undefined as absent, so both forms asked one question. And the MCP check's
+  `report.specWarnings ?? []`, whose `[]` no run reaches: one of the mutants no
+  test executed, and the `&&` beside it.
+- The parser's search for `@assert` before its search for directive-shaped
+  comments. It could only spare a document the second search finds nothing in,
+  and it saved nothing: ADR-0002 had measured `parseDocument` within the noise
+  either way, and over 330 Markdown files from `node_modules` the two searches
+  took nearly three times as long as the one.
+- Two empty lists whose one-element mutants only a path named for the mutant
+  could tell apart. With no family, `cites` walked `[]` in place of its starts;
+  the walk is now under `if (families.length > 0)`, whose mutants the tests
+  without a family kill. A proof's fallback set `excludeGlobs: []`, which
+  excludes nothing either way; `globs` and `excludeGlobs` now share one empty
+  list, so a list that is not empty filters the files too, and twelve proof
+  tests go red. It is the language table of 0.5.1 again: the question is which
+  shape makes a failure visible.
+
+**Equivalent: fourteen, measured.** Each was applied and the whole suite run,
+and it stayed green. Then each was compiled into a build of its own and set
+against the real one on inputs chosen to reach it, beside a control - a mutant
+of the same code that the tests kill - since a comparison that cannot tell the
+control apart proves nothing.
+
+| Survivor | Why no input can tell | Measured |
+| --- | --- | --- |
+| `cli.ts`: `verbose: false` -> `true`, passed to `formatCites` | `formatCites` reads `color` and `ascii` and never `verbose`, which `ReporterOptions` requires | the code |
+| `cites.ts`: `''`, the text of a document that cannot be read -> `"Stryker was here!"` | neither has a heading or a status line, so both read as no title and no status | 3,000 random projects, 1,965 with a document that cannot be read: identical reports, as data and as text; dropping `=` from the characters that link an id changed 1,068 |
+| `cites.ts`: `title ?? ''` -> `"Stryker was here!"` | the title pattern wants letters and a hyphen at the start, and neither has one | the same, with titles left out at random |
+| `cites.ts`: `value < wanted` -> `<=` and `value > wanted` -> `>=` in `nearest` | it is called only for a number no document has, and a document's key and a cited number are both `numberKey`'s digits, so no key equals it | the same, 1,558 of them with a ghost |
+| `impact.ts`: `'python'` -> `''`, twice, in `resolvePython` | `normalizeModule` branches on the language for Go and Rust only; Python takes the general case, as any other string does | 220 resolutions - 11 specifiers from 4 depths over 5 trees - identical; `>=` for `>` in the check on how far it climbs changed them |
+| `glob.ts`: `dialect: 'path'` -> `''` in `WHOLE` | spec-core reads the path dialect only to consult `literal`, and with `literal: 'file'` that is the general case, which `''` takes too; nothing here reads a glob's `dialect` | 48 patterns by 18 paths through `createGlobMatcher`, `createPathMatcher` and `patternShape`: identical; `literal: 'either'` and `dialect: 'ripgrep'` changed them |
+| `glob.ts`: `literal: 'file'` -> `''` in `WHOLE` | spec-core compares `literal` with `'directory'` and `'either'`; `'file'` is neither, and neither is `''` | the same |
+| `parser.ts`: front matter read from the text sliced at the body -> from the whole text | the reader stops at the first closing delimiter, which the slice keeps; the slice spares it splitting the body into lines | 34,619 documents - every Markdown file in the spec-* checkouts and the notes beside them, 2,503 prefixes of three of this repository's, and 30,000 built from pieces that put a directive-shaped comment at every edge a region has - with `parseDocument` and `parseStatus` identical; 12,896 of them have a status |
+| `parser.ts`: `match.index - scan.bom` -> `+` | behind a byte-order mark the two offsets are 2 apart, and a region begins at a line start and ends before a line terminator, so no boundary falls inside the `<!--` both point into | the same 34,619, of which 21,995 hold a masked directive and 6,890 of those a byte-order mark |
+| `parser.ts`: `offset < bodyStart` -> `<=`, `start <= offset` -> `<` and `offset < end` -> `<=` in `maskedBy` | each differs only for a `<!--` exactly where the body or a block begins, or where a block ends. A block ends before a line terminator, where no comment begins; the body and a block begin at a line start, and a line that masks what it holds begins with a fence, indentation or a tag, while a `<!--` that begins a line outside one is read as a directive | the same; the code span before a block, killed above, changed 2,156 of them, and the untrimmed empty status 4,019 |
+
 <!-- @assert-present file="scripts/mutation-shards.mjs,scripts/mutation-timeline.mjs,stryker.shard.config.mjs,tests/mutation-shards.test.ts" reason="the sweep is only one sweep if the merge that checks it exists" -->
 <!-- @assert-count target="stryker.config.mjs" symbol="related: false }" expected="1" reason="with related tests on, which tests a shard runs depends on the files it holds; see 0.9.0 in this ADR" -->
 <!-- @assert-absence target=".github/workflows" symbol="--ignoreStatic" reason="780 static mutants are 10% of the sweep; leaving them out lowers the gate" -->
