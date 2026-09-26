@@ -56,10 +56,11 @@ describe('the copy of spec-core', () => {
     expect(record.commit).toMatch(/^[0-9a-f]{40}$/);
   });
 
-  it('holds the modules this tool reads, and the one they read', () => {
-    // pattern for every glob, path because pattern imports it, and jsonrpc
-    // for the MCP server's protocol: ADR-0015.
-    expect(Object.keys(record.modules)).toEqual(['jsonrpc', 'path', 'pattern']);
+  it('holds the modules this tool reads, and the ones they read', () => {
+    // pattern for every glob and path because pattern imports it, jsonrpc for
+    // the MCP server's protocol, and markdown for every spec document, with
+    // text because markdown imports it: ADR-0015.
+    expect(Object.keys(record.modules)).toEqual(['jsonrpc', 'markdown', 'path', 'pattern', 'text']);
   });
 
   it.each(recorded)('$file is the file that was copied', ({ file, hash }) => {
