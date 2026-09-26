@@ -1,12 +1,13 @@
 /**
- * The fence rule of 0.11.0, held against the one that replaced it.
+ * The code masking of 0.11.0, held against spec-core's scanner, which replaced
+ * it.
  *
- * The replacement parts from the old rule in three shapes, on purpose: a
- * backtick in a backtick fence's info string, an info string on a closing
- * fence, and a fence indented more than three spaces. Those have tests of their
- * own in parser-contracts.test.ts. This holds the other half of the claim - that
- * it parts from the old rule nowhere else - on every Markdown document in this
- * repository, and on random documents built from lines both rules read alike.
+ * What is code and what is a comment is now decided by spec-core's Markdown
+ * scanner (ADR-0002). It parts from 0.11.0 on purpose in the shapes named at
+ * the bottom of this file, each of which has tests of its own in
+ * parser-contracts.test.ts. This holds the other half of the claim - that it
+ * parts from 0.11.0 nowhere else - on every Markdown document in this
+ * repository, and on random documents built from lines both read alike.
  *
  * The old rule is copied here verbatim rather than imported from a build of
  * 0.11.0, because a comparison that needs a published package to run is a
@@ -19,6 +20,7 @@ import { describe, expect, it } from 'vitest';
 
 import { maskCode } from '../src/parser.js';
 import { maskRanges } from '../src/text.js';
+import { scanMarkdown } from '../src/vendor/spec-core/markdown/index.js';
 import { PROJECT_ROOT } from './helpers.js';
 
 /** `maskCode` as 0.11.0 shipped it. */
@@ -64,6 +66,20 @@ function maskedBefore(source: string): string {
   return maskRanges(masked, spans);
 }
 
+/**
+ * The two alike but for carriage returns. 0.11.0 blanked one inside code with
+ * the rest of the code; the scanner keeps every line terminator where it was,
+ * a lone `\r` included, since CommonMark ends a line there.
+ */
+function withoutCarriageReturns(masked: string): string {
+  return masked.replace(/\r/g, ' ');
+}
+
+/** Where a directive-shaped comment starts in a masked text, as the parser finds one. */
+function directiveOffsets(masked: string): number[] {
+  return [...masked.matchAll(/<!--\s*@([a-zA-Z][\w-]*)([\s\S]*?)-->/g)].map((match) => match.index);
+}
+
 /** Every Markdown file in the repository that is not a dependency or a leftover. */
 async function corpus(): Promise<string[]> {
   const found: string[] = [];
@@ -92,10 +108,13 @@ function random(seed: number): () => number {
 }
 
 /**
- * Lines both rules read alike: fences indented three spaces at most and with no
- * info string, beside prose, code spans and runs that pair with nothing. A line
- * with an info string is left out, because inside a block it is the second of
- * the three shapes, and that depends on where it lands.
+ * Lines both read alike: fences indented three spaces at most and with no info
+ * string, beside prose, blank lines and code spans that close on their own
+ * line. Left out, each for a reason the scanner has: a run that pairs with
+ * nothing on its line, since a code span ends with its paragraph and 0.11.0
+ * paired runs across the whole document; a line indented four columns, which
+ * after a blank line is indented code; and a line with an info string, which
+ * inside a block is one of the fence shapes, depending on where it lands.
  */
 const SHARED_LINES = [
   '```',
@@ -104,52 +123,90 @@ const SHARED_LINES = [
   '~~~~',
   ' ```',
   '   ~~~',
-  '\t```',
   '```  ',
   '~~~\t',
-  '``',
   '~~',
   '`a` and ``b``',
-  'x ``` y',
-  'a ` b',
   'prose',
   '',
   '<!-- @assert-absence symbol="X" -->',
 ];
 
-describe('the fence rule, against the one it replaced', () => {
-  it('masks every Markdown document in this repository exactly as 0.11.0 did', async () => {
+describe('the masking of 0.11.0, against the scanner that replaced it', () => {
+  it('masks every Markdown document in this repository as 0.11.0 did, but for what 0.11.0 did not know', async () => {
     const files = await corpus();
     // The corpus has to be the one described: the README, the changelog, the
     // ADRs and the fixtures, or agreeing would prove little.
     expect(files.length).toBeGreaterThanOrEqual(20);
     expect(files).toContain(path.join(PROJECT_ROOT, 'README.md'));
 
+    const unknown: string[] = [];
     for (const file of files) {
       const source = await fs.readFile(file, 'utf8');
-      expect(maskCode(source), path.relative(PROJECT_ROOT, file)).toBe(maskedBefore(source));
+      const name = path.relative(PROJECT_ROOT, file);
+      const before = withoutCarriageReturns(maskedBefore(source)).split('\n');
+      const after = withoutCarriageReturns(maskCode(source)).split('\n');
+      // The same comments are read as directives, at the same offsets.
+      expect(directiveOffsets(maskCode(source)), name).toEqual(directiveOffsets(maskedBefore(source)));
+      // And a line masked differently is one 0.11.0 had no notion of: front
+      // matter, indented code, or an element whose content is not Markdown.
+      const lines = scanMarkdown(source).lines;
+      before.forEach((line, index) => {
+        if (line === after[index]) return;
+        const scanned = lines[index];
+        expect(scanned?.frontMatter || scanned?.html || (scanned?.code && scanned.indent >= 4), `${name}:${index + 1}`).toBe(true);
+        unknown.push(`${name}:${index + 1}`);
+      });
     }
+    // The control: the corpus holds such lines, so the loop above was asked
+    // something. ADR-0003 quotes a terminal session as indented code.
+    expect(unknown).toContain(path.join('docs', 'adr', '0003-mutation-testing.md:483'));
   });
 
-  it('masks random documents built from lines both rules read alike exactly as 0.11.0 did', () => {
+  it('masks random documents built from lines both read alike exactly as 0.11.0 did', () => {
     const next = random(20260926);
     const pick = <T>(items: readonly T[]): T => items[Math.floor(next() * items.length)] as T;
     for (let document = 0; document < 3000; document++) {
       const lines = Array.from({ length: 1 + Math.floor(next() * 12) }, () => pick(SHARED_LINES));
       const source = lines.join(pick(['\n', '\r\n']));
-      expect(maskCode(source), JSON.stringify(source)).toBe(maskedBefore(source));
+      expect(withoutCarriageReturns(maskCode(source)), JSON.stringify(source)).toBe(withoutCarriageReturns(maskedBefore(source)));
     }
   });
 
-  it('and does part from it on each of the three shapes', () => {
+  it('and does part from it on each of the shapes the changelog names', () => {
     // The control. Were the two implementations one, the tests above would
-    // pass without comparing anything.
-    for (const source of [
-      '```js`x\n<!-- @assert-absence symbol="X" -->\n',
-      '```\n```js\n<!-- @assert-absence symbol="X" -->\n```\n<!-- @assert-absence symbol="Y" -->\n',
-      '- a\n  1. b\n     ~~~\n     <!-- @assert-absence symbol="X" -->\n     ~~~\n',
-    ]) {
-      expect(maskCode(source), JSON.stringify(source)).not.toBe(maskedBefore(source));
+    // pass without comparing anything. Each shape is read one way by 0.11.0
+    // and the other by the scanner.
+    const directive = (symbol: string): string => `<!-- @assert-absence symbol="${symbol}" -->`;
+    const read = (masked: string): string[] => [...masked.matchAll(/symbol="(\w+)"/g)].map((match) => match[1] as string);
+    const shapes: Array<[string, string[], string[]]> = [
+      // A backtick fence's info string holds no backtick.
+      [`\`\`\`js\`x\n${directive('X')}\n`, [], ['X']],
+      // A closing fence has no info string.
+      [`\`\`\`\n\`\`\`js\n${directive('X')}\n\`\`\`\n${directive('Y')}\n`, ['X'], ['Y']],
+      // A fence indented with the list item it sits in.
+      [`- a\n  1. b\n     ~~~\n     ${directive('X')}\n     ~~~\n`, ['X'], []],
+      // A code span ends with its paragraph.
+      [`Press \` to open the console.\n\n${directive('X')}\n\nOr \`.\n`, [], ['X']],
+      // An escaped backtick opens nothing.
+      [`Escape it: \\\`, then ${directive('X')} and a \`.\n`, [], ['X']],
+      // A fence shown inside a comment opens nothing.
+      [`<!--\n\`\`\`\n-->\n${directive('X')}\n`, [], ['X']],
+      // Indented code, raw-text HTML and front matter are not read.
+      [`para\n\n    ${directive('X')}\n`, ['X'], []],
+      [`<pre>\n${directive('X')}\n</pre>\n`, ['X'], []],
+      [`---\nx: ${directive('X')}\n---\n`, ['X'], []],
+    ];
+    for (const [source, before, after] of shapes) {
+      expect(read(maskedBefore(source)), JSON.stringify(source)).toEqual(before);
+      expect(read(maskCode(source)), JSON.stringify(source)).toEqual(after);
     }
+    // A backtick inside a comment is a character, where 0.11.0 paired it.
+    const quoted = '<!-- @assert-absence target="src/" symbol="`eval`" -->\n';
+    expect(maskedBefore(quoted)).not.toContain('`eval`');
+    expect(maskCode(quoted)).toBe(quoted);
+    // A carriage return inside code is kept where it was.
+    expect(maskedBefore('```\r\nx\r\n```\r\n')).toBe('    \n  \n    \n');
+    expect(maskCode('```\r\nx\r\n```\r\n')).toBe('   \r\n \r\n   \r\n');
   });
 });

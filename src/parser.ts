@@ -8,14 +8,22 @@
  *   <!-- @assert-absence target="src/" symbol="LegacyPaymentGateway" -->
  *
  * Two properties matter more than raw speed here:
- *  1. Directives inside fenced code blocks or inline code spans are IGNORED, so
- *     a README can document the syntax without executing it.
+ *  1. Directives inside code - fenced or indented blocks, code spans, and the
+ *     HTML elements whose content is not Markdown - are IGNORED, so a README can
+ *     document the syntax without executing it.
  *  2. Anything that looks like a directive but is malformed is reported as an
  *     error rather than silently skipped - a typo must never turn into a
  *     silently-passing invariant.
+ *
+ * What is code, what is a comment, where the front matter ends and which lines
+ * are headings is decided by spec-core's Markdown scanner, copied into
+ * `src/vendor` and verified by hash, which every spec-* tool reads documents
+ * with. This module keeps what is spec-guard's: the directive grammar, and
+ * what a status line means. ADR-0002.
  */
 
-import { lineStarts, locate, maskRanges } from './text.js';
+import { lineStarts, locate } from './text.js';
+import { findEntry, readFrontMatter, scanMarkdown, titleOf, type MarkdownScan } from './vendor/spec-core/markdown/index.js';
 import type {
   Directive,
   DirectiveError,
@@ -160,9 +168,6 @@ export const INACTIVE_STATUSES: ReadonlySet<string> = new Set([
   'archived',
 ]);
 
-/** `---\n...\n---` at the very top of the file, and nowhere else. */
-const FRONTMATTER_RE = /^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/;
-
 /**
  * The three ways the key is spelled: `**Status**:`, `**Status:**`, `Status:`.
  *
@@ -176,29 +181,6 @@ const FRONTMATTER_RE = /^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/;
  * which trims it anyway.
  */
 const STATUS_LABEL_RE = /^[ \t]{0,3}(?:(\*\*|__)status(?:\1[ \t]*:|[ \t]*:\1)|status[ \t]*:)(.*)/i;
-
-/**
- * The value a YAML scalar holds: a quoted one up to its closing quote, a plain
- * one up to a comment.
- *
- * Not a YAML parser, and it does not need to be one - it reads one line. But
- * it has to read that line the way YAML does. MADR's own template quotes the
- * status, and a quote left in leaves no first word to read; a trailing
- * `# decided at review` left in is part of the label; and a regex anchored at
- * both ends of a quoted value read `"proposed" # a comment` as no status at
- * all, which keeps a withdrawn proposal in force.
- */
-function yamlScalar(raw: string): string {
-  const text = raw.trim();
-  const quoted = /^(["'])(.*?)\1/.exec(text);
-  return quoted ? (quoted[2] as string) : text.replace(/\s#.*/, '');
-}
-
-/** An ATX heading whose entire text is "Status". */
-const STATUS_HEADING_RE = /^[ \t]{0,3}#{1,6}[ \t]+status[ \t]*#*[ \t]*$/i;
-
-/** Any ATX heading of level 2 or deeper - where a document's preamble ends. */
-const SECTION_HEADING_RE = /^[ \t]{0,3}#{2,6}[ \t]/;
 
 /**
  * Turns a status line into a status, or into nothing.
@@ -225,46 +207,41 @@ function toStatus(raw: string, source: SpecStatus['source']): SpecStatus | undef
 }
 
 /**
- * Lines, whichever way the file ends them.
+ * The status front matter declares, read as YAML reads it.
  *
- * Splitting on "\n" alone leaves a carriage return on every line of a CRLF
- * document, and a trailing "\r" defeats every `$` below - so a Windows-checkout
- * ADR declared no status at all, silently, which is the one failure mode this
- * feature must not have. Found by running the parser over this repository's own
- * ADR-0003, which happened to be CRLF on disk.
+ * spec-core's reader, which the family's tools share: a quoted value is taken
+ * up to its closing quote and a plain one up to a comment, as the one-line
+ * reader this replaced did - MADR's own template quotes the status, and
+ * `"proposed" # decided at review` is proposed. Quotes and `#` are syntax here
+ * and nowhere else. A value the reader refuses - one continued onto the next
+ * line, text after a closing quote, `: ` in a plain value - declares nothing,
+ * which leaves the document in force.
  */
-function toLines(masked: string): string[] {
-  return masked.split(/\r?\n/);
-}
-
-function fromFrontmatter(masked: string): SpecStatus | undefined {
-  const block = FRONTMATTER_RE.exec(masked);
-  if (!block) return undefined;
-  for (const line of toLines(block[1] as string)) {
-    const found = STATUS_LABEL_RE.exec(line);
-    // Read as YAML here and nowhere else: quotes and `#` are syntax in
-    // front-matter and characters in a sentence.
-    if (found) return toStatus(yamlScalar(found[2] as string), 'frontmatter');
-  }
-  return undefined;
+function fromFrontmatter(scan: MarkdownScan): SpecStatus | undefined {
+  if (scan.frontMatter === null) return undefined;
+  const entry = findEntry(readFrontMatter(scan.text.slice(0, scan.frontMatter.bodyStart)), 'status');
+  return entry?.value.kind === 'scalar' ? toStatus(entry.value.scalar.text, 'frontmatter') : undefined;
 }
 
 /**
  * A `## Status` section, whose value is the first line of prose under it.
  *
+ * The section is a heading the scanner reads - ATX or setext, at any level, and
+ * never one inside code or a comment, which is where a template keeps a
+ * `## Status` it has not filled in. Its text is compared whole, so `## Status
+ * of the migration` is a section about something else.
+ *
  * A section with nothing but the next heading under it declares no status.
- * There is no guard for that here: every ATX heading begins with `#`, and a
- * value that does not begin with a letter is already no status at all. The
- * guard this used to carry could not decide anything, which is a different
- * thing from a guard that is merely never hit.
+ * There is no guard for that here: an ATX heading begins with `#`, and a value
+ * that does not begin with a letter is already no status at all.
  */
-function fromHeading(lines: readonly string[]): SpecStatus | undefined {
-  const start = lines.findIndex((line) => STATUS_HEADING_RE.test(line));
-  if (start === -1) return undefined;
-  for (let index = start + 1; index < lines.length; index++) {
-    const candidate = (lines[index] as string).trim();
-    if (candidate.length === 0) continue;
-    return toStatus(candidate, 'heading');
+function fromHeading(scan: MarkdownScan): SpecStatus | undefined {
+  const heading = scan.headings.find((candidate) => candidate.text.toLowerCase() === 'status');
+  if (heading === undefined) return undefined;
+  const view = scan.masks.directives;
+  for (const line of scan.lines.slice(heading.endLine)) {
+    const candidate = view.slice(line.start, line.end).trim();
+    if (candidate.length > 0) return toStatus(candidate, 'heading');
   }
   return undefined;
 }
@@ -272,14 +249,17 @@ function fromHeading(lines: readonly string[]): SpecStatus | undefined {
 /**
  * A `**Status:** accepted` line in the document's preamble.
  *
- * Bounded to the preamble - everything before the first `##` - because this
- * form is a line of prose with a colon in it, and a tool that accepts one
- * anywhere in a long document will eventually find one in a sentence.
+ * Bounded to the preamble - everything before the first heading of level two
+ * or deeper - because this form is a line of prose with a colon in it, and a
+ * tool that accepts one anywhere in a long document will eventually find one in
+ * a sentence. The bound is a heading the scanner reads, so a `##` shown in code
+ * or kept in a comment does not end the preamble early.
  */
-function fromLabel(lines: readonly string[]): SpecStatus | undefined {
-  for (const line of lines) {
-    if (SECTION_HEADING_RE.test(line)) return undefined;
-    const found = STATUS_LABEL_RE.exec(line);
+function fromLabel(scan: MarkdownScan): SpecStatus | undefined {
+  const section = scan.headings.find((heading) => heading.level >= 2);
+  const view = scan.masks.directives;
+  for (const line of section === undefined ? scan.lines : scan.lines.slice(0, section.line - 1)) {
+    const found = STATUS_LABEL_RE.exec(view.slice(line.start, line.end));
     if (found) return toStatus(found[2] as string, 'label');
   }
   return undefined;
@@ -293,45 +273,37 @@ function fromLabel(lines: readonly string[]): SpecStatus | undefined {
  * (Nygard), and a bold `**Status:**` label. Front-matter wins when present -
  * it is machine-readable metadata rather than a convention read out of prose.
  *
- * Code is masked first, so a document that documents this syntax inside a
- * fence - this project's README does - is not read as declaring a status.
+ * The section and the label are read with code masked, so a document that
+ * documents this syntax inside a fence - this project's README does - is not
+ * read as declaring a status.
  */
 export function parseStatus(source: string): SpecStatus | undefined {
-  return statusOf(maskCode(source));
+  return statusOf(scanMarkdown(source));
 }
 
-function statusOf(masked: string): SpecStatus | undefined {
-  const lines = toLines(masked);
-  return fromFrontmatter(masked) ?? fromHeading(lines) ?? fromLabel(lines);
+function statusOf(scan: MarkdownScan): SpecStatus | undefined {
+  return fromFrontmatter(scan) ?? fromHeading(scan) ?? fromLabel(scan);
 }
-
-/** An ATX heading of level 1, with any closing sequence taken off. */
-const TITLE_RE = /^[ \t]{0,3}#[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$/;
 
 /**
- * The document's title: its first level-one heading.
+ * The document's title: its first level-one heading, ATX or setext, as the
+ * scanner reads it.
  *
  * Read so that a rule can be shown with the decision it belongs to - "ADR-0011:
  * Layering constraints and import cycles" says more to someone about to edit a
- * file than `docs/adr/0011-layers-and-cycles.md` does. Front-matter is skipped
- * and code is masked, for the same reasons as the status: a README that shows
- * an example ADR inside a fence has not titled itself with the example.
- *
- * Setext headings (a line underlined with `===`) are not read. Nobody writes an
- * ADR that way, and a reader that guessed at underlines would find titles in
- * tables.
+ * file than `docs/adr/0011-layers-and-cycles.md` does. Front matter, code and
+ * comments are not read, for the same reasons as the status: a README that
+ * shows an example ADR inside a fence, or a template that keeps its heading in
+ * a comment, has not titled itself with it. A first level-one heading with no
+ * text is no title.
  */
 export function parseTitle(source: string): string | undefined {
-  return titleOf(maskCode(source));
+  return titleIn(scanMarkdown(source));
 }
 
-function titleOf(masked: string): string | undefined {
-  const body = masked.slice(FRONTMATTER_RE.exec(masked)?.[0].length ?? 0);
-  for (const line of toLines(body)) {
-    const title = TITLE_RE.exec(line)?.[1];
-    if (title) return title;
-  }
-  return undefined;
+function titleIn(scan: MarkdownScan): string | undefined {
+  const title = titleOf(scan)?.text;
+  return title === '' ? undefined : title;
 }
 
 const DIRECTIVE_RE = /<!--\s*@([a-zA-Z][\w-]*)([\s\S]*?)-->/g;
@@ -346,109 +318,27 @@ export interface ParseContext {
 }
 
 /**
- * A line that may open a fenced code block: three or more backticks or tildes,
- * then the info string, after any amount of indentation.
- *
- * Any amount, where CommonMark allows three spaces. Its limit is measured from
- * the edge of the block the fence sits in, so a fence inside a `1.` item nested
- * in a `-` item sits five or more spaces in and is still a fence. Measured from
- * the margin it was not one, so a documented example of a directive in such a
- * fence executed. Measuring from the item would need a model of list items
- * this parser does not have, and the price of not measuring is paid by one
- * shape only: an indented code block - four spaces, outside any list - whose
- * text is a fence line. It now opens a block, which hides every line until a
- * fence closes it. The sibling tools that read these documents make the same
- * trade.
- *
- * No `$`: `[^\n]*` already runs to the end of the line, so the anchor decided
- * nothing, and a character that decides nothing is one no test can hold.
+ * The source with its code blanked and its comments kept, offset for offset:
+ * the scanner's directives mask, behind the byte-order mark it took off. A
+ * match at an offset of this is at that offset of the source, so a directive
+ * is reported on the line and in the column a person finds it.
  */
-const FENCE_RE = /^[ \t]*(`{3,}|~{3,})([^\n]*)/gm;
-
-/**
- * An info string that is no info string at all, which is what a closing fence
- * must have: ```` ```js ```` inside a block is a line of the block. The `\r` is
- * a CRLF document's line ending, which `[^\n]*` leaves on the info string.
- */
-const BARE_FENCE_RE = /^[ \t]*\r?$/;
-
-/** A fence line: where it starts and ends, its run of markers, and whether it can close a block. */
-interface Fence {
-  index: number;
-  end: number;
-  marker: string;
-  closes: boolean;
+function directivesView(source: string, scan: MarkdownScan): string {
+  return source.slice(0, scan.bom) + scan.masks.directives;
 }
 
 /**
- * Blanks out fenced code blocks and inline code spans, preserving every byte
- * offset and newline so that reported line/column numbers stay exact.
+ * Blanks out what is not read for directives - fenced and indented code, code
+ * spans, `<script>`, `<pre>`, `<style>` and `<textarea>` blocks, and front
+ * matter - preserving every offset and line terminator, so that reported
+ * line/column numbers stay exact. Comments are kept: a directive is one.
+ *
+ * spec-core's scanner decides all of it, in one pass, by CommonMark's rules for
+ * what is code and what is a comment: whichever of a code span and a comment
+ * opens first wins, and a code span ends with its paragraph. ADR-0002.
  */
 export function maskCode(source: string): string {
-  // Ranges, blanked by `maskRanges`, rather than a character array blanked in
-  // place. The array was `source.split('')` - one string per UTF-16 unit - and
-  // measured at 7.2ms over this repository's 183KB of specs against 0.8ms for
-  // the ranges, with identical output on every one of them and on 50,000
-  // random inputs. It became worth measuring when `spec-guard query` put a
-  // budget on reading specs; see ADR-0012. Offsets still survive, for the reason
-  // `maskRanges` gives.
-
-  // Fenced code blocks, by CommonMark's rules less its indentation limit.
-  let match: RegExpExecArray | null;
-  const fences: Fence[] = [];
-  FENCE_RE.lastIndex = 0;
-  while ((match = FENCE_RE.exec(source)) !== null) {
-    const marker = match[1] as string;
-    const info = match[2] as string;
-    // A backtick fence's info string may not hold a backtick. ```` ```js`x ````
-    // is a line of prose that begins with a code span, and read as a fence it
-    // hid every line under it - a real directive among them - until something
-    // closed it. A tilde fence's info string may hold anything.
-    if (marker[0] === '`' && info.includes('`')) continue;
-    fences.push({ index: match.index, end: match.index + match[0].length, marker, closes: BARE_FENCE_RE.test(info) });
-  }
-  const consumed: Array<[number, number]> = [];
-  // Where the last block ended. Blocks are found in document order, so a fence
-  // before this point is a line inside one of them.
-  let blockEnd = 0;
-  for (let i = 0; i < fences.length; i++) {
-    const open = fences[i] as Fence;
-    if (open.index < blockEnd) continue;
-    let closeEnd = source.length;
-    for (let j = i + 1; j < fences.length; j++) {
-      const candidate = fences[j] as Fence;
-      if (candidate.closes && candidate.marker[0] === open.marker[0] && candidate.marker.length >= open.marker.length) {
-        closeEnd = candidate.end;
-        break;
-      }
-    }
-    consumed.push([open.index, closeEnd]);
-    blockEnd = closeEnd;
-  }
-
-  // Inline code spans, using CommonMark's rule: a run of N backticks is closed
-  // by the next run of EXACTLY N backticks. Runs of a different length are
-  // skipped rather than treated as a closer - otherwise a stray ``` inside a
-  // sentence shifts every later pairing by one and un-masks real prose.
-  const masked = maskRanges(source, consumed);
-  const spans: Array<[number, number]> = [];
-  const runs: Array<{ index: number; length: number }> = [];
-  const runRe = /`+/g;
-  let run: RegExpExecArray | null;
-  while ((run = runRe.exec(masked)) !== null) {
-    runs.push({ index: run.index, length: run[0].length });
-  }
-
-  for (let index = 0; index < runs.length; index++) {
-    const open = runs[index] as { index: number; length: number };
-    const closeIndex = runs.findIndex((candidate, position) => position > index && candidate.length === open.length);
-    if (closeIndex === -1) continue;
-    const close = runs[closeIndex] as { index: number; length: number };
-    spans.push([open.index, close.index + close.length]);
-    index = closeIndex;
-  }
-
-  return maskRanges(masked, spans);
+  return directivesView(source, scanMarkdown(source));
 }
 
 /**
@@ -478,7 +368,7 @@ export function parseAttributes(input: string): Record<string, string> {
 
 /** Extracts every spec-guard directive from a Markdown source string. */
 export function parseDirectives(source: string, context: ParseContext): ParseResult {
-  return directivesOf(source, maskCode(source), context);
+  return directivesOf(source, scanMarkdown(source), context);
 }
 
 /** A whole document: its directives, its status and its title. */
@@ -487,22 +377,27 @@ export interface ParsedDocument extends ParseResult {
 }
 
 /**
- * Everything a spec document declares, read with one pass of `maskCode`.
+ * Everything a spec document declares, read with one scan.
  *
- * `parseDirectives` and `parseTitle` each mask the source, and masking is most
+ * `parseDirectives` and `parseTitle` each scan the source, and scanning is most
  * of what reading a spec costs; a caller that wants both should not pay twice.
  */
 export function parseDocument(source: string, context: ParseContext): ParsedDocument {
-  const masked = maskCode(source);
-  const parsed = directivesOf(source, masked, context);
-  const title = titleOf(masked);
+  const scan = scanMarkdown(source);
+  const parsed = directivesOf(source, scan, context);
+  const title = titleIn(scan);
   return title === undefined ? parsed : { ...parsed, title };
 }
 
-function directivesOf(source: string, masked: string, context: ParseContext): ParseResult {
+function directivesOf(source: string, scan: MarkdownScan, context: ParseContext): ParseResult {
   const directives: Directive[] = [];
   const errors: DirectiveError[] = [];
+  // Lines as they have always been counted here, by `\n`, so a directive is
+  // reported where it was. The scanner counts a lone `\r` as well, and reads
+  // the document by it, but a line number in a report is not the place to
+  // change what a line is.
   const starts = lineStarts(source);
+  const masked = directivesView(source, scan);
 
   DIRECTIVE_RE.lastIndex = 0;
   let match: RegExpExecArray | null;
@@ -547,6 +442,6 @@ function directivesOf(source: string, masked: string, context: ParseContext): Pa
     directives.push({ kind: kind as DirectiveKind, attributes, location, raw });
   }
 
-  const status = statusOf(masked);
+  const status = statusOf(scan);
   return status ? { directives, errors, status } : { directives, errors };
 }

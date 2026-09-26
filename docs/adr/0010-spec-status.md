@@ -233,3 +233,34 @@ might. They stay in force, as do `archive` and `archival`, by the rule above.
 
 Everything else here applies unchanged: an archived document is parsed,
 validated and named in every output format, and `--ignore-status` executes it.
+
+## Amended 2026-09-26: read through spec-core's scanner
+
+The three spellings, their order and the words are as above. Where each is
+found is now spec-core's Markdown scanner's to say, as what is code is
+([ADR-0002](0002-directive-format.md)'s amendment), and "code is masked before
+any of this, by the same `maskCode`" now reads: by the same scanner.
+
+- **Front matter is read by spec-core's reader**, the one the family's tools
+  share. A quoted value is taken to its closing quote and a plain one to a
+  comment, as the one-line reader did, so MADR's `status: "proposed"` and
+  `status: draft # see review` read as they did. A value the reader refuses
+  declares nothing, which leaves the document in force - this ADR's direction
+  for anything that cannot be read: a `: ` in a plain value, text after a
+  closing quote, a value continued on the next line, `*Draft*`, which YAML reads
+  as an alias. A `status` nested under another key is that key's. Front matter
+  behind a byte-order mark, or closed by `...`, is read; before, the first was
+  not, and both fell through to the label.
+- **The `## Status` section and the end of the preamble are headings the
+  scanner reads**: ATX or setext, and never one kept in a comment or shown in
+  code. A template's commented-out `## Status` no longer withholds the document
+  it sits in, and a `##` inside a comment no longer ends the preamble early. An
+  underlined `Status` is the section, and an underlined heading ends the
+  preamble, so a `status: draft` line with `---` directly under it is a heading
+  and not a label, as every renderer shows it.
+- **The section's value and the label are read as they were**, with code masked
+  and comments kept, from the lines under the heading and the lines of the
+  preamble.
+
+On every Markdown file of the five spec-* repositories, every status is read as
+it was.

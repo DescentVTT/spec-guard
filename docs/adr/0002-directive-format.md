@@ -55,3 +55,84 @@ A spec-guard directive is invisible in rendered Markdown, so an ADR keeps
 reading like an ADR. The cost is that directives are also invisible to authors
 who never look at the source - which is why `--verbose` prints every assertion
 it executed, including the ones that passed.
+
+## Amended 2026-09-26: Markdown is read by spec-core's scanner
+
+What is code, what is a comment, where front matter ends and which lines are
+headings is decided by spec-core's `markdown` module - its ADR-0004, exact
+about code and comments by CommonMark's rules - copied into
+`src/vendor/spec-core` from `4f2826a` and verified by hash
+([ADR-0015](0015-globs-from-spec-core.md)). `src/parser.ts` keeps what is
+spec-guard's: the directive grammar, the attribute table, and what a status
+line means ([ADR-0010](0010-spec-status.md)).
+
+Directives are still found in a masked copy of the document: the scanner's
+`directives` mask, which blanks code and front matter and keeps comments. Its
+offsets are the source's, a byte-order mark included, and lines are still
+counted by line feeds, so every line and column a report gives is where it was.
+`maskCode` is still exported, and is that mask.
+
+<!-- @assert-import-absence target="src" module="src/vendor/spec-core/markdown" exclude="src/parser.ts, src/vendor" reason="one module reads Markdown, so every document is read one way" -->
+
+The masking here was one of three scanners in the family, and each read some
+shape wrong that another read right. This one had just been fixed for three
+fence shapes. The scanner fixes those and the ones below by one rule for every
+tool, and a fix made there once reaches all of them.
+
+### What a document now reads as
+
+The three fence shapes fixed in this release stay fixed. Beyond them, where
+0.11.0 and the scanner part:
+
+- **Comments and code spans are resolved left to right**, and whichever opens
+  first wins. A backtick inside a comment is a character, so
+  ``symbol="`eval`"`` is searched for as written, where the two backticks paired
+  and the rule searched for six spaces.
+- **A code span ends with its paragraph.** A backtick that closes nothing there
+  is a character. Paired with the next one anywhere in the document, it hid
+  every directive between the two. An escaped backtick opens nothing.
+- **A fence shown inside a comment opens nothing.** A template that shows one
+  hid every directive after it.
+- **Indented code, raw-text HTML and front matter are not read for
+  directives.** Four columns outside a list, after a blank line, are code in
+  every renderer, and a directive shown there executed. So did one inside
+  `<script>`, `<pre>`, `<style>` or `<textarea>`, whose content is not Markdown.
+  `<details>` and `<div>` hold Markdown, and are read.
+- **A fence's indentation is CommonMark's, but for an opener's limit.** An
+  opener may sit at any indentation outside indented code, so a fence in a
+  nested list item is one; a closer may sit at most three columns deeper than
+  its opener. The fence rule first written in this release opened a fence at
+  any indentation, indented code included, and closed one at any depth; its
+  price - an indented code block whose text is a fence line, hiding the rest of
+  the document - is not paid.
+- **Every line terminator stays where it was.** `maskCode` keeps a carriage
+  return inside code, where it blanked one.
+
+A document's title is its first level-one heading as the scanner reads it: an
+underlined one is a title, one kept in a comment is not, a code span in it is
+kept as written and a comment in it dropped, and a first level-one heading with
+no text leaves the document untitled. Its status is ADR-0010's amendment.
+
+`tests/mask-differential.test.ts` holds the scanner to 0.11.0's masking on
+every Markdown document in this repository - the same comments read as
+directives at the same offsets, and a line masked differently only where the
+scanner reads front matter, indented code or raw-text HTML - and on 3,000
+random documents built from lines both read alike, and shows it parting from
+0.11.0 on each shape above. Across the 143 Markdown files of the five spec-*
+repositories, every directive and every status is read as the parser this
+replaced read it, and every title but one: ADR-0009's, which keeps its
+`` `--fix` ``.
+
+### What it costs
+
+The scanner does more than the masking did: it finds headings, which the
+status and the title now use, and list items, links and tables, which nothing
+here reads. Over this repository's 18 ADRs, 319 KB, `parseDocument` took a
+median of 17.2 ms against 4.1 ms for the parser it replaced, interleaved in one
+process on this repository's Windows machine. A warm `queryRules` for
+one path, which reads every spec, took 23.1 ms against 8.8 ms: past the 20 ms
+ADR-0012 set out to meet, for a server that reads the specs on every request. A
+profile puts a fifth of the scan in links and tables. The remedy is either
+spec-core's - a scan that finds only what it is asked for - or the server's, a
+memo of parsed documents keyed by their bytes, as a watch session keeps
+([ADR-0014](0014-configuration-and-watch.md)); neither is made here.

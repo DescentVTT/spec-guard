@@ -104,30 +104,51 @@ with the flag that restores the previous behaviour.
   rule whose target is a file its `glob` does not match, or a directory its
   `exclude` does, counted under ripgrep what the scanner left out; its list of
   files is now held to the same filters. ADR-0015.
-- **Three fence shapes were read the wrong way round.** Directives inside code
-  never execute, and what counts as code is decided by `maskCode`. It now
-  follows CommonMark in two places it did not, and departs from it in one on
-  purpose:
+- **What is code in a spec is what CommonMark says it is.** Directives inside
+  code never execute, and what counted as code was decided by `maskCode`'s own
+  rules. It is now decided by spec-core's Markdown scanner, which every spec-*
+  tool reads documents with, copied into `src/vendor/spec-core` from `4f2826a`
+  and verified by hash; `maskCode` is still exported, and is the scanner's
+  mask. [ADR-0002](docs/adr/0002-directive-format.md)'s amendment.
+
+  Directives that were hidden, and now execute:
   - **A backtick fence's info string may not hold a backtick.** A line that
     reads ```` ```js`x ```` is prose that opens with a code span. Read as a
     fence, it hid every line under it, a real directive included, until
     something closed it - and nothing said a rule had gone quiet.
+  - **A code span ends with its paragraph.** A backtick that closes nothing
+    there, as in ``press ` to open the console``, paired with the next
+    backtick anywhere in the document and hid every directive between the
+    two. An escaped backtick opens nothing.
+  - **A fence shown inside a comment opens nothing.** A template that showed
+    one hid every directive after it.
+
+  Directives that executed, and are now code:
   - **A closing fence has no info string.** Inside a block opened by three
     backticks, a line of three backticks followed by `js` is a line of the
     block. It used to close it, and a directive shown after it executed.
-  - **A fence may be indented any amount.** CommonMark counts its three spaces
-    from the list item a fence sits in, so a fence in a `1.` item nested in a
-    `-` item is five or more spaces from the margin. It was not recognised, and
-    a directive shown inside it executed: always behind `~~~`, and behind
+  - **A fence may be indented with the list item it sits in.** CommonMark
+    counts its three spaces from the item, so a fence in a `1.` item nested in
+    a `-` item is five or more spaces from the margin. It was not recognised,
+    and a directive shown inside it executed: always behind `~~~`, and behind
     backticks whenever the prose above mentioned one, since the two fence lines
-    otherwise paired as a code span by accident. The price is paid by an
-    indented code block - four spaces, outside any list - whose text is a fence
-    line: it now opens a block. The sibling tools that read these documents
-    make the same trade.
+    otherwise paired as a code span by accident. An opener may sit at any
+    indentation outside indented code, and a closer at most three columns
+    deeper than its opener.
+  - **Indented code, raw-text HTML and front matter are not read.** Four
+    columns outside a list, after a blank line, are code in every renderer;
+    `<script>`, `<pre>`, `<style>` and `<textarea>` hold no Markdown; front
+    matter is metadata. `<details>` and `<div>` hold Markdown, and are read.
 
-  Every Markdown file in this repository is masked exactly as before, and a
-  test holds that, along with random documents built from the lines both rules
-  read alike. This repository's own specs execute the same 66 assertions.
+  And a backtick inside a comment is a character, so a directive holding one
+  keeps it: ``symbol="`eval`"`` is searched for as written, where the two
+  backticks paired and the rule searched for six spaces.
+
+  This repository's own specs execute the same assertions, at the same lines,
+  and every directive in the 143 Markdown files of the five spec-* repositories
+  is read as before. A test holds the scanner to 0.11.0's masking on every
+  Markdown file here, and on random documents built from lines both read alike,
+  and shows it parting from 0.11.0 on each shape above.
 
 ### Changed
 
@@ -160,6 +181,40 @@ with the flag that restores the previous behaviour.
   `done`, `closed`, `archive` and every other near word stay in force, and
   [ADR-0010](docs/adr/0010-spec-status.md)'s amendment says why this word and
   no other.
+- **A status is found by the scanner's headings and front-matter reader.**
+  The three spellings, their order and the words are unchanged, and every
+  status in the five spec-* repositories reads as it did. Where the scanner
+  reads a document differently, the status follows it:
+  - A `## Status` kept in a comment - a template not yet filled in - no longer
+    withholds the document, and a `##` in a comment or in code no longer ends
+    the preamble where the `**Status:**` label is read.
+  - An underlined heading is a heading. An underlined `Status` is the section,
+    and an underlined section ends the preamble, so a `status: draft` line with
+    `---` directly under it is a heading, as every renderer shows it, and not a
+    label.
+  - Front matter is read by spec-core's reader, the family's: a quoted value
+    to its closing quote and a plain one to a comment, as before. A value it
+    refuses declares nothing - a `: ` in a plain value, text after a closing
+    quote, a value continued on the next line, `*Draft*`, which YAML reads as
+    an alias - and a `status` nested under another key is that key's. Front
+    matter behind a byte-order mark, or closed by `...`, is read as front
+    matter.
+
+  [ADR-0010](docs/adr/0010-spec-status.md)'s second amendment.
+- **A title is the first level-one heading as the scanner reads it.** An
+  underlined one (`===`) is a title and one kept in a comment is not; a code
+  span in it is kept as written, where it was blanked, and a comment in it is
+  dropped. A first level-one heading with no text leaves the document
+  untitled rather than promoting the next. In this repository one title
+  changed: ADR-0009's keeps its `` `--fix` ``.
+- **`maskCode` keeps a carriage return inside code**, where it blanked one:
+  every line terminator stays where it was, a lone `\r` included.
+- **Reading a spec costs about four times what it did**: 17 ms against 4 ms
+  over this repository's 18 ADRs, and 23 ms against 9 ms for a warm query of
+  one path, past the 20 ms ADR-0012 set out to meet. The scanner finds list
+  items, links and tables that nothing here reads.
+  [ADR-0002](docs/adr/0002-directive-format.md)'s amendment says where the
+  remedy lies.
 - **The MCP server speaks the protocol through spec-core.** Classifying each
   request, the two eras, dispatch, result shapes and the stdio framing are
   spec-core's `jsonrpc` module, copied from `f085f29` and verified by hash;

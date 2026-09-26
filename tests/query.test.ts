@@ -82,12 +82,30 @@ describe('parseTitle', () => {
   it('is not a deeper heading, a heading without a space, one indented four spaces, or an empty one', () => {
     expect(parseTitle('## Section\n#NoSpace\n    # Code\n#\n# \nprose\n')).toBeUndefined();
     expect(parseTitle('## Section\n# Real\n')).toBe('Real');
+    // The first level-one heading is the title, and one with no text leaves
+    // the document without one, rather than promoting the next.
+    expect(parseTitle('#\n# Second\n')).toBeUndefined();
   });
 
   it('is not inside a fence or in front-matter', () => {
     expect(parseTitle('```md\n# Example\n```\n# Actual\n')).toBe('Actual');
     expect(parseTitle('---\n# not: a heading\n---\n# Actual\n')).toBe('Actual');
     expect(parseTitle('---\ntitle: x\n---\nno heading\n')).toBeUndefined();
+  });
+
+  it('is not inside a comment, where a template keeps its heading', () => {
+    expect(parseTitle('<!--\n# Template title\n-->\n# Real title\n')).toBe('Real title');
+  });
+
+  it('may be underlined, as CommonMark allows', () => {
+    expect(parseTitle('Real title\n==========\n\ntext\n')).toBe('Real title');
+    // A second-level underline is a section, not a title.
+    expect(parseTitle('Section\n-------\n')).toBeUndefined();
+  });
+
+  it('keeps a code span as written and drops a comment, as a reader sees the heading', () => {
+    expect(parseTitle('# Why there is no `--fix`\n')).toBe('Why there is no `--fix`');
+    expect(parseTitle('# ADR-0001: Layers <!-- renamed in 0.4 -->\n')).toBe('ADR-0001: Layers');
   });
 
   it('reads CRLF documents the same', () => {
