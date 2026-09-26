@@ -341,6 +341,12 @@ export function createMcpHandler(options: McpServerOptions): (message: unknown) 
       })),
       inactiveSpecs: report.inactiveSpecs,
       warnings: report.warnings,
+      // A document read differently from how it was written: see ADR-0010 and ADR-0002.
+      specWarnings: (report.specWarnings ?? []).map((warning) => ({
+        file: warning.location.relativeFile,
+        line: warning.location.line,
+        message: warning.message,
+      })),
       exclude: report.exclude,
       config: settings.config,
       durationMs: Math.round(report.durationMs * 1000) / 1000,

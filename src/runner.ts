@@ -78,6 +78,7 @@ import type {
   SearchOptions,
   SearchResult,
   SpecStatus,
+  SpecWarning,
   StaleBaselineEntry,
   StructureClaim,
   StructureQuery,
@@ -1650,6 +1651,8 @@ export interface RunPlan {
   /** Parse and resolution errors, in the order they were found. */
   errors: DirectiveError[];
   inactiveSpecs: InactiveSpec[];
+  /** What changed how a document was read, in file order. */
+  warnings: SpecWarning[];
   /** The project's exclusions every rule was resolved with. */
   exclude: string[];
 }
@@ -1728,7 +1731,7 @@ export function planRun(
     if ("error" in resolved) errors.push(resolved.error);
   }
 
-  return { root, specFiles: specs.files, assertions, withheld: withheld.length, errors, inactiveSpecs, exclude };
+  return { root, specFiles: specs.files, assertions, withheld: withheld.length, errors, inactiveSpecs, warnings: specs.warnings, exclude };
 }
 
 /**
@@ -1773,6 +1776,7 @@ export function reportRun(
     errors,
     warnings,
     inactiveSpecs: plan.inactiveSpecs,
+    specWarnings: plan.warnings,
     exclude: plan.exclude,
     specFiles: plan.specFiles.map((file) => specPath(plan.root, file)),
   };

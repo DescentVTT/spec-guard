@@ -607,6 +607,7 @@ export async function proveSpecGuard(options: ProveOptions): Promise<ProveReport
     results,
     errors: plan.errors,
     inactiveSpecs: plan.inactiveSpecs,
+    specWarnings: plan.warnings,
     exclude: plan.exclude,
     specFiles: plan.specFiles.map((file) => specPath(root, file)),
   };

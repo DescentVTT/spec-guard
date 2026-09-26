@@ -1120,6 +1120,7 @@ describe('the report, rendered', () => {
         durationMs: result.durationMs === 1.23456 ? 1.235 : result.durationMs,
       })),
       errors: [{ spec: { file: 'docs/typo.md', line: 9, column: 1 }, message: 'Unknown attribute "expct".', raw: '<!-- @assert-count expct="1"\n  target="src" -->' }],
+      specWarnings: [],
       inactiveSpecs: REPORT.inactiveSpecs,
       exclude: ['gen'],
       config: REPORT.config,

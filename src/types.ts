@@ -98,11 +98,24 @@ export interface SpecStatus {
   active: boolean;
 }
 
+/**
+ * Something about how a spec document was read that a reader should know and
+ * that fails nothing: a status that could not be read, a block that is never
+ * closed. Each changes which of the document's rules run, which is why none is
+ * left unsaid.
+ */
+export interface SpecWarning {
+  location: SourceLocation;
+  message: string;
+}
+
 export interface ParseResult {
   directives: Directive[];
   errors: DirectiveError[];
   /** The document's declared status, when it declares one. */
   status?: SpecStatus;
+  /** Present only when there is something to say. */
+  warnings?: SpecWarning[];
 }
 
 /** A spec file whose status withheld its directives from execution. */
@@ -385,6 +398,12 @@ export interface RunReport {
    */
   inactiveSpecs: InactiveSpec[];
   /**
+   * What changed how a spec document was read: a status that could not be
+   * read, a block never closed. Not failures, and never left unsaid, since
+   * each decides which of a document's rules run.
+   */
+  specWarnings?: SpecWarning[];
+  /**
    * The project's exclusions, added to every rule that takes `exclude`, and
    * empty when there were none.
    *
@@ -465,6 +484,8 @@ export interface ProveReport {
   results: ProveResult[];
   errors: DirectiveError[];
   inactiveSpecs: InactiveSpec[];
+  /** As a run's: what changed how a document was read. */
+  specWarnings?: SpecWarning[];
   exclude: string[];
   config?: ConfigUse;
   /** Spec files that were read, relative to the root. */

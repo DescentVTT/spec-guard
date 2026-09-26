@@ -20,8 +20,8 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { EXIT_FAILED, EXIT_OK, main, parseArgs, type CliIO } from '../src/cli.js';
-import { INACTIVE_STATUSES, parseStatus } from '../src/parser.js';
-import { formatJson, formatReport, formatSarif } from '../src/reporter.js';
+import { INACTIVE_STATUSES, parseDocument, parseStatus } from '../src/parser.js';
+import { formatJson, formatReport, formatSarif, runAnnotations } from '../src/reporter.js';
 import { runSpecGuard } from '../src/runner.js';
 import { makeTempRepo, removeTempRepo } from './helpers.js';
 
@@ -454,6 +454,64 @@ describe('front matter, read by spec-core', () => {
 
   it('does not read TOML, and hands over to the section', () => {
     expect(parseStatus('+++\nstatus = "draft"\n+++\n\n## Status\n\nAccepted\n')).toMatchObject({ value: 'accepted', source: 'heading' });
+  });
+});
+
+describe('a front-matter status that cannot be read', () => {
+  const context = { file: '/r/docs/a.md', relativeFile: 'docs/a.md' };
+  const warningOf = (source: string) => parseDocument(source, context).warnings?.map(({ location, message }) => [location.line, message]);
+  const said = (reason: string) =>
+    `the status in front matter cannot be read (${reason}), so its status is unrecognised and the document stays in force; a status written below the front matter is not read in its place`;
+
+  it('decides the status, so nothing below it is read in its place', () => {
+    // The review's two documents: 0.11.0's reader took the first word of each
+    // and ran the rule; reading the prose instead took them out of force.
+    expect(parseStatus('---\nstatus: "accepted" (2024-05-01)\n---\n\n# ADR-1\n\n## Status\n\nProposed in review.\n')).toBeUndefined();
+    expect(parseStatus('---\nstatus: accepted: x\n---\n\n# ADR-1\n\nStatus: draft\n')).toBeUndefined();
+    // Without the key, the section and the label are read as before.
+    expect(parseStatus('---\ntitle: x\n---\n\n## Status\n\nProposed\n')?.value).toBe('proposed');
+  });
+
+  it('says why, on the line of the key', () => {
+    expect(warningOf('---\nid: 7\nstatus: "accepted" (2024-05-01)\n---\n\n## Status\n\nProposed\n')).toEqual([[3, said('text follows a closing quote')]]);
+    expect(warningOf('---\nstatus: accepted: x\n---\n\nStatus: draft\n')).toEqual([[2, said('a plain value cannot contain ": "; quote it')]]);
+    expect(warningOf('---\nstatus:\n---\n\n## Status\n\nDraft\n')).toEqual([[2, said('it is empty')]]);
+    expect(warningOf('---\nstatus: "2024"\n---\n')).toEqual([[2, said('"2024" does not begin with a word')]]);
+    expect(warningOf('---\nstatus: [draft]\n---\n')).toEqual([[2, said('a list is not a status')]]);
+    expect(warningOf('---\nstatus:\n  [draft]\n---\n')).toEqual([[2, said('an inline list starts on the line after its key; write it after the colon')]]);
+    expect(warningOf('---\nstatus: *Draft*\n---\n')).toEqual([[2, said('anchors, aliases and tags are not supported')]]);
+  });
+
+  it('says nothing of a word it can read, a word it does not know, or no key at all', () => {
+    expect(warningOf('---\nstatus: draft\n---\n')).toBeUndefined();
+    expect(warningOf('---\nstatus: implemented\n---\n')).toBeUndefined();
+    expect(warningOf('---\ntitle: x\n---\n\n## Status\n\nProposed\n')).toBeUndefined();
+  });
+
+  it('runs the rules of a document the prose alone would have withheld, and says why in every format', async () => {
+    const root = await repo({
+      'docs/a.md': `---\nstatus: "accepted" (2024-05-01)\n---\n\n# ADR-1\n\n## Status\n\nProposed, pending review.\n\n${VIOLATION}`,
+      'docs/b.md': `---\nstatus: accepted: x\n---\n\n# ADR-2\n\nStatus: draft\n\n${VIOLATION}`,
+      ...CODE,
+    });
+
+    const report = await run(root);
+
+    expect(report.ok).toBe(false);
+    expect(report.summary).toMatchObject({ total: 2, failed: 2, inactive: 0 });
+    expect(report.inactiveSpecs).toEqual([]);
+    expect(report.specWarnings?.map(({ location }) => `${location.relativeFile}:${location.line}`)).toEqual(['docs/a.md:2', 'docs/b.md:2']);
+
+    const human = formatReport(report, { color: false, verbose: false });
+    expect(human).toContain(`⚠ docs/a.md:2  ${said('text follows a closing quote')}`);
+    const json = JSON.parse(formatJson(report)) as { specWarnings: Array<{ spec: { file: string; line: number }; message: string }> };
+    expect(json.specWarnings.map(({ spec }) => [spec.file, spec.line])).toEqual([['docs/a.md', 2], ['docs/b.md', 2]]);
+    const sarif = JSON.parse(formatSarif(report)) as { runs: Array<{ invocations?: Array<{ toolExecutionNotifications: Array<{ level: string; message: { text: string } }> }> }> };
+    expect(sarif.runs[0]?.invocations?.[0]?.toolExecutionNotifications.map(({ level }) => level)).toEqual(['warning', 'warning']);
+    expect(runAnnotations(report).filter(({ rule }) => rule === 'spec-warning').map(({ file, line, level }) => [file, line, level])).toEqual([
+      ['docs/a.md', 2, 'warning'],
+      ['docs/b.md', 2, 'warning'],
+    ]);
   });
 });
 

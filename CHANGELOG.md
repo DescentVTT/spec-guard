@@ -220,6 +220,15 @@ with the flag that restores the previous behaviour.
     an alias - and a `status` nested under another key is that key's. Front
     matter behind a byte-order mark, or closed by `...`, is read as front
     matter.
+  - A front-matter `status` decides even when it cannot be read. A value the
+    reader refuses, an empty one, one with no word or a list leaves the
+    status unrecognised and the document in force, and the `## Status`
+    section and the `Status:` label are not read in its place: under 0.11.0
+    `status: "accepted" (2024-05-01)` was accepted, and falling through to a
+    section still saying `Proposed` would have withheld its rules. Every
+    format says so, on the key's line: a warning in the human report, a
+    `specWarnings` entry in `--json` (run and `prove`), a SARIF notification
+    and a `spec-warning` annotation for GitHub and GitLab.
 
   [ADR-0010](docs/adr/0010-spec-status.md)'s second amendment.
 - **A title is the first level-one heading as the scanner reads it.** An

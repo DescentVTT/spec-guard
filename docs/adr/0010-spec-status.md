@@ -59,8 +59,9 @@ Accepted (0.3.0).
 **Status:** accepted      <!-- a bold label in the preamble -->
 ```
 
-Front-matter wins, then the section, then the label. Not a tie-break for its own
-sake: a document carrying two of them is a document mid-migration between
+Front-matter wins, then the section, then the label. A front-matter `status`
+wins whether or not its value can be read (the amendment below). Not a
+tie-break for its own sake: a document carrying two of them is a document mid-migration between
 conventions, and the machine-readable one is the one somebody wrote for a
 machine. This repository turned out to need two of the three - ADRs 0001-0007
 use the section and 0008-0009 use the label - which is how far a convention
@@ -248,7 +249,18 @@ any of this, by the same `maskCode`" now reads: by the same scanner.
   declares nothing, which leaves the document in force - this ADR's direction
   for anything that cannot be read: a `: ` in a plain value, text after a
   closing quote, a value continued on the next line, `*Draft*`, which YAML reads
-  as an alias. A `status` nested under another key is that key's. Front matter
+  as an alias. A `status` nested under another key is that key's.
+- **A front-matter `status` decides, readable or not.** Nothing below the
+  front matter is read in place of a value the reader refuses, an empty one,
+  one with no word in it, or a list: the status is unrecognised, the document
+  stays in force, and the report carries a warning on the key's line naming
+  the reason, in every format. The first reading of this amendment fell
+  through to the section and the label instead, and that took documents out
+  of force: `status: "accepted" (2024-05-01)` above a `## Status` section
+  still saying `Proposed`, or `status: accepted: x` above `Status: draft`,
+  ran its rules under 0.11.0 and was withheld by the fall-through. Falling
+  through can only ever find a word the machine-readable field did not say,
+  and a word that withholds is the one that must never be found by accident. Front matter
   behind a byte-order mark, or closed by `...`, is read; before, the first was
   not, and both fell through to the label.
 - **The `## Status` section and the end of the preamble are headings the

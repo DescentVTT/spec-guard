@@ -779,7 +779,11 @@ Accepted (0.3.0).
 ```
 
 Front-matter wins, then the `## Status` section, then the bold label (which is
-only read above the first section heading). Headings are read as CommonMark
+only read above the first section heading). A front-matter `status` wins even
+when its value cannot be read - `status: "accepted" (2024-05-01)`, text after
+a closing quote - and then the document stays in force, the section and the
+label are not read in its place, and the report warns on the key's line with
+the reason. Headings are read as CommonMark
 reads them, so an underlined `Status` is the section and a `## Status` kept in a
 comment is not. Anything else - `Provisional`, `In review`, a
 misspelled `Supersedded`, or no status at all - keeps enforcing. That asymmetry
