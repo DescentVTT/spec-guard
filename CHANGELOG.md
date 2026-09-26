@@ -9,6 +9,18 @@ with the flag that restores the previous behaviour.
 
 ### Added
 
+- **`spec-guard impact <paths...>`: who depends on this?** For each path, the
+  files that import it, transitively, each with its distance and the import
+  that takes it one step closer, and the rules in force that govern the path or
+  any of them, by `query`'s arithmetic. The import graph is ADR-0011's, read
+  backwards over the whole tree: relative JavaScript and TypeScript imports by
+  its resolution table, and relative Python imports, which name a module
+  beside the importing file. Go, Rust, C# and absolute Python references name
+  modules and are counted rather than followed; a path in one of those
+  languages says its dependents are not computed. An import naming no file, an
+  alias or a dynamic `import(name)` is listed, never guessed. `--depth <n>`,
+  `--ignore-status`, and `--json` with `formatVersion`. `impactOf` is the
+  API. [ADR-0018](docs/adr/0018-impact.md).
 - **`spec-guard cites`: do the comments cite decisions in force?** A comment
   such as `// ADR-0011: the domain imports no infrastructure` is a claim, and it
   goes stale when the document is never written or is superseded. `cites` reads

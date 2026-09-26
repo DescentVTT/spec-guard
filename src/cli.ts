@@ -13,6 +13,7 @@ import type { Readable } from 'node:stream';
 
 import { CitesError, findCitations } from './cites.js';
 import { CONFIG_KEYS, ConfigError, engineNamed, findConfig, type ConfigKey, type ProjectConfig } from './config.js';
+import { formatImpact, formatImpactJson, impactOf } from './impact.js';
 import { excludeListError } from './glob.js';
 import { nodeIo, readText, watchTree } from './io.js';
 import { createMcpHandler, serveStdio } from './mcp.js';
@@ -68,12 +69,13 @@ export interface CliIO {
 
 /**
  * What the command line asked for: a run, a query, a server, a proof that the
- * rules can fail, or the citations of specs in code comments.
+ * rules can fail, the citations of specs in code comments, or who depends on a
+ * path.
  */
-export type Command = 'check' | 'query' | 'mcp' | 'prove' | 'cites';
+export type Command = 'check' | 'query' | 'mcp' | 'prove' | 'cites' | 'impact';
 
 /** The words that name a command when they come first. */
-const COMMANDS: ReadonlySet<string> = new Set<Command>(['query', 'mcp', 'prove', 'cites']);
+const COMMANDS: ReadonlySet<string> = new Set<Command>(['query', 'mcp', 'prove', 'cites', 'impact']);
 
 /** How a finished run is written out. */
 export type OutputFormat = 'human' | 'json' | 'sarif' | 'github' | 'gitlab';
@@ -88,10 +90,11 @@ const FORMATS: Readonly<Record<Exclude<Command, 'mcp'>, readonly OutputFormat[]>
   prove: ['human', 'json', 'sarif', 'github', 'gitlab'],
   cites: ['human', 'json', 'sarif', 'github', 'gitlab'],
   query: ['human', 'json'],
+  impact: ['human', 'json'],
 };
 
 /** What a command without line-level formats lists instead of results, for the message refusing one. */
-const LISTS: Readonly<Partial<Record<Command, string>>> = { query: 'rules' };
+const LISTS: Readonly<Partial<Record<Command, string>>> = { query: 'rules', impact: 'files and rules' };
 
 /** `a`, `a or b`, `a, b or c`. */
 function either(words: readonly string[]): string {
@@ -101,8 +104,10 @@ function either(words: readonly string[]): string {
 export interface CliOptions {
   command: Command;
   patterns: string[];
-  /** The paths `spec-guard query` asks about, and the ones `spec-guard cites` reads. */
+  /** The paths `spec-guard query` and `spec-guard impact` ask about, and the ones `spec-guard cites` reads. */
   paths: string[];
+  /** How many imports away `spec-guard impact` follows dependents; all of them when absent. */
+  depth?: number;
   /** The documents comments cite, from a configuration; derived from the specs when absent. */
   cites?: CiteFamily[];
   root: string;
@@ -167,11 +172,12 @@ Usage
   spec-guard prove [patterns...] [options]
                                          show each rule a violation of itself, in memory, and report any that pass
   spec-guard cites [paths...] [options]  check that each spec a code comment cites exists and is in force
+  spec-guard impact <paths...> [options] the files that depend on each path, and the rules in play there
 
 Patterns
   Globs or paths to the Markdown specs to execute. A directory expands to the
   Markdown files inside it. Defaults to "docs/**/*.md" when omitted. query,
-  mcp and cites take theirs from --spec.
+  mcp, cites and impact take theirs from --spec.
 
 Options
   -r, --root <path>       Codebase root that assertions are resolved against (default: cwd)
@@ -194,6 +200,7 @@ Options
       --include-specs     Also count matches inside the spec files themselves
       --max-snippets <n>  Failure snippets per assertion (default: ${DEFAULT_MAX_SNIPPETS})
       --concurrency <n>   Assertions executed in parallel (default: ${DEFAULT_CONCURRENCY})
+      --depth <n>         impact: follow dependents at most n imports away (default: all)
       --allow-empty       Exit 0 when no spec files matched (about the run, not an assertion)
       --color/--no-color  Force colour on or off (NO_COLOR is honoured)
   -h, --help              Show this help
@@ -233,6 +240,11 @@ ADR-0007, ADR-7 and ADR-007, which are one document. A ghost citation names no
 document, and exits 1; a stale one names a document superseded, deprecated,
 rejected or archived, and exits 1 under --strict. A family whose files match no
 document exits 2.
+
+impact follows the import graph backwards: relative JavaScript, TypeScript and
+Python imports that name a file. Go, Rust, C# and absolute Python imports name
+modules, and are counted rather than followed; an import that names no file is
+listed, never guessed at.
 
 query answers from the specs alone, without reading the codebase, so it works
 for a file that does not exist yet. mcp offers the same answer, and a check,
@@ -274,6 +286,26 @@ function positiveInteger(name: string, value: string): number {
  */
 const NOT_FOR: Record<Exclude<Command, 'check'>, ReadonlySet<string>> = {
   query: new Set([
+    '--verbose',
+    '--watch',
+    '--fail-fast',
+    '--engine',
+    '--strict',
+    '--no-strict',
+    '--allow-missing-targets',
+    '--no-allow-missing-targets',
+    '--allow-empty-scope',
+    '--no-allow-empty-scope',
+    '--print-baseline',
+    '--allow-empty',
+    '--max-snippets',
+    '--concurrency',
+    '--color',
+  ]),
+  // Who depends on a path is answered from the graph, and the rules from the
+  // specs, as a query answers them: nothing is run, so nothing about running
+  // applies.
+  impact: new Set([
     '--verbose',
     '--watch',
     '--fail-fast',
@@ -377,7 +409,7 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
 
     if (onlyPositional || !argument.startsWith('-') || argument === '-') {
       if (command === 'mcp') throw new UsageError(`spec-guard mcp takes no arguments, got "${argument}". Name specs with --spec.`);
-      (command === 'query' || command === 'cites' ? options.paths : options.patterns).push(argument);
+      (command === 'query' || command === 'cites' || command === 'impact' ? options.paths : options.patterns).push(argument);
       continue;
     }
     if (argument === '--') {
@@ -514,6 +546,13 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
         options.concurrency = Math.max(1, positiveInteger(name, nextValue()));
         set.add('concurrency');
         break;
+      case '--depth': {
+        if (command !== 'impact') throw new UsageError('Option --depth applies only to spec-guard impact.');
+        const depth = positiveInteger(name, nextValue());
+        if (depth === 0) throw new UsageError('Option --depth expects 1 or more: a depth of 0 would follow no import.');
+        options.depth = depth;
+        break;
+      }
       default:
         throw new UsageError(`Unknown option "${name}". Run spec-guard --help.`);
     }
@@ -532,6 +571,9 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
   if (options.patterns.length === 0) options.patterns = ['docs/**/*.md'];
   if (command === 'query' && options.paths.length === 0 && !options.help && !options.version) {
     throw new UsageError('spec-guard query needs a path to ask about, e.g. spec-guard query src/domain/user.ts.');
+  }
+  if (command === 'impact' && options.paths.length === 0 && !options.help && !options.version) {
+    throw new UsageError('spec-guard impact needs a path to ask about, e.g. spec-guard impact src/db/client.ts.');
   }
   return options;
 }
@@ -611,7 +653,7 @@ export function applyConfig(options: CliOptions, config: ProjectConfig, file = '
     const value = config[key];
     if (value === undefined) continue;
     const reads =
-      options.command === 'query'
+      options.command === 'query' || options.command === 'impact'
         ? QUERY_KEYS.has(key)
         : options.command === 'prove'
           ? PROVE_KEYS.has(key)
@@ -850,6 +892,32 @@ async function runProve(options: CliOptions, io: CliIO, use: ConfigUse | undefin
 }
 
 /**
+ * `spec-guard impact`: the files that depend on each path, and the rules in
+ * play there. ADR-0018. Exit 2 for a path outside the root or not there.
+ */
+async function runImpact(options: CliOptions, io: CliIO, use: ConfigUse | undefined): Promise<number> {
+  let report;
+  try {
+    report = await impactOf({
+      patterns: options.patterns,
+      root: options.root,
+      paths: options.paths,
+      ...(options.depth === undefined ? {} : { depth: options.depth }),
+      includeInactive: options.ignoreStatus,
+      includeSpecs: options.includeSpecs,
+      defaultSkips: options.defaultSkips,
+      exclude: options.exclude,
+    });
+  } catch (error) {
+    io.stderr(`spec-guard: ${error instanceof Error ? error.message : String(error)}`);
+    return EXIT_ERROR;
+  }
+  const answered = { ...report, config: use };
+  io.stdout(options.format === 'json' ? formatImpactJson(answered) : formatImpact(answered));
+  return EXIT_OK;
+}
+
+/**
  * `spec-guard cites`: the specs code comments cite, and whether each is still
  * there and in force. ADR-0017.
  *
@@ -927,6 +995,7 @@ export async function main(argv: readonly string[] = process.argv.slice(2), io: 
 
   if (options.command === 'query') return runQuery(options, io, use);
   if (options.command === 'cites') return runCites(options, io, use);
+  if (options.command === 'impact') return runImpact(options, io, use);
   if (options.command === 'mcp') return runMcp(options, commandLine, io, use);
   if (options.command === 'prove') return runProve(options, io, use);
   if (options.watch) return runWatchSession(commandLine, io);
