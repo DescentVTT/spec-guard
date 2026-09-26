@@ -631,6 +631,27 @@ describe('check_architecture', () => {
     );
   });
 
+  it('says which documents were read differently from how they were written', async () => {
+    // A fence never closed hides every rule after it, which is what a model
+    // has to be told before it takes a pass for an answer.
+    const other = await makeTempRepo({
+      'docs/a.md': '# A\n\n<!-- @assert-absence target="src" symbol="Legacy" -->\n\n```sh\nnpm test\n',
+      'src/a.ts': 'export {};\n',
+    });
+    try {
+      const called = await tool('check_architecture', {}, { root: other });
+      expect((called.structuredContent as { specWarnings: unknown }).specWarnings).toEqual([
+        {
+          file: 'docs/a.md',
+          line: 5,
+          message: 'the code fence ```sh opened here is never closed, so lines 5 to 6, the rest of the document, are read as code, and no directive in them runs',
+        },
+      ]);
+    } finally {
+      await removeTempRepo(other);
+    }
+  });
+
   it('writes its text the way a model can read it: no colour, no passing rules, ASCII marks', async () => {
     const text = (await tool('check_architecture')).content[0]?.text as string;
     expect(text).not.toContain(String.fromCharCode(27));
@@ -787,6 +808,9 @@ describe('get_dependents', () => {
     expect(await listed({ include_inactive: true })).toEqual(['docs/adr/0002-clocks.md']);
     expect(await listed({}, { run: { ignoreStatus: true } })).toEqual(['docs/adr/0002-clocks.md']);
     expect(await listed({ include_inactive: false }, { run: { ignoreStatus: true } })).toEqual([]);
+    // A server a caller started with no run options at all answers as one started without --ignore-status.
+    expect(await listed({}, { run: undefined })).toEqual([]);
+    expect(await listed({ include_inactive: true }, { run: undefined })).toEqual(['docs/adr/0002-clocks.md']);
   });
 
   it('reads under the settings of the request, and reports the configuration they came from', async () => {
