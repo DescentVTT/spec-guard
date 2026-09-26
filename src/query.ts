@@ -17,7 +17,7 @@ import { formatOptionLines } from './reporter.js';
 import { checkProjectExcludes, elapsed, resolveDirective, specExclusions } from './runner.js';
 import { createScope } from './scope.js';
 import { governs, leftOutByOwnExclude, viewRule, within, type DocumentView, type QueryPath, type RuleView } from './rules.js';
-import { readSpecs, specPath, type SpecDocument } from './specs.js';
+import { readSpecs, specPath, type DocumentMemo, type SpecDocument } from './specs.js';
 import type { Assertion, ConfigUse, DirectiveError } from './types.js';
 
 export interface RuleSetOptions {
@@ -36,6 +36,12 @@ export interface RuleSetOptions {
    * (ADR-0014). The filesystem when none is given.
    */
   io?: Io;
+  /**
+   * Documents parsed by an earlier read, for a caller that reads the specs on
+   * every request, as the MCP server does. Every document is parsed when none
+   * is given.
+   */
+  documents?: DocumentMemo;
 }
 
 /** Every rule the specs state, resolved, with the document that states it. */
@@ -69,7 +75,7 @@ export function viewDocument(document: SpecDocument): DocumentView {
  */
 export async function loadRuleSet(options: RuleSetOptions): Promise<RuleSet> {
   const exclude = checkProjectExcludes(options.exclude);
-  const specs = await readSpecs(options.patterns, options.root, options.io);
+  const specs = await (options.documents?.read(options.patterns, options.root, options.io) ?? readSpecs(options.patterns, options.root, options.io));
   const context = {
     root: options.root,
     excludeFiles: specExclusions(specs.files, options.includeSpecs ?? false),

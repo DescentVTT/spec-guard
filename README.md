@@ -1514,6 +1514,13 @@ and is there for a caller who wants to try a change of its own.
 and take an `io` as well; so do `loadRuleSet` and `queryRules`. Each command's
 JSON is the report its function returns, with a `formatVersion` in front.
 
+A process that reads the specs again for every request, as the MCP server
+does, can keep what it parsed: pass one `createDocumentMemo()` as `documents`
+to `runSpecGuard`, `loadRuleSet`, `queryRules` or `impactOf`, every time. Every
+spec is still found and read, so an edit is seen by the next call; a document
+whose bytes have not changed is not parsed again, and the memo holds only the
+documents of the spec set read last. A single run gains nothing from one.
+
 ## Design decisions
 
 This tool was specified loosely and built opinionatedly. Where the

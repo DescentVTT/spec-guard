@@ -49,7 +49,7 @@ import {
   type ModuleReference,
 } from "./imports.js";
 import { checkLayers, type LayerInput } from "./layers.js";
-import { readSpecs, specPath, type SpecSet } from "./specs.js";
+import { readSpecs, specPath, type DocumentMemo, type SpecSet } from "./specs.js";
 import {
   createScope,
   DEFAULT_SCOPE,
@@ -162,6 +162,12 @@ export interface RunOptions {
    * `io` with `auto` searches with the scanner.
    */
   io?: Io;
+  /**
+   * Documents parsed by an earlier read, for a caller that runs on every
+   * request, as the MCP server's `check_architecture` does. Every document is
+   * parsed when unset, as a run on the command line wants.
+   */
+  documents?: DocumentMemo;
 }
 
 export interface RunResult extends RunReport {
@@ -1822,7 +1828,8 @@ export async function runSpecGuard(options: RunOptions): Promise<RunResult> {
   const startedAt = performance.now();
   const root = path.resolve(options.root ?? process.cwd());
   const io = options.io ?? nodeIo;
-  const plan = planRun(await readSpecs(options.patterns, root, io), root, options);
+  const specs = await (options.documents?.read(options.patterns, root, io) ?? readSpecs(options.patterns, root, io));
+  const plan = planRun(specs, root, options);
   const assertions = plan.assertions;
 
   const engine = await runEngine(options.engine ?? "auto", options.io);

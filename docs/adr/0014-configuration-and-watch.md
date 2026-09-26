@@ -532,6 +532,10 @@ no invalidation, because it cannot be wrong about the contents it is keyed by.
 An entry no run consulted is dropped after the next run. A plain run passes a
 memo that remembers nothing and hashes nothing.
 
+The MCP server keeps parsed specs in the same memo, swept after every read of
+the specs rather than after a run, so it holds the documents of the spec set
+read last ([ADR-0012](0012-query-and-mcp.md)'s amendment of 2026-09-27).
+
 ### Selection: each rule records the facts it read
 
 In a session, each assertion executes with its own per-run caches and its own

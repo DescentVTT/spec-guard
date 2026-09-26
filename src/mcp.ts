@@ -28,6 +28,7 @@ import {
   type RuleSet,
 } from './query.js';
 import { governs, viewRule, type QueryPath } from './rules.js';
+import { createDocumentMemo, type DocumentMemo } from './specs.js';
 import type { ConfigUse, SpecWarning } from './types.js';
 import {
   createMcpServer,
@@ -222,6 +223,11 @@ export interface McpServerOptions {
   settings?: () => Promise<{ patterns: readonly string[]; run: Omit<RunOptions, 'patterns' | 'root' | 'select'>; config?: ConfigUse }>;
   /** Reads a spec document. Injected so an unreadable one can be tested. */
   readFile?: (file: string) => Promise<string>;
+  /**
+   * Where parsed documents are kept between requests: one of the server's own
+   * when not given. Injected so a test can see what the server holds.
+   */
+  documents?: DocumentMemo;
 }
 
 /**
@@ -255,9 +261,15 @@ export function createMcpHandler(options: McpServerOptions): (message: unknown) 
   /** The settings a request is answered under, read when the request arrives. */
   const current = async (): Promise<{ patterns: readonly string[]; run: McpServerOptions['run']; config?: ConfigUse }> =>
     options.settings ? options.settings() : { patterns: options.patterns, run: options.run };
+  // Every request reads the specs, and parsing them was most of what a query
+  // cost; a document whose bytes have not changed since the last request is
+  // not parsed again (ADR-0012's amendment of 2026-09-27). The memo holds the
+  // documents of the spec set read last and nothing else: specs.ts says how.
+  const documents = options.documents ?? createDocumentMemo();
   const ruleSetOptions = ({ patterns, run }: { patterns: readonly string[]; run: McpServerOptions['run'] }) => ({
     patterns,
     root: options.root,
+    documents,
     // No defaults of their own: loadRuleSet has them, and a second copy here
     // could never disagree with it in a way anything could see.
     includeSpecs: run?.includeSpecs,
@@ -303,6 +315,7 @@ export function createMcpHandler(options: McpServerOptions): (message: unknown) 
       ...settings.run,
       patterns: settings.patterns,
       root: options.root,
+      documents,
       select: (assertion) => {
         inForce += 1;
         return paths === undefined || paths.some((query) => governs(assertion, query));
