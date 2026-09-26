@@ -227,6 +227,16 @@ const CONTRACTED: ReadonlySet<string> = new Set(['it', 'that', 'this', 'there', 
 /** The characters a name before an id is made of: a project's, a package's, a repository's. */
 const NAME = /^[\p{L}\p{N}_\-/'’]$/u;
 
+/** What comes just before an id that is part of a path, an anchor or a query. */
+const LINKED: ReadonlySet<string> = new Set(['/', '#', '=', '?']);
+
+/** Whether an id is written after a `://` with no whitespace between: in a URL, whatever comes just before it. */
+function inUrl(text: string, start: number): boolean {
+  let begin = start;
+  while (begin > 0 && !/\s/.test(text[begin - 1] as string)) begin -= 1;
+  return text.slice(begin, start).includes('://');
+}
+
 /**
  * Whether an id is qualified by another owner, and so names that owner's
  * document rather than one of this project's.
@@ -242,8 +252,15 @@ const NAME = /^[\p{L}\p{N}_\-/'’]$/u;
  * costs is a hyphenated word used as an ordinary one, `re-read ADR-7`, which
  * is read as a qualifier and not checked: a citation missed, rather than one
  * reported that is not wrong.
+ *
+ * An id in a link is another owner's too: one just after a `/`, `#`, `=` or
+ * `?`, which is a path, an anchor or a query, or in a run of text holding
+ * `://`. `https://github.com/org/repo/blob/main/docs/adr/ADR-0042.md` names a
+ * document wherever that repository keeps it, and `docs/ADR-0099.html` a page
+ * built from one - neither is a document this template finds.
  */
 export function qualified(text: string, start: number): boolean {
+  if (LINKED.has(text[start - 1] as string) || inUrl(text, start)) return true;
   // Neither loop needs to stop at the start of the text: before it is
   // undefined, which is no space and no character of a name.
   let end = start;

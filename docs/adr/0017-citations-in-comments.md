@@ -126,6 +126,17 @@ hyphenated word used as an ordinary one, `re-read ADR-7`, which is read as a
 qualifier: a citation missed rather than one reported that is not wrong, which
 is the side the family contract (spec-core's ADR-0005) says to err on.
 
+**An id in a link is another owner's too.** `// See
+https://github.com/org/repo/blob/main/docs/adr/ADR-0042.md` and `//
+.../docs/ADR-0099.html` were each a ghost, and failed the run: an id read out
+of a URL or a path names a document wherever that URL points - another
+repository, a rendered page - and never one this family's `files` find. So
+an id just after a `/`, `#`, `=` or `?` - a path, an anchor, a query - or
+written after a `://` with no whitespace between is counted with the
+qualified ones and not checked. The cost is a path to one of this project's
+own documents, `docs/adr/ADR-0007.md` written out in a comment, which is not
+checked either: missed, not reported wrongly.
+
 ### What is wrong with a citation
 
 | Finding | When | Severity |
