@@ -34,8 +34,11 @@ copies the modules it uses, and verifies the copy by hash.
 `src/vendor/spec-core/` holds spec-core's `pattern` module, the `path` module it
 imports, and `jsonrpc`, copied by spec-core's `scripts/vendor.mjs`: first from
 commit `124b028`, then again from `f085f29`, which changed `jsonrpc` alone, for
-the server (below). `VENDOR.json` records the commit and the SHA-256 of every
-file. Nothing in this repository edits them.
+the server (below). A third copy, from `4f2826a`, added `markdown` and the
+`text` module it imports, for the parser, and left the other three byte for
+byte as they were ([ADR-0002](0002-directive-format.md)'s amendment).
+`VENDOR.json` records the commit and the SHA-256 of every file. Nothing in this
+repository edits them.
 
 <!-- @assert-present file="src/vendor/spec-core/VENDOR.json, tests/vendor.test.ts" reason="a copy nobody verifies is a fork nobody meant" -->
 

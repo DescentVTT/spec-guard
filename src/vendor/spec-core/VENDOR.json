@@ -1,11 +1,25 @@
 {
   "source": "https://github.com/DescentVTT/spec-core",
-  "commit": "f085f292fac0d75aec83399906a85cb6cefa3fbe",
+  "commit": "4f2826aaa5c97ce142d9bc355a5237dea7712d42",
   "modules": {
     "jsonrpc": {
       "files": {
         "index.ts": "sha256-04a2d2f62d2ce68abc8bc1c9ccd2266daaaa178f32ee96a336883f43d6f60b28",
         "mcp.ts": "sha256-c087d4f196488ffaf9f19c633c44860f80f239a53f2e74aa5751e7ce05f147ab"
+      }
+    },
+    "markdown": {
+      "files": {
+        "frontmatter.ts": "sha256-eea992730926c1ba618dec768160e170ffafcef3ad58c4c4733e6cf6d38979dc",
+        "headings.ts": "sha256-6b1f88429004b64d62cc690136916fe64ddffb5df8ce7c96415e869e33bf23e2",
+        "index.ts": "sha256-bdb9eae130cd46174bb94a11e199724fd590a0e99e59c8510ce782a5e79dd85d",
+        "layout.ts": "sha256-11293f9961ce7fcc672743e72945dcaa0a1475a8adea166ea10fa9c542cd6f75",
+        "links.ts": "sha256-bc5dc5fc157e492e2cf9ac2d803978eea8ab4e525af0e3395b2bea8f64b999b0",
+        "lists.ts": "sha256-ac2fa8e5c35ca0b17b2727f4a3d9b52edb56ebb7392955d79aa029bc3ae11ea6",
+        "scan.ts": "sha256-211d2270cfa01ef78ea25affc3119daf5e5900098a63cf4caa274d760e1435d3",
+        "syntax.ts": "sha256-603325f2aa181f8bcaa99b529d3da0e873f8f6f3fe73380e24b2414c0b2532c2",
+        "tables.ts": "sha256-494a4785827e73f9cfd496a8f082fb7aa070c6b4ce9e1142939c4506230fde5b",
+        "types.ts": "sha256-892852c121fac09e4ef9e56e07398f3bf150fa6c627f5d5b62446809d1c955ac"
       }
     },
     "path": {
@@ -21,6 +35,12 @@
         "glob.ts": "sha256-acf74c657a7dfd9496dc86edf03367dea1d3ff03deb6f64b3e0133ac7b17b0d3",
         "index.ts": "sha256-ef2ebf1aca4dd1be073f15432a3c23b83bd10bbf5cd1e415ecd6e6b5c9a197ba",
         "regex.ts": "sha256-be88d0d57af98e0bcbfb7cb3242d7333066e7be10664e31397d779bac0cff928"
+      }
+    },
+    "text": {
+      "files": {
+        "index.ts": "sha256-38e3afe3a18f8a5126e7a845c92e6123c4dac18b16d13c800b80f7d81177cf99",
+        "lines.ts": "sha256-921f060180f318eb8735e646466701a63510d64e5286ab6f75b9aec93bdfd463"
       }
     }
   }
