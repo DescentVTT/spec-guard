@@ -82,6 +82,15 @@ absent.** Every reference the graph could not follow is in the report:
 A path that does not exist is exit 2: nothing can depend on it yet, and a query
 about a file one is about to create is `query`'s.
 
+No spec matching is exit 2 too, as it is for `query`, and the report is still
+written: who depends on a path is measured without specs, but the rules in
+play are not, and "no rules govern these files" over no specs is the reading
+the family contract (spec-core's ADR-0005) forbids - nothing measured is not
+clean. The first release of this command exited 0 there, which a script
+reading only the exit code could not tell from a path no rule governs.
+`--allow-empty` asks for the dependents alone and exits 0, as it lets a run
+over no specs pass.
+
 ### The walk
 
 Breadth-first from the path's files: a file's depth is its shortest distance,
@@ -166,8 +175,8 @@ the server rather than a terminal. `spec-guard mcp` offers a third tool,
   exist or lies outside the root is a tool error the model can read, as a path
   outside the root is for the other tools.
 - **It answers without specs**, where the other two refuse: who imports a file
-  does not depend on them, and the command answers the same way, saying that no
-  rules are shown.
+  does not depend on them, and the answer says that no rules are shown. A tool
+  call has no exit code; the command's is 2 there, unless `--allow-empty`.
 
 The tests that pin the tool list pin three names now, in `tests/mcp.test.ts`
 and over the built binary in `tests/e2e.test.ts`, with the new descriptor, its

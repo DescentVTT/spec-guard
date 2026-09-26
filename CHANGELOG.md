@@ -19,8 +19,10 @@ with the flag that restores the previous behaviour.
   modules and are counted rather than followed; a path in one of those
   languages says its dependents are not computed. An import naming no file, an
   alias or a dynamic `import(name)` is listed, never guessed. `--depth <n>`,
-  `--ignore-status`, and `--json` with `formatVersion`. `impactOf` is the
-  API. [ADR-0018](docs/adr/0018-impact.md).
+  `--ignore-status`, and `--json` with `formatVersion`. A path that does not
+  exist is exit 2, and so is a run in which no spec matched, as for `query`:
+  the dependents are written, and `--allow-empty` exits 0 with them. `impactOf`
+  is the API. [ADR-0018](docs/adr/0018-impact.md).
 - **`get_dependents` on the MCP server**, a third tool beside
   `get_architectural_rules` and `check_architecture`: `impact` for a list of
   paths, with `depth` and `include_inactive`. Its structured content is the
