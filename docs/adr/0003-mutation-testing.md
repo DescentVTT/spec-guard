@@ -1436,6 +1436,114 @@ control apart proves nothing.
 | `parser.ts`: `match.index - scan.bom` -> `+` | behind a byte-order mark the two offsets are 2 apart, and a region begins at a line start and ends before a line terminator, so no boundary falls inside the `<!--` both point into | the same 34,619, of which 21,995 hold a masked directive and 6,890 of those a byte-order mark |
 | `parser.ts`: `offset < bodyStart` -> `<=`, `start <= offset` -> `<` and `offset < end` -> `<=` in `maskedBy` | each differs only for a `<!--` exactly where the body or a block begins, or where a block ends. A block ends before a line terminator, where no comment begins; the body and a block begin at a line start, and a line that masks what it holds begins with a fence, indentation or a tag, while a `<!--` that begins a line outside one is read as a directive | the same; the code span before a block, killed above, changed 2,156 of them, and the untrimmed empty status 4,019 |
 
+### 0.12.0: eight shards, for a sweep that doubled
+
+On 2026-09-26 `main`'s full sweep of 398fe94, the merge of 0.12.0's code, had
+no score. Three shards finished in 28m17s, 25m01s and 23m27s, each past the 20
+minutes at which `scripts/mutation-shards.mjs` says to re-measure. The fourth
+was cancelled at the job's 30-minute limit with 5,303 of its 5,440 mutants
+tested, and the merge refused the sweep: "No report from shard 4 of 4".
+
+Against 0.11.0's last full sweep, of d0ca38a, whose shards took 12 to 15
+minutes:
+- **Mutants** went from 8,644 to 11,559. The last shard, which takes every file
+  nobody listed, went from 2,499 to 5,440: `cites.ts`, `impact.ts`, `prove.ts`
+  and `overlay.ts` are new and landed there, `cli.ts` grew from 594 to 903 and
+  `reporter.ts` from 608 to 1,265.
+- **Static mutants** went from 910 to 1,980, and 538 of them are in `cites.ts`.
+  Each runs the whole suite in a reloaded environment, where any other mutant
+  runs only the tests that cover it.
+- **The suite** went from 2,790 tests to 3,384, and the shards' initial test
+  runs from 8.1-9.1 seconds of test time to 14.2-25.1.
+
+The minutes grew faster than the mutants. The four files that took 13.5
+minutes in 0.11.0's first shard took 27.1 in this one, with 55 more mutants;
+`imports.ts` has 635 mutants in both sweeps and took 2.3 minutes, then 10.4.
+
+**The minutes, including a shard that never finished.**
+`scripts/mutation-timeline.mjs` read the three finished shards as before. Its
+check on timeouts agrees within two for 9 of their 13 files. `glob.ts` is off by
+ten, and `graph.ts`, `specs.ts` and `text.ts` by three to five, so theirs are
+the least certain minutes. The cancelled shard left a log and no report, and the
+script needs a report's counts to place each file's stretch. The pull request's
+incremental sweep of 24dedcf has them. Its tree is 398fe94's, and for every file
+of the other three shards its uncovered, static and other mutants match
+`main`'s shard reports exactly. With its counts, the log places every runtime
+mutant of the fourth shard and all 538 of `cites.ts`'s static ones, and the
+timeouts agree within one for the four of its files that have timeouts. The
+log never reached 137 static mutants: the last 22 of `cli.ts`'s 144 and the 115
+of the eight files after it. Stryker's last progress line put them at about
+four minutes more. At the pace of the 122 `cli.ts` static mutants before them,
+3.7 seconds each, they would take 8.4. The minutes below use the second, so the
+fourth shard needed about 37.8 minutes against a limit of 30.
+
+**Not scaled, this time.** The earlier tables scaled each shard's minutes to a
+runner whose initial test run takes 8.0 seconds. That run now measures the shard
+more than the runner. Over eight runs of the same four shards, on 0.12.0's
+branch and on `main`, with 3,280 to 3,384 tests:
+
+| shard | initial test run, seconds of test time | 398fe94's |
+| --- | --- | --- |
+| 1 | 18.8 to 25.1 | 25.1, the slowest |
+| 2 | 16.3 to 19.7 | 18.8, the third slowest |
+| 3 | 12.1 to 15.1 | 14.6, the second slowest |
+| 4 | 8.1 to 14.5 | 14.2, the fourth slowest |
+
+On eight runners each, drawn at random, shards 1 and 2 never came in under the
+slowest of shards 3 and 4. In 0.11.0's sweep all four took 8.1 to 9.1 seconds.
+A shard's instrumented files slow every test that runs them, and 0.12.0's tests
+evidently run some of them far more. So the minutes below are as measured. The
+runners were at the slow end of what each shard saw, and that is the side to
+err on. It also means that each file was measured beside the files it shared a
+shard with, and a file that changes company can change pace. Minutes per file,
+in 0.11.0's last sweep and in 398fe94's:
+
+| file | mutants | static | 0.11.0 | 398fe94 |
+| --- | --- | --- | --- | --- |
+| `cli.ts` | 903 | 144 | 5.0 | 15.1 |
+| `runner.ts` | 1,643 | 44 | 7.9 | 14.7 |
+| `glob.ts` | 501 | 147 | 3.9 | 10.7 |
+| `imports.ts` | 635 | 10 | 2.3 | 10.4 |
+| `parser.ts` | 415 | 256 | 5.4 | 8.1 |
+| `comments.ts` | 732 | 441 | 2.3 | 7.3 |
+| `engine.ts` | 526 | 35 | 5.5 | 7.3 |
+| `reporter.ts` | 1,265 | 54 | 1.8 | 6.6 |
+| `polyglot.ts` | 655 | 52 | 2.6 | 4.7 |
+| `graph.ts` | 211 | 20 | 3.5 | 4.7 |
+| `cites.ts` | 681 | 538 | | 3.9 |
+| `watch.ts` | 240 | 6 | 3.3 | 3.2 |
+| `config.ts` | 289 | 35 | 0.6 | 2.9 |
+| the other fourteen, three of them new | 2,863 | 198 | 8.1 | 12.0 |
+| **all** | **11,559** | **1,980** | **52.2** | **111.4** |
+
+**Eight shards.** `cli.ts` and `runner.ts` take about 15 minutes each and a file
+cannot be split, so the sweep cannot finish much sooner than that. Seven listed
+shards bring the rest up to them:
+
+| shard | files | minutes |
+| --- | --- | --- |
+| 1 | `runner.ts`, `text.ts` | 15.2 |
+| 2 | `imports.ts`, `graph.ts` | 15.1 |
+| 3 | `glob.ts`, `scope.ts`, `mcp.ts`, `structure.ts` | 14.5 |
+| 4 | `cli.ts` | 15.1 |
+| 5 | `parser.ts`, `engine.ts` | 15.3 |
+| 6 | `comments.ts`, `polyglot.ts`, `config.ts` | 14.8 |
+| 7 | `reporter.ts`, `cites.ts`, `watch.ts`, `specs.ts` | 15.3 |
+| 8 | everything else | 6.1 |
+
+The last shard is small on purpose. Every new file lands there: 0.12.0's four
+came to 7.3 minutes, and the last shard of the four went from 12.7 minutes to
+about 37.8 in one release. At 6.1 it has room for another release like that
+before it passes the others. Where it cost nothing, files stayed beside the
+files they were measured with: `runner.ts` with `text.ts`, `imports.ts` with
+`graph.ts`, `glob.ts` with the three smaller files of its old shard, and
+`comments.ts` with `polyglot.ts`. With about a minute a job for setup and the
+initial test run, that is about 16 minutes a job on runners like 398fe94's.
+
+A branch's incremental run is split the same way, so it takes eight jobs too.
+The job limit, the gate, the per-mutant timeout and the static mutants are all
+unchanged.
+
 <!-- @assert-present file="scripts/mutation-shards.mjs,scripts/mutation-timeline.mjs,stryker.shard.config.mjs,tests/mutation-shards.test.ts" reason="the sweep is only one sweep if the merge that checks it exists" -->
 <!-- @assert-count target="stryker.config.mjs" symbol="related: false }" expected="1" reason="with related tests on, which tests a shard runs depends on the files it holds; see 0.9.0 in this ADR" -->
 <!-- @assert-absence target=".github/workflows" symbol="--ignoreStatic" reason="780 static mutants are 10% of the sweep; leaving them out lowers the gate" -->
