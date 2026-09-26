@@ -1555,6 +1555,17 @@ ran high where they were least measured: `runner.ts` and `text.ts` took 7m35s
 against 15.2 minutes, and `cli.ts` alone 8m18s against 15.1, so the next
 split starts from this run's logs rather than 398fe94's.
 
+### 0.12.1: a memo, and no survivor added
+
+CI's full sweep of be3182b (run 36258388795) came out at **99.20% over 11,549
+mutants with 89 survivors**, the same score and the same survivors as 0.12.0:
+the document memo and the calls that thread it added twelve mutants and every
+one is killed. The seven survivors `runner.ts` reports at new lines are
+0.12.0's seven, moved down by the lines the memo added, each on the same
+source line as before. No coverage is 3, as it was. The eight shards took
+13m18s, 15m28s, 14m52s, 10m51s, 12m48s, 13m56s, 14m10s and 5m50s, and the
+sweep 15m48s from the first job to the score.
+
 <!-- @assert-present file="scripts/mutation-shards.mjs,scripts/mutation-timeline.mjs,stryker.shard.config.mjs,tests/mutation-shards.test.ts" reason="the sweep is only one sweep if the merge that checks it exists" -->
 <!-- @assert-count target="stryker.config.mjs" symbol="related: false }" expected="1" reason="with related tests on, which tests a shard runs depends on the files it holds; see 0.9.0 in this ADR" -->
 <!-- @assert-absence target=".github/workflows" symbol="--ignoreStatic" reason="780 static mutants are 10% of the sweep; leaving them out lowers the gate" -->

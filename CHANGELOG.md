@@ -5,7 +5,14 @@ All notable changes to this project are documented here. Versions follow
 may change in a minor release — each such change is listed under **Changed**
 with the flag that restores the previous behaviour.
 
-## Unreleased
+## 0.12.1
+
+The query is fast again. A warm `query` in the MCP server took 27 ms over this
+repository's specs after 0.12.0 moved to spec-core's scanner, past the 20 ms
+ADR-0012 set; it now takes about 6 ms, faster than 0.11.0. The scanner makes
+only what it is asked for, and the server parses a spec again only when its
+bytes change. The shipped README and changelog link to the ADRs by address,
+so the links lead somewhere on npmjs.com and inside `node_modules`.
 
 ### Added
 
