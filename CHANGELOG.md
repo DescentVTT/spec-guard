@@ -7,6 +7,16 @@ with the flag that restores the previous behaviour.
 
 ## Unreleased
 
+### Fixed
+
+- **The README's and the changelog's links to the ADRs lead somewhere on
+  npmjs.com and in node_modules.** They were relative, and the package ships
+  neither `docs/` nor `.github/`, so outside the repository the 66 links to
+  ADRs and the one to the release workflow led nowhere. Each is an absolute
+  URL to the file on GitHub now, and a link to a file the package ships stays
+  relative. `tests/package.test.ts` holds every Markdown document the package
+  ships to that, and each absolute link to a file the repository holds.
+
 ### Changed
 
 - `npm publish` in a checkout refuses to run outside GitHub Actions, so a
@@ -22,7 +32,7 @@ with the flag that restores the previous behaviour.
   Markdown files of the five spec-* repositories every directive, error,
   status, title and warning reads as it did, and a run, `prove` and `cites` of
   this repository answer as they did.
-  [ADR-0015](docs/adr/0015-globs-from-spec-core.md).
+  [ADR-0015](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0015-globs-from-spec-core.md).
 
 ## 0.12.0
 
@@ -74,7 +84,7 @@ counts. What can differ, and where this changelog says why:
   `--ignore-status`, and `--json` with `formatVersion`. A path that does not
   exist is exit 2, and so is a run in which no spec matched, as for `query`:
   the dependents are written, and `--allow-empty` exits 0 with them. `impactOf`
-  is the API. [ADR-0018](docs/adr/0018-impact.md).
+  is the API. [ADR-0018](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0018-impact.md).
 - **`get_dependents` on the MCP server**, a third tool beside
   `get_architectural_rules` and `check_architecture`: `impact` for a list of
   paths, with `depth` and `include_inactive`. Its structured content is the
@@ -104,7 +114,7 @@ counts. What can differ, and where this changelog says why:
   read, and are counted. Human, `--json` (with `formatVersion`), SARIF, GitHub
   and GitLab output; exit 1 on a ghost, 2 for a family whose files match no
   document. `findCitations` is the API.
-  [ADR-0017](docs/adr/0017-citations-in-comments.md).
+  [ADR-0017](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0017-citations-in-comments.md).
 - **`spec-guard prove`: can each rule actually fail?** A passing rule cannot
   say whether the code holds or the rule cannot see the code. `prove` shows
   each rule in force a violation of itself - a file holding the forbidden text,
@@ -119,7 +129,7 @@ counts. What can differ, and where this changelog says why:
   `proveSpecGuard` is the same for a caller of the API. The first proof of
   this repository's own rules found one that could not fail as written, and
   CI now proves every rule the repository states on each change.
-  [ADR-0016](docs/adr/0016-rules-seen-to-fail.md).
+  [ADR-0016](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0016-rules-seen-to-fail.md).
 - **`RunOptions.io`: a run over a tree that is not on disk.** `runSpecGuard`
   reads through the `Io` it is given - finding and reading the specs, checking
   targets exist, walking them, scanning files, reading imports and listing
@@ -129,7 +139,7 @@ counts. What can differ, and where this changelog says why:
   `engine: 'ripgrep'` with an `io` is refused with a message that says so, and
   `auto` with one searches with the built-in scanner. A search that fails
   outright through the door fails the run, rather than falling back to the
-  scanner that reads the disk. [ADR-0014](docs/adr/0014-configuration-and-watch.md).
+  scanner that reads the disk. [ADR-0014](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0014-configuration-and-watch.md).
 - **`--format gitlab` and `--format github`**, for the run, `prove` and
   `cites`. `gitlab` writes a GitLab Code Quality report - `description`,
   `check_name`, a `fingerprint`, a `severity` and a `location` - which a
@@ -157,7 +167,7 @@ counts. What can differ, and where this changelog says why:
   as front matter. Warnings about how a document was read - a front-matter
   status that cannot be read, a block never closed - are `specWarnings`.
   Both fields are added, so no `formatVersion` moves.
-  [ADR-0002](docs/adr/0002-directive-format.md)'s amendment.
+  [ADR-0002](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0002-directive-format.md)'s amendment.
 - **`formatVersion: 1` on the run's `--json` and on `query --json`**, as
   `prove --json` has had from the start: a field removed or renamed moves it,
   a field added does not. Both documents are otherwise unchanged; this is one
@@ -182,7 +192,7 @@ counts. What can differ, and where this changelog says why:
   the same match takes under a millisecond. spec-core is copied into
   `src/vendor/spec-core` and verified by hash, so `dependencies` stays empty,
   and its MIT notice ships in the package at `src/vendor/spec-core/LICENSE`.
-  [ADR-0015](docs/adr/0015-globs-from-spec-core.md).
+  [ADR-0015](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0015-globs-from-spec-core.md).
 - **ripgrep and the scanner still read some patterns differently**, so the same
   rule could count differently on either side of the tree size at which `auto`
   changes engine. ripgrep anchored every alternative of `{src/*.ts,*.md}`
@@ -198,7 +208,7 @@ counts. What can differ, and where this changelog says why:
   rules. It is now decided by spec-core's Markdown scanner, which every spec-*
   tool reads documents with, copied into `src/vendor/spec-core` from `cbe2223`
   and verified by hash; `maskCode` is still exported, and is the scanner's
-  mask. [ADR-0002](docs/adr/0002-directive-format.md)'s amendment.
+  mask. [ADR-0002](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0002-directive-format.md)'s amendment.
 
   Directives that were hidden, and now execute:
   - **A backtick fence's info string may not hold a backtick.** A line that
@@ -270,7 +280,7 @@ counts. What can differ, and where this changelog says why:
   `glob="*.{ts,tsx}"` was always the two patterns `*.{ts` and `tsx}`, and the
   message now says so. A configuration's `exclude` is a JSON array, where braces
   keep their commas. Nothing restores the old readings.
-  [ADR-0015](docs/adr/0015-globs-from-spec-core.md).
+  [ADR-0015](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0015-globs-from-spec-core.md).
 - **`**` inside a name is refused**: `docs/**.md`, `src/**.ts`, `**.ts`,
   `a**b`. The message says what `**` means and gives the two ways to write
   what was meant, `docs/**/*.md` for any depth and `*.md` for one level. It
@@ -294,7 +304,7 @@ counts. What can differ, and where this changelog says why:
   An archived document is still parsed, validated and named in every output
   format. `--ignore-status` executes it as before. The list stays closed:
   `done`, `closed`, `archive` and every other near word stay in force, and
-  [ADR-0010](docs/adr/0010-spec-status.md)'s amendment says why this word and
+  [ADR-0010](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0010-spec-status.md)'s amendment says why this word and
   no other.
 - **A status is found by the scanner's headings and front-matter reader.**
   The three spellings, their order and the words are unchanged, and every
@@ -324,7 +334,7 @@ counts. What can differ, and where this changelog says why:
     `specWarnings` entry in `--json` (run and `prove`), a SARIF notification
     and a `spec-warning` annotation for GitHub and GitLab.
 
-  [ADR-0010](docs/adr/0010-spec-status.md)'s second amendment.
+  [ADR-0010](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0010-spec-status.md)'s second amendment.
 - **A title is the first level-one heading as the scanner reads it.** An
   underlined one (`===`) is a title and one kept in a comment is not; a code
   span in it is kept as written, where it was blanked, and a comment in it is
@@ -337,7 +347,7 @@ counts. What can differ, and where this changelog says why:
   over this repository's 18 ADRs, and 23 ms against 9 ms for a warm query of
   one path, past the 20 ms ADR-0012 set out to meet. The scanner finds list
   items, links and tables that nothing here reads.
-  [ADR-0002](docs/adr/0002-directive-format.md)'s amendment says where the
+  [ADR-0002](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0002-directive-format.md)'s amendment says where the
   remedy lies.
 - **The MCP server speaks the protocol through spec-core.** Classifying each
   request, the two eras, dispatch, result shapes and the stdio framing are
@@ -346,7 +356,7 @@ counts. What can differ, and where this changelog says why:
   client sees is unchanged, and every test of the server passes as it was
   written. One edge moved: a last line cut inside a UTF-8 character when stdin
   closes is read as far as it goes rather than dropped. The protocol's names
-  are still exported from the package. [ADR-0015](docs/adr/0015-globs-from-spec-core.md).
+  are still exported from the package. [ADR-0015](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0015-globs-from-spec-core.md).
 - **API:**
   - `createGlobMatcher`, `createExcludeMatcher` and `expandSpecPatterns` throw
     for a pattern spec-core refuses - an unclosed `[` or `{`, an extended
@@ -380,7 +390,7 @@ expression can hold a quote — `/'/`, `/["']/`, `replace(/\/\//g, '')` — and
 without a rule for `/`, that quote opened a string that closed somewhere else
 entirely. Every text rule over a TypeScript project reads through this
 classifier, and this repository's own `src/parser.ts` was one of the files it
-lost its place in. [ADR-0006](docs/adr/0006-comment-classification.md).
+lost its place in. [ADR-0006](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0006-comment-classification.md).
 
 ### Fixed
 
@@ -439,8 +449,8 @@ question asked per character has to be paid for per character.
 Fixes from running 0.10.2 over a Rust and .NET monorepo, where an import rule
 missed five `use` declarations in one crate and said nothing, and from probing
 every other language profile for the same mistake.
-[ADR-0006](docs/adr/0006-comment-classification.md),
-[ADR-0008](docs/adr/0008-polyglot-imports.md).
+[ADR-0006](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0006-comment-classification.md),
+[ADR-0008](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0008-polyglot-imports.md).
 
 ### Fixed
 
@@ -488,8 +498,8 @@ regular expression literal holding a quote, `/["']/` - is recorded in ADR-0006.
 Fixes from running 0.10.1 over a .NET solution, where a layer rule passed while
 the domain imported the application, and from reading C# as it is written in
 2026 while fixing that.
-[ADR-0011](docs/adr/0011-layers-and-cycles.md),
-[ADR-0008](docs/adr/0008-polyglot-imports.md).
+[ADR-0011](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0011-layers-and-cycles.md),
+[ADR-0008](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0008-polyglot-imports.md).
 
 ### Fixed
 
@@ -562,7 +572,7 @@ the domain imported the application, and from reading C# as it is written in
 
 Fixes from running 0.10.0 over a large monorepo, and from testing each exclude
 shape under both engines while making them.
-[ADR-0014](docs/adr/0014-configuration-and-watch.md).
+[ADR-0014](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0014-configuration-and-watch.md).
 
 ### Fixed
 
@@ -638,8 +648,8 @@ shape under both engines while making them.
 Improvements from running 0.9.2 over a large polyglot monorepo: a
 configuration a Rust, Go or .NET root can hold, exclusions a whole project
 shares, and a cycle rule that can leave lazy loading out.
-[ADR-0014](docs/adr/0014-configuration-and-watch.md),
-[ADR-0011](docs/adr/0011-layers-and-cycles.md).
+[ADR-0014](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0014-configuration-and-watch.md),
+[ADR-0011](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0011-layers-and-cycles.md).
 
 ### Added
 
@@ -703,7 +713,7 @@ shares, and a cycle rule that can leave lazy loading out.
     unanalysable, as does `/*` inside JSX text.
   - Tracking JSX text in general was turned down: a TypeScript cast or a
     generic arrow read as markup would skip real code without a word.
-    [ADR-0005](docs/adr/0005-import-assertions.md).
+    [ADR-0005](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0005-import-assertions.md).
 
 ## 0.9.1
 
@@ -719,13 +729,13 @@ shares, and a cycle rule that can leave lazy loading out.
   - `/>` anywhere else still starts a regular expression, so
     `replace(/>/g, '&gt;')` reads as before.
 
-  [ADR-0005](docs/adr/0005-import-assertions.md).
+  [ADR-0005](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0005-import-assertions.md).
 
 ## 0.9.0
 
 A project's policy can live in its `package.json`, and `spec-guard --watch`
 reports again as the tree changes, re-executing only the rules a change
-affected. [ADR-0014](docs/adr/0014-configuration-and-watch.md).
+affected. [ADR-0014](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0014-configuration-and-watch.md).
 
 ### Added
 
@@ -793,7 +803,7 @@ affected. [ADR-0014](docs/adr/0014-configuration-and-watch.md).
     reported every other shard's files with the previous sweep's verdicts. The
     merge refused that sweep.
   - No mutants were left out, the per-mutant timeout is unchanged, and the gate
-    is unchanged. [ADR-0003](docs/adr/0003-mutation-testing.md).
+    is unchanged. [ADR-0003](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0003-mutation-testing.md).
 
 ### Fixed
 
@@ -815,7 +825,7 @@ affected. [ADR-0014](docs/adr/0014-configuration-and-watch.md).
 
 An architecture document can now state conventions about names and layout: what
 the files in a directory are called, what every package holds, and which files
-come in pairs. [ADR-0013](docs/adr/0013-structure-assertions.md).
+come in pairs. [ADR-0013](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0013-structure-assertions.md).
 
 ### Added
 
@@ -866,7 +876,7 @@ come in pairs. [ADR-0013](docs/adr/0013-structure-assertions.md).
   had, less one in `glob.ts` that the new tests turned into a genuine hang. A
   local sweep had reported four survivors in the new listing cache as killed; CI
   found them, and they are tested. See
-  [ADR-0003](docs/adr/0003-mutation-testing.md).
+  [ADR-0003](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0003-mutation-testing.md).
 
 ## 0.7.0
 
@@ -896,7 +906,7 @@ than every release, and it is fixed below.
   `types="ignore"` asks the runtime question. JavaScript and TypeScript only,
   because a cycle needs to know which file an import *is*; imports that should
   have become an edge and did not are reported, and fail under `--strict`.
-  See [ADR-0011](docs/adr/0011-layers-and-cycles.md) for the resolution table,
+  See [ADR-0011](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0011-layers-and-cycles.md) for the resolution table,
   and for why the other four languages are not in the graph.
 - `buildGraph`, `resolveReference`, `stronglyConnected`, `cyclicComponents`,
   `witness`, `checkLayers` and `referenceForms` are exported, with their types.
@@ -908,7 +918,7 @@ than every release, and it is fixed below.
   scripts. Rules in documents that are not in force are counted and named, and
   listed with `--ignore-status`. The arithmetic behind it is tested against the
   files a real run searches, under both engines and on random trees; see
-  [ADR-0012](docs/adr/0012-query-and-mcp.md) for the three things it cannot see.
+  [ADR-0012](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0012-query-and-mcp.md) for the three things it cannot see.
 - **`spec-guard mcp`** - a Model Context Protocol server on stdio, with no
   dependency on the MCP SDK. Tools `get_architectural_rules` (the query) and
   `check_architecture` (a run, narrowed to the rules governing given paths, each
@@ -958,7 +968,7 @@ than every release, and it is fixed below.
   mutated build against the real one on thousands of random inputs. The query
   and the server (`query.ts`, `rules.ts`, `mcp.ts`, `specs.ts`) are all at 100%;
   most of the survivors found on the way were code nothing could observe, and it
-  was deleted. See [ADR-0003](docs/adr/0003-mutation-testing.md) for both
+  was deleted. See [ADR-0003](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0003-mutation-testing.md) for both
   accounts, and for why one sweep's count is good to about three.
 - `version(manifest?)` takes the manifest to read, so its fallback for a broken
   install - `0.0.0` rather than a crash - is tested.
@@ -1003,7 +1013,7 @@ making sure a rule that stops running can never look like a rule that passed.
   are still checked for typos, bad attributes and unresolvable values, so a
   draft's mistake is found on the day it is written rather than on the day
   everyone agrees the rule is right and stops looking at it.
-  See [ADR-0010](docs/adr/0010-spec-status.md), which also records why there is
+  See [ADR-0010](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0010-spec-status.md), which also records why there is
   no per-directive `if-status` attribute.
 - `--ignore-status` executes every directive whatever its document declares -
   how to ask whether a draft would pass if you accepted it today.
@@ -1027,7 +1037,7 @@ making sure a rule that stops running can never look like a rule that passed.
   the whole suite per mutant, so on a loaded machine an unrelated test timing
   out is scored as a kill. Those patterns are now verified by applying every
   mutant by hand, `scripts/mutation-regex.mjs`, and the account is in
-  [ADR-0003](docs/adr/0003-mutation-testing.md).
+  [ADR-0003](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0003-mutation-testing.md).
 
 ## 0.5.1
 
@@ -1076,7 +1086,7 @@ new features, and nothing a user has to change.
   individually and produce byte-identical output, so that figure is the ceiling
   rather than a way-point — and 29 that were assumed equivalent turned out not
   to be, and are now tested. See
-  [ADR-0003](docs/adr/0003-mutation-testing.md), which also records a Stryker
+  [ADR-0003](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0003-mutation-testing.md), which also records a Stryker
   limitation found on the way: a mutant that stops a test file *loading* is
   reported as survived even though the suite is killing it.
 - **`src/imports.ts` went from 73.74% to 95.89%.** The tokenizer was tested as a
@@ -1114,13 +1124,13 @@ scope holds no files at all.
   Not four new tokenizers: the comment and string lexer from ADR-0006 masks the
   source and the readers work on what is left. Tree-sitter measured 94 MB
   unpacked against this package's 0.33 MB. See
-  [ADR-0008](docs/adr/0008-polyglot-imports.md).
+  [ADR-0008](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0008-polyglot-imports.md).
 - **`baseline` and `ratchet`** on the absence assertions, for adopting a strict
   rule on a codebase that already breaks it. `baseline="src/legacy/a.ts:2"`
   names the debt by file and count. The ratchet is two-sided: new violations
   fail, and so does an entry the code no longer supports, because a baseline
   that only grows is an `exclude` with extra steps. `ratchet="one-way"` relaxes
-  the second half. See [ADR-0009](docs/adr/0009-debt-baselines.md).
+  the second half. See [ADR-0009](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0009-debt-baselines.md).
 - **`--print-baseline`** prints the attribute that would exempt today's
   violations, for a human to paste. It prints; it does not edit. That is the
   whole answer to `--fix`, and ADR-0009 argues it.
@@ -1150,7 +1160,7 @@ scope holds no files at all.
   starts finding dependencies it previously reported as unanalysable.
 - **Mutation testing in CI runs in two tiers**: incremental on branches,
   a full authoritative sweep on `main` and nightly. The gate stays at 85 in
-  both. See [ADR-0003](docs/adr/0003-mutation-testing.md).
+  both. See [ADR-0003](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0003-mutation-testing.md).
 
 ### Fixed
 
@@ -1198,7 +1208,7 @@ found two and ripgrep found four, and neither said anything about the rest.
 - **The engines are one implementation.** ripgrep now answers only *which files
   contain this text*; the scanner does all counting, comment classification,
   binary handling and reporting for both. `--engine` changes how long a run
-  takes, not what it concludes. See [ADR-0007](docs/adr/0007-search-scope.md).
+  takes, not what it concludes. See [ADR-0007](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0007-search-scope.md).
 
 ### Added
 
@@ -1237,7 +1247,7 @@ found two and ripgrep found four, and neither said anything about the rest.
   directions. A zero-dependency tokenizer resolves `import`, `export … from`,
   `import type`, dynamic `import()` with a literal, and `require()`. Module
   references it cannot resolve statically are reported, never counted as clean.
-  See [ADR-0005](docs/adr/0005-import-assertions.md).
+  See [ADR-0005](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0005-import-assertions.md).
 - **`comments` attribute.** See Changed, below.
 - **`--allow-missing-targets`** to restore the previous handling of a `target`
   path that does not exist.
@@ -1253,7 +1263,7 @@ found two and ripgrep found four, and neither said anything about the rest.
   uncertain the text counts as code, and every run reports how many matches it
   excluded — a pass caused by comment exclusion is never silent.
   `comments="include"` restores counting per assertion.
-  See [ADR-0006](docs/adr/0006-comment-classification.md).
+  See [ADR-0006](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0006-comment-classification.md).
 - **A `target` path that does not exist now fails the run** instead of warning
   and searching what remained. An assertion pointed at a renamed directory used
   to search nothing, find nothing, and report success. `--allow-missing-targets`
@@ -1289,9 +1299,9 @@ first published 0.3.0.
   enough for the JavaScript scanner to beat a ripgrep process spawn. The probe
   is the work — the enumeration it performs is reused by the scanner, so
   choosing costs nothing when the scanner wins.
-  See [ADR-0004](docs/adr/0004-adaptive-engine.md).
+  See [ADR-0004](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0004-adaptive-engine.md).
 - **Mutation testing** with Stryker, wired into CI on every push, plus the tests
-  that closed the gaps it exposed. See [ADR-0003](docs/adr/0003-mutation-testing.md).
+  that closed the gaps it exposed. See [ADR-0003](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0003-mutation-testing.md).
 
 ### Changed
 
