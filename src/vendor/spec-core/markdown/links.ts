@@ -6,6 +6,9 @@
  * `[text][label]` and `[label][]`, shortcut `[label]`, autolink `<https://x>`,
  * wiki `[[target|text]]`, and the definition `[label]: dest` the reference
  * forms are read through. Each may be an image, written with a leading `!`.
+ * A link's text is read again for images, which CommonMark renders there - a
+ * badge wrapped in a link has two destinations - and for nothing else; each
+ * is listed after the link it lies in.
  *
  * Brackets are paired once per paragraph with a stack, and the tables that
  * say where a destination or a title ends are built once per paragraph, so
@@ -341,7 +344,16 @@ function readBrackets(layout: Layout, definitions: ReadonlyMap<string, Definitio
 
     let escaped = -1;
     let at = from;
+    // Inside a link's text, up to its `]`, where CommonMark reads an image -
+    // a badge wrapped in a link - but no other link; then on past the link.
+    let textEnd = -1;
+    let resume = -1;
     while (at < to) {
+      if (textEnd >= 0 && at >= textEnd) {
+        at = resume;
+        textEnd = -1;
+        continue;
+      }
       const ch = structure.charCodeAt(at);
       if (ch === BACKSLASH) {
         escaped = at + 1;
@@ -362,11 +374,26 @@ function readBrackets(layout: Layout, definitions: ReadonlyMap<string, Definitio
       const image = structure.charCodeAt(at - 1) === BANG && escaped !== at - 1;
       const start = image ? at - 1 : at;
       const link = wiki(at, start, image, line) ?? bracket(at, start, image, line);
-      if (link === null) {
+      if (textEnd >= 0) {
+        // An image that closes inside the text; its own text is alt text, and
+        // holds nothing a reader follows.
+        if (link !== null && link.image && link.form !== 'wiki' && link.end <= textEnd) {
+          out.push(link);
+          at = link.end;
+        } else {
+          at += 1;
+        }
+      } else if (link === null) {
         at += 1;
       } else {
         out.push(link);
-        at = link.end;
+        if (!link.image && link.form !== 'wiki') {
+          textEnd = pairs.get(at) as number;
+          resume = link.end;
+          at += 1;
+        } else {
+          at = link.end;
+        }
       }
     }
     first = last;
