@@ -7,6 +7,31 @@ with the flag that restores the previous behaviour.
 
 ## Unreleased
 
+### Upgrading
+
+Run this release beside the one it replaces, each with `--json`, and compare
+`summary.total` before trusting a green run - and, if the totals differ, each
+result's `spec` file and line, which say which rule moved. A rule that stops
+running reads exactly like one that passes. On a consumer of 114 specs and 301
+assertions, both releases ran the same 301 at the same places with the same
+counts. What can differ, and where this changelog says why:
+
+- **A run that exits 2**, or a directive that is invalid, where one ran: a
+  pattern that cannot be read - `**` inside a name (`docs/**.md`), an
+  extended glob, an unclosed `[` or `{` - in `specs`, `exclude`, `--spec`,
+  `--exclude` or a directive's attributes.
+- **`summary.total` moving** because a directive moved between prose and code:
+  the shapes under Fixed. Every directive-shaped comment left in code, raw
+  HTML or front matter is on one line of the report and in `maskedDirectives`.
+- **`summary.inactive` moving**: `archived` withholds a document; a
+  front-matter `status` the reader cannot read - text after a closing quote,
+  `: ` in a plain value - keeps its document in force with a warning, where
+  0.11.0 took its first word, and nothing below the front matter is read in
+  its place; and an invalid directive in a draft is counted once, as invalid.
+- **Warnings that fail nothing**, in `specWarnings`: a front-matter status
+  that cannot be read, a block never closed.
+- **`impact` exits 2** when no spec matched, as `query` does.
+
 ### Added
 
 - **`spec-guard impact <paths...>`: who depends on this?** For each path, the
@@ -291,6 +316,31 @@ with the flag that restores the previous behaviour.
   written. One edge moved: a last line cut inside a UTF-8 character when stdin
   closes is read as far as it goes rather than dropped. The protocol's names
   are still exported from the package. [ADR-0015](docs/adr/0015-globs-from-spec-core.md).
+- **API:**
+  - `createGlobMatcher`, `createExcludeMatcher` and `expandSpecPatterns` throw
+    for a pattern spec-core refuses - an unclosed `[` or `{`, an extended
+    glob, a `..`, `**` inside a name - naming the pattern, where they read it
+    as a literal or as whatever its `RegExp` meant. `globPatternError` and the
+    new `specPatternError` say why without throwing.
+  - `Annotation` has a required `identity`, which the GitLab fingerprint is
+    made of. `SpecSet` and `RunPlan` have required `warnings` and `masked`;
+    `RunReport` and `ProveReport` have optional `specWarnings` and
+    `maskedDirectives`, and `ParseResult` optional `warnings` and `masked`.
+    An `InactiveSpec`'s `directives` counts only those that resolve.
+  - New: `proveSpecGuard`, `PROVE_NAME`, `overlayIo` and `readOnce`;
+    `findCitations`, `findDocuments`, `deriveFamilies`, `scanCitations`,
+    `inComments`, `qualified`, `isStale`, `numberKey`, `documentNumber`,
+    `parseIdTemplate`, `parseFilesTemplate`, `citeIdError`, `citeFilesError`,
+    `CitesError` and `NUMBER`; `impactOf`, `impactDocument`, `dependentsOf`,
+    `buildReverseGraph`, `resolvePython`, `formatImpact`, `formatImpactJson`
+    and `ImpactError`; `formatProve`, `formatProveJson`, `formatProveSarif`,
+    `formatCites`, `formatCitesJson`, `formatCitesSarif`, `formatGitlab`,
+    `formatGithub`, `runAnnotations`, `proveAnnotations` and
+    `citesAnnotations`; `RUN_FORMAT_VERSION`, `QUERY_FORMAT_VERSION`,
+    `PROVE_FORMAT_VERSION`, `CITES_FORMAT_VERSION` and
+    `IMPACT_FORMAT_VERSION`; `globPatternError` and `specPatternError`; and
+    the types that go with them, `SpecWarning`, `MaskedDirective` and
+    `MaskedContext` among them.
 
 ## 0.11.0
 
