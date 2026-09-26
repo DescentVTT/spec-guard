@@ -16,7 +16,10 @@
 
 import { describe, expect, it } from 'vitest';
 
+import { EXIT_FAILED, main, type CliIO } from '../src/cli.js';
 import { maskCode, parseAttributes, parseDirectives, ALLOWED_ATTRIBUTES, KINDS } from '../src/parser.js';
+import { runSpecGuard } from '../src/runner.js';
+import { makeTempRepo, removeTempRepo } from './helpers.js';
 
 const context = { file: 'C:/repo/docs/a.md', relativeFile: 'docs/a.md' };
 
@@ -402,6 +405,112 @@ describe('an indented fence', () => {
     expect(executed('        see ``` here\n<!-- @assert-absence symbol="X" -->\n')).toEqual(['X']);
     expect(executed('x```js\n<!-- @assert-absence symbol="X" -->\n')).toEqual(['X']);
     expect(executed('    ``\n<!-- @assert-absence symbol="X" -->\n')).toEqual(['X']);
+  });
+});
+
+describe('a fence line shown as code in a list item', () => {
+  // The review's document. 4f2826a read no indented code inside a list, so the
+  // fence line six spaces in opened a block nothing closed, and the directive
+  // at the end of the document - the only rule it states - never ran. From
+  // cbe2223 the scanner knows the item's text column: four past it is code.
+  const REPRO = [
+    '- To show a fence in a list, indent it as code:',
+    '',
+    '      ```',
+    '',
+    '- The gateway is gone.',
+    '',
+    '<!-- @assert-absence target="src" symbol="LegacyGateway" -->',
+    '',
+  ].join('\n');
+  const parsed = (source: string) => parseDirectives(source, context);
+
+  it('is code, and the directive after it runs', () => {
+    const { directives, warnings } = parsed(REPRO);
+    expect(directives.map((directive) => [directive.location.line, directive.attributes['symbol']])).toEqual([[7, 'LegacyGateway']]);
+    expect(warnings).toBeUndefined();
+  });
+
+  it.each([
+    ['a dash item, eight spaces in', ['- Show it:', '', '        ```', '']],
+    ['a numbered item, seven spaces in', ['1. Show it:', '', '       ```', '']],
+    ['a nested item, eight spaces in', ['- Outer', '  - Inner, show it:', '', '        ```', '']],
+    ['a nested numbered item', ['- Outer', '  1. Inner, show it:', '', '         ```', '']],
+    ['tildes', ['- Show it:', '', '      ~~~', '']],
+    ['a fence with an info string', ['- Show it:', '', '      ```ts', '']],
+    ['a fence with an info string and tildes', ['1. Show it:', '', '       ~~~ md title="x"', '']],
+    ['a tab past a dash item', ['- Show it:', '', '\t  ```', '']],
+  ])('is code in %s, and the directive after it runs', (_, lines) => {
+    const { directives, warnings } = parsed([...lines, '- Next item.', '', '<!-- @assert-absence target="src" symbol="LegacyGateway" -->', ''].join('\n'));
+    expect(directives.map((directive) => directive.attributes['symbol'])).toEqual(['LegacyGateway']);
+    expect(warnings).toBeUndefined();
+  });
+
+  it('is still a fence three columns past the item text, where it hides what it holds', () => {
+    // The must-not-match: a fence in a list item is an opener up to three
+    // columns past the item's text, as CommonMark says.
+    const source = ['- Show it:', '', '     ```md', '     <!-- @assert-absence target="src" symbol="Example" -->', '     ```', '', '<!-- @assert-absence target="src" symbol="Real" -->', ''].join('\n');
+    expect(parsed(source).directives.map((directive) => directive.attributes['symbol'])).toEqual(['Real']);
+    expect(parsed(source).warnings).toBeUndefined();
+  });
+
+  it('fails the run from the command line, as 0.11.0 did', async () => {
+    const root = await makeTempRepo({ 'docs/gateway.md': REPRO, 'src/pay.ts': 'export class LegacyGateway {}\n' });
+    try {
+      const out: string[] = [];
+      const cli: CliIO = { stdout: (text) => out.push(text), stderr: () => {}, env: { NO_COLOR: '1' }, cwd: root, isTTY: false };
+      expect(await main(['docs/*.md', '--engine', 'js'], cli)).toBe(EXIT_FAILED);
+      expect(out.join('\n')).toContain('"LegacyGateway" must not appear in src');
+    } finally {
+      await removeTempRepo(root);
+    }
+  });
+});
+
+describe('a block never closed', () => {
+  const warningsOf = (source: string) => parseDirectives(source, context).warnings?.map(({ location, message }) => [location.line, message]);
+
+  it('is a warning on its opening line when it runs to the end of the document, since nothing after it runs', () => {
+    expect(warningsOf('# T\n\n```js\nconst x = 1;\n\n<!-- @assert-absence target="src" symbol="X" -->\n')).toEqual([
+      [3, 'the code fence ```js opened here is never closed, so lines 3 to 6, the rest of the document, are read as code, and no directive in them runs'],
+    ]);
+    expect(warningsOf('# T\n\n~~~\nx\n')).toEqual([
+      [3, 'the code fence ~~~ opened here is never closed, so lines 3 to 4, the rest of the document, are read as code, and no directive in them runs'],
+    ]);
+    // The fence a list item holds, three columns past its text, is one too.
+    expect(warningsOf('- a\n\n     ```\n     x\n')?.map(([line]) => line)).toEqual([3]);
+  });
+
+  it.each(['pre', 'script', 'style', 'textarea', 'PRE'])('is a warning for a <%s> block, whose content is not Markdown either', (tag) => {
+    expect(warningsOf(`# T\n\n<${tag} class="x">\nbody\n\n<!-- @assert-absence target="src" symbol="X" -->\n`)).toEqual([
+      [3, `the <${tag.toLowerCase()}> block opened here is never closed, so lines 3 to 6, the rest of the document, are read as code, and no directive in them runs`],
+    ]);
+  });
+
+  it('is no warning when it is closed, ends with its block quote, holds nothing, or is indented code', () => {
+    expect(warningsOf('```\nx\n```\n')).toBeUndefined();
+    expect(warningsOf('<pre>\nx\n</pre>\n')).toBeUndefined();
+    expect(warningsOf('> ```\n> x\n\nafter\n')).toBeUndefined();
+    expect(warningsOf('# T\n\n```\n')).toBeUndefined();
+    expect(warningsOf('# T\n\n```\n\n\n')).toBeUndefined();
+    expect(warningsOf('prose\n\n    ```\n    x\n')).toBeUndefined();
+  });
+
+  it('reaches the report as a warning, and fails nothing', async () => {
+    const root = await makeTempRepo({
+      'docs/a.md': '# A\n\n<!-- @assert-absence target="src" symbol="Nowhere" -->\n\n```sh\nnpm test\n\n<!-- @assert-absence target="src" symbol="Hidden" -->\n',
+      'src/a.ts': 'const Hidden = 1;\n',
+    });
+    try {
+      const report = await runSpecGuard({ patterns: ['docs/*.md'], root, engine: 'javascript' });
+      expect(report.ok).toBe(true);
+      expect(report.summary.total).toBe(1);
+      expect(report.specWarnings?.map(({ location, message }) => [location.relativeFile, location.line, message.slice(0, 32)])).toEqual([
+        ['docs/a.md', 5, 'the code fence ```sh opened here'],
+      ]);
+    } finally {
+      await removeTempRepo(root);
+    }
   });
 });
 

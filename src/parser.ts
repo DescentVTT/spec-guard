@@ -341,6 +341,36 @@ function titleIn(scan: MarkdownScan): string | undefined {
   return title === '' ? undefined : title;
 }
 
+/**
+ * A code fence or raw-text HTML block that is never closed and runs to the end
+ * of the document, with something in it after its opening line.
+ *
+ * CommonMark reads one so, and so does the scanner: every line after it is
+ * code, and a directive there does not run. That is a document whose rules
+ * stop at a typo, and nothing else says so - a run over it is as green as one
+ * over a document that states no more rules. One closed by the end of its
+ * block quote hides nothing past the quote, and one on the last line hides
+ * nothing at all.
+ */
+function unclosedBlocks(scan: MarkdownScan): Array<{ line: number; message: string }> {
+  const found: Array<{ line: number; message: string }> = [];
+  for (const block of scan.blocks) {
+    if (block.closed || block.kind === 'indented' || scan.text.slice(block.end).trim() !== '') continue;
+    if (scan.lines.slice(block.line, block.endLine).every((line) => line.blank)) continue;
+    const opener = (scan.lines[block.line - 1] as { content: string }).content.trim();
+    // A raw-text block's first line starts with its tag, or it would be none.
+    const what =
+      block.kind === 'fenced'
+        ? `the code fence ${opener} opened here is never closed`
+        : `the ${(/^<[a-z]+/i.exec(opener) as RegExpExecArray)[0].toLowerCase()}> block opened here is never closed`;
+    found.push({
+      line: block.line,
+      message: `${what}, so lines ${block.line} to ${block.endLine}, the rest of the document, are read as code, and no directive in them runs`,
+    });
+  }
+  return found;
+}
+
 const DIRECTIVE_RE = /<!--\s*@([a-zA-Z][\w-]*)([\s\S]*?)-->/g;
 const ATTRIBUTE_RE =
   /([a-zA-Z][\w-]*)(?:\s*=\s*(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|([^\s"'=<>`]+)))?/g;
@@ -478,8 +508,11 @@ function directivesOf(source: string, scan: MarkdownScan, context: ParseContext)
   }
 
   const { status, problem } = statusOf(scan);
-  const warnings: SpecWarning[] =
-    problem === undefined ? [] : [{ location: { file: context.file, relativeFile: context.relativeFile, line: problem.line, column: 1 }, message: problem.message }];
+  const at = (line: number): SourceLocation => ({ file: context.file, relativeFile: context.relativeFile, line, column: 1 });
+  const warnings: SpecWarning[] = [
+    ...(problem === undefined ? [] : [{ location: at(problem.line), message: problem.message }]),
+    ...unclosedBlocks(scan).map(({ line, message }) => ({ location: at(line), message })),
+  ];
   return {
     directives,
     errors,

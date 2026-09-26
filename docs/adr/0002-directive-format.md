@@ -113,6 +113,14 @@ The three fence shapes fixed in this release stay fixed. Beyond them, where
   paragraph text, never an opener.
 - **Every line terminator stays where it was.** `maskCode` keeps a carriage
   return inside code, where it blanked one.
+- **A block never closed is a warning.** A code fence, or a `<pre>`,
+  `<script>`, `<style>` or `<textarea>` block, that runs unclosed to the end
+  of the document makes every line after it code, as every renderer shows it,
+  and every directive there goes quiet. It is read that way still - the
+  document is what the reader sees - and the report says so on the opening
+  line, as a warning that fails nothing, in every format. A block that ends
+  with its block quote, or holds nothing after its opener, hides nothing and
+  is not one.
 
 A document's title is its first level-one heading as the scanner reads it: an
 underlined one is a title, one kept in a comment is not, a code span in it is
