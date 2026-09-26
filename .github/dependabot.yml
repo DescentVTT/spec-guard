@@ -1,0 +1,47 @@
+# Dependency updates, a pull request at a time, for the devDependencies and
+# the GitHub Actions the workflows pin by commit.
+#
+# Latest is not newest. A version waits out a cooldown before a pull request
+# proposes it - a week for a patch, two for a minor, a month for a major - so a
+# release that is withdrawn or compromised in its first days never lands, and
+# the pins stay the newest that have been out long enough to trust. Security
+# updates are not held back: the cooldown applies to version updates only.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      semver-patch-days: 7
+      semver-minor-days: 14
+      semver-major-days: 30
+    # Stryker's packages and vitest's move together or not at all: a runner
+    # a version apart from its core is a sweep that measures nothing.
+    groups:
+      stryker:
+        patterns:
+          - '@stryker-mutator/*'
+      vitest:
+        patterns:
+          - vitest
+          - '@vitest/*'
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: chore
+      include: scope
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      semver-patch-days: 7
+      semver-minor-days: 14
+      semver-major-days: 30
+    groups:
+      actions:
+        patterns:
+          - '*'
+    commit-message:
+      prefix: chore
+      include: scope
