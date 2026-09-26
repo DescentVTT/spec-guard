@@ -201,7 +201,7 @@ Options
       --max-snippets <n>  Failure snippets per assertion (default: ${DEFAULT_MAX_SNIPPETS})
       --concurrency <n>   Assertions executed in parallel (default: ${DEFAULT_CONCURRENCY})
       --depth <n>         impact: follow dependents at most n imports away (default: all)
-      --allow-empty       Exit 0 when no spec files matched (about the run, not an assertion)
+      --allow-empty       Exit 0 when no spec files matched (a run, prove or impact; not an assertion)
       --color/--no-color  Force colour on or off (NO_COLOR is honoured)
   -h, --help              Show this help
       --version           Print the version
@@ -305,7 +305,7 @@ const NOT_FOR: Record<Exclude<Command, 'check'>, ReadonlySet<string>> = {
   ]),
   // Who depends on a path is answered from the graph, and the rules from the
   // specs, as a query answers them: nothing is run, so nothing about running
-  // applies.
+  // applies. `--allow-empty` does: the dependents are an answer without specs.
   impact: new Set([
     '--verbose',
     '--watch',
@@ -318,7 +318,6 @@ const NOT_FOR: Record<Exclude<Command, 'check'>, ReadonlySet<string>> = {
     '--allow-empty-scope',
     '--no-allow-empty-scope',
     '--print-baseline',
-    '--allow-empty',
     '--max-snippets',
     '--concurrency',
     '--color',
@@ -894,7 +893,10 @@ async function runProve(options: CliOptions, io: CliIO, use: ConfigUse | undefin
 
 /**
  * `spec-guard impact`: the files that depend on each path, and the rules in
- * play there. ADR-0018. Exit 2 for a path outside the root or not there.
+ * play there. ADR-0018. Exit 2 for a path outside the root or not there, and
+ * when no spec matched, as a query does: the dependents are written, but "no
+ * rules" over no specs is nothing measured, which the family contract says is
+ * not clean. `--allow-empty` asks for the dependents alone.
  */
 async function runImpact(options: CliOptions, io: CliIO, use: ConfigUse | undefined): Promise<number> {
   let report;
@@ -915,7 +917,9 @@ async function runImpact(options: CliOptions, io: CliIO, use: ConfigUse | undefi
   }
   const answered = { ...report, config: use };
   io.stdout(options.format === 'json' ? formatImpactJson(answered) : formatImpact(answered));
-  return EXIT_OK;
+  if (report.specFiles.length > 0) return EXIT_OK;
+  if (options.format !== 'json') io.stderr(`spec-guard: no spec files matched ${options.patterns.map((p) => `"${p}"`).join(', ')}`);
+  return options.allowEmpty ? EXIT_OK : EXIT_ERROR;
 }
 
 /**

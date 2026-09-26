@@ -1076,8 +1076,11 @@ src/db/client.ts
 A directory asks about every file under it. `--depth <n>` stops `n` imports
 away; cycles are safe. `--ignore-status` lists rules from documents not in
 force, which are otherwise counted, as `query` does. `--json` is versioned by
-`formatVersion`. A path that does not exist exits 2. The MCP server answers the
-same question as `get_dependents`, with the same document.
+`formatVersion`. A path that does not exist exits 2, and so does a run of
+`impact` in which no spec matched, as `query` does: the dependents are still
+written, but "no rules" over no specs is nothing measured. `--allow-empty`
+asks for the dependents alone, and exits 0. The MCP server answers the same
+question as `get_dependents`, with the same document.
 [ADR-0018](docs/adr/0018-impact.md) has the table and what it leaves out.
 
 ## CLI
@@ -1113,7 +1116,7 @@ spec-guard impact <paths...>           # the files that depend on each path, and
 | `--max-snippets <n>` | Failure snippets per assertion (default 5) |
 | `--concurrency <n>` | Search passes in flight at once (default 8) |
 | `--depth <n>` | `impact` only: follow dependents at most `n` imports away (default: all) |
-| `--allow-empty` | Exit 0 when no spec file matched the patterns (about the run, not an assertion) |
+| `--allow-empty` | Exit 0 when no spec file matched the patterns, for a run, `prove` or `impact` (about the run, not an assertion) |
 | `--color` / `--no-color` | Force colour on or off (`NO_COLOR` honoured) |
 
 Patterns are expanded by spec-guard itself, so quoted globs behave identically

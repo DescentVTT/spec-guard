@@ -644,7 +644,8 @@ describe('spec-guard impact', () => {
       const at = async (...argv: string[]) => {
         const out: string[] = [];
         const io: CliIO = { stdout: (text) => out.push(text), stderr: () => {}, env: {}, cwd: root, isTTY: false };
-        expect(await main(['impact', 'src/a.ts', '--json', ...argv], io)).toBe(EXIT_OK);
+        // Without --spec nothing matches here, which --allow-empty accepts.
+        expect(await main(['impact', 'src/a.ts', '--json', '--allow-empty', ...argv], io)).toBe(EXIT_OK);
         const json = JSON.parse(out[0] as string) as ImpactReport;
         return { dependents: json.results[0]?.dependents.map(({ file }) => file), rules: json.rules.length, specs: json.specFiles };
       };
@@ -653,6 +654,31 @@ describe('spec-guard impact', () => {
       expect(await at('--spec', 'rules/*.md', '--ignore-status')).toEqual({ dependents: ['gen/c.ts', 'src/b.ts'], rules: 1, specs: ['rules/a.md'] });
       expect(await at('--exclude', 'gen')).toMatchObject({ dependents: ['src/b.ts'] });
       expect(await at('--no-default-skips')).toMatchObject({ dependents: ['gen/c.ts', 'node_modules/d/i.js', 'src/b.ts'] });
+    } finally {
+      await removeTempRepo(root);
+    }
+  });
+
+  it('exits 2 when no spec matched, as a query does, having written the dependents, and 0 under --allow-empty', async () => {
+    const root = await makeTempRepo({ 'src/a.ts': 'export {};\n', 'src/b.ts': "import './a.js';\n" });
+    try {
+      const at = async (...argv: string[]) => {
+        const out: string[] = [];
+        const err: string[] = [];
+        const io: CliIO = { stdout: (text) => out.push(text), stderr: (text) => err.push(text), env: {}, cwd: root, isTTY: false };
+        return { code: await main(['impact', 'src/a.ts', ...argv], io), out: out.join('\n'), err };
+      };
+      const human = await at();
+      expect([human.code, human.err]).toEqual([EXIT_ERROR, ['spec-guard: no spec files matched "docs/**/*.md"']]);
+      expect(human.out).toContain('    1  src/b.ts');
+      expect(human.out).toContain('no spec files matched, so no rules are shown');
+      const json = await at('--json');
+      expect([json.code, json.err]).toEqual([EXIT_ERROR, []]);
+      expect((JSON.parse(json.out) as ImpactReport).specFiles).toEqual([]);
+      const named = await at('--spec', 'docs/*.md');
+      expect(named.code).toBe(EXIT_ERROR);
+      const allowed = await at('--allow-empty');
+      expect([allowed.code, allowed.err]).toEqual([EXIT_OK, ['spec-guard: no spec files matched "docs/**/*.md"']]);
     } finally {
       await removeTempRepo(root);
     }
@@ -679,7 +705,8 @@ describe('spec-guard impact', () => {
     for (const argv of [['--depth', '2'], ['query', 'a', '--depth', '2'], ['cites', '--depth=2'], ['prove', '--depth', '1']]) {
       expect(() => parseArgs(argv, ROOT), argv.join(' ')).toThrow(new UsageError('Option --depth applies only to spec-guard impact.'));
     }
-    for (const option of ['--verbose', '--watch', '--fail-fast', '--engine=js', '--strict', '--allow-missing-targets', '--allow-empty-scope', '--print-baseline', '--allow-empty', '--max-snippets=1', '--concurrency=1', '--color']) {
+    expect(parseArgs(['impact', 'a.ts', '--allow-empty'], ROOT).allowEmpty).toBe(true);
+    for (const option of ['--verbose', '--watch', '--fail-fast', '--engine=js', '--strict', '--allow-missing-targets', '--allow-empty-scope', '--print-baseline', '--max-snippets=1', '--concurrency=1', '--color']) {
       const name = option.split('=')[0] as string;
       expect(() => parseArgs(['impact', 'a.ts', option], ROOT), option).toThrow(new UsageError(`Option ${name} does not apply to spec-guard impact.`));
     }
