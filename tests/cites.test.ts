@@ -202,6 +202,25 @@ describe('an id another owner qualifies', () => {
       expect(at(text), text).toBe(false);
     }
   });
+
+  it('is another owner\'s in a link: after a slash, an anchor, a query or anywhere past a ://', () => {
+    for (const text of [
+      'See https://github.com/org/repo/blob/main/docs/adr/ADR-0042.md',
+      '.../docs/ADR-0099.html',
+      'docs/ADR-0099.html',
+      'page.html#ADR-7',
+      'https://example.com/?id=ADR-7',
+      'https://example.com/search?ADR-7',
+      'https://example.com/adr/decision-ADR-7',
+      '<https://example.com/(ADR-7)>',
+    ]) {
+      expect(at(text), text).toBe(true);
+    }
+    // Must-not-match: a link beside an id, not around it.
+    for (const text of ['ADR-7 is at https://example.com/', 'https://example.com ADR-7', 'see: ADR-7', 'x=1; ADR-7', 'a://b\nADR-7']) {
+      expect(at(text), text).toBe(false);
+    }
+  });
 });
 
 describe('the citations inside comments', () => {
@@ -584,6 +603,16 @@ describe('a scan', () => {
     const report = await cites({ 'src/a.ts': "// spec-core's ADR-0042, spec-graph ADR-0017 and its ADR-0099\n// but ADR-0042 is ours\n" });
     expect(found(report)).toEqual(['src/a.ts:2:8 ghost-citation ADR-0042']);
     expect(report.summary).toMatchObject({ citations: 1, qualified: 3 });
+  });
+
+  it('leaves an id in a link unchecked, where it was a ghost', async () => {
+    // The review's two comments: each named a document no family here finds,
+    // and each was a ghost-citation that failed the run.
+    const report = await cites({
+      'src/a.ts': '// See https://github.com/org/repo/blob/main/docs/adr/ADR-0042.md\n// .../docs/ADR-0099.html\n// and ADR-0099 is ours\n',
+    });
+    expect(found(report)).toEqual(['src/a.ts:3:8 ghost-citation ADR-0099']);
+    expect(report.summary).toMatchObject({ citations: 1, ghosts: 1, qualified: 2 });
   });
 
   it('reads no Markdown, no spec file, no cited document, nothing excluded, and nothing in a format without comments', async () => {

@@ -43,7 +43,9 @@ with the flag that restores the previous behaviour.
   hint. A **stale** one, of a document superseded, deprecated, rejected or
   archived, is a warning (an error under `--strict`) that names the successor
   the document's status line gives, followed to the one in force. Ids another
-  project qualifies - `spec-core's ADR-0005` - are counted and not checked.
+  project qualifies - `spec-core's ADR-0005` - are counted and not checked,
+  and so are ids in a link: after a `/`, `#`, `=` or `?`, or past a `://`,
+  as in `https://github.com/org/repo/blob/main/docs/adr/ADR-0042.md`.
   Markdown, spec files, excluded paths and files in no known language are not
   read, and are counted. Human, `--json` (with `formatVersion`), SARIF, GitHub
   and GitLab output; exit 1 on a ghost, 2 for a family whose files match no
