@@ -675,6 +675,24 @@ describe('a document that is not in force', () => {
     expect(report.errors[0]?.message).toContain('greater than');
   });
 
+  it('counts an invalid directive once, as invalid, and not again as a rule not in force', async () => {
+    const root = await repo({
+      'docs/a.md': `# ADR-1\n\n## Status\n\nDraft\n\n<!-- @assert-count target="src" symbol="L" min="5" max="2" -->\n${VIOLATION}`,
+      'docs/b.md': '# ADR-2\n\n## Status\n\nProposed\n\n<!-- @assert-absence target="src" symbol="L" glob="src/**.ts" -->\n',
+      ...CODE,
+    });
+
+    const report = await run(root);
+
+    expect(report.errors).toHaveLength(2);
+    expect(report.summary).toMatchObject({ total: 0, inactive: 1 });
+    expect(report.inactiveSpecs.map(({ file, directives }) => [file, directives])).toEqual([
+      ['docs/a.md', 1],
+      ['docs/b.md', 0],
+    ]);
+    expect(formatReport(report, { color: false, verbose: false }).split('\n').at(-1)).toMatch(/^0 passed · 2 invalid · 1 not in force · \d+ms$/);
+  });
+
   it('leaves every other document in the run alone', async () => {
     const root = await repo({
       'docs/dead.md': `# ADR-1\n\n## Status\n\nSuperseded.\n\n${VIOLATION}`,
