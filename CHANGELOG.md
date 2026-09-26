@@ -132,6 +132,17 @@ with the flag that restores the previous behaviour.
     two. An escaped backtick opens nothing.
   - **A fence shown inside a comment opens nothing.** A template that showed
     one hid every directive after it.
+  - **A fence line shown as code in a list item opens nothing.** Four columns
+    past an item's text is indented code, so a fence line written there - six
+    spaces under a `-` item, seven under `1.`, deeper in a nested item - is a
+    line of code. The first copy of the scanner read no indented code inside a
+    list, took the line for an opener that nothing closed, and hid every
+    directive after it.
+
+  And a code fence or a `<pre>`, `<script>`, `<style>` or `<textarea>`
+  block that is never closed, and runs to the end of the document, is a
+  warning on its opening line (`specWarnings`), since no directive after it
+  runs. It fails nothing: it is read as every renderer shows it, as code.
 
   Directives that executed, and are now code:
   - **A closing fence has no info string.** Inside a block opened by three
