@@ -22,14 +22,16 @@
  *
  * - `**` is a globstar only as a whole segment. `a/**\/b` matches `a/b` and
  *   `a/x/y/b`; a trailing `/**` matches everything inside a directory and not
- *   the directory itself; `**.md` is `*.md`, as gitignore, bash and minimatch
- *   all read it.
+ *   the directory itself. Two stars inside a name, `**.md`, are refused: the
+ *   tools read it three ways, and the quiet reading narrowed their scope.
  * - `*`, `?` and classes never match `/`, and `*` matches a leading dot.
  * - Case is the caller's decision, stated every time. A result must not
  *   depend on the host it ran on.
  * - A malformed pattern is an error, never a literal. An unclosed `[` or `{`,
  *   an extended glob, a `..` - each is refused with a reason, because a typo
- *   read as a literal is a scope that silently matches nothing.
+ *   read as a literal is a scope that silently matches nothing. An extended
+ *   glob is a group holding a `|`, `+(a|b)`: without one, `C++(notes).md` is
+ *   a name with parentheses in it, as ripgrep and `.gitignore` read it.
  */
 
 import {
@@ -134,7 +136,7 @@ function build(source: string, options: GlobOptions): Glob | string {
   if (!escapes) pattern = pattern.replace(/\\/g, '/');
   if (pattern.length === 0) return 'the pattern is empty';
   if (pattern.startsWith('!')) return 'a negated pattern is a list entry, not a glob; narrow the positive pattern';
-  if (/(?:^|[^\\])[?*+@!]\(/.test(pattern)) return 'extended globs such as "+(a|b)" are not supported';
+  if (/(?:^|[^\\])[?*+@!]\([^)]*\|/.test(pattern)) return EXTGLOB;
   while (pattern.startsWith('./')) pattern = pattern.slice(2);
 
   // A leading slash roots a pattern at the filesystem's root in the path and
@@ -297,6 +299,9 @@ function parseAlternative(text: string, escapes: boolean): Alternative | string 
   return { segments, slashed: raw.filter((part) => part !== '' && part !== '.').length > 1 };
 }
 
+const EXTGLOB = 'extended globs such as "+(a|b)" are not supported: write alternatives as "{a,b}", and a literal parenthesis as "[(]"';
+const GLOBSTAR_IN_NAME = '"**" means any number of directories only as a whole segment: write "docs/**/*.md" for any depth, or "*.md" for one level';
+
 function tokenize(segment: string, escapes: boolean): Token[] | string {
   const tokens: Token[] = [];
   const chars = Array.from(segment);
@@ -310,7 +315,12 @@ function tokenize(segment: string, escapes: boolean): Token[] | string {
       tokens.push({ kind: 'literal', point: next.codePointAt(0) as number });
       i += 1;
     } else if (ch === '*') {
-      if (tokens[tokens.length - 1]?.kind !== 'star') tokens.push({ kind: 'star' });
+      // Two stars inside a name are refused rather than read as one. The
+      // tools this replaces read `docs/**.md` three ways - recursive, one
+      // level, and as ripgrep does - and reading it as one level silently
+      // dropped every nested document from a run that used to include them.
+      if (chars[i + 1] === '*') return GLOBSTAR_IN_NAME;
+      tokens.push({ kind: 'star' });
     } else if (ch === '?') {
       tokens.push({ kind: 'any' });
     } else if (ch === '[') {

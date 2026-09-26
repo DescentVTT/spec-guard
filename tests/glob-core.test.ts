@@ -44,8 +44,8 @@ describe('a pattern spec-core cannot read', () => {
   it.each([
     ['src/[a.ts', 'a "[" is never closed'],
     ['*.{ts', 'a "{" is never closed'],
-    ['+(a|b).ts', 'extended globs such as "+(a|b)" are not supported'],
-    ['src/@(a|b)', 'extended globs such as "+(a|b)" are not supported'],
+    ['+(a|b).ts', 'extended globs such as "+(a|b)" are not supported: write alternatives as "{a,b}", and a literal parenthesis as "[(]"'],
+    ['src/@(a|b)', 'extended globs such as "+(a|b)" are not supported: write alternatives as "{a,b}", and a literal parenthesis as "[(]"'],
     ['!*.ts', 'a negated pattern is a list entry, not a glob; narrow the positive pattern'],
     ['../x/*.ts', 'a pattern cannot climb out of its root with ".."'],
     ['[z-a].ts', 'the range "z-a" runs backwards'],
@@ -54,7 +54,18 @@ describe('a pattern spec-core cannot read', () => {
     expect(globPatternError(pattern)).toBe(`invalid glob pattern "${pattern}": ${reason}`);
   });
 
-  it.each([['*.ts'], ['}a.ts'], ['a,b'], ['**/x'], ['/src/*.ts'], ['src/'], ['x[}]y'], ['{a,{b,c}}'], ['[!a]*'], ['src\\*.ts']])(
+  it.each([
+    ['docs/**.md', '"**" means any number of directories only as a whole segment: write "docs/**/*.md" for any depth, or "*.md" for one level'],
+    ['**.ts', '"**" means any number of directories only as a whole segment: write "docs/**/*.md" for any depth, or "*.md" for one level'],
+    ['a**b', '"**" means any number of directories only as a whole segment: write "docs/**/*.md" for any depth, or "*.md" for one level'],
+  ])('is refused as a glob, since three tools read it three ways: %s', (pattern, reason) => {
+    expect(globPatternError(pattern)).toBe(`invalid glob pattern "${pattern}": ${reason}`);
+    expect(excludePatternError(pattern)).toBe(`invalid exclude pattern "${pattern}": ${reason}`);
+    expect(modulePatternError(pattern)).toBe(`invalid module pattern "${pattern}": ${reason}`);
+    expect(pathPatternError(pattern)).toBe(`invalid glob pattern "${pattern}": ${reason}`);
+  });
+
+  it.each([['*.ts'], ['}a.ts'], ['a,b'], ['**/x'], ['/src/*.ts'], ['src/'], ['x[}]y'], ['{a,{b,c}}'], ['[!a]*'], ['src\\*.ts'], ['C++(notes).md'], ['*(2017).md'], ['@(a)']])(
     'is read as a glob: %s',
     (pattern) => {
       expect(globPatternError(pattern)).toBeNull();
@@ -63,7 +74,7 @@ describe('a pattern spec-core cannot read', () => {
 
   it('is refused as an exclusion, after the four shapes spec-guard refuses in its own words', () => {
     expect(excludePatternError('src/[a')).toBe('invalid exclude pattern "src/[a": a "[" is never closed');
-    expect(excludePatternError('+(a|b)')).toBe('invalid exclude pattern "+(a|b)": extended globs such as "+(a|b)" are not supported');
+    expect(excludePatternError('+(a|b)')).toBe('invalid exclude pattern "+(a|b)": extended globs such as "+(a|b)" are not supported: write alternatives as "{a,b}", and a literal parenthesis as "[(]"');
     // spec-core refuses `!` and `..` too, in words that do not say what exclude
     // does with them: these keep the ones ADR-0014 wrote.
     expect(excludePatternError('!a')).toBe('invalid exclude pattern "!a": negation patterns are not supported in exclude');
@@ -395,11 +406,11 @@ describe('against the RegExp it replaced', () => {
     expect(UNIVERSE.filter((candidate) => exclude(candidate) !== beforeExclude(candidate))).toEqual([]);
   });
 
-  it('disagrees where ** sits inside a segment, which no longer crosses directories', () => {
+  it('disagrees where ** sits inside a segment, which is refused rather than read either way', () => {
     expect(oldInclude('src/**.ts')('src/lib/a.ts')).toBe(true);
-    expect(createGlobMatcher(['src/**.ts'])('src/lib/a.ts')).toBe(false);
+    expect(() => createGlobMatcher(['src/**.ts'])).toThrow('invalid glob pattern "src/**.ts"');
     expect(oldExclude('src/**.ts')('src/lib/a.ts')).toBe(true);
-    expect(createExcludeMatcher(['src/**.ts'])('src/lib/a.ts')).toBe(false);
+    expect(() => createExcludeMatcher(['src/**.ts'])).toThrow('invalid exclude pattern "src/**.ts"');
   });
 
   it('disagrees where a negated class met a separator, which no class matches', () => {
@@ -508,7 +519,7 @@ describe('a directive with a pattern that cannot be read', () => {
     ],
     [
       '<!-- @assert-count target="src" symbol="X" min="1" glob="*.ts, +(a|b).ts" -->',
-      'Attribute "glob" has an invalid glob pattern "+(a|b).ts": extended globs such as "+(a|b)" are not supported.',
+      'Attribute "glob" has an invalid glob pattern "+(a|b).ts": extended globs such as "+(a|b)" are not supported: write alternatives as "{a,b}", and a literal parenthesis as "[(]".',
     ],
     [
       '<!-- @assert-absence target="src" symbol="X" exclude="gen/{a" -->',
@@ -520,7 +531,7 @@ describe('a directive with a pattern that cannot be read', () => {
     ],
     [
       '<!-- @assert-layers target="src" order="domain, @(a|b)" -->',
-      'Attribute "order" has an invalid layer pattern "@(a|b)": extended globs such as "+(a|b)" are not supported.',
+      'Attribute "order" has an invalid layer pattern "@(a|b)": extended globs such as "+(a|b)" are not supported: write alternatives as "{a,b}", and a literal parenthesis as "[(]".',
     ],
     [
       '<!-- @assert-structure target="packages" dirs="[a" required="package.json" -->',
@@ -585,7 +596,7 @@ describe('the command line', () => {
     const configured = await run({ ...PROJECT, '.spec-guard.json': JSON.stringify({ exclude: ['+(gen|out)'] }) }, ['--engine', 'js']);
     expect(configured.code).toBe(EXIT_ERROR);
     expect(configured.err).toEqual([
-      'spec-guard: .spec-guard.json: "exclude" has an invalid exclude pattern "+(gen|out)": extended globs such as "+(a|b)" are not supported.',
+      'spec-guard: .spec-guard.json: "exclude" has an invalid exclude pattern "+(gen|out)": extended globs such as "+(a|b)" are not supported: write alternatives as "{a,b}", and a literal parenthesis as "[(]".',
     ]);
   });
 

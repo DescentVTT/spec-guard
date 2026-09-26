@@ -32,6 +32,7 @@
   "files": [
     "bin",
     "dist",
+    "src/vendor/spec-core/LICENSE",
     "CHANGELOG.md",
     "README.md",
     "LICENSE"

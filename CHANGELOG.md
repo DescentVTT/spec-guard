@@ -101,7 +101,8 @@ with the flag that restores the previous behaviour.
   measured. Patterns are now read by the glob engine the spec-* tools share,
   spec-core's, whose automaton keeps a set of live states and cannot backtrack:
   the same match takes under a millisecond. spec-core is copied into
-  `src/vendor/spec-core` and verified by hash, so `dependencies` stays empty.
+  `src/vendor/spec-core` and verified by hash, so `dependencies` stays empty,
+  and its MIT notice ships in the package at `src/vendor/spec-core/LICENSE`.
   [ADR-0015](docs/adr/0015-globs-from-spec-core.md).
 - **ripgrep and the scanner still read some patterns differently**, so the same
   rule could count differently on either side of the tree size at which `auto`
@@ -116,7 +117,7 @@ with the flag that restores the previous behaviour.
 - **What is code in a spec is what CommonMark says it is.** Directives inside
   code never execute, and what counted as code was decided by `maskCode`'s own
   rules. It is now decided by spec-core's Markdown scanner, which every spec-*
-  tool reads documents with, copied into `src/vendor/spec-core` from `4f2826a`
+  tool reads documents with, copied into `src/vendor/spec-core` from `cbe2223`
   and verified by hash; `maskCode` is still exported, and is the scanner's
   mask. [ADR-0002](docs/adr/0002-directive-format.md)'s amendment.
 
@@ -145,7 +146,8 @@ with the flag that restores the previous behaviour.
     indentation outside indented code, and a closer at most three columns
     deeper than its opener.
   - **Indented code, raw-text HTML and front matter are not read.** Four
-    columns outside a list, after a blank line, are code in every renderer;
+    columns past the margin, or past the text of the list item a line sits
+    in, after a blank line, are code in every renderer;
     `<script>`, `<pre>`, `<style>` and `<textarea>` hold no Markdown; front
     matter is metadata. `<details>` and `<div>` hold Markdown, and are read.
 
@@ -162,9 +164,10 @@ with the flag that restores the previous behaviour.
 ### Changed
 
 - **A pattern that cannot be read is refused.** An unclosed `[` or `{`, an
-  extended glob such as `+(a|b)`, a `..`, or a range that runs backwards, in
-  `glob`, `exclude`, `module`, `order`, `pattern`, `dirs` or `required`, makes
-  the directive invalid; in `exclude` in the configuration or `--exclude`, or in
+  extended glob such as `+(a|b)` (a group holding a `|`: `C++(notes).md` and
+  `*(2017).md` are names with parentheses), a `..`, or a range that runs
+  backwards, in `glob`, `exclude`, `module`, `order`, `pattern`, `dirs` or
+  `required`, makes the directive invalid; in `exclude` in the configuration or `--exclude`, or in
   a spec pattern, it is exit 2. Each used to be read as a literal or as whatever
   its `RegExp` happened to mean, which is a filter that matches nothing and
   passes. So is an alternative that names no path, as in `{dist/**,}`, whose
@@ -174,9 +177,14 @@ with the flag that restores the previous behaviour.
   message now says so. A configuration's `exclude` is a JSON array, where braces
   keep their commas. Nothing restores the old readings.
   [ADR-0015](docs/adr/0015-globs-from-spec-core.md).
-- **`**` inside a segment is `*`**, as `.gitignore`, bash and ripgrep read it:
-  `src/**.ts` matches `src/a.ts` and no longer `src/deep/a.ts`. ripgrep never
-  crossed directories there, so a rule that did counted differently by engine.
+- **`**` inside a name is refused**: `docs/**.md`, `src/**.ts`, `**.ts`,
+  `a**b`. The message says what `**` means and gives the two ways to write
+  what was meant, `docs/**/*.md` for any depth and `*.md` for one level. It
+  used to cross directories under the scanner and not under ripgrep, so a rule
+  counted differently by engine; read as `*`, as `.gitignore` reads it,
+  `"specs": ["docs/**.md"]` would quietly have stopped finding every nested
+  document. In a directive the directive is invalid; in a spec pattern, the
+  configuration or `--exclude`, it is exit 2.
 - **A `.` or empty segment is no segment** (`src/./a.ts` is `src/a.ts`), and
   **a leading `/` anchors a `glob`** at the root, as it anchors an `exclude`.
   Both matched nothing in the scanner before; ripgrep already anchored.

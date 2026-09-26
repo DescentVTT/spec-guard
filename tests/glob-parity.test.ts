@@ -79,8 +79,6 @@ const EVERY = [
 const without = (...files: string[]): string[] => EVERY.filter((file) => !files.includes(file));
 
 const cases: Case[] = [
-  { name: '** inside a segment is *', globs: ['src/**.ts'], files: ['src/a.ts'] },
-  { name: '** inside a segment, excluded', exclude: ['src/**.ts'], files: without('src/a.ts') },
   {
     name: 'braces whose alternatives are anchored differently',
     globs: ['{src/*.ts,*.md}'],

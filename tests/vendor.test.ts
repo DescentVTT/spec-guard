@@ -70,8 +70,19 @@ describe('the copy of spec-core', () => {
   it('holds nothing the record does not account for', () => {
     // A file added beside the copies would be compiled and shipped, and belong
     // to neither repository.
-    const expected = ['README.md', 'VENDOR.json', ...recorded.map(({ file }) => file)].sort();
+    const expected = ['LICENSE', 'README.md', 'VENDOR.json', ...recorded.map(({ file }) => file)].sort();
     expect(copied().sort()).toEqual(expected);
+  });
+
+  it('ships under the licence spec-core is under, which the package carries beside the compiled copies', () => {
+    // dist/vendor/spec-core is spec-core's code, and MIT asks that its notice
+    // travel with it. The copy script writes the notice; the package has to
+    // name it, since `files` ships nothing under src/ otherwise.
+    const notice = readFileSync(path.join(VENDOR, 'LICENSE'), 'utf8');
+    expect(notice.startsWith('MIT License')).toBe(true);
+    expect(notice).toContain('spec-core contributors');
+    const manifest = JSON.parse(readFileSync(path.join(PROJECT_ROOT, 'package.json'), 'utf8')) as { files: string[] };
+    expect(manifest.files).toContain('src/vendor/spec-core/LICENSE');
   });
 
   it('notices a copy edited in place', () => {

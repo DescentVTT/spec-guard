@@ -36,9 +36,15 @@ imports, and `jsonrpc`, copied by spec-core's `scripts/vendor.mjs`: first from
 commit `124b028`, then again from `f085f29`, which changed `jsonrpc` alone, for
 the server (below). A third copy, from `4f2826a`, added `markdown` and the
 `text` module it imports, for the parser, and left the other three byte for
-byte as they were ([ADR-0002](0002-directive-format.md)'s amendment).
-`VENDOR.json` records the commit and the SHA-256 of every file. Nothing in this
-repository edits them.
+byte as they were ([ADR-0002](0002-directive-format.md)'s amendment). A fourth,
+from `cbe2223`, changed `pattern` and `markdown`: two stars inside a name and
+an extended glob are refused as below, and the scanner reads a list item's
+columns. `VENDOR.json` records the commit and the SHA-256 of every file.
+Nothing in this repository edits them.
+
+spec-core's `LICENSE` lies beside the copies, and `package.json` names it in
+`files`: the package carries spec-core's compiled code under
+`dist/vendor/spec-core`, and MIT asks that the notice travel with it.
 
 <!-- @assert-present file="src/vendor/spec-core/VENDOR.json, tests/vendor.test.ts" reason="a copy nobody verifies is a fork nobody meant" -->
 
@@ -130,17 +136,25 @@ differences below, so the adoption changed exactly what this ADR says it did.
 ### What a user sees change
 
 - **A malformed pattern is refused.** An unclosed `[` or `{`, an extended glob
-  such as `+(a|b)`, a `..`, a range that runs backwards: a directive holding one
+  such as `+(a|b)` - a group holding a `|`, since `C++(notes).md` and
+  `*(2017).md` are names with parentheses in them, as ripgrep and `.gitignore`
+  read them - a `..`, a range that runs backwards: a directive holding one
   is an invalid directive, and one given in the configuration or to `--exclude`
   is exit 2, as a spec pattern on the command line is. Each used to be read as a
   literal, or as whatever the regular expression it compiled to happened to
   mean, and a typo read as a literal is a filter that matches nothing and passes.
   `module=`, `order=`, `pattern=`, `dirs=` and `required=` were not validated at
   all, and are now.
-- **`**` inside a segment is `*`.** `src/**.ts` matches `src/a.ts` and not
-  `src/deep/a.ts`, as `.gitignore`, bash, minimatch and ripgrep read it. The
-  scanner crossed directories and ripgrep did not, so the same rule counted
-  differently on either side of the size where `auto` changes engine.
+- **`**` inside a name is refused.** `docs/**.md`, `src/**.ts`, `**.ts` and
+  `a**b` are each told that `**` means any number of directories only as a
+  whole segment, with the two ways to say what was meant: `docs/**/*.md` for
+  any depth, `*.md` for one level. The RegExp crossed directories there and
+  ripgrep did not, so the same rule counted differently on either side of the
+  size where `auto` changes engine. The first copy of spec-core read it as
+  `*`, which is how `.gitignore` and bash read it, and that was the worst of
+  the three: `"specs": ["docs/**.md"]` stopped finding every nested ADR, and a
+  run that had failed on one of them passed, one spec fewer, with nothing said.
+  A reading every tool shares is not available, so none is guessed at.
 - **No pattern takes long.** spec-core's automaton keeps a set of live states,
   so a match costs the pattern's size times the path's length. `*-*-*-*-*-*x`
   against a name of 121 dashes took **55 seconds** under the RegExp, measured on

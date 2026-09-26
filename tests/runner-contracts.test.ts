@@ -629,7 +629,7 @@ describe('how a reference is spelled in a snippet', () => {
     const root = await repo({
       [`src/${name}`]: source,
       'src/db/client.ts': 'export const Client = 1;\n',
-      'docs/a.md': '<!-- @assert-import-absence target="src" module="**client**, db::client::**, Db.Client" -->\n',
+      'docs/a.md': '<!-- @assert-import-absence target="src" module="*client*, db::client::*, Db.Client" -->\n',
     });
 
     const report = await run(root);
