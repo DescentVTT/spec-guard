@@ -125,7 +125,10 @@ async function placesFor(
       .filter(accepts);
   const read = { files: await list(search), read: true };
   if (read.files.length > 0 && suits(read)) return read;
-  const under = { files: await list({ ...search, globs: [], excludeGlobs: [] }), read: false };
+  // Every file under its targets: the rule's own glob and exclude both set
+  // aside, by one empty list that stands for no filter in either.
+  const none: string[] = [];
+  const under = { files: await list({ ...search, globs: none, excludeGlobs: none }), read: false };
   if (under.files.length > 0) return under;
   return `nothing under ${targets.join(', ')} is a file a violation could be put beside`;
 }

@@ -527,30 +527,33 @@ export async function findCitations(options: CitesOptions): Promise<CitesReport>
   const starts = options.paths?.map((entry) => (entry === '.' ? '' : entry)) ?? [''];
   const seen = new Set<string>();
 
-  for (const start of families.length === 0 ? [] : starts) {
-    const absoluteStart = path.resolve(root, start);
-    const stats = await io.stat(absoluteStart);
-    const entries: Array<{ relativePath: string; absolutePath: string }> = [];
-    if (stats?.isFile()) entries.push({ relativePath: start, absolutePath: absoluteStart });
-    else {
-      for await (const entry of walkPaths(absoluteStart, { io, scope })) {
-        entries.push({ relativePath: start === '' ? entry.relativePath : `${start}/${entry.relativePath}`, absolutePath: entry.absolutePath });
+  // With nothing to look for, no path is walked, and every count stays at zero.
+  if (families.length > 0) {
+    for (const start of starts) {
+      const absoluteStart = path.resolve(root, start);
+      const stats = await io.stat(absoluteStart);
+      const entries: Array<{ relativePath: string; absolutePath: string }> = [];
+      if (stats?.isFile()) entries.push({ relativePath: start, absolutePath: absoluteStart });
+      else {
+        for await (const entry of walkPaths(absoluteStart, { io, scope })) {
+          entries.push({ relativePath: start === '' ? entry.relativePath : `${start}/${entry.relativePath}`, absolutePath: entry.absolutePath });
+        }
       }
-    }
-    for (const { relativePath, absolutePath } of entries) {
-      if (seen.has(relativePath)) continue;
-      seen.add(relativePath);
-      const extension = path.posix.extname(relativePath).toLowerCase();
-      if (MARKDOWN.has(extension) || specFiles.has(absolutePath) || cited.has(relativePath) || excluded(relativePath)) continue;
-      const syntax = syntaxFor(relativePath);
-      if (syntax === null) {
-        const name = extension === '' ? '(none)' : extension;
-        unclassified.set(name, (unclassified.get(name) ?? 0) + 1);
-        continue;
+      for (const { relativePath, absolutePath } of entries) {
+        if (seen.has(relativePath)) continue;
+        seen.add(relativePath);
+        const extension = path.posix.extname(relativePath).toLowerCase();
+        if (MARKDOWN.has(extension) || specFiles.has(absolutePath) || cited.has(relativePath) || excluded(relativePath)) continue;
+        const syntax = syntaxFor(relativePath);
+        if (syntax === null) {
+          const name = extension === '' ? '(none)' : extension;
+          unclassified.set(name, (unclassified.get(name) ?? 0) + 1);
+          continue;
+        }
+        // A format known to have no comments has no citations to read.
+        if (syntax.line.length === 0 && syntax.block.length === 0) continue;
+        candidates.push({ file: relativePath, absolute: absolutePath });
       }
-      // A format known to have no comments has no citations to read.
-      if (syntax.line.length === 0 && syntax.block.length === 0) continue;
-      candidates.push({ file: relativePath, absolute: absolutePath });
     }
   }
   candidates.sort((a, b) => comparePaths(a.file, b.file));
