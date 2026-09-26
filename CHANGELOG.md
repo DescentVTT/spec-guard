@@ -115,6 +115,11 @@ with the flag that restores the previous behaviour.
 
 ### Fixed
 
+- **An invalid directive in a document not in force was counted twice**, as
+  invalid and again as a rule not in force, so one bad directive in a draft
+  read "1 invalid · 1 not in force". It is counted once, as invalid, in the
+  summary, in the document's own line, and in the `inactive` of every JSON
+  report: it is no rule the document would run in force.
 - **A glob could take a minute to fail one file name.** Every pattern was
   compiled to a `RegExp`, and `*-*-*-*-*-*x` against a name of 121 dashes made
   V8 try every way of dividing the name between six `[^/]*` groups: 55 seconds,

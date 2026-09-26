@@ -1690,8 +1690,8 @@ export function planRun(
   const excludeFiles = specExclusions(specs.files, options.includeSpecs ?? false);
 
   const directives: Directive[] = [];
-  /** Parsed, validated, and then not run: see ADR-0010. */
-  const withheld: Directive[] = [];
+  /** Parsed, validated, and then not run: see ADR-0010. Each with the document it is counted against. */
+  const withheld: Array<{ directive: Directive; spec: InactiveSpec }> = [];
   const errors: DirectiveError[] = [...specs.errors];
   const inactiveSpecs: InactiveSpec[] = [];
 
@@ -1699,17 +1699,14 @@ export function planRun(
     if (!document.inForce && !(options.ignoreStatus ?? false)) {
       // A document is only ever out of force because of a status it declares.
       const status = document.status as SpecStatus;
-      withheld.push(...document.directives);
       // Recorded even when it held no directives. "docs/adr/0011.md is a
       // draft" is worth saying to someone wondering why their new rule has no
       // effect, and a report that only mentions the documents it happened to
-      // find directives in cannot answer that.
-      inactiveSpecs.push({
-        file: document.relativeFile,
-        status: status.value,
-        label: status.label,
-        directives: document.directives.length,
-      });
+      // find directives in cannot answer that. Its count is of the directives
+      // that resolve, below.
+      const spec: InactiveSpec = { file: document.relativeFile, status: status.value, label: status.label, directives: 0 };
+      inactiveSpecs.push(spec);
+      withheld.push(...document.directives.map((directive) => ({ directive, spec })));
       continue;
     }
     directives.push(...document.directives);
@@ -1729,12 +1726,21 @@ export function planRun(
   // held to being well-formed, so a draft's typo is found on the day it is
   // written rather than on the day the ADR is accepted - which is the day
   // everyone has already agreed the rule is right and stopped looking at it.
-  for (const directive of withheld) {
+  // One that is not is counted once, as invalid: it is no rule the document
+  // would run in force, and "6 invalid · 1 not in force" over one directive
+  // counted it twice.
+  let notRun = 0;
+  for (const { directive, spec } of withheld) {
     const resolved = resolveDirective(directive, { root, excludeFiles, scope, exclude });
-    if ("error" in resolved) errors.push(resolved.error);
+    if ("error" in resolved) {
+      errors.push(resolved.error);
+    } else {
+      spec.directives += 1;
+      notRun += 1;
+    }
   }
 
-  return { root, specFiles: specs.files, assertions, withheld: withheld.length, errors, inactiveSpecs, warnings: specs.warnings, masked: specs.masked, exclude };
+  return { root, specFiles: specs.files, assertions, withheld: notRun, errors, inactiveSpecs, warnings: specs.warnings, masked: specs.masked, exclude };
 }
 
 /**
