@@ -540,6 +540,8 @@ describe('a directive-shaped comment in text no directive is read from', () => {
       [2, 1, 'fenced code'],
       [4, 1, 'fenced code'],
     ]);
+    // In any case, as the parser reads a kind, with nothing else to find.
+    expect(maskedIn('```\n<!-- @ASSERT-ABSENCE symbol="Y" -->\n```\n')).toEqual([[2, 1, 'fenced code']]);
   });
 
   it('is not one that is read, as a directive or as an error, and a document with none says nothing', () => {

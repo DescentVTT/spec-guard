@@ -377,6 +377,8 @@ function unclosedBlocks(scan: MarkdownScan): Array<{ line: number; message: stri
 const DIRECTIVE_RE = /<!--\s*@([a-zA-Z][\w-]*)([\s\S]*?)-->/g;
 /** The opening of a directive, `<!-- @kind`, wherever it is written. */
 const DIRECTIVE_SHAPE_RE = /<!--\s*@([a-zA-Z][\w-]*)/g;
+/** What every directive-shaped comment holds, in any case: a document without it has none. */
+const ASSERT_RE = /@assert/i;
 const ATTRIBUTE_RE =
   /([a-zA-Z][\w-]*)(?:\s*=\s*(?:"((?:\\.|[^"\\])*)"|'((?:\\.|[^'\\])*)'|([^\s"'=<>`]+)))?/g;
 
@@ -535,10 +537,11 @@ function directivesOf(source: string, scan: MarkdownScan, context: ParseContext)
  *
  * Found in the source as written, where the parser reads the masked copy, and
  * kept when its `<!--` is blanked there. Most documents hold no `@assert` at
- * all, and those cost one substring search.
+ * all, in any case, and those cost one search. A kind is read in any case, as
+ * the parser reads one.
  */
 function maskedDirectives(source: string, view: string, scan: MarkdownScan, starts: readonly number[], context: ParseContext): MaskedDirective[] {
-  if (!source.includes('@assert')) return [];
+  if (!ASSERT_RE.test(source)) return [];
   const found: MaskedDirective[] = [];
   for (const match of source.matchAll(DIRECTIVE_SHAPE_RE)) {
     if (view.startsWith('<!--', match.index) || !(match[1] as string).toLowerCase().startsWith('assert')) continue;
