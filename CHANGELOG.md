@@ -13,6 +13,16 @@ with the flag that restores the previous behaviour.
   version cannot reach npm from a workstation by mistake, without provenance;
   spec-harness 0.1.0 did. The release never runs it: it stages a tarball it
   packed.
+- **spec-core is copied again, from `8840d36`**, `markdown` alone, and
+  verified by hash. Its scanner makes links, list items and the directives
+  mask the first time each is read, and keeps them, where every scan made all
+  three; spec-guard reads the directives mask and neither of the others. It
+  also lists an image inside a link's text - a badge wrapped in a link - as a
+  link of its own, after the link. Nothing here reads links: over the 145
+  Markdown files of the five spec-* repositories every directive, error,
+  status, title and warning reads as it did, and a run, `prove` and `cites` of
+  this repository answer as they did.
+  [ADR-0015](docs/adr/0015-globs-from-spec-core.md).
 
 ## 0.12.0
 
