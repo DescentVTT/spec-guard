@@ -11,7 +11,7 @@
 import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 
 import { main, version, type CliIO } from '../src/cli.js';
 import { walkFiles } from '../src/glob.js';
@@ -910,6 +910,37 @@ describe('spec-guard prove', () => {
     const json = await run(['nowhere/*.md', '--json']);
     expect(json.code).toBe(2);
     expect(JSON.parse(json.out)).toMatchObject({ summary: { specs: 0 } });
+  });
+
+  it('exits 2 for a spec pattern it cannot read, and says why, rather than proving nothing', async () => {
+    const { code, out, err } = await run(['docs/[z-a]*.md']);
+    expect([code, out, err]).toEqual([2, '', ['spec-guard: invalid spec pattern "docs/[z-a]*.md": the range "z-a" runs backwards']]);
+  });
+
+  it('exits 2 with one line when the proof itself fails, not 1 and a stack trace', async () => {
+    // Nothing a command line can say makes a proof throw today: every read is
+    // guarded, and every pattern refused before the proof starts. What is held
+    // here is the contract for the day something does - 2, could not run -
+    // since the 1 an uncaught error exits with reads as a rule that survived.
+    vi.resetModules();
+    vi.doMock('../src/prove.js', async (original) => ({
+      ...(await original<typeof import('../src/prove.js')>()),
+      proveSpecGuard: async () => {
+        throw new Error('EIO: i/o error, read');
+      },
+    }));
+    try {
+      const cli = await import('../src/cli.js');
+      const root = await makeTempRepo({ 'docs/rules.md': RULES, ...TREE });
+      temporary.push(root);
+      const out: string[] = [];
+      const err: string[] = [];
+      const io: CliIO = { stdout: (text) => out.push(text), stderr: (text) => err.push(text), env: { NO_COLOR: '1' }, cwd: root, isTTY: false };
+      expect([await cli.main(['prove'], io), out, err]).toEqual([2, [], ['spec-guard: EIO: i/o error, read']]);
+    } finally {
+      vi.doUnmock('../src/prove.js');
+      vi.resetModules();
+    }
   });
 
   it('names what it could not read and what is not in force, and says when it proved nothing', async () => {

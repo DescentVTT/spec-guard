@@ -675,8 +675,8 @@ describe('spec-guard impact', () => {
       const json = await at('--json');
       expect([json.code, json.err]).toEqual([EXIT_ERROR, []]);
       expect((JSON.parse(json.out) as ImpactReport).specFiles).toEqual([]);
-      const named = await at('--spec', 'docs/*.md');
-      expect(named.code).toBe(EXIT_ERROR);
+      const named = await at('--spec', 'docs/*.md', '--spec', 'notes/*.md');
+      expect([named.code, named.err]).toEqual([EXIT_ERROR, ['spec-guard: no spec files matched "docs/*.md", "notes/*.md"']]);
       const allowed = await at('--allow-empty');
       expect([allowed.code, allowed.err]).toEqual([EXIT_OK, ['spec-guard: no spec files matched "docs/**/*.md"']]);
     } finally {
@@ -706,7 +706,23 @@ describe('spec-guard impact', () => {
       expect(() => parseArgs(argv, ROOT), argv.join(' ')).toThrow(new UsageError('Option --depth applies only to spec-guard impact.'));
     }
     expect(parseArgs(['impact', 'a.ts', '--allow-empty'], ROOT).allowEmpty).toBe(true);
-    for (const option of ['--verbose', '--watch', '--fail-fast', '--engine=js', '--strict', '--allow-missing-targets', '--allow-empty-scope', '--print-baseline', '--max-snippets=1', '--concurrency=1', '--color']) {
+    // And each one's negation, for the same reason: accepted, it would read as a setting impact has.
+    for (const option of [
+      '--verbose',
+      '--watch',
+      '--fail-fast',
+      '--engine=js',
+      '--strict',
+      '--no-strict',
+      '--allow-missing-targets',
+      '--no-allow-missing-targets',
+      '--allow-empty-scope',
+      '--no-allow-empty-scope',
+      '--print-baseline',
+      '--max-snippets=1',
+      '--concurrency=1',
+      '--color',
+    ]) {
       const name = option.split('=')[0] as string;
       expect(() => parseArgs(['impact', 'a.ts', option], ROOT), option).toThrow(new UsageError(`Option ${name} does not apply to spec-guard impact.`));
     }
