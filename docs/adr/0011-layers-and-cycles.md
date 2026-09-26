@@ -428,3 +428,14 @@ it. Rarer than the relaxed rule, and expressible today with an
 **`@assert-import-acyclic`.** Reads better as a sentence. But the grammar is
 `@assert-<subject>-<claim>`, the claim here carries a count, and "at most two
 acyclic" is not a sentence at all.
+
+## Amended 2026-09-26: the graph read backwards
+
+`spec-guard impact` reads this graph the other way, from a file to the files
+that import it, over the whole tree rather than one rule's targets. It adds one
+row to the resolution table - a relative Python import names `db.py` or
+`db/__init__.py` beside the importing file, by the same arithmetic and
+membership - and keeps every other rule above: what cannot be followed is
+listed or counted, never guessed. [ADR-0018](0018-impact.md) has the table
+and why the other three languages stay out of it. Cycles are unchanged:
+`@assert-import-cycle` still places JavaScript and TypeScript alone.
