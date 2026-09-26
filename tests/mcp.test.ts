@@ -786,6 +786,16 @@ describe('get_dependents', () => {
     expect(await listed({ include_inactive: false }, { run: { ignoreStatus: true } })).toEqual([]);
   });
 
+  it('reads under the settings of the request, and reports the configuration they came from', async () => {
+    // The project's exclude takes a file out of the graph, as it does for the
+    // command, and the answer says where the exclusion came from.
+    const config = { file: 'package.json', applied: ['exclude' as const], overridden: [] };
+    const settings = async () => ({ patterns: ['docs/**/*.md'], run: { exclude: ['src/app'] }, config });
+    const called = await tool('get_dependents', { paths: ['src/domain/user.ts'] }, { settings });
+    expect(called.structuredContent).toMatchObject({ exclude: ['src/app'], config, results: [{ dependents: [] }] });
+    expect(called.content[0]?.text).toContain('nothing in scope imports it');
+  });
+
   it('answers without specs, as the command does, since who imports a file does not depend on them', async () => {
     const called = await tool('get_dependents', { paths: ['src/domain/user.ts'] }, { patterns: ['nowhere/*.md'] });
     expect(called).not.toHaveProperty('isError');
