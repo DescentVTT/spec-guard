@@ -185,8 +185,8 @@ export { lineStarts, locate, maskRanges } from './text.js';
 export { maskCode, parseAttributes, parseDirectives, parseDocument, parseStatus, parseTitle, INACTIVE_STATUSES } from './parser.js';
 export type { ParseContext, ParsedDocument } from './parser.js';
 
-export { readSpecs, specPath } from './specs.js';
-export type { SpecDocument, SpecSet } from './specs.js';
+export { createDocumentMemo, readSpecs, specPath } from './specs.js';
+export type { DocumentMemo, SpecDocument, SpecSet } from './specs.js';
 
 export { governs, layerPosition, leftOutByOwnExclude, viewRule, within } from './rules.js';
 export type { DocumentView, LayerPosition, PathShape, QueryPath, RuleView } from './rules.js';

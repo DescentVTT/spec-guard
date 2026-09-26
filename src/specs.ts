@@ -14,7 +14,7 @@ import path from 'node:path';
 import { MAX_CONCURRENT_READS } from './engine.js';
 import { expandSpecPatterns, toPosix } from './glob.js';
 import { nodeIo, type Io } from './io.js';
-import { NO_MEMO, type Memo } from './memo.js';
+import { createMemo, NO_MEMO, type Memo } from './memo.js';
 import { parseDocument } from './parser.js';
 import type { Directive, DirectiveError, MaskedDirective, SpecStatus, SpecWarning } from './types.js';
 
@@ -62,22 +62,77 @@ export function specPath(root: string, file: string): string {
 /** Expands the patterns and reads every document they match. */
 export async function readSpecs(patterns: readonly string[], root: string, io: Io = nodeIo, memo: Memo = NO_MEMO): Promise<SpecSet> {
   const files = await expandSpecPatterns(patterns, root, undefined, io);
-  const documents: SpecDocument[] = [];
-  const errors: DirectiveError[] = [];
-  const warnings: SpecWarning[] = [];
-  const masked: MaskedDirective[] = [];
+  return parseSpecs(root, files, await readSources(files, io), memo);
+}
 
-  // Read in batches the size of the engine's read limit, then handled in file
-  // order. One read at a time took 0.9s over 1,200 specs, and an unbounded
-  // Promise.all over that many files is an EMFILE on a system with the usual
-  // limit of 1,024 open descriptors. Batches rather than a pool of readers
-  // sharing a cursor, because a cursor that is advanced wrongly still reads
-  // every file - which is a defect no test can see.
+/**
+ * Parsed spec documents, kept from one read of the specs to the next.
+ *
+ * For a process that reads the specs again for every request - the MCP server
+ * - where parsing them is most of what a request costs (ADR-0012's amendment
+ * of 2026-09-27). Every file is still found and read on every request, so an
+ * edit is seen by the next one; only a document whose bytes are the ones it
+ * was parsed from is not parsed again. It is the watch session's memo
+ * (ADR-0014), keyed as a spec is there: by the SHA-256 of the bytes and both
+ * paths, which the directives' locations carry. It cannot serve a stale rule,
+ * because nothing is kept under bytes a file no longer has.
+ *
+ * A one-shot run gains nothing from it and passes none: `readSpecs` then
+ * parses every document and hashes none.
+ */
+export interface DocumentMemo {
+  /** `readSpecs`, with every document parsed before from the same bytes and paths served from memory. */
+  read(patterns: readonly string[], root: string, io?: Io): Promise<SpecSet>;
+  /** Documents held: the readable ones of the spec set read last. */
+  readonly size: number;
+}
+
+export function createDocumentMemo(): DocumentMemo {
+  const memo = createMemo();
+  return {
+    async read(patterns, root, io = nodeIo) {
+      const files = await expandSpecPatterns(patterns, root, undefined, io);
+      const specs = parseSpecs(root, files, await readSources(files, io), memo);
+      // What bounds it. A sweep drops every entry this read did not ask for, so
+      // what is held afterwards is one parse of each document the current spec
+      // set names: a document that left the set, or whose bytes changed, is
+      // gone with the read that did not ask for it. The sweep follows the
+      // parse with no await between them, so a request the server answers
+      // concurrently cannot sweep away entries another has just asked for.
+      memo.sweep();
+      return specs;
+    },
+    get size() {
+      return memo.size;
+    },
+  };
+}
+
+/**
+ * Every file's bytes, or why it could not be read, in file order.
+ *
+ * Read in batches the size of the engine's read limit. One read at a time
+ * took 0.9s over 1,200 specs, and an unbounded Promise.all over that many
+ * files is an EMFILE on a system with the usual limit of 1,024 open
+ * descriptors. Batches rather than a pool of readers sharing a cursor, because
+ * a cursor that is advanced wrongly still reads every file - which is a defect
+ * no test can see.
+ */
+async function readSources(files: readonly string[], io: Io): Promise<Array<Buffer | Error>> {
   const sources: Array<Buffer | Error> = [];
   while (sources.length < files.length) {
     const batch = files.slice(sources.length, sources.length + MAX_CONCURRENT_READS);
     sources.push(...(await Promise.all(batch.map((file) => io.readFile(file).catch((error: unknown) => error as Error)))));
   }
+  return sources;
+}
+
+/** What each document declares, in file order, parsed through `memo`. */
+function parseSpecs(root: string, files: string[], sources: ReadonlyArray<Buffer | Error>, memo: Memo): SpecSet {
+  const documents: SpecDocument[] = [];
+  const errors: DirectiveError[] = [];
+  const warnings: SpecWarning[] = [];
+  const masked: MaskedDirective[] = [];
 
   files.forEach((file, index) => {
     const relativeFile = specPath(root, file);
