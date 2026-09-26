@@ -46,6 +46,7 @@ import {
   setextUnderline,
   stripQuotes,
   type FenceOpen,
+  type ListMarker,
 } from './syntax.js';
 import { findTables } from './tables.js';
 import type { Block, BlockKind, FrontMatterBlock, HtmlComment, MarkdownScan, MaskKind, ScannedLine } from './types.js';
@@ -325,7 +326,8 @@ function scanCore(text: string, index: LineIndex, frontLines: number): Core {
   let raw: Open | null = null;
   let indented: Mutable<Block> | null = null;
   let previousBlank = true;
-  let inList = false;
+  // The content column of each list item open around the line, innermost last.
+  const items: number[] = [];
   let pos = 0;
 
   const openBlock = (kind: BlockKind, i: number, info: string): Mutable<Block> => {
@@ -380,10 +382,16 @@ function scanCore(text: string, index: LineIndex, frontLines: number): Core {
       raw = null;
     }
 
-    // Indented code: four columns, outside a list, never interrupting a
-    // paragraph. Inside a list four columns are a continuation far more often
-    // than code, and masking one would drop what is written there.
-    if (!shape.blank && shape.indent >= 4 && !inList && (previousBlank || indented !== null)) {
+    // After a blank line, a line left of an item's content is outside it.
+    if (!shape.blank && previousBlank) {
+      while (items.length > 0 && (items[items.length - 1] as number) > shape.indent) items.pop();
+    }
+    // Indented code: four columns past the item the line is in, or past the
+    // margin outside a list, and never interrupting a paragraph. Four columns
+    // inside an item are its text, not code.
+    const margin = items[items.length - 1] ?? 0;
+    const deep = shape.indent >= margin + 4;
+    if (!shape.blank && deep && (previousBlank || indented !== null)) {
       if (indented === null) indented = openBlock('indented', i, '');
       else extend(indented, i);
       push(CODE);
@@ -398,7 +406,8 @@ function scanCore(text: string, index: LineIndex, frontLines: number): Core {
       indented = null;
     }
 
-    const open = fenceOpen(content);
+    // A fence as deep as indented code continues a paragraph instead.
+    const open = deep ? null : fenceOpen(content);
     if (open !== null) {
       fence = { block: openBlock('fenced', i, open.info), depth: shape.depth, open };
       push(CODE);
@@ -413,10 +422,14 @@ function scanCore(text: string, index: LineIndex, frontLines: number): Core {
     }
 
     push(NONE);
-    if (listMarker(content) !== null) inList = true;
-    else if (previousBlank && shape.indent === 0) inList = false;
+    const marker = listMarker(content);
+    if (marker !== null) {
+      // A marker left of an item's content starts a sibling or an outer item.
+      while (items.length > 0 && (items[items.length - 1] as number) > shape.indent) items.pop();
+      items.push(itemColumn(shape.indent, marker));
+    }
     // A heading ends a list whatever its indentation.
-    if (shape.atx) inList = false;
+    if (shape.atx) items.length = 0;
     const lead = shape.indent <= 3 ? shape.contentStart + leadIndex(content) : end;
     pos = sweep(shape.contentStart, end, i, lead);
   };
@@ -431,6 +444,16 @@ function scanCore(text: string, index: LineIndex, frontLines: number): Core {
 
   markCommentLines(lines, comments);
   return { lines, blocks, spans, comments, covered, continues };
+}
+
+/**
+ * The column an item's text starts at: past its marker and the one to four
+ * spaces after it. With none, or five or more, the text starts one column
+ * past the marker, and anything further is indented code.
+ */
+function itemColumn(indent: number, marker: ListMarker): number {
+  const spaces = marker.width - marker.marker.length;
+  return indent + marker.marker.length + (spaces >= 1 && spaces <= 4 ? spaces : 1);
 }
 
 type Kinds = Pick<ScannedLine, 'frontMatter' | 'code' | 'html'>;

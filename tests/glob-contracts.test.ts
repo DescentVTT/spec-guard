@@ -121,13 +121,14 @@ describe('the include matcher', () => {
     expect(createGlobMatcher(['/src'])('src/a.ts')).toBe(false);
   });
 
-  it('reads ** inside a segment as *, never across directories', () => {
-    // As .gitignore, bash, minimatch and ripgrep read it. The RegExp this
-    // replaced read `src/**.ts` as `src/.*\.ts` and matched src/deep/a.ts,
-    // which ripgrep did not.
-    expect(createGlobMatcher(['src/**.ts'])('src/a.ts')).toBe(true);
-    expect(createGlobMatcher(['src/**.ts'])('src/deep/a.ts')).toBe(false);
-    expect(createExcludeMatcher(['src/**.ts'])('src/deep/a.ts')).toBe(false);
+  it('refuses ** inside a segment, which crossed directories once and then did not', () => {
+    // The RegExp this replaced read `src/**.ts` as `src/.*\.ts` and matched
+    // src/deep/a.ts, which ripgrep did not; the first reading of spec-core
+    // took it as `*`, and a spec pattern that had found nested documents
+    // quietly stopped. Neither reading is guessed at now.
+    expect(() => createGlobMatcher(['src/**.ts'])).toThrow('invalid glob pattern "src/**.ts": "**" means any number of directories only as a whole segment');
+    expect(() => createExcludeMatcher(['src/**.ts'])).toThrow('invalid exclude pattern "src/**.ts": "**" means any number of directories only as a whole segment');
+    expect(createGlobMatcher(['src/**/*.ts'])('src/deep/a.ts')).toBe(true);
   });
 
   it('decides for each alternative of a brace group whether it is anchored', () => {

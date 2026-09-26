@@ -1,6 +1,6 @@
 {
   "source": "https://github.com/DescentVTT/spec-core",
-  "commit": "4f2826aaa5c97ce142d9bc355a5237dea7712d42",
+  "commit": "cbe222343a6e7fb272868f61c7d893eff62ba574",
   "modules": {
     "jsonrpc": {
       "files": {
@@ -10,13 +10,13 @@
     },
     "markdown": {
       "files": {
-        "frontmatter.ts": "sha256-eea992730926c1ba618dec768160e170ffafcef3ad58c4c4733e6cf6d38979dc",
+        "frontmatter.ts": "sha256-4261111d9c900079d1c5094ff00db55edeed3e57be3197420a0b841539d000b9",
         "headings.ts": "sha256-6b1f88429004b64d62cc690136916fe64ddffb5df8ce7c96415e869e33bf23e2",
         "index.ts": "sha256-bdb9eae130cd46174bb94a11e199724fd590a0e99e59c8510ce782a5e79dd85d",
         "layout.ts": "sha256-11293f9961ce7fcc672743e72945dcaa0a1475a8adea166ea10fa9c542cd6f75",
         "links.ts": "sha256-bc5dc5fc157e492e2cf9ac2d803978eea8ab4e525af0e3395b2bea8f64b999b0",
         "lists.ts": "sha256-ac2fa8e5c35ca0b17b2727f4a3d9b52edb56ebb7392955d79aa029bc3ae11ea6",
-        "scan.ts": "sha256-211d2270cfa01ef78ea25affc3119daf5e5900098a63cf4caa274d760e1435d3",
+        "scan.ts": "sha256-7b9c08faa75e3aa4e42dfcb0a81d1e6730e64facd11b0006114d74bddc40ed2a",
         "syntax.ts": "sha256-603325f2aa181f8bcaa99b529d3da0e873f8f6f3fe73380e24b2414c0b2532c2",
         "tables.ts": "sha256-494a4785827e73f9cfd496a8f082fb7aa070c6b4ce9e1142939c4506230fde5b",
         "types.ts": "sha256-892852c121fac09e4ef9e56e07398f3bf150fa6c627f5d5b62446809d1c955ac"
@@ -32,7 +32,7 @@
       "files": {
         "automaton.ts": "sha256-83362ad1e669c79cbff0baa8ad11d87bb5c669238f07f686eea3611db4454b6f",
         "charset.ts": "sha256-8d294a77ad7fad55f84cd914b64665fde342e01f71eae77f338218f3da141a81",
-        "glob.ts": "sha256-acf74c657a7dfd9496dc86edf03367dea1d3ff03deb6f64b3e0133ac7b17b0d3",
+        "glob.ts": "sha256-77259921449d34effb686ae6b7c974f9db57d6b5735b9bfb8cfc650b322f18de",
         "index.ts": "sha256-ef2ebf1aca4dd1be073f15432a3c23b83bd10bbf5cd1e415ecd6e6b5c9a197ba",
         "regex.ts": "sha256-be88d0d57af98e0bcbfb7cb3242d7333066e7be10664e31397d779bac0cff928"
       }

@@ -61,7 +61,7 @@ it executed, including the ones that passed.
 What is code, what is a comment, where front matter ends and which lines are
 headings is decided by spec-core's `markdown` module - its ADR-0004, exact
 about code and comments by CommonMark's rules - copied into
-`src/vendor/spec-core` from `4f2826a` and verified by hash
+`src/vendor/spec-core` from `4f2826a`, and again from `cbe2223`, and verified by hash
 ([ADR-0015](0015-globs-from-spec-core.md)). `src/parser.ts` keeps what is
 spec-guard's: the directive grammar, the attribute table, and what a status
 line means ([ADR-0010](0010-spec-status.md)).
@@ -94,8 +94,9 @@ The three fence shapes fixed in this release stay fixed. Beyond them, where
 - **A fence shown inside a comment opens nothing.** A template that shows one
   hid every directive after it.
 - **Indented code, raw-text HTML and front matter are not read for
-  directives.** Four columns outside a list, after a blank line, are code in
-  every renderer, and a directive shown there executed. So did one inside
+  directives.** Four columns past the margin, or past the text of the list
+  item a line sits in, after a blank line, are code in every renderer, and a
+  directive shown there executed. So did one inside
   `<script>`, `<pre>`, `<style>` or `<textarea>`, whose content is not Markdown.
   `<details>` and `<div>` hold Markdown, and are read.
 - **A fence's indentation is CommonMark's, but for an opener's limit.** An
@@ -104,7 +105,12 @@ The three fence shapes fixed in this release stay fixed. Beyond them, where
   its opener. The fence rule first written in this release opened a fence at
   any indentation, indented code included, and closed one at any depth; its
   price - an indented code block whose text is a fence line, hiding the rest of
-  the document - is not paid.
+  the document - is not paid. `4f2826a` still paid it inside a list, where it
+  read no indented code at all: a fence line shown as code under an item, six
+  spaces in, opened a block nothing closed, and every directive after it went
+  quiet. From `cbe2223` the scanner knows each item's text column, so a line
+  four columns past it is code, and a fence line that deep is code or
+  paragraph text, never an opener.
 - **Every line terminator stays where it was.** `maskCode` keeps a carriage
   return inside code, where it blanked one.
 

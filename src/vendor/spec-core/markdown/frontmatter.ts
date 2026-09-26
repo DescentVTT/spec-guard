@@ -304,6 +304,8 @@ function readBlock(reader: Reader, content: readonly number[], colon: number, to
 
   const head = SEQUENCE_ITEM.exec(firstText);
   if (head === null) {
+    // Quoting a list would make it a string, so a list gets its own advice.
+    if (firstText.trim().startsWith('[')) return whole(unsupported('an inline list starts on the line after its key; write it after the colon'));
     if (!KEY.test(firstText.trim())) return whole(unsupported('the value continues on the next line; keep it on one line, or quote it'));
     return whole(
       unsupported(topLevel ? 'nested mappings are not supported; flatten the key' : 'only one level of nesting is read; flatten the key'),

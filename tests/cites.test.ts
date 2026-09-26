@@ -88,6 +88,9 @@ describe('a files template', () => {
     expect(citeFilesError('docs/v2{n}.md')).toBe('"docs/v2{n}.md" has a digit beside {n}, where it would run into the number');
     expect(citeFilesError('docs/{n}1.md')).toBe('"docs/{n}1.md" has a digit beside {n}, where it would run into the number');
     expect(citeFilesError('docs/adr/{n}*.md')).toBeNull();
+    expect(citeFilesError('docs/adr/{n}**.md')).toBe(
+      '"docs/adr/{n}**.md": invalid glob pattern "docs/adr/**.md": "**" means any number of directories only as a whole segment: write "docs/**/*.md" for any depth, or "*.md" for one level',
+    );
     expect(citeFilesError('docs/[a/{n}.md')).toMatch(/^"docs\/\[a\/\{n\}\.md": invalid glob pattern "docs\/\[a\/\*\.md": /);
   });
 

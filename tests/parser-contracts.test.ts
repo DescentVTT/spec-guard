@@ -370,7 +370,10 @@ describe('an indented fence', () => {
     // the example ran.
     expect(executed(nested('```'))).toEqual(['Real']);
     expect(executed(`Open a fence with \`\`\` and close it the same way.\n\n${nested('```')}`)).toEqual(['Real']);
-    expect(executed('- a\n\n\t\t~~~\n<!-- @assert-absence symbol="X" -->\n\t\t~~~\n<!-- @assert-absence symbol="Y" -->\n')).toEqual(['Y']);
+    expect(executed('- a\n\n\t~~~\n<!-- @assert-absence symbol="X" -->\n\t~~~\n<!-- @assert-absence symbol="Y" -->\n')).toEqual(['Y']);
+    // Four columns past the item's text is indented code, and a fence line
+    // there is a line of it, as the next test says of one outside a list.
+    expect(executed('- a\n\n\t\t~~~\n<!-- @assert-absence symbol="X" -->\n\t\t~~~\n<!-- @assert-absence symbol="Y" -->\n')).toEqual(['X', 'Y']);
   });
 
   it('closes on a fence no more than three columns deeper than the one that opened it', () => {
@@ -379,7 +382,10 @@ describe('an indented fence', () => {
     expect(executed('   ```\n<!-- @assert-absence symbol="X" -->\n      ```\n<!-- @assert-absence symbol="Y" -->\n')).toEqual(['Y']);
     expect(executed('```\n<!-- @assert-absence symbol="X" -->\n    ```\n<!-- @assert-absence symbol="Y" -->\n')).toEqual([]);
     // Shallower is fine: the list item it sat in has ended.
-    expect(executed('- a\n\n      ```\n<!-- @assert-absence symbol="X" -->\n```\n<!-- @assert-absence symbol="Y" -->\n')).toEqual(['Y']);
+    expect(executed('- a\n\n     ```\n<!-- @assert-absence symbol="X" -->\n```\n<!-- @assert-absence symbol="Y" -->\n')).toEqual(['Y']);
+    // Four columns past the item's text, the opener is indented code, so X is
+    // read, and the fence at the margin opens a block that runs to the end.
+    expect(executed('- a\n\n      ```\n<!-- @assert-absence symbol="X" -->\n```\n<!-- @assert-absence symbol="Y" -->\n')).toEqual(['X']);
   });
 
   it('is code, not a fence, where a line indented four columns is code', () => {
