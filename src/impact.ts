@@ -281,7 +281,8 @@ export async function impactOf(options: ImpactOptions): Promise<ImpactReport> {
   const graph = await buildReverseGraph({ root: options.root, exclude: ruleSet.exclude, defaultSkips: options.defaultSkips ?? true, io });
 
   const results = queries.map((query): ImpactPath => {
-    const files = [...graph.nodes].filter((file) => (query.shape === 'file' ? file === query.path : within(file, query.path))).sort(comparePaths);
+    // A file's only file is itself, and a directory's are the ones under it.
+    const files = [...graph.nodes].filter((file) => within(file, query.path)).sort(comparePaths);
     const note = unreachable(query, files);
     return {
       path: query.path,
@@ -328,7 +329,8 @@ export async function impactOf(options: ImpactOptions): Promise<ImpactReport> {
     results,
     rules,
     withheld: { rules: withheldRules, documents: [...withheld] },
-    documents: [...cited.values()].sort((a, b) => comparePaths(a.file, b.file)),
+    // In the order the rules were read, which is the spec files' order.
+    documents: [...cited.values()],
     unresolved: graph.unresolved,
     unfollowed: [...graph.unfollowed].map(([kind, references]) => ({ kind, references })).sort((a, b) => b.references - a.references || comparePaths(a.kind, b.kind)),
     gaps: graph.gaps,
@@ -407,7 +409,8 @@ export function formatImpact(report: ImpactReport): string {
 
   if (report.unfollowed.length > 0) {
     const counts = report.unfollowed.map(({ kind, references }) => plural(references, kind, `${kind}s`)).join(', ');
-    out.push(`not followed: ${counts} name modules rather than files, so a file that depends on these paths through one is not shown (ADR-0018)`, '');
+    const one = report.unfollowed.length === 1 && (report.unfollowed[0] as { references: number }).references === 1;
+    out.push(`not followed: ${counts} ${one ? 'names' : 'name'} modules rather than files, so a file that depends on these paths through one is not shown (ADR-0018)`, '');
   }
   if (report.unresolved.length > 0) {
     out.push(`${plural(report.unresolved.length, 'import', 'imports')} could not be resolved, and may depend on these paths:`);

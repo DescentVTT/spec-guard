@@ -39,16 +39,17 @@ export interface IdTemplate {
   suffix: string;
 }
 
-const DIGIT = /^[0-9]$/;
 // A letter or digit in any script, or an underscore: what a word boundary
 // separates. Fixed here, and never built from anything a project wrote.
 const WORD = /^[\p{L}\p{N}_]$/u;
 
 // Both are asked about the character past either end of a text too, which is
-// undefined: a pattern of one character never matches the word "undefined"
-// that `test` makes of it, so there is no end of the text to test for first.
+// undefined, and neither takes it for a digit or a letter, so there is no end
+// of the text to test for first: `test` reads it as the word "undefined",
+// which no pattern of one character matches.
 function isDigit(char: string | undefined): boolean {
-  return DIGIT.test(char as string);
+  // Compared as strings, so undefined is no digit either.
+  return (char as string) >= '0' && (char as string) <= '9';
 }
 
 function isWord(char: string | undefined): boolean {
@@ -154,9 +155,9 @@ export function documentNumber(template: string): (relativePath: string) => stri
   const matches = createPathMatcher(glob);
   const rest = after === '' ? (text: string) => text === '' : createPathMatcher(after);
   return (relativePath) => {
+    // A name the glob matched starts with the literal before the number.
     if (!matches(relativePath)) return null;
     const name = relativePath.slice(relativePath.lastIndexOf('/') + 1);
-    if (!name.startsWith(before)) return null;
     let end = before.length;
     while (isDigit(name[end])) end += 1;
     const digits = name.slice(before.length, end);
@@ -331,14 +332,11 @@ export async function findDocuments(family: CiteFamily, root: string, io: Io, de
   const documents = new Map<string, CitedDocument[]>();
   found.forEach(({ file, spelled }, index) => {
     const source = sources[index] as Buffer | Error;
+    // A document that cannot be read is read as one with no title and no
+    // status, which the empty text is.
     const text = source instanceof Error ? '' : source.toString('utf8');
-    const title = parseTitle(text);
-    const status = parseStatus(text);
     const key = numberKey(spelled);
-    documents.set(key, [
-      ...(documents.get(key) ?? []),
-      { file, spelled, ...(title === undefined ? {} : { title }), ...(status === undefined ? {} : { status }) },
-    ]);
+    documents.set(key, [...(documents.get(key) ?? []), { file, spelled, title: parseTitle(text), status: parseStatus(text) }]);
   });
   return documents;
 }
@@ -365,7 +363,7 @@ export function deriveFamilies(documents: ReadonlyArray<{ file: string; title?: 
     const digits = /^[0-9]+/.exec(name)?.[0];
     if (digits === undefined) continue;
     const directory = file.slice(0, Math.max(slash, 0));
-    series.set(directory, [...(series.get(directory) ?? []), { name, digits, ...(title === undefined ? {} : { title }) }]);
+    series.set(directory, [...(series.get(directory) ?? []), { name, digits, title }]);
   }
 
   const families: CiteFamily[] = [];
@@ -373,7 +371,7 @@ export function deriveFamilies(documents: ReadonlyArray<{ file: string; title?: 
   for (const [directory, members] of [...series].sort(([a], [b]) => comparePaths(a, b))) {
     const prefixes = new Set(
       members.map(({ digits, title }) => {
-        const titled = title === undefined ? null : /^([A-Za-z]+-)([0-9]+)(?![0-9A-Za-z_])/.exec(title);
+        const titled = /^([A-Za-z]+-)([0-9]+)(?![0-9A-Za-z_])/.exec(title ?? '');
         return titled !== null && numberKey(titled[2] as string) === numberKey(digits) ? (titled[1] as string) : null;
       }),
     );
@@ -468,7 +466,7 @@ export async function findCitations(options: CitesOptions): Promise<CitesReport>
   const specs = await readSpecs(options.patterns, root, io);
   const specFiles = new Set(specs.files);
 
-  const derived = options.families === undefined ? deriveFamilies(specs.documents.map(({ relativeFile, title }) => ({ file: relativeFile, ...(title === undefined ? {} : { title }) }))) : null;
+  const derived = options.families === undefined ? deriveFamilies(specs.documents.map(({ relativeFile, title }) => ({ file: relativeFile, title }))) : null;
   const declared = options.families ?? (derived as { families: CiteFamily[] }).families;
   const notes = derived === null ? [] : [...derived.notes];
   const source = derived === null ? 'config' : 'derived';
@@ -497,7 +495,7 @@ export async function findCitations(options: CitesOptions): Promise<CitesReport>
   const scope = createScope(defaultSkips);
   const unclassified = new Map<string, number>();
   const candidates: Array<{ file: string; absolute: string }> = [];
-  const starts = (options.paths ?? ['.']).map((entry) => (entry === '.' ? '' : entry));
+  const starts = options.paths?.map((entry) => (entry === '.' ? '' : entry)) ?? [''];
   const seen = new Set<string>();
 
   for (const start of families.length === 0 ? [] : starts) {
@@ -573,8 +571,8 @@ export async function findCitations(options: CitesOptions): Promise<CitesReport>
   };
   // A batch at a time, each scanned as soon as it is read, so that no more
   // than one batch of a large tree is held in memory at once.
-  for (let next = 0; next < candidates.length; next += MAX_CONCURRENT_READS) {
-    const batch = candidates.slice(next, next + MAX_CONCURRENT_READS);
+  for (const pending = [...candidates]; pending.length > 0; ) {
+    const batch = pending.splice(0, MAX_CONCURRENT_READS);
     const sources = await readAll(io, batch.map(({ absolute }) => absolute));
     batch.forEach(({ file }, index) => scan(file, sources[index] as Buffer | Error));
   }
@@ -591,9 +589,9 @@ export async function findCitations(options: CitesOptions): Promise<CitesReport>
   return {
     // Under --strict, anything short of every comment read and every citation
     // in force fails: a stale citation, a file read in part, and a check that
-    // looked for nothing or read nothing, which the family contract says a
-    // strict run refuses rather than reports as clean.
-    ok: ghosts === 0 && !(strict && (stale > 0 || gaps.length > 0 || families.length === 0 || read === 0)),
+    // read nothing - which one that looked for nothing did not - since the
+    // family contract says a strict run refuses that rather than reports clean.
+    ok: ghosts === 0 && !(strict && (stale > 0 || gaps.length > 0 || read === 0)),
     root: toPosix(root),
     durationMs: performance.now() - startedAt,
     families: familyReports,

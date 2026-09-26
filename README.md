@@ -963,7 +963,7 @@ spec-guard cites ADR-{n} (10 documents matching docs/adr/{n}-*.md); RFC-{n} (2 d
 ✖ crates/ledger/src/lib.rs:28 cites ADR-0011, which no document defines  ghost-citation
     hint: no document matching docs/adr/{n}-*.md has the number 11; the nearest is ADR-0010
 
-21 citations in 6 files · 1 ghost · 1 stale · 22ms
+3 citations in 2 files · 1 ghost · 1 stale · 22ms
 ✖ 1 citation names a document that does not exist
 ```
 

@@ -96,9 +96,9 @@ const FORMATS: Readonly<Record<Exclude<Command, 'mcp'>, readonly OutputFormat[]>
 /** What a command without line-level formats lists instead of results, for the message refusing one. */
 const LISTS: Readonly<Partial<Record<Command, string>>> = { query: 'rules', impact: 'files and rules' };
 
-/** `a`, `a or b`, `a, b or c`. */
+/** `a or b`, `a, b or c`: every command that takes a format has at least two. */
 function either(words: readonly string[]): string {
-  return words.length === 1 ? (words[0] as string) : `${words.slice(0, -1).join(', ')} or ${words[words.length - 1] as string}`;
+  return `${words.slice(0, -1).join(', ')} or ${words[words.length - 1] as string}`;
 }
 
 export interface CliOptions {

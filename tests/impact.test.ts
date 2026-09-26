@@ -115,6 +115,46 @@ describe('the graph, read backwards', () => {
     expect(graph.gaps.map(({ file }) => file)).toEqual(['lost.ts']);
   });
 
+  it('reads only the languages it can read, follows only Python relative imports among the rest, and lists a relative Python import that names nothing', async () => {
+    const graph = await buildReverseGraph({
+      root: ROOT,
+      exclude: [],
+      defaultSkips: true,
+      io: memoryIo(ROOT, {
+        'a.ts': 'export {};\n',
+        // Text that reads like an import, in a file whose imports nothing reads.
+        'notes.txt': "import x from './a.js';\n",
+        // An old GOPATH-style relative import is a Go import, not a path.
+        'go/rel.go': 'package x\n\nimport "./lib"\n',
+        'go/lib.py': '',
+        'py/loose/a.py': 'from .nothere import x\n',
+      }),
+    });
+    expect([...graph.importers.keys()]).toEqual([]);
+    expect(Object.fromEntries(graph.unfollowed)).toEqual({ 'Go import': 1 });
+    expect(graph.unresolved).toEqual([{ file: 'py/loose/a.py', line: 1, specifier: '.nothere', reason: 'unresolved' }]);
+  });
+
+  it('reads no more than the engine\'s read limit of files at once', async () => {
+    const files = Object.fromEntries(Array.from({ length: 40 }, (_, index) => [`src/f${index}.ts`, "import './f0.js';\n"]));
+    const base = memoryIo(ROOT, files);
+    let open = 0;
+    let most = 0;
+    const io = {
+      ...base,
+      readFile: async (file: string) => {
+        open += 1;
+        most = Math.max(most, open);
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        open -= 1;
+        return base.readFile(file);
+      },
+    };
+    const graph = await buildReverseGraph({ root: ROOT, exclude: [], defaultSkips: true, io });
+    expect(graph.importers.get('src/f0.ts')).toHaveLength(39);
+    expect(most).toBe(16);
+  });
+
   it('keeps a file that imports itself out of its own dependents', async () => {
     const graph = await buildReverseGraph({ root: ROOT, exclude: [], defaultSkips: true, io: memoryIo(ROOT, { 'a.ts': "import './a.js';\n" }) });
     expect(graph.importers.size).toBe(0);
@@ -186,6 +226,15 @@ describe('the walk back from a path', () => {
     ]);
     expect(dependentsOf({ importers: twice }, ['x'])).toEqual([{ file: 'y', depth: 1, via: { imports: 'x', line: 3, specifier: './x.js' } }]);
     expect(dependentsOf({ importers: new Map() }, ['x'])).toEqual([]);
+  });
+
+  it('starts from the paths in path order, however they were given', () => {
+    const edge = (from: string, line: number) => ({ from, reference: { specifier: 'x', kind: 'import' as const, typeOnly: false, line, column: 1 } });
+    const graph = new Map([
+      ['a', [edge('y', 5)]],
+      ['b', [edge('y', 2)]],
+    ]);
+    expect(dependentsOf({ importers: graph }, ['b', 'a'])).toEqual([{ file: 'y', depth: 1, via: { imports: 'a', line: 5, specifier: 'x' } }]);
   });
 
   it('walks each step in path order, so a file reached from two is reached through the first of them by path', () => {
@@ -285,6 +334,18 @@ describe('the answer for a path', () => {
     ]);
     const python = await impact(['py/skip/x.py'], { exclude: ['py/skip'] }, { ...TREE, 'py/skip/x.py': '' });
     expect(python.results[0]?.note).toBe("it is not in scope: the project's exclude, or a directory the walk skips, leaves it out");
+  });
+
+  it('lists a directory\'s files in path order, whatever their language', async () => {
+    const report = await impact(['mix'], {}, { 'mix/b.ts': '', 'mix/a.py': '', 'mix/c.pyi': '' });
+    expect(report.results[0]?.files).toEqual(['mix/a.py', 'mix/b.ts', 'mix/c.pyi']);
+  });
+
+  it('takes as long as it says it took', async () => {
+    const before = performance.now();
+    const report = await impact(['src/db']);
+    expect(report.durationMs).toBeGreaterThanOrEqual(0);
+    expect(report.durationMs).toBeLessThanOrEqual(performance.now() - before);
   });
 
   it('lists what could not be resolved, in path and line order, since any of it may depend on the path', async () => {
@@ -407,6 +468,90 @@ describe('the report', () => {
       '      governs: src/db/client.ts, src/app/service.ts, src/db/index.ts, src/app/cache.ts, src/ui/view.tsx and 1 more\n',
     );
     expect(formatImpact({ ...many, unresolved: many.unresolved.slice(0, 10) })).not.toContain('--json lists them all');
+  });
+
+  it('says nothing it has nothing to say about, and counts in the singular and the plural', () => {
+    const bare: ImpactReport = {
+      root: '/r',
+      specFiles: ['d.md'],
+      exclude: [],
+      depth: null,
+      results: [{ path: 'src', shape: 'directory', files: ['src/a.ts'], dependents: [] }],
+      rules: [],
+      withheld: { rules: 0, documents: [] },
+      documents: [],
+      unresolved: [],
+      unfollowed: [],
+      gaps: [],
+      errors: [],
+      scanned: 1,
+      durationMs: 1,
+    };
+    expect(formatImpact(bare).split('\n')).toEqual([
+      'src (directory, 1 file in the graph)',
+      '  nothing in scope imports it',
+      '',
+      'no rules in force govern these files',
+      '',
+      '1 file and 1 spec file read in 1.0ms',
+    ]);
+
+    const rule = { document: 'd.md', line: 1, kind: 'assert-absence' as const, description: 'x', reason: null, inForce: true, bounds: { max: 0 }, governs: ['src/a.ts'] };
+    const counted: ImpactReport = {
+      ...bare,
+      depth: 1,
+      results: [{ path: 'src', shape: 'directory', files: ['src/a.ts', 'src/b.ts'], dependents: [] }],
+      rules: [rule],
+      documents: [{ file: 'd.md', title: null, status: null, label: null, inForce: true }],
+      unresolved: [{ file: 'src/a.ts', line: 1, specifier: '@/x', reason: 'unresolved' }],
+      unfollowed: [{ kind: 'Rust use', references: 1 }],
+      gaps: [
+        { file: 'a.ts', detail: 'lost' },
+        { file: 'b.ts', detail: 'lost' },
+      ],
+      errors: [
+        { file: 'd.md', line: 2, message: 'bad' },
+        { file: 'd.md', line: 3, message: 'worse' },
+      ],
+      scanned: 2,
+    };
+    expect(formatImpact(counted).split('\n')).toEqual([
+      'src (directory, 2 files in the graph)',
+      '  nothing in scope imports it',
+      '',
+      'only dependents up to 1 import away are shown (--depth 1)',
+      '',
+      '1 rule governs these files, from 1 document',
+      '',
+      '  d.md  (d.md)',
+      '    :1 @assert-absence  x',
+      '      governs: src/a.ts',
+      '',
+      'not followed: 1 Rust use names modules rather than files, so a file that depends on these paths through one is not shown (ADR-0018)',
+      '',
+      '1 import could not be resolved, and may depend on these paths:',
+      '  src/a.ts:1  @/x (names no file)',
+      '',
+      '2 files whose imports could not all be read:',
+      '  a.ts: lost',
+      '  b.ts: lost',
+      '',
+      '2 directives could not be read, so their rules govern nothing:',
+      '  d.md:2 bad',
+      '  d.md:3 worse',
+      '',
+      '2 files and 1 spec file read in 1.0ms',
+    ]);
+    expect(formatImpact({ ...counted, unfollowed: [{ kind: 'Rust use', references: 2 }] })).toContain('\nnot followed: 2 Rust uses name modules');
+    expect(formatImpact({ ...counted, unfollowed: [{ kind: 'C# using', references: 1 }, { kind: 'Go import', references: 1 }] })).toContain(
+      '\nnot followed: 1 C# using, 1 Go import name modules',
+    );
+    expect(formatImpact({ ...counted, rules: [rule, { ...rule, line: 2 }], documents: [...counted.documents, { file: 'e.md', title: 'E', status: null, label: null, inForce: true }] })).toContain(
+      '\n2 rules govern these files, from 1 document\n',
+    );
+    expect(formatImpact({ ...counted, rules: [rule, { ...rule, document: 'e.md' }], documents: [...counted.documents, { file: 'e.md', title: 'E', status: null, label: null, inForce: true }] })).toContain(
+      '\n2 rules govern these files, from 2 documents\n',
+    );
   });
 
   it('names the files it could not read, the directives it could not read, a dependent file in the singular, and the options it took', async () => {

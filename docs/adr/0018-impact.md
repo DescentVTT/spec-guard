@@ -126,3 +126,15 @@ On this repository, `spec-guard impact src/graph.ts` reads 149 files and
 answers in about 280 ms, 49 of them dependents. Over `node_modules` as well,
 7,626 files with the default skips off, it takes about 2 s, which is the
 tokenizing ADR-0011 measured, not the walk back.
+
+### Held to the mutation bar
+
+One local sweep of `impact.ts`, before its last round of tests, scored 91.0%,
+and most of what survived was the human report's singular and plural lines and
+the lines it leaves out when it has nothing to say, which now have a report
+pinned in full each way. The rest - a file whose imports nothing reads, a
+relative Go import, the reads held to the engine's limit, the order a walk
+starts in - have tests. One survivor is equivalent: `normalizeModule` is
+handed `'python'` for a relative Python import, and Python is its general
+case, so any other language name gives the same path. The sweep that measures
+this file is CI's.

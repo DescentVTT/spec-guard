@@ -15,6 +15,7 @@ import { EXIT_ERROR, EXIT_FAILED, EXIT_OK, main, parseArgs, UsageError, type Cli
 import { proveSpecGuard } from '../src/prove.js';
 import { formatGithub, formatGitlab, proveAnnotations, runAnnotations, type Annotation } from '../src/reporter.js';
 import { runSpecGuard } from '../src/runner.js';
+import type { ProveReport } from '../src/types.js';
 import { DEMO_REPO, memoryIo } from './helpers.js';
 
 const ROOT = path.resolve('/virtual/annotations');
@@ -114,6 +115,33 @@ describe('a run\'s findings', () => {
 });
 
 describe('a proof\'s findings', () => {
+  it('say what each surviving probe did, and nothing of a probe that failed the rule', () => {
+    const probe = (claim: 'max' | 'min', outcome: 'killed' | 'survived', violation: string) => ({ claim, outcome, violation, changes: [], message: `${violation} said`, actual: 0 });
+    const report: ProveReport = {
+      ok: false,
+      root: '/r',
+      durationMs: 1,
+      summary: { specs: 1, total: 1, killed: 0, survived: 1, unprovable: 0, inactive: 0 },
+      results: [
+        {
+          kind: 'assert-count',
+          location: { file: '/r/d.md', relativeFile: 'd.md', line: 3, column: 1 },
+          description: 'rule',
+          outcome: 'survived',
+          probes: [probe('max', 'survived', 'added x'), probe('min', 'killed', 'took y'), probe('min', 'survived', 'took z')],
+          durationMs: 1,
+        },
+      ],
+      errors: [],
+      inactiveSpecs: [],
+      exclude: [],
+      specFiles: ['d.md'],
+    };
+    expect(proveAnnotations(report).map(({ message }) => message)).toEqual([
+      'rule: added x, and it still passed: added x said; took z, and it still passed: took z said',
+    ]);
+  });
+
   it('are a survivor, critical, and an unprovable rule, minor, on their directives, with the directives that could not be read and the documents not in force', async () => {
     const io = memoryIo(ROOT, {
       'docs/rules.md': [
