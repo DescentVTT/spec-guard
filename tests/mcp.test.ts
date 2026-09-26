@@ -29,7 +29,7 @@ import {
   type McpServerOptions,
   type OutgoingMessage,
 } from '../src/mcp.js';
-import { EXIT_OK, main, type CliIO } from '../src/cli.js';
+import { EXIT_OK, HELP, main, type CliIO } from '../src/cli.js';
 import { makeTempRepo, removeTempRepo } from './helpers.js';
 
 const MODERN = '2026-07-28';
@@ -371,6 +371,8 @@ describe('tools/list', () => {
     // what an agent is offered, and should arrive here as a diff. The third,
     // get_dependents, was added on 2026-09-26 (ADR-0018).
     expect(listed.tools.map((entry) => entry['name'])).toEqual(['get_architectural_rules', 'check_architecture', 'get_dependents']);
+    // --help named two of them for a release after the third arrived.
+    for (const entry of listed.tools) expect(HELP).toContain(entry['name'] as string);
     for (const entry of listed.tools) {
       expect(entry['annotations']).toEqual({ readOnlyHint: true, idempotentHint: true, openWorldHint: false });
       expect(entry['inputSchema']).toMatchObject({ type: 'object', additionalProperties: false });

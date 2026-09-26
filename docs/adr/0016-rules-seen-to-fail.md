@@ -45,7 +45,8 @@ itself, in memory, and reports whether the rule failed.**
   `prove` never uses it and refuses `--engine`.
 - **The disk is read once.** Every rule is run over the tree several times, and
   `readOnce` keeps what the door beneath the overlays read for the length of the
-  command. Proving this repository's 74 rules takes about a second.
+  command. Proving this repository's rules, 74 when this was written, took
+  about a second.
 - **The order is the specs' order**, one rule after another, so the report is
   the same every time the tree is. A test runs it twice and compares.
 
@@ -134,8 +135,8 @@ run's to check, and `query` shows what a rule asks of a path.
 
 ### This repository
 
-The first proof of this repository's own 71 rules found one that could not
-fail as written. ADR-0008 held `src/polyglot.ts` to `expected="1"` import of
+The first proof of this repository's own rules, 71 at the time, found one that
+could not fail as written. ADR-0008 held `src/polyglot.ts` to `expected="1"` import of
 `src/imports.js`, with a reason saying it failed if the import became a value
 import. Over a target of one file, the count of importing files is one at most,
 so the maximum could never be crossed, and a value import still counts one: it
@@ -144,7 +145,8 @@ passed with the import made twice. The minimum was sound. That rule is now
 was unprovable on that proof, and only because it was failing: ADR-0013's rule
 that every module has a test of its own name, which `src/prove.ts` and
 `src/overlay.ts` did not yet have. With them, and with this ADR's three, all 74
-are seen to fail, and CI runs `spec-guard prove` beside the run.
+it then held were seen to fail, and CI runs `spec-guard prove` beside the run,
+so every rule added since is held to the same.
 
 It runs without `--strict`, as the run does. Under `--strict` every import rule
 over `src` fails on the tree as it stands, on the one `require(manifest)` in
@@ -157,8 +159,9 @@ them as the project does.
 Every rule runs at least twice, once as the tree is and once per violation
 tried. Violations are tried until one fails the rule: a new file of each
 extension the rule reads, then the top of the first file it reads, so a rule
-that survives has been run once for each. On this repository proving 74 rules
-takes about a second, against a fifth of one for the run. It is a check for a
+that survives has been run once for each. On this repository proving its 74
+rules took about a second when this was written, against a fifth of one for
+the run. It is a check for a
 change to the rules more than for a change to the code: a rule's teeth change
 when its directive does.
 

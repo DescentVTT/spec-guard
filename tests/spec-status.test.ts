@@ -19,11 +19,14 @@
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { EXIT_FAILED, EXIT_OK, main, parseArgs, type CliIO } from '../src/cli.js';
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
+
+import { EXIT_FAILED, EXIT_OK, HELP, main, parseArgs, type CliIO } from '../src/cli.js';
 import { INACTIVE_STATUSES, parseDocument, parseStatus } from '../src/parser.js';
 import { formatJson, formatReport, formatSarif, runAnnotations } from '../src/reporter.js';
 import { runSpecGuard } from '../src/runner.js';
-import { makeTempRepo, removeTempRepo } from './helpers.js';
+import { makeTempRepo, PROJECT_ROOT, removeTempRepo } from './helpers.js';
 
 /** The ANSI escape, spelled the way the reporter's own tests spell it. */
 const ESC = String.fromCharCode(27);
@@ -826,6 +829,19 @@ describe('--ignore-status', () => {
       io: { stdout: (t) => out.push(t), stderr: () => {}, env: {}, cwd: root, isTTY: false },
     };
   }
+
+  it('is described by every word that withholds a document, in --help and in the README', async () => {
+    // Both said "draft, proposed and superseded" for two releases after
+    // rejected, deprecated and archived joined the list.
+    const directives = HELP.slice(HELP.indexOf('\nDirectives\n'));
+    const readme = await fs.readFile(path.join(PROJECT_ROOT, 'README.md'), 'utf8');
+    const row = readme.split('\n').find((line) => line.startsWith('| `--ignore-status`')) as string;
+    for (const word of INACTIVE_STATUSES) {
+      expect(directives, word).toContain(word);
+      expect(row, word).toContain(word);
+    }
+    expect(HELP).toContain('--ignore-status     Execute directives in documents not in force too (see Directives)');
+  });
 
   it('is off by default', () => {
     expect(parseArgs([], '/repo').ignoreStatus).toBe(false);
