@@ -43,7 +43,13 @@ is why both can be tested on plain strings.
 
 <!-- @assert-absence target="src/parser.ts,src/reporter.ts" symbol="node:fs" reason="parsing and reporting are pure functions" -->
 <!-- @assert-import-absence target="src/parser.ts,src/reporter.ts" module="node:fs" reason="the same rule, checked as a dependency rather than as text" -->
-<!-- @assert-count target="src" symbol="maskCode" min="2" reason="fenced-code masking must stay wired into the parser" -->
+<!-- @assert-import-count target="src/parser.ts" module="src/vendor/spec-core/markdown" min="1" reason="what is code is decided by spec-core's scanner, and it must stay wired into the parser" -->
+
+That rule counted the name `maskCode` in `src` until 2026-09-26, when the
+parser moved onto spec-core's Markdown scanner (ADR-0002's amendment).
+`maskCode` is still exported, and its definition and its export alone met the
+count with nothing calling it. What keeps code from executing is now the
+scanner, so the rule asks for the import.
 
 **Strict typing, no escape hatches.**
 

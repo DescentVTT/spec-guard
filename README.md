@@ -772,7 +772,9 @@ Accepted (0.3.0).
 ```
 
 Front-matter wins, then the `## Status` section, then the bold label (which is
-only read above the first `##`). Anything else - `Provisional`, `In review`, a
+only read above the first section heading). Headings are read as CommonMark
+reads them, so an underlined `Status` is the section and a `## Status` kept in a
+comment is not. Anything else - `Provisional`, `In review`, a
 misspelled `Supersedded`, or no status at all - keeps enforcing. That asymmetry
 is deliberate: an unanticipated word that keeps enforcing is a visible failure
 with an obvious fix, while one that stops enforcing is a green build over a rule
@@ -1339,9 +1341,11 @@ parser  ──▶ Directive[] ──▶ runner ──▶ Assertion[] ──▶ e
 (pure)                      (I/O)                     (rg | js)                        (pure)
 ```
 
-1. **Parse.** Markdown is scanned for `<!-- @assert-* -->` comments. Fenced code
-   blocks and inline code spans are masked first, so documentation that shows
-   the syntax (like this README) never executes it.
+1. **Parse.** Markdown is scanned for `<!-- @assert-* -->` comments. Code -
+   fenced and indented blocks, code spans, and the HTML elements whose content
+   is not Markdown - and front matter are masked first, by the Markdown scanner
+   every spec-* tool shares, so documentation that shows the syntax (like this
+   README) never executes it.
 2. **Resolve.** Each directive becomes a typed assertion. Bad numbers, unknown
    booleans, unknown attributes and paths escaping `--root` are rejected here,
    before any I/O.
@@ -1503,16 +1507,19 @@ themselves stay uncounted, because a directive is an HTML comment and a rule
 whose own text trips it can never be satisfied. `comments="include"` counts even
 those.
 
-**Fenced code and inline code are masked before parsing.** A README documenting
-the syntax must not execute it. Masking preserves byte offsets, so reported line
-numbers stay exact. (This is subtle: pairing backtick runs the naive way
-desynchronises after a stray unmatched run and un-masks real prose. spec-guard
-uses CommonMark's equal-length pairing rule, and there is a regression test.)
-Fences follow CommonMark as well - a backtick fence's info string holds no
-backtick, and a closing fence holds no info string - except that a fence may be
-indented any amount, so that one inside a nested list item is still a fence.
-The price is an indented code block whose text is a fence line, which opens a
-block.
+**Code is masked before parsing.** A README documenting the syntax must not
+execute it. What is code is what CommonMark says it is, decided by
+[spec-core](https://github.com/DescentVTT/spec-core)'s Markdown scanner, which
+every spec-* tool reads documents with and which is copied into
+`src/vendor/spec-core` and verified by hash: fenced and indented code, code
+spans, `<script>`, `<pre>`, `<style>` and `<textarea>` blocks, and front matter.
+Comments and code spans are resolved left to right in one pass, so a backtick
+inside a comment is a character and `<!--` inside a code span is code, and a
+code span ends with its paragraph, so a stray backtick cannot hide the
+directives after it. A fence may be indented with the list item it sits in.
+Masking preserves every offset and line terminator, so reported line numbers
+stay exact. [ADR-0002](docs/adr/0002-directive-format.md)'s amendment lists
+where this differs from 0.11.0.
 
 **A document's lifecycle status is read; a directive's is not.** Status is
 document-level and visible in every rendered Markdown view. A per-directive

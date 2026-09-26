@@ -370,12 +370,24 @@ describe('an indented fence', () => {
     // the example ran.
     expect(executed(nested('```'))).toEqual(['Real']);
     expect(executed(`Open a fence with \`\`\` and close it the same way.\n\n${nested('```')}`)).toEqual(['Real']);
-    expect(executed('\t\t~~~\n<!-- @assert-absence symbol="X" -->\n\t\t~~~\n<!-- @assert-absence symbol="Y" -->\n')).toEqual(['Y']);
+    expect(executed('- a\n\n\t\t~~~\n<!-- @assert-absence symbol="X" -->\n\t\t~~~\n<!-- @assert-absence symbol="Y" -->\n')).toEqual(['Y']);
   });
 
-  it('opens and closes whatever the difference in indentation between the two', () => {
-    expect(executed('        ```\n<!-- @assert-absence symbol="X" -->\n```\n<!-- @assert-absence symbol="Y" -->\n')).toEqual(['Y']);
-    expect(executed('```\n<!-- @assert-absence symbol="X" -->\n        ```\n<!-- @assert-absence symbol="Y" -->\n')).toEqual(['Y']);
+  it('closes on a fence no more than three columns deeper than the one that opened it', () => {
+    // CommonMark's allowance, measured from the opener, so a fence in a list
+    // item closes at the item's indentation. Deeper, the line is code.
+    expect(executed('   ```\n<!-- @assert-absence symbol="X" -->\n      ```\n<!-- @assert-absence symbol="Y" -->\n')).toEqual(['Y']);
+    expect(executed('```\n<!-- @assert-absence symbol="X" -->\n    ```\n<!-- @assert-absence symbol="Y" -->\n')).toEqual([]);
+    // Shallower is fine: the list item it sat in has ended.
+    expect(executed('- a\n\n      ```\n<!-- @assert-absence symbol="X" -->\n```\n<!-- @assert-absence symbol="Y" -->\n')).toEqual(['Y']);
+  });
+
+  it('is code, not a fence, where a line indented four columns is code', () => {
+    // After a blank line and outside a list, four columns open indented code,
+    // and a fence line there is a line of that code. Read as a fence, it hid
+    // every line after it until something closed it.
+    expect(executed('prose\n\n    ```\n\n<!-- @assert-absence symbol="X" -->\n')).toEqual(['X']);
+    expect(executed('        ```\n<!-- @assert-absence symbol="X" -->\n')).toEqual(['X']);
   });
 
   it('is still only a fence when nothing but whitespace comes before it', () => {
@@ -417,5 +429,81 @@ describe('inline code spans', () => {
   it('keeps a surrogate pair the same length', () => {
     const source = `x\`${String.fromCodePoint(0x1f600)}\`y`;
     expect(maskCode(source)).toHaveLength(source.length);
+  });
+});
+
+/*
+ * What spec-core's scanner reads the CommonMark way, where the masking it
+ * replaced did not (ADR-0002, amended 2026-09-26).
+ */
+
+describe('code spans and comments, read left to right', () => {
+  it('keeps a backtick inside a comment, where it is a character', () => {
+    // Whichever of a span and a comment opens first wins. The masking this
+    // replaced paired the two backticks, and the rule searched for spaces.
+    const { directives } = parseDirectives('<!-- @assert-absence target="src" symbol="`eval`" -->\n', context);
+    expect(directives[0]?.attributes['symbol']).toBe('`eval`');
+  });
+
+  it('ends a code span with its paragraph, so a stray backtick hides nothing after it', () => {
+    // A backtick that closes nothing is a character. Paired with the next one
+    // anywhere in the document, it hid every directive between the two.
+    expect(executed('Press ` to open the console.\n\n<!-- @assert-absence symbol="X" -->\n\nOr `.\n')).toEqual(['X']);
+    // The control: within one paragraph a span still runs across lines.
+    expect(executed('a `code\nstill code <!-- @assert-absence symbol="X" --> ` b\n')).toEqual([]);
+  });
+
+  it('opens no span on an escaped backtick', () => {
+    expect(executed('Escape it: \\`, then <!-- @assert-absence symbol="X" --> and a `.\n')).toEqual(['X']);
+  });
+
+  it('opens no fence inside a comment, where a template shows one', () => {
+    expect(executed('<!--\n```\n-->\n<!-- @assert-absence symbol="X" -->\n')).toEqual(['X']);
+  });
+});
+
+describe('what is not read for directives, besides fences and spans', () => {
+  it('masks indented code, outside a list', () => {
+    expect(executed('para\n\n    <!-- @assert-absence symbol="X" -->\n')).toEqual([]);
+    // Four columns inside a list item continue the item far more often than
+    // they open code, and masking them would drop what is written there.
+    expect(executed('- a\n\n    <!-- @assert-absence symbol="X" -->\n')).toEqual(['X']);
+    // And indented code never interrupts a paragraph.
+    expect(executed('para\n    <!-- @assert-absence symbol="X" -->\n')).toEqual(['X']);
+  });
+
+  it('masks the elements whose content is not Markdown, and no others', () => {
+    expect(executed('<pre>\n<!-- @assert-absence symbol="X" -->\n</pre>\n<!-- @assert-absence symbol="Y" -->\n')).toEqual(['Y']);
+    expect(executed('<script>\n<!-- @assert-absence symbol="X" -->\n</script>\n')).toEqual([]);
+    // A decision written inside a collapsed section is still a decision.
+    expect(executed('<details>\n<!-- @assert-absence symbol="X" -->\n</details>\n')).toEqual(['X']);
+  });
+
+  it('masks front matter, and reports what follows it where it is', () => {
+    const { directives } = parseDirectives('---\nnote: <!-- @assert-absence symbol="X" -->\n---\n<!-- @assert-absence symbol="Y" -->\n', context);
+    expect(directives.map((directive) => [directive.attributes['symbol'], directive.location.line])).toEqual([['Y', 4]]);
+  });
+});
+
+describe('offsets through the scanner', () => {
+  it('reports a directive after a byte-order mark in the column it always was', () => {
+    // The scanner reads the text after the mark. Its offsets are shifted back,
+    // so the mark stays the first character of the first line, as it is in the
+    // file a person opens.
+    const source = '﻿<!-- @assert-absence symbol="X" -->\n';
+    expect(parseDirectives(source, context).directives[0]?.location).toMatchObject({ line: 1, column: 2 });
+    expect(maskCode(source)).toBe(source);
+  });
+
+  it('keeps every line terminator where it was, a carriage return inside code included', () => {
+    expect(maskCode('```\r\nx\r\n```\r\n')).toBe('   \r\n \r\n   \r\n');
+    expect(parseDirectives('```\r\nx\r\n```\r\n<!-- @assert-absence symbol="X" -->\r\n', context).directives[0]?.location.line).toBe(4);
+  });
+
+  it('counts lines by line feeds, as a report always has', () => {
+    // A lone carriage return ends a line to the scanner, which reads the fence
+    // above as closed; a report still counts the lines a line feed ends.
+    const { directives } = parseDirectives('```\rx\r```\r<!-- @assert-absence symbol="X" -->', context);
+    expect(directives[0]?.location).toMatchObject({ line: 1, column: 11 });
   });
 });

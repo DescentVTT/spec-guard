@@ -295,12 +295,17 @@ describe('what is not a status', () => {
     // The control: the identical block at the top of the file is read.
     expect(parseStatus('---\nstatus: superseded\n---\n\n# ADR-1\n')?.value).toBe('superseded');
     // And a `status:` line in the preamble is the label form whether or not
-    // somebody drew rules around it. That is not front-matter; it is prose
+    // somebody drew a rule above it. That is not front-matter; it is prose
     // that says what the prose form says.
-    expect(parseStatus('# ADR-1\n\n---\nstatus: draft\n---\n\n## Context\n')).toMatchObject({
+    expect(parseStatus('# ADR-1\n\n---\nstatus: draft\n\n---\n\n## Context\n')).toMatchObject({
       value: 'draft',
       source: 'label',
     });
+    // A rule drawn directly under it is no rule: `---` under a line of text
+    // underlines a heading, which is a section of its own and ends the
+    // preamble. Every renderer shows "status: draft" as a heading there, and
+    // it was read as the label until the scanner's headings were used.
+    expect(parseStatus('# ADR-1\n\n---\nstatus: draft\n---\n\n## Context\n')).toBeUndefined();
   });
 
   it('ignores a label once the preamble is over', () => {
@@ -353,6 +358,102 @@ describe('what is not a status', () => {
     for (const value of ['2026-01-01', '---', '| accepted |', '42']) {
       expect(parseStatus(`## Status\n\n${value}\n`)).toBeUndefined();
     }
+  });
+});
+
+/*
+ * Where the headings are is spec-core's scanner's to say, and the front matter
+ * is its reader's (ADR-0002, amended 2026-09-26).
+ */
+
+describe('the headings a status is read by', () => {
+  it('ignores a `## Status` kept in a comment, which is a template not yet filled in', () => {
+    const template = '# ADR-1\n\n<!--\n## Status\n\nDraft\n-->\n\n## Context\n';
+    expect(parseStatus(template)).toBeUndefined();
+    // The control: the same section out of the comment is read.
+    expect(parseStatus(template.replace('<!--\n', '').replace('-->\n', ''))?.value).toBe('draft');
+  });
+
+  it('does not end the preamble at a `##` kept in a comment or shown in code', () => {
+    expect(parseStatus('# ADR-1\n\n<!--\n## Template\n-->\n\nStatus: draft\n\n## Context\n')?.value).toBe('draft');
+    expect(parseStatus('# ADR-1\n\n```md\n## Example\n```\n\nStatus: draft\n\n## Context\n')?.value).toBe('draft');
+  });
+
+  it('reads a setext `Status` section, and ends the preamble at a setext section', () => {
+    // An underlined heading is a heading, to CommonMark and to every renderer.
+    expect(parseStatus('# ADR-1\n\nStatus\n------\n\nSuperseded.\n')).toMatchObject({ value: 'superseded', source: 'heading' });
+    expect(parseStatus('# ADR-1\n\nContext\n-------\n\nStatus: draft\n')).toBeUndefined();
+    // A level-one heading is the title, and the preamble goes on under it.
+    expect(parseStatus('ADR-1\n=====\n\nStatus: draft\n')?.value).toBe('draft');
+  });
+
+  it('reads the section by its text as a reader sees it', () => {
+    // A comment after the word is not part of the heading's text; a code span
+    // is, and `Status` in one is a heading about the word.
+    expect(parseStatus('## Status <!-- one of: draft, accepted -->\n\nAccepted\n')?.value).toBe('accepted');
+    expect(parseStatus('## `Status`\n\nDraft\n')).toBeUndefined();
+  });
+});
+
+describe('front matter, read by spec-core', () => {
+  /** The one-line reader the front matter used to be read with, verbatim. */
+  function yamlScalar(raw: string): string {
+    const text = raw.trim();
+    const quoted = /^(["'])(.*?)\1/.exec(text);
+    return quoted ? (quoted[2] as string) : text.replace(/\s#.*/, '');
+  }
+
+  it('reads every value the one-line reader read, as that reader read it', () => {
+    // Quoted up to the closing quote, plain up to a comment: the two things the
+    // old reader existed to get right.
+    for (const value of [
+      'proposed',
+      '"proposed"',
+      "'superseded by ADR-0007'",
+      '"proposed" # decided at review',
+      'draft # see "ADR-0012"',
+      '"draft" # see "ADR-0012"',
+      '"superseded by #12"',
+      'superseded by ADR#12',
+      'superseded by "ADR-0007"',
+      "it's accepted",
+      '  accepted   ',
+      'Superseded by [ADR-0007](0007.md)',
+      '_Draft_',
+    ]) {
+      const read = parseStatus(`---\nstatus: ${value}\n---\n`);
+      expect(read?.label, value).toBe(parseStatus(`## Status\n\n${yamlScalar(value)}\n`)?.label);
+      expect(read?.source, value).toBe('frontmatter');
+    }
+  });
+
+  it('declares nothing with a value the reader refuses, which leaves the document in force', () => {
+    // Each of these is a value YAML reads differently or not at all, and the
+    // one-line reader guessed at: a `: ` in a plain value, text after a
+    // closing quote, a value continued on the next line, an alias.
+    for (const block of [
+      'status: superseded: see ADR-0007',
+      'status: "draft" (see the review)',
+      'status: superseded\n  by ADR-0007',
+      'status: *Draft*',
+    ]) {
+      expect(parseStatus(`---\n${block}\n---\n\n# ADR-1\n`), block).toBeUndefined();
+    }
+  });
+
+  it('reads the key the document has, not one nested under another', () => {
+    // A `status` under `review:` is the review's.
+    expect(parseStatus('---\nreview:\n  status: proposed\n---\n')).toBeUndefined();
+    expect(parseStatus('---\nStatus: proposed\n---\n')?.value).toBe('proposed');
+  });
+
+  it('reads front matter behind a byte-order mark, and closed by `...`', () => {
+    expect(parseStatus('﻿---\nstatus: draft\n---\n')).toMatchObject({ value: 'draft', source: 'frontmatter' });
+    expect(parseStatus('---\nstatus: draft\n...\n')).toMatchObject({ value: 'draft', source: 'frontmatter' });
+  });
+
+  it('does not read TOML, and hands over to the section', () => {
+    expect(parseStatus('+++\nstatus = "draft"\n+++\n\n## Status\n\nAccepted\n')).toMatchObject({ value: 'accepted', source: 'heading' });
   });
 });
 
