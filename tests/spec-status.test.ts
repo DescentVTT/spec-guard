@@ -25,7 +25,7 @@ import path from 'node:path';
 import { EXIT_FAILED, EXIT_OK, HELP, main, parseArgs, type CliIO } from '../src/cli.js';
 import { INACTIVE_STATUSES, parseDocument, parseStatus } from '../src/parser.js';
 import { formatJson, formatReport, formatSarif, runAnnotations } from '../src/reporter.js';
-import { runSpecGuard } from '../src/runner.js';
+import { runSpecGuard, type RunResult } from '../src/runner.js';
 import { makeTempRepo, PROJECT_ROOT, removeTempRepo } from './helpers.js';
 
 /** The ANSI escape, spelled the way the reporter's own tests spell it. */
@@ -823,6 +823,13 @@ describe('how withholding is reported', () => {
     expect(notifications).toHaveLength(1);
     expect(notifications[0]?.level).toBe('note');
     expect(notifications[0]?.message.text).toBe('docs/a.md is Draft, so its 1 assertion was not executed.');
+
+    // A result a caller built may leave out its spec warnings, which are
+    // optional, and says just as much about what it withheld.
+    const built: RunResult = { ...(await run(root)) };
+    delete built.specWarnings;
+    const older = JSON.parse(formatSarif(built)) as typeof sarif;
+    expect(older.runs[0]?.invocations?.[0]?.toolExecutionNotifications).toEqual(notifications);
 
     // Both sides of the count, because one of them is a hardcoded "1" away
     // from being wrong in a way a singular-only test cannot see.
