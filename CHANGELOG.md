@@ -5,6 +5,15 @@ All notable changes to this project are documented here. Versions follow
 may change in a minor release — each such change is listed under **Changed**
 with the flag that restores the previous behaviour.
 
+## Unreleased
+
+### Changed
+
+- `npm publish` in a checkout refuses to run outside GitHub Actions, so a
+  version cannot reach npm from a workstation by mistake, without provenance;
+  spec-harness 0.1.0 did. The release never runs it: it stages a tarball it
+  packed.
+
 ## 0.12.0
 
 The family's core, and three commands. Patterns and Markdown are read through
