@@ -33,6 +33,16 @@ with the flag that restores the previous behaviour.
   status, title and warning reads as it did, and a run, `prove` and `cites` of
   this repository answer as they did.
   [ADR-0015](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0015-globs-from-spec-core.md).
+- **A warm query takes 18% less time, and meets its budget only over the
+  ADRs.** A query of one path, as a running server answers it, took a median
+  of 23.9 ms against 0.12.0's 29.3 ms over this repository's 19 specs,
+  measured together in one process, where ADR-0012 set out to meet 20 ms; over
+  its 18 ADRs alone, where the 23 ms recorded for 0.12.0 was most likely
+  measured, 19.2 ms against 23.2 ms. 0.11.0, before spec-core's scanner, took
+  8.0 and 6.6 ms beside them. What reading a spec still costs is the scan the
+  parser reads.
+  [ADR-0012](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0012-query-and-mcp.md)'s
+  amendment has the measurement, and what is left to make.
 
 ## 0.12.0
 
