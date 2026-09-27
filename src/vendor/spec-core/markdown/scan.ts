@@ -101,7 +101,7 @@ export function scanMarkdown(source: string): MarkdownScan {
   const tables = findTables(layout, atx);
   const headings = findHeadings(layout, atx, tables);
   const listItems = once(() => findListItems(layout, headings));
-  const links = once(() => findLinks(layout));
+  const links = once(() => findLinks(layout, headings));
 
   return {
     text,

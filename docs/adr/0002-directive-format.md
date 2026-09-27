@@ -61,8 +61,9 @@ it executed, including the ones that passed.
 What is code, what is a comment, where front matter ends and which lines are
 headings is decided by spec-core's `markdown` module - its ADR-0004, exact
 about code and comments by CommonMark's rules - copied into
-`src/vendor/spec-core` from `4f2826a`, again from `cbe2223`, from `8840d36`
-and from `119345e`, and verified by hash ([ADR-0015](0015-globs-from-spec-core.md)).
+`src/vendor/spec-core` from `4f2826a`, again from `cbe2223`, from `8840d36`,
+from `119345e` and from `65ef842`, and verified by hash
+([ADR-0015](0015-globs-from-spec-core.md)).
 `src/parser.ts` keeps what is spec-guard's: the directive grammar, the
 attribute table, and what a status line means ([ADR-0010](0010-spec-status.md)).
 

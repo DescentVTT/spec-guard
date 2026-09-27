@@ -45,9 +45,14 @@ mask are made the first time each is read. A sixth, from `119345e`, changed
 `pattern` and `markdown`: the refusal of two stars inside a name writes its
 advice from the pattern, as below; a link inside a link's text is read as the
 link, as CommonMark reads it; and the scan says which element an HTML block
-opens with, and when front matter opens and never closes. `VENDOR.json`
-records the commit and the SHA-256 of every file. Nothing in this repository
-edits them.
+opens with, and when front matter opens and never closes. A seventh, from
+`65ef842`, changed `markdown` alone, and only in how it reads links: a link
+reference definition no longer interrupts a paragraph, a definition's label
+holds no unescaped bracket and at most 999 characters, and a second bracket
+that is no label leaves the first read as a shortcut, each as CommonMark has
+it. Nothing here reads a scan's links, so nothing spec-guard reports changed
+with it. `VENDOR.json` records the commit and the SHA-256 of every file.
+Nothing in this repository edits them.
 
 spec-core's `LICENSE` lies beside the copies, and `package.json` names it in
 `files`: the package carries spec-core's compiled code under

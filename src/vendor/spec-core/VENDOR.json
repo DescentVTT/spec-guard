@@ -1,6 +1,6 @@
 {
   "source": "https://github.com/DescentVTT/spec-core",
-  "commit": "119345eb229e3265b791283fc502d4c8d3267460",
+  "commit": "65ef84273a90fa1c10c81d580bb9eb068c974ab3",
   "modules": {
     "jsonrpc": {
       "files": {
@@ -14,9 +14,9 @@
         "headings.ts": "sha256-6b1f88429004b64d62cc690136916fe64ddffb5df8ce7c96415e869e33bf23e2",
         "index.ts": "sha256-6b6bbd394d85c1830be81f08492cd96f9b9ad0a92df440267db7c4040fd1c37b",
         "layout.ts": "sha256-11293f9961ce7fcc672743e72945dcaa0a1475a8adea166ea10fa9c542cd6f75",
-        "links.ts": "sha256-45fd863241e31a820cf3f0ac2ff97ec0da9d396ad91bfeb3adbe4c1bc92745a5",
+        "links.ts": "sha256-28146a050a97a112321f5c269b962889bb66387edacae5f7f531926a82dc1ffb",
         "lists.ts": "sha256-ac2fa8e5c35ca0b17b2727f4a3d9b52edb56ebb7392955d79aa029bc3ae11ea6",
-        "scan.ts": "sha256-ea227cb884a6b7f45fbe5cd7a7112d8437987532b69a6b7ab774bb37ec38a551",
+        "scan.ts": "sha256-2ad8b220531ad0262880523bf99174aa5490c107cc610494229730e1849a584d",
         "syntax.ts": "sha256-9331a2594dfec7a2bab7194fa88ffb35c2f1c0f45676f2c442b7854594c73cc9",
         "tables.ts": "sha256-494a4785827e73f9cfd496a8f082fb7aa070c6b4ce9e1142939c4506230fde5b",
         "types.ts": "sha256-c42a4c40b2ea1808a084204d63297528d8e62bfc04240889fbd1cf52c568b660"
