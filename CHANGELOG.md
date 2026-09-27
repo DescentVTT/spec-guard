@@ -5,6 +5,30 @@ All notable changes to this project are documented here. Versions follow
 may change in a minor release — each such change is listed under **Changed**
 with the flag that restores the previous behaviour.
 
+## Unreleased
+
+### Added
+
+- `scripts/bench-query.mjs`, which times each kind of request to
+  `spec-guard mcp` as a client makes it - a new server's first, warm, and
+  after an edit - over this repository's specs copied to any number, and
+  prints the machine it ran on beside the figures.
+
+### Changed
+
+- **A query takes about half the time, at any number of specs.** Each glob is
+  read - parsed and built into an automaton - once, and kept by its pattern,
+  where every request read every rule's patterns several times over, and the
+  configuration's exclusions once for every rule. A warm query in the MCP
+  server over this repository's specs and configuration took 6.8-8.8 ms
+  against 12.9-14.3 ms; over 1,300 copies of them, 336-373 ms against
+  671-680 ms, still past the 20 ms budget, which now holds to about 70 specs
+  of this size where it held to about 30. `get_dependents` takes a third of
+  the time at 1,300 specs. Nothing any command answers has changed.
+  [ADR-0012](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0012-query-and-mcp.md)'s
+  amendment has the measurements, and why no server that reads every spec on
+  every request meets the budget at 1,300 specs.
+
 ## 0.12.2
 
 A packaging fix: the tarball no longer carries spec-core's internal README.
