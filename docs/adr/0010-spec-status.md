@@ -276,3 +276,20 @@ any of this, by the same `maskCode`" now reads: by the same scanner.
 
 On every Markdown file of the five spec-* repositories, every status is read as
 it was.
+
+## Amended 2026-09-28: front matter never closed
+
+A first line of `---` that nothing closes opens no front matter - spec-core's
+scanner reads it as a thematic break, as every renderer shows it - so the
+rule that a front-matter `status` decides, readable or not, does not reach a
+`status` under it: there is no front matter for it to decide in. The document
+is read as one without front matter, and its status is its section's or its
+label's, as it was before this amendment. What changes is that it is no
+longer silent: the report warns on line 1 that the front matter was not read
+and how to close it, in every format, failing nothing
+([ADR-0002](0002-directive-format.md)'s amendment of 2026-09-28).
+
+The warning is what shows which way it went, since it can go either way:
+`status: superseded` above a section saying `Accepted` runs the rules its
+author took out of force, and `status: accepted` above one still saying
+`Proposed` withholds them.

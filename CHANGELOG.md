@@ -5,6 +5,30 @@ All notable changes to this project are documented here. Versions follow
 may change in a minor release — each such change is listed under **Changed**
 with the flag that restores the previous behaviour.
 
+## Unreleased
+
+### Added
+
+- **Front matter that never closes is a warning.** A first line of `---`,
+  or `+++`, that no later line closes opens no front matter: the document is
+  read as one without any, as every renderer shows it, so a `status` under
+  it decides nothing ahead of a `## Status` section or a label -
+  `status: superseded` above a section saying `Accepted` ran its rules - and
+  nothing said so. The report now warns on line 1 that none of it is read as
+  front matter, and says to close it with `---`, or `+++` for TOML, on a
+  line of its own: in the human report, in `specWarnings` in the `--json` of
+  a run and of `prove` with the kind `unclosed-front-matter`, in SARIF, in
+  the GitHub and GitLab annotations, and in the MCP server's
+  `check_architecture`. It fails nothing, under `--strict` either, and
+  nothing is read differently: the status comes from where it came from. A
+  first line with only blank lines after it is no warning. None of the 164
+  Markdown files of the five spec-* repositories warns.
+  `SpecWarning['kind']` gains `'unclosed-front-matter'`; no `formatVersion`
+  moves.
+  [ADR-0002](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0002-directive-format.md)'s
+  and [ADR-0010](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0010-spec-status.md)'s
+  amendments.
+
 ## 0.12.3
 
 A query takes about half the time, the refusal of `**` inside a name is
