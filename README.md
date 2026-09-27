@@ -911,9 +911,13 @@ check after changing files.
 
 Both protocol eras are served: clients that open with `initialize` (revisions
 2024-10-07 to 2025-11-25), and clients on 2026-07-28 that put the protocol
-version on every request and probe with `server/discover`. Nothing is cached, so
-an ADR edited mid-session is read as edited. ADR-0012 has the shapes, the
-sources they follow, and what is deliberately not implemented.
+version on every request and probe with `server/discover`. Every spec is read
+again on every request, so an ADR edited mid-session is read as edited, and a
+request takes longer the more specs there are: a warm `get_architectural_rules`
+took about 7 ms over this repository's 19 and about a third of a second over
+1,300 copies of them, on the machine ADR-0012 was measured on.
+`scripts/bench-query.mjs`, in the repository, measures yours. ADR-0012 has the
+shapes, the sources they follow, and what is deliberately not implemented.
 
 ## Can each rule fail? - `prove`
 

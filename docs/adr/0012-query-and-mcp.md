@@ -299,6 +299,9 @@ linearly with their size in bytes.
   budget is really for the server.
 - **The budget does not hold at 1,300 specs.** A repository with that many ADRs
   pays half a second per query.
+  [Amended 2026-09-27](#amended-2026-09-27-1300-specs-measured-again-and-globs-read-once)
+  measured it again, and why no server that reads every spec on every request
+  can meet it there.
 - **0.12.0 lost it for this repository's specs, and a memo won it back.**
   Reading a spec through spec-core's scanner costs about three times what
   reading it here did, and a server now parses only a document whose bytes
@@ -538,5 +541,149 @@ machine was at 4-12% CPU.
   for the same request without a memo, measured beside it. A request after an
   edit parses what was edited; the README, the largest document here, takes
   about 3 ms to scan.
-- **1,300 specs were not measured again.** Reading and hashing grow with the
-  bytes too, and the first request there still pays for every parse.
+- **1,300 specs were not measured again here.** Reading and hashing grow with
+  the bytes too, and the first request there still pays for every parse. The
+  next amendment measures them.
+
+## Amended 2026-09-27: 1,300 specs, measured again, and globs read once
+
+The first measurement above put a query over 1,300 specs at half a second, and
+the amendment above left them unmeasured. `scripts/bench-query.mjs` measures
+any size, as a client sees the server. At 1,300 specs a warm query took 0.7 s,
+and a profile found the server spending two fifths of that building the same
+automata again. Each glob is now read once. That about halves a query at every
+size; it does not bring 1,300 specs near 20 ms, and nothing that reads every
+spec on every request can.
+
+<!-- @assert-present file="scripts/bench-query.mjs" reason="the figures in this amendment were measured by it, and must stay reproducible" -->
+
+### How it is measured
+
+- **The corpus is this repository's specs, copied**, as the 13, 130 and 1,300
+  above were, whose bytes and rules are exact multiples: the Markdown under `docs` and `README.md`, the first copy where
+  the originals are and the rest under `docs/copy-NNN`, beside a copy of `src`
+  and a `package.json` holding this repository's configuration. 19 specs is
+  this repository's own spec set. 1,300 is 29.9 MB and 5,746 rules, where the
+  corpus above was 19.7 MB and 4,600: the specs have grown.
+- **Copies repeat their rules over the same code.** `src/parser.ts`, which 32
+  of this repository's rules govern, is governed by 2,190 at 1,300 specs, and
+  its answer is 1.7 MB. `notes/today.txt` is governed by none, which is what a
+  request costs apart from the size of its answer.
+- **The server is started as a client starts it**: `spec-guard mcp` in the
+  corpus, reading the configuration there, asked over stdio in the 2026-07-28
+  revision one request at a time, each timed from writing its line to reading
+  the last byte of the answer. A cold request is a new server's first. Warm
+  ones follow untimed rounds, each round asking every kind of request once in
+  an order that rotates; after each round one spec's prose is edited and a
+  query timed.
+- **The machine** is the Windows one above, a Ryzen 7 7735HS with 16 logical
+  processors and 31 GB, on Node 24.18.1, with the server at high priority. It
+  was not quiet: other work had it 14-20% busy through the runs at 1,300 specs
+  and 33-54% through the smaller ones, the benchmark and the server included,
+  where the amendment above measured at 4-12%. The figures are this machine's,
+  and nothing in CI runs the benchmark.
+
+Each figure is a median, and a range is the spread of the medians of separate
+runs: three at 19 and 130 specs, two at 1,300. Before is `origin/main` at
+`d207c19`, 0.12.2's code; after is this change, the two run alternately over
+the same corpus.
+
+| Specs | `src/parser.ts`, before | after | `notes/today.txt`, before | after |
+| --- | --- | --- | --- | --- |
+| 19, 0.4 MB, 84 rules | 12.9-14.3 ms | **6.8-8.8 ms** | 9.7-10.2 ms | **5.5-6.2 ms** |
+| 130, 3.0 MB, 580 rules | 86-93 ms | **45-46 ms** | 59-62 ms | **29-30 ms** |
+| 1,300, 29.9 MB, 5,746 rules | 671-680 ms | **336-373 ms** | 436-491 ms | **230-239 ms** |
+
+### What it found
+
+- **Before, the budget held at this repository's size and not much past it.**
+  19 specs took 12.9-14.3 ms over stdio, where the amendment above measured
+  6.3 ms. The difference is the configuration: that measurement called
+  `queryRules` without it, and the server applies the configuration's four
+  exclusions to every rule. In one process, a query took 5.2 ms without them
+  and 9.6 ms with them, and takes 4.7 and 5.4 ms after this change. Going by
+  19 specs and 130, a warm query passed 20 ms at about 30 of this
+  repository's size.
+- **1,300 specs took longer than the half second above**, over a corpus half
+  as large again. The corpus the half second was measured on, the 13 specs of
+  `7de6fc0` copied a hundred times, took 533 ms before this change and 321 ms
+  after. 0.11.0 took 0.9 to 1.1 s over the larger one: 1,300 specs were never
+  near 20 ms.
+- **After, the budget holds to about 70 specs of this repository's size**:
+  7.7 ms at 38, 10.8 ms at 57 and 19.2 ms at 76, where a twentieth of the
+  queries took over 26 ms.
+- **A request after an edit** took 15.6-18.0 ms at 19 specs, against
+  21.9-23.4 ms: it parses the edited document, here the README, the largest.
+  **A new server's first request** took 72-83 ms at 19 specs and 1.5 s at
+  1,300, against 79-90 ms and 1.7-2.0 s: it scans and hashes every spec, in
+  code the JIT has not yet compiled. The 24.3 ms the amendment above gave for a
+  first request was measured in a process already warm.
+- **The other requests, warm, at 1,300 specs.** `get_dependents` of one path
+  took 684-758 ms against 2,066-2,152 ms, since it asks of every rule whether
+  it governs each dependent. The resource list and the two resources took
+  226-277 ms against 249-299 ms: they ask nothing of scope. `check_architecture`
+  of one path took 15 s before this change, running the 2,190 rules that
+  govern it over the code; at 130 specs it took 622-686 ms before and after.
+  `tools/list`, which reads no spec, took 0.3 ms at every size, which is the
+  pipe.
+
+### Where the time went
+
+A CPU profile of the server answering the ungoverned query warm at 1,300
+specs, sampled every 250 µs over some thirty requests:
+
+- **Before, reading globs was 41%.** Every rule's patterns were parsed and
+  built into an automaton when its directive was resolved, and again each time
+  a query asked whether its rule governs the path - three times a rule, since
+  `leftOutByOwnExclude` asks twice - and the configuration's exclusions were
+  read once for every rule, in every request. Building the automata alone was
+  36%. Resolving directives took 20%, and finding, reading and hashing the
+  specs 17%, with 6% more spent waiting on the disk.
+- **After, the specs and their resolution are what is left.** Finding,
+  reading, hashing and looking up the specs in the memo is about a third, with
+  12% waiting on the disk; resolving directives is 27%, most of it
+  `path.resolve` and `path.relative` for every target of every rule; answering
+  is 3%.
+
+Measured apart in one process, finding every spec took 43 ms, reading them
+57 ms and hashing them 23 ms: some 125 ms before a rule is resolved.
+
+### Globs read once
+
+`src/glob.ts` keeps each reading - the parsed glob and its automaton - by its
+pattern, in one store for each way of reading, since `tests` is a file name to
+`glob=` and any directory to `exclude=`. A reading is a function of its pattern
+alone, and nothing changes one after it is made. Each store holds at most 4,096
+and is emptied when full; this repository's specs read 33 patterns, and so do
+1,300 copies of them.
+
+Nothing answers differently. Over the 1,300-spec corpus `queryRules` gave the
+same 6.9 MB of JSON for eight paths - files, directories, the root and the
+ungoverned one - under 0.12.2 and under this change, warm through a memo and
+without one. Over this repository a run, `prove`, `cites`, `query` and `impact`
+gave the same JSON under both. `tests/glob-core.test.ts` holds a pattern read
+two ways to what each way means, whichever came first, a refusal to its words
+every time, and every answer to what it was after more patterns than a store
+holds have been read.
+
+### What would meet the budget at 1,300 specs, and was not made
+
+- **Not reading a spec that has not changed.** Finding, reading and hashing
+  cost about 125 ms here, six times the budget. With the rules loaded once,
+  answering the ungoverned query took 5.4 ms, and `src/parser.ts`, with 2,190
+  rules to describe, 106 ms. A server that watched the specs, as a watch
+  session does ([ADR-0014](0014-configuration-and-watch.md)), could answer from
+  rules it holds, and would trade "nothing is served stale" for its trust in
+  the watcher. That is a decision about what this server promises, not a
+  contained change.
+- **Statting each spec in place of reading it** took 31 ms on top of the 43 ms
+  walk, and would serve a stale rule after an edit that kept a file's size and
+  time.
+- **Keeping resolved rules**, by directive, for as long as the spec set and the
+  configuration stay the same: loading the rules warm at 1,300 specs took
+  149 ms with them against 199 ms. It needs a key holding the spec set and the
+  configuration, compared once a request, and leaves the reads, which are the
+  rest.
+- **Keeping predicates as well as readings** took a further 30 to 60 ms off
+  `src/parser.ts` at 1,300 specs. A predicate holds every segment it has been
+  asked about, and in a server that is a map without a bound.

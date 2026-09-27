@@ -251,6 +251,16 @@ rules, scanner only, in five alternating rounds against the previous commit:
 a median of 2,250 ms against 2,116, and a best of 1,297 against 1,507, which is
 this machine's noise. The counts were identical.
 
+Building a reading costs too, and a query paid it over and over, which this
+measurement of matching did not see. Each rule's patterns were read when its
+directive was resolved and again each time a query asked whether the rule
+governs a path, and the configuration's exclusions once for every rule, on
+every request: at 1,300 specs that was two fifths of what the MCP server spent
+on a warm query. Since 2026-09-27 each pattern is read once and its reading
+kept, up to 4,096 of each kind, which about halves a query at every size;
+[ADR-0012](0012-query-and-mcp.md)'s amendment of that date has the
+measurement.
+
 ### Held to the mutation bar
 
 Stryker over `glob.ts` and the lines of `engine.ts` this changed: every mutant of
