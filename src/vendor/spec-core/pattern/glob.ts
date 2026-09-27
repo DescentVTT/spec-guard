@@ -23,7 +23,8 @@
  * - `**` is a globstar only as a whole segment. `a/**\/b` matches `a/b` and
  *   `a/x/y/b`; a trailing `/**` matches everything inside a directory and not
  *   the directory itself. Two stars inside a name, `**.md`, are refused: the
- *   tools read it three ways, and the quiet reading narrowed their scope.
+ *   tools read it three ways, and the quiet reading narrowed their scope. The
+ *   refusal writes the two patterns it may have meant from the one written.
  * - `*`, `?` and classes never match `/`, and `*` matches a leading dot.
  * - Case is the caller's decision, stated every time. A result must not
  *   depend on the host it ran on.
@@ -134,6 +135,7 @@ function build(source: string, options: GlobOptions): Glob | string {
   const escapes = options.backslash !== 'separator';
   let pattern = source.trim();
   if (!escapes) pattern = pattern.replace(/\\/g, '/');
+  const written = pattern;
   if (pattern.length === 0) return 'the pattern is empty';
   if (pattern.startsWith('!')) return 'a negated pattern is a list entry, not a glob; narrow the positive pattern';
   if (/(?:^|[^\\])[?*+@!]\([^)]*\|/.test(pattern)) return EXTGLOB;
@@ -162,6 +164,7 @@ function build(source: string, options: GlobOptions): Glob | string {
   const alternatives: Alternative[] = [];
   for (const text of expanded) {
     const parsed = parseAlternative(text, escapes);
+    if (parsed === GLOBSTAR_IN_NAME) return `${GLOBSTAR_IN_NAME}: ${globstarAdvice(written)}`;
     if (typeof parsed === 'string') return parsed;
     alternatives.push(parsed);
   }
@@ -300,7 +303,59 @@ function parseAlternative(text: string, escapes: boolean): Alternative | string 
 }
 
 const EXTGLOB = 'extended globs such as "+(a|b)" are not supported: write alternatives as "{a,b}", and a literal parenthesis as "[(]"';
-const GLOBSTAR_IN_NAME = '"**" means any number of directories only as a whole segment: write "docs/**/*.md" for any depth, or "*.md" for one level';
+const GLOBSTAR_IN_NAME = '"**" means any number of directories only as a whole segment';
+
+/**
+ * The two patterns a writer of `**` inside a name may have meant, built from
+ * what they wrote. Each run of stars that is not a whole segment becomes, for
+ * any depth, a globstar segment with a star kept on each side where a name
+ * went on - `docs/**.md` to `docs/**\/*.md`, `src/a**` to `src/a*\/**`,
+ * `a**b` to `a*\/**\/*b` - and for one level a single star. Everything else
+ * stays as written, braces and classes included, and a globstar that was a
+ * whole segment stays one.
+ *
+ * Only `/` is taken for a boundary. A run beside a brace, `{**.md,x}`, is
+ * given a star on that side too, which keeps the advice a pattern that
+ * compiles whatever the braces expand to.
+ *
+ * `written` holds a `\` only where it escapes: in the `separator` reading
+ * each one is already a `/`.
+ */
+function globstarAdvice(written: string): string {
+  let deep = '';
+  let flat = '';
+  let at = 0;
+  // One step past the end reads `''` and appends nothing, so the bound could
+  // be one further and give the same advice.
+  while (at < written.length) {
+    const ch = written.charAt(at);
+    let next = at + 1;
+    if (ch === '\\') {
+      next = at + 2;
+    } else if (ch === '[') {
+      // A class is copied as written. `classEnd` answers an index past the
+      // `[`, or -1 for one never closed, so `close >= 0` reads the same; and
+      // stopping one short of the `]` copies the class all the same, since
+      // its last member and the `]` after it are never a run of stars.
+      const close = classEnd(written, at, true);
+      if (close > 0) next = close + 1;
+    } else if (ch === '*') {
+      while (written.charAt(next) === '*') next += 1;
+      const before = at > 0 && written.charAt(at - 1) !== '/';
+      const after = next < written.length && written.charAt(next) !== '/';
+      if (next - at > 2 || (next - at === 2 && (before || after))) {
+        deep += `${before ? '*/' : ''}**${after ? '/*' : ''}`;
+        flat += '*';
+        at = next;
+        continue;
+      }
+    }
+    deep += written.slice(at, next);
+    flat += written.slice(at, next);
+    at = next;
+  }
+  return `write "${deep}" for any depth, or "${flat}" for one level`;
+}
 
 function tokenize(segment: string, escapes: boolean): Token[] | string {
   const tokens: Token[] = [];

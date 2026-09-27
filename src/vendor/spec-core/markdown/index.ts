@@ -39,4 +39,5 @@ export type {
   Table,
   TableCell,
   TableRow,
+  UnclosedFrontMatter,
 } from './types.js';

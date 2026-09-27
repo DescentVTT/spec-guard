@@ -58,6 +58,23 @@ export interface FrontMatterBlock {
 }
 
 /**
+ * A first line that opens front matter which no later line closes. It opens
+ * nothing: the line is read as a thematic break and the rest of the document
+ * as Markdown, as they would be without it. This says that it was written, so
+ * that such a document is not taken for one with no front matter.
+ */
+export interface UnclosedFrontMatter {
+  /** The kind the opening line names: `---` YAML, `+++` TOML. */
+  readonly kind: FrontMatterKind;
+  /** 1-based line of the opening delimiter, which is always the first. */
+  readonly line: number;
+  /** Offset of the opening delimiter line. */
+  readonly start: number;
+  /** Offset just past the opening delimiter line, before its terminator. */
+  readonly end: number;
+}
+
+/**
  * One line of the document. Every line has one, front matter included, so the
  * record for line `n` is at index `n - 1`.
  */
@@ -110,6 +127,11 @@ export interface Block {
   readonly endLine: number;
   /** A fenced block's info string, trimmed; empty for the other kinds. */
   readonly info: string;
+  /**
+   * An HTML block's tag name, lowercased, since CommonMark matches it in any
+   * case: `script`, `pre`, `style` or `textarea`. `null` for code.
+   */
+  readonly tag: string | null;
   /**
    * Whether a closing fence or closing tag ended the block. One that runs to
    * the end of the document or of its block quote is not closed. An indented
@@ -290,6 +312,8 @@ export interface MarkdownScan {
   /** One record per line of `index`, front matter included. */
   readonly lines: readonly ScannedLine[];
   readonly frontMatter: FrontMatterBlock | null;
+  /** Front matter opened on the first line and never closed; `null` when there is none, or when it is closed. */
+  readonly unclosedFrontMatter: UnclosedFrontMatter | null;
   /** Offset where the body starts, after any front matter. */
   readonly bodyStart: number;
   /** Code blocks and raw-text HTML blocks, in order. */

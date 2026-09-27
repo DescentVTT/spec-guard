@@ -43,13 +43,14 @@ import {
   listMarker,
   measureIndent,
   opensComment,
+  rawTextTag,
   setextUnderline,
   stripQuotes,
   type FenceOpen,
   type ListMarker,
 } from './syntax.js';
 import { findTables } from './tables.js';
-import type { Block, BlockKind, FrontMatterBlock, HtmlComment, MarkdownScan, MaskKind, Masks, ScannedLine } from './types.js';
+import type { Block, BlockKind, FrontMatterBlock, HtmlComment, MarkdownScan, MaskKind, Masks, ScannedLine, UnclosedFrontMatter } from './types.js';
 
 const BACKTICK = 0x60;
 const BACKSLASH = 0x5c;
@@ -58,7 +59,7 @@ const BACKSLASH = 0x5c;
 export function scanMarkdown(source: string): MarkdownScan {
   const text = stripBom(source);
   const index = createLineIndex(text);
-  const frontMatter = readFrontMatterBlock(text, index);
+  const { frontMatter, unclosedFrontMatter } = readFrontMatterBlock(text, index);
   const bodyStart = frontMatter === null ? 0 : frontMatter.bodyStart;
   const core = scanCore(text, index, frontMatter === null ? 0 : frontMatter.closeLine);
 
@@ -108,6 +109,7 @@ export function scanMarkdown(source: string): MarkdownScan {
     index,
     lines: core.lines,
     frontMatter,
+    unclosedFrontMatter,
     bodyStart,
     blocks: core.blocks,
     codeSpans: core.spans,
@@ -134,22 +136,30 @@ export function linesOf(scan: MarkdownScan, view: MaskKind | 'text' = 'text'): s
   return splitLines(view === 'text' ? scan.text : scan.masks[view]);
 }
 
+interface Front {
+  readonly frontMatter: FrontMatterBlock | null;
+  readonly unclosedFrontMatter: UnclosedFrontMatter | null;
+}
+
+const NO_FRONT: Front = { frontMatter: null, unclosedFrontMatter: null };
+
 /**
  * YAML between `---` lines, closed by `---` or `...`, or TOML between `+++`
  * lines. The opening line is the document's first, exactly. An opening line
- * that is never closed opens nothing: it is a thematic break.
+ * that is never closed opens nothing: it is a thematic break, and is reported
+ * as unclosed front matter.
  */
-function readFrontMatterBlock(text: string, index: LineIndex): FrontMatterBlock | null {
+function readFrontMatterBlock(text: string, index: LineIndex): Front {
   const kind = frontMatterKind(index.lineText(1));
-  if (kind === null) return null;
+  if (kind === null) return NO_FRONT;
   for (let line = 2; line <= index.lineCount; line += 1) {
     if (!frontMatterCloses(index.lineText(line), kind)) continue;
     const start = index.lineStart(2);
     const end = index.lineStart(line);
     const bodyStart = line < index.lineCount ? index.lineStart(line + 1) : text.length;
-    return { kind, raw: text.slice(start, end), start, end, bodyStart, closeLine: line };
+    return { frontMatter: { kind, raw: text.slice(start, end), start, end, bodyStart, closeLine: line }, unclosedFrontMatter: null };
   }
-  return null;
+  return { frontMatter: null, unclosedFrontMatter: { kind, line: 1, start: 0, end: index.lineEnd(1) } };
 }
 
 /** `make`, run the first time its value is asked for; the same value after. */
@@ -261,6 +271,9 @@ function scanCore(text: string, index: LineIndex, frontLines: number): Core {
     if (seen !== null && from < seen.end && (seen.last.get(length) ?? -1) < from) return undefined;
     const stop = stops.get(line) as number;
     const last = new Map<number, number>();
+    // A run ends at `from`, so `from` is past 0 and holds no backtick. A
+    // search that stopped at `from` itself would record a run of length
+    // zero, which no opener asks for, and `at > 0` tests what `at >= 0` does.
     let at = text.indexOf('`', from);
     while (at >= 0 && at < stop) {
       const run = at;
@@ -352,11 +365,13 @@ function scanCore(text: string, index: LineIndex, frontLines: number): Core {
   let indented: Mutable<Block> | null = null;
   let previousBlank = true;
   // The content column of each list item open around the line, innermost last.
+  // Each loop that pops it tests its length first, which says what is meant;
+  // without the test it stops all the same, `undefined > indent` being false.
   const items: number[] = [];
   let pos = 0;
 
-  const openBlock = (kind: BlockKind, i: number, info: string): Mutable<Block> => {
-    const block = { kind, start: index.lineStart(i + 1), end: index.lineEnd(i + 1), line: i + 1, endLine: i + 1, info, closed: kind === 'indented' };
+  const openBlock = (kind: BlockKind, i: number, info: string, tag: string | null): Mutable<Block> => {
+    const block = { kind, start: index.lineStart(i + 1), end: index.lineEnd(i + 1), line: i + 1, endLine: i + 1, info, tag, closed: kind === 'indented' };
     blocks.push(block);
     return block;
   };
@@ -417,7 +432,7 @@ function scanCore(text: string, index: LineIndex, frontLines: number): Core {
     const margin = items[items.length - 1] ?? 0;
     const deep = shape.indent >= margin + 4;
     if (!shape.blank && deep && (previousBlank || indented !== null)) {
-      if (indented === null) indented = openBlock('indented', i, '');
+      if (indented === null) indented = openBlock('indented', i, '', null);
       else extend(indented, i);
       push(CODE);
       return;
@@ -434,12 +449,13 @@ function scanCore(text: string, index: LineIndex, frontLines: number): Core {
     // A fence as deep as indented code continues a paragraph instead.
     const open = deep ? null : fenceOpen(content);
     if (open !== null) {
-      fence = { block: openBlock('fenced', i, open.info), depth: shape.depth, open };
+      fence = { block: openBlock('fenced', i, open.info, null), depth: shape.depth, open };
       push(CODE);
       return;
     }
-    if (isRawTextOpen(content)) {
-      const block = openBlock('html', i, '');
+    const tag = rawTextTag(content);
+    if (tag !== null) {
+      const block = openBlock('html', i, '', tag);
       push(HTML);
       if (hasRawTextClose(content)) block.closed = true;
       else raw = { block, depth: shape.depth };
@@ -474,7 +490,8 @@ function scanCore(text: string, index: LineIndex, frontLines: number): Core {
 /**
  * The column an item's text starts at: past its marker and the one to four
  * spaces after it. With none, or five or more, the text starts one column
- * past the marker, and anything further is indented code.
+ * past the marker, and anything further is indented code. At one space both
+ * arms give one, so `spaces > 1` would read the same as `spaces >= 1`.
  */
 function itemColumn(indent: number, marker: ListMarker): number {
   const spaces = marker.width - marker.marker.length;

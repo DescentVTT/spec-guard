@@ -28,6 +28,26 @@ with the flag that restores the previous behaviour.
   [ADR-0012](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0012-query-and-mcp.md)'s
   amendment has the measurements, and why no server that reads every spec on
   every request meets the budget at 1,300 specs.
+- **`**` inside a name is told what to write, from the pattern written.**
+  `src/**.ts` is told `src/**/*.ts` for any depth or `src/*.ts` for one level,
+  and `db**` `db*/**` or `db*`, where every such pattern was told
+  `docs/**/*.md` or `*.md`. A spec pattern keeps the directories its walk
+  starts from: `docs/**.md` in `specs` is told `docs/**/*.md` or `docs/*.md`,
+  and `../shared/docs/**.md` `../shared/docs/**/*.md` or
+  `../shared/docs/*.md`. The message's first clause is as it was.
+  [ADR-0015](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0015-globs-from-spec-core.md)'s
+  amendment.
+- **spec-core is copied again, from `119345e`**, `pattern` and `markdown`,
+  and verified by hash. Beside the advice above, its scanner reads a link
+  inside a link's text as CommonMark does - `[a [b](inner.md) c](outer.md)`
+  is a link to `inner.md` alone, where it was one to `outer.md` - and nothing
+  here reads a Markdown link, so nothing a command reports changes: over the
+  164 Markdown files of the five spec-* repositories every directive, error,
+  status, title and warning reads as it did, and a run, `prove` and `cites` of
+  this repository answer as they did. It also names the element an HTML
+  block opens with, which the warning for a block never closed now takes,
+  and says when front matter opens and never closes, which nothing here reads.
+  [ADR-0015](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0015-globs-from-spec-core.md).
 
 ## 0.12.2
 

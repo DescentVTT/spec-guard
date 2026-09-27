@@ -167,7 +167,7 @@ export function listMarker(content: string): ListMarker | null {
   return { offset: (match[1] as string).length, marker, width: marker.length + (match[3] as string).length };
 }
 
-const RAW_TEXT_OPEN = /^[ \t]*<(?:script|pre|style|textarea)(?:[ \t>]|$)/i;
+const RAW_TEXT_OPEN = /^[ \t]*<(script|pre|style|textarea)(?:[ \t>]|$)/i;
 const RAW_TEXT_CLOSE = /<\/(?:script|pre|style|textarea)>/i;
 
 /**
@@ -181,6 +181,12 @@ const RAW_TEXT_CLOSE = /<\/(?:script|pre|style|textarea)>/i;
  */
 export function isRawTextOpen(content: string): boolean {
   return RAW_TEXT_OPEN.test(content);
+}
+
+/** The tag of the raw-text element opening the line, lowercased, or `null` when none opens it. */
+export function rawTextTag(content: string): string | null {
+  const match = RAW_TEXT_OPEN.exec(content);
+  return match === null ? null : (match[1] as string).toLowerCase();
 }
 
 /** Whether a line holds the close tag of any of the four raw-text elements. */

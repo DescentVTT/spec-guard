@@ -41,8 +41,13 @@ from `cbe2223`, changed `pattern` and `markdown`: two stars inside a name and
 an extended glob are refused as below, and the scanner reads a list item's
 columns. A fifth, from `8840d36`, changed `markdown` alone: an image inside a
 link's text is listed after the link, and links, list items and the directives
-mask are made the first time each is read. `VENDOR.json` records the commit
-and the SHA-256 of every file. Nothing in this repository edits them.
+mask are made the first time each is read. A sixth, from `119345e`, changed
+`pattern` and `markdown`: the refusal of two stars inside a name writes its
+advice from the pattern, as below; a link inside a link's text is read as the
+link, as CommonMark reads it; and the scan says which element an HTML block
+opens with, and when front matter opens and never closes. `VENDOR.json`
+records the commit and the SHA-256 of every file. Nothing in this repository
+edits them.
 
 spec-core's `LICENSE` lies beside the copies, and `package.json` names it in
 `files`: the package carries spec-core's compiled code under
@@ -149,8 +154,10 @@ differences below, so the adoption changed exactly what this ADR says it did.
   all, and are now.
 - **`**` inside a name is refused.** `docs/**.md`, `src/**.ts`, `**.ts` and
   `a**b` are each told that `**` means any number of directories only as a
-  whole segment, with the two ways to say what was meant: `docs/**/*.md` for
-  any depth, `*.md` for one level. The RegExp crossed directories there and
+  whole segment, with the two ways to say what was meant, written from the
+  pattern - the first for any depth, the second for one level: `docs/**/*.md`
+  or `docs/*.md`, `src/**/*.ts` or `src/*.ts`, `**/*.ts` or `*.ts`,
+  `a*/**/*b` or `a*b`. The RegExp crossed directories there and
   ripgrep did not, so the same rule counted differently on either side of the
   size where `auto` changes engine. The first copy of spec-core read it as
   `*`, which is how `.gitignore` and bash read it, and that was the worst of
@@ -168,6 +175,17 @@ differences below, so the adoption changed exactly what this ADR says it did.
   `module=`, `order=`, `pattern=`, `dirs=` and `required=` make it invalid,
   exit 1, in a document not in force as in one that is. `specPatternError` is
   the check, in the words `expandSpecPatterns` throws.
+
+  **Amended 2026-09-27.** Until the copy from `119345e` every such pattern was
+  told `docs/**/*.md` or `*.md`, whatever it was, so `src/**.ts` was told to
+  write two patterns for Markdown. spec-core now writes the two from the
+  pattern it is given. A spec pattern is walked from its literal base,
+  and spec-core is given only what is below it, so `specPatternError` puts the
+  base back in front of each pattern the advice names: `docs/**.md` in `specs`
+  is told `docs/**/*.md`, where the part below `docs` alone would be told
+  `**/*.md`, every Markdown file in the repository; and `../shared/docs/**.md`
+  is told `../shared/docs/**/*.md`, which spec-core, refusing the `..`, could
+  not have written.
 - **No pattern takes long.** spec-core's automaton keeps a set of live states,
   so a match costs the pattern's size times the path's length. `*-*-*-*-*-*x`
   against a name of 121 dashes took **55 seconds** under the RegExp, measured on
