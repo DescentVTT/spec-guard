@@ -5,7 +5,11 @@ All notable changes to this project are documented here. Versions follow
 may change in a minor release — each such change is listed under **Changed**
 with the flag that restores the previous behaviour.
 
-## Unreleased
+## 0.13.0
+
+Front matter that opens and never closes is a warning, and spec-core is at
+65ef842. Nothing a run fails on has changed; a report can hold one more kind
+of warning.
 
 ### Added
 

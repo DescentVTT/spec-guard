@@ -1555,6 +1555,14 @@ ran high where they were least measured: `runner.ts` and `text.ts` took 7m35s
 against 15.2 minutes, and `cli.ts` alone 8m18s against 15.1, so the next
 split starts from this run's logs rather than 398fe94's.
 
+### 0.13.0: the same survivors
+
+CI's full sweep of b5218f6 (run 36355513046) came out at **99.14% over 11,605
+mutants with 97 survivors and 3 without coverage**, the same survivors on the
+same source as 0.12.3: the warning for front matter never closed added 21
+mutants and left none alive, and the copy of spec-core changes no source here.
+The shards took from 6m05s to 16m24s.
+
 ### 0.12.3: eight survivors, none that decides an answer
 
 CI's full sweep of d63598e (run 36329762494) came out at **99.14% over 11,584
