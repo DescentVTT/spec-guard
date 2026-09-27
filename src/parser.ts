@@ -361,11 +361,10 @@ function unclosedBlocks(scan: MarkdownScan): Array<{ line: number; message: stri
     if (block.closed || scan.text.slice(block.end).trim() !== '') continue;
     if (scan.lines.slice(block.line, block.endLine).every((line) => line.blank)) continue;
     const opener = (scan.lines[block.line - 1] as { content: string }).content.trim();
-    // A raw-text block's first line starts with its tag, or it would be none.
     const what =
       block.kind === 'fenced'
         ? `the code fence ${opener} opened here is never closed`
-        : `the ${(/^<[a-z]+/i.exec(opener) as RegExpExecArray)[0].toLowerCase()}> block opened here is never closed`;
+        : `the <${block.tag}> block opened here is never closed`;
     found.push({
       line: block.line,
       message: `${what}, so lines ${block.line} to ${block.endLine}, the rest of the document, are read as code, and no directive in them runs`,

@@ -120,7 +120,9 @@ The three fence shapes fixed in this release stay fixed. Beyond them, where
   document is what the reader sees - and the report says so on the opening
   line, as a warning that fails nothing, in every format. A block that ends
   with its block quote, or holds nothing after its opener, hides nothing and
-  is not one.
+  is not one. Since `119345e` the scanner names the element an HTML block
+  opens with, and the warning takes that name rather than reading it from
+  the line again; it reads as it did.
 - **A directive masked is still counted.** A comment shaped like a directive -
   `<!--`, an `@`, a kind beginning `assert` - that sits in code, raw HTML or
   front matter is not run, as before, and the report counts them and names
