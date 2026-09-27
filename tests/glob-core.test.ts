@@ -56,10 +56,13 @@ describe('a pattern spec-core cannot read', () => {
     expect(globPatternError(pattern)).toBe(`invalid glob pattern "${pattern}": ${reason}`);
   });
 
+  // Each is told the two patterns it may have meant, written from it: the run
+  // of stars as a whole segment with a star kept for the rest of each name,
+  // and as one star.
   it.each([
-    ['docs/**.md', '"**" means any number of directories only as a whole segment: write "docs/**/*.md" for any depth, or "*.md" for one level'],
-    ['**.ts', '"**" means any number of directories only as a whole segment: write "docs/**/*.md" for any depth, or "*.md" for one level'],
-    ['a**b', '"**" means any number of directories only as a whole segment: write "docs/**/*.md" for any depth, or "*.md" for one level'],
+    ['docs/**.md', '"**" means any number of directories only as a whole segment: write "docs/**/*.md" for any depth, or "docs/*.md" for one level'],
+    ['**.ts', '"**" means any number of directories only as a whole segment: write "**/*.ts" for any depth, or "*.ts" for one level'],
+    ['a**b', '"**" means any number of directories only as a whole segment: write "a*/**/*b" for any depth, or "a*b" for one level'],
   ])('is refused as a glob, since three tools read it three ways: %s', (pattern, reason) => {
     expect(globPatternError(pattern)).toBe(`invalid glob pattern "${pattern}": ${reason}`);
     expect(excludePatternError(pattern)).toBe(`invalid exclude pattern "${pattern}": ${reason}`);
@@ -665,7 +668,11 @@ describe('** inside a name, wherever a pattern is given', () => {
   // The review's repro. `docs/**.md` found both ADRs under 0.11.0, whose
   // RegExp crossed directories, and the nested one fails. Read as `*`, as the
   // first copy of spec-core read it, the run found one spec and passed.
-  const REASON = '"**" means any number of directories only as a whole segment: write "docs/**/*.md" for any depth, or "*.md" for one level';
+  //
+  // Each pattern is told the two it may have meant, written from it; these
+  // are what the two used most here are told.
+  const DOCS = '"**" means any number of directories only as a whole segment: write "docs/**/*.md" for any depth, or "docs/*.md" for one level';
+  const SRC = '"**" means any number of directories only as a whole segment: write "src/**/*.ts" for any depth, or "src/*.ts" for one level';
   const TREE = {
     'docs/adr/0001-kept.md': '# ADR-0001\n\n<!-- @assert-absence target="src" symbol="Nowhere" -->\n',
     'docs/adr/nested/0002-broken.md': '# ADR-0002\n\n<!-- @assert-absence target="src" symbol="LegacyGateway" -->\n',
@@ -690,9 +697,9 @@ describe('** inside a name, wherever a pattern is given', () => {
     const configured = await run({ ...TREE, 'package.json': JSON.stringify({ specGuard: { specs: ['docs/**.md'] } }) }, ['--engine', 'js']);
     expect(configured.code).toBe(EXIT_ERROR);
     expect(configured.out).toEqual([]);
-    expect(configured.err).toEqual([`spec-guard: package.json: "specGuard.specs" has an invalid spec pattern "docs/**.md": ${REASON}.`]);
+    expect(configured.err).toEqual([`spec-guard: package.json: "specGuard.specs" has an invalid spec pattern "docs/**.md": ${DOCS}.`]);
 
-    // What the message says to write finds both, and the nested one fails.
+    // What the message says to write for any depth finds both, and the nested one fails.
     const fixed = await run({ ...TREE, 'package.json': JSON.stringify({ specGuard: { specs: ['docs/**/*.md'] } }) }, ['--engine', 'js', '--json']);
     expect(fixed.code).toBe(EXIT_FAILED);
     const report = JSON.parse(fixed.out.join('\n')) as { summary: { specs: number; failed: number } };
@@ -700,19 +707,21 @@ describe('** inside a name, wherever a pattern is given', () => {
 
     const standalone = await run({ ...TREE, '.spec-guard.json': JSON.stringify({ specs: ['README.md', 'docs/**.md'] }) }, ['--engine', 'js']);
     expect(standalone.code).toBe(EXIT_ERROR);
-    expect(standalone.err).toEqual([`spec-guard: .spec-guard.json: "specs" has an invalid spec pattern "docs/**.md": ${REASON}.`]);
+    expect(standalone.err).toEqual([`spec-guard: .spec-guard.json: "specs" has an invalid spec pattern "docs/**.md": ${DOCS}.`]);
   });
 
   it.each([
-    [['docs/**.md']],
-    [['--spec', 'docs/**.md']],
-    [['README.md', '--spec=docs/adr/**.md']],
-  ])('is refused on the command line: %j', async (argv) => {
-    const pattern = argv.find((arg) => arg.includes('**.md'))?.replace('--spec=', '') as string;
+    [['docs/**.md'], `spec-guard: invalid spec pattern "docs/**.md": ${DOCS}`],
+    [['--spec', 'docs/**.md'], `spec-guard: invalid spec pattern "docs/**.md": ${DOCS}`],
+    [
+      ['README.md', '--spec=docs/adr/**.md'],
+      'spec-guard: invalid spec pattern "docs/adr/**.md": "**" means any number of directories only as a whole segment: write "docs/adr/**/*.md" for any depth, or "docs/adr/*.md" for one level',
+    ],
+  ])('is refused on the command line: %j', async (argv, message) => {
     const { code, out, err } = await run(TREE, [...argv, '--engine', 'js']);
     expect(code).toBe(EXIT_ERROR);
     expect(out).toEqual([]);
-    expect(err).toEqual([`spec-guard: invalid spec pattern "${pattern}": ${REASON}`]);
+    expect(err).toEqual([message]);
   });
 
   it.each([['query', 'src/main.ts'], ['impact', 'src/main.ts'], ['cites'], ['prove'], ['mcp']])(
@@ -721,18 +730,18 @@ describe('** inside a name, wherever a pattern is given', () => {
       const { code, out, err } = await run(TREE, [...command, '--spec', 'docs/**.md']);
       expect(code).toBe(EXIT_ERROR);
       expect(out).toEqual([]);
-      expect(err).toEqual([`spec-guard: invalid spec pattern "docs/**.md": ${REASON}`]);
+      expect(err).toEqual([`spec-guard: invalid spec pattern "docs/**.md": ${DOCS}`]);
     },
   );
 
   it('is refused in the configuration\'s exclude and in --exclude', async () => {
     const option = await run(TREE, ['docs/**/*.md', '--exclude', 'src/**.ts', '--engine', 'js']);
     expect(option.code).toBe(EXIT_ERROR);
-    expect(option.err[0]).toBe(`Option --exclude has an invalid exclude pattern "src/**.ts": ${REASON}.`);
+    expect(option.err[0]).toBe(`Option --exclude has an invalid exclude pattern "src/**.ts": ${SRC}.`);
 
     const configured = await run({ ...TREE, '.spec-guard.json': JSON.stringify({ exclude: ['src/**.ts'] }) }, ['docs/**/*.md', '--engine', 'js']);
     expect(configured.code).toBe(EXIT_ERROR);
-    expect(configured.err).toEqual([`spec-guard: .spec-guard.json: "exclude" has an invalid exclude pattern "src/**.ts": ${REASON}.`]);
+    expect(configured.err).toEqual([`spec-guard: .spec-guard.json: "exclude" has an invalid exclude pattern "src/**.ts": ${SRC}.`]);
   });
 
   it.each([
@@ -750,26 +759,41 @@ describe('** inside a name, wherever a pattern is given', () => {
     const report = JSON.parse(out.join('\n')) as { summary: { total: number; inactive: number }; errors: Array<{ spec: { file: string }; message: string }> };
     expect(report.summary.total).toBe(0);
     expect(report.errors.map((error) => [error.spec.file, error.message])).toEqual([
-      ['docs/draft.md', `${message}: ${REASON}.`],
-      ['docs/rules.md', `${message}: ${REASON}.`],
+      ['docs/draft.md', `${message}: ${SRC}.`],
+      ['docs/rules.md', `${message}: ${SRC}.`],
     ]);
   });
 
   it.each([
-    ['<!-- @assert-import-absence target="src" module="db**" -->', 'Attribute "module" has an invalid module pattern "db**"'],
-    ['<!-- @assert-layers target="src" order="domain, infra**" -->', 'Attribute "order" has an invalid layer pattern "infra**"'],
-    ['<!-- @assert-structure target="src" pattern="**.ts" -->', 'Attribute "pattern" has an invalid glob pattern "**.ts"'],
-    ['<!-- @assert-structure target="packages" dirs="pkg**" required="package.json" -->', 'Attribute "dirs" has an invalid glob pattern "pkg**"'],
-    ['<!-- @assert-structure target="packages" required="**.json" -->', 'Required entry "**.json" has an invalid glob pattern "**.json"'],
+    [
+      '<!-- @assert-import-absence target="src" module="db**" -->',
+      'Attribute "module" has an invalid module pattern "db**": "**" means any number of directories only as a whole segment: write "db*/**" for any depth, or "db*" for one level.',
+    ],
+    [
+      '<!-- @assert-layers target="src" order="domain, infra**" -->',
+      'Attribute "order" has an invalid layer pattern "infra**": "**" means any number of directories only as a whole segment: write "infra*/**" for any depth, or "infra*" for one level.',
+    ],
+    [
+      '<!-- @assert-structure target="src" pattern="**.ts" -->',
+      'Attribute "pattern" has an invalid glob pattern "**.ts": "**" means any number of directories only as a whole segment: write "**/*.ts" for any depth, or "*.ts" for one level.',
+    ],
+    [
+      '<!-- @assert-structure target="packages" dirs="pkg**" required="package.json" -->',
+      'Attribute "dirs" has an invalid glob pattern "pkg**": "**" means any number of directories only as a whole segment: write "pkg*/**" for any depth, or "pkg*" for one level.',
+    ],
+    [
+      '<!-- @assert-structure target="packages" required="**.json" -->',
+      'Required entry "**.json" has an invalid glob pattern "**.json": "**" means any number of directories only as a whole segment: write "**/*.json" for any depth, or "*.json" for one level.',
+    ],
   ])('makes %s invalid', (source, message) => {
     const { directives } = parseDirectives(source, { file: path.resolve('/virtual/docs/a.md'), relativeFile: 'docs/a.md' });
     const resolved = resolveDirective(directives[0] as NonNullable<(typeof directives)[0]>, { root: path.resolve('/virtual'), excludeFiles: new Set() });
-    expect('error' in resolved ? resolved.error.message : null).toBe(`${message}: ${REASON}.`);
+    expect('error' in resolved ? resolved.error.message : null).toBe(message);
   });
 
   it('is named by specPatternError as expandSpecPatterns would name it, and a path without glob syntax is never refused', async () => {
-    expect(specPatternError('docs/**.md')).toBe(`invalid spec pattern "docs/**.md": ${REASON}`);
-    expect(specPatternError('**.md')).toBe(`invalid spec pattern "**.md": ${REASON}`);
+    expect(specPatternError('docs/**.md')).toBe(`invalid spec pattern "docs/**.md": ${DOCS}`);
+    expect(specPatternError('**.md')).toBe('invalid spec pattern "**.md": "**" means any number of directories only as a whole segment: write "**/*.md" for any depth, or "*.md" for one level');
     expect(specPatternError('../shared/**/*.md')).toBeNull();
     expect(specPatternError('docs/**/*.md')).toBeNull();
     expect(specPatternError('notes/+(a|b).md')).toBeNull();
@@ -777,5 +801,19 @@ describe('** inside a name, wherever a pattern is given', () => {
     await expect(expandSpecPatterns(['docs/**.md'], root, undefined, memoryIo(root, { 'docs/a.md': '' }))).rejects.toThrow(
       specPatternError('docs/**.md') as string,
     );
+  });
+
+  it('is told, in a spec pattern, the directories its walk starts from, which the glob below them does not hold', async () => {
+    // Told `**/*.md`, as the part below `../shared/docs` alone would be, a
+    // spec pattern takes in every Markdown file under the root instead.
+    const shared = 'invalid spec pattern "../shared/docs/**.md": "**" means any number of directories only as a whole segment: write "../shared/docs/**/*.md" for any depth, or "../shared/docs/*.md" for one level';
+    expect(specPatternError('../shared/docs/**.md')).toBe(shared);
+    expect(specPatternError('docs\\adr\\**.md')).toBe(
+      'invalid spec pattern "docs\\adr\\**.md": "**" means any number of directories only as a whole segment: write "docs/adr/**/*.md" for any depth, or "docs/adr/*.md" for one level',
+    );
+    // Any other refusal names no pattern to write, and is spec-core's as given.
+    expect(specPatternError('docs/adr/[a.md')).toBe('invalid spec pattern "docs/adr/[a.md": a "[" is never closed');
+    const root = path.resolve('/virtual/specs/repo');
+    await expect(expandSpecPatterns(['../shared/docs/**.md'], root, undefined, memoryIo(path.dirname(root), { 'shared/docs/a.md': '' }))).rejects.toThrow(shared);
   });
 });

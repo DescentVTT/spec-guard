@@ -1,6 +1,6 @@
 {
   "source": "https://github.com/DescentVTT/spec-core",
-  "commit": "8840d36991c896bb0fed7cb42b049b03754b17c3",
+  "commit": "119345eb229e3265b791283fc502d4c8d3267460",
   "modules": {
     "jsonrpc": {
       "files": {
@@ -12,14 +12,14 @@
       "files": {
         "frontmatter.ts": "sha256-4261111d9c900079d1c5094ff00db55edeed3e57be3197420a0b841539d000b9",
         "headings.ts": "sha256-6b1f88429004b64d62cc690136916fe64ddffb5df8ce7c96415e869e33bf23e2",
-        "index.ts": "sha256-bdb9eae130cd46174bb94a11e199724fd590a0e99e59c8510ce782a5e79dd85d",
+        "index.ts": "sha256-6b6bbd394d85c1830be81f08492cd96f9b9ad0a92df440267db7c4040fd1c37b",
         "layout.ts": "sha256-11293f9961ce7fcc672743e72945dcaa0a1475a8adea166ea10fa9c542cd6f75",
-        "links.ts": "sha256-7b498832aabc3032f7ebf89a7bdb5c3dcb5ba1ab39e7065aead397feab91325d",
+        "links.ts": "sha256-45fd863241e31a820cf3f0ac2ff97ec0da9d396ad91bfeb3adbe4c1bc92745a5",
         "lists.ts": "sha256-ac2fa8e5c35ca0b17b2727f4a3d9b52edb56ebb7392955d79aa029bc3ae11ea6",
-        "scan.ts": "sha256-c69aa24e62233d42d5b608910c2816148fe88511c70978c2b4ecbab950bb296e",
-        "syntax.ts": "sha256-603325f2aa181f8bcaa99b529d3da0e873f8f6f3fe73380e24b2414c0b2532c2",
+        "scan.ts": "sha256-ea227cb884a6b7f45fbe5cd7a7112d8437987532b69a6b7ab774bb37ec38a551",
+        "syntax.ts": "sha256-9331a2594dfec7a2bab7194fa88ffb35c2f1c0f45676f2c442b7854594c73cc9",
         "tables.ts": "sha256-494a4785827e73f9cfd496a8f082fb7aa070c6b4ce9e1142939c4506230fde5b",
-        "types.ts": "sha256-5af5f21cf5c7babb57e295f26ed10062847672d84cae7f8e2807d9633199c31c"
+        "types.ts": "sha256-c42a4c40b2ea1808a084204d63297528d8e62bfc04240889fbd1cf52c568b660"
       }
     },
     "path": {
@@ -32,7 +32,7 @@
       "files": {
         "automaton.ts": "sha256-83362ad1e669c79cbff0baa8ad11d87bb5c669238f07f686eea3611db4454b6f",
         "charset.ts": "sha256-8d294a77ad7fad55f84cd914b64665fde342e01f71eae77f338218f3da141a81",
-        "glob.ts": "sha256-77259921449d34effb686ae6b7c974f9db57d6b5735b9bfb8cfc650b322f18de",
+        "glob.ts": "sha256-a59f28f99e309969ded7c32617376b2e57c61ba6ea6d2f6ffce92150a7c618dd",
         "index.ts": "sha256-ef2ebf1aca4dd1be073f15432a3c23b83bd10bbf5cd1e415ecd6e6b5c9a197ba",
         "regex.ts": "sha256-be88d0d57af98e0bcbfb7cb3242d7333066e7be10664e31397d779bac0cff928"
       }

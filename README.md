@@ -165,8 +165,11 @@ for `glob`, `module`, `order` and the structure rules' patterns, and for a spec
 pattern.
 
 `**` means any number of directories only as a whole segment. `docs/**.md` is
-refused, with the two ways to say what was meant: `docs/**/*.md` for any depth,
-`*.md` for one level. The tools it could have come from read it three ways,
+refused, with the two ways to say what was meant, written from the pattern:
+`docs/**/*.md` for any depth, `docs/*.md` for one level. For any depth the
+stars become a segment of their own, with a star kept on each side where the
+name went on; for one level they become one star: `src/a**` is told
+`src/a*/**` or `src/a*`. The tools it could have come from read it three ways,
 and a spec pattern read the narrow way drops every nested document without a
 word.
 

@@ -704,14 +704,42 @@ function readSpecGlob(pattern: string): SpecGlob {
 }
 
 /**
+ * The two patterns spec-core's refusal of `**` inside a name tells a writer to
+ * use instead, each taken up to the words that follow it, so that one holding
+ * a `"` is taken whole. Taking each up to the first such words instead reads
+ * the same unless a pattern holds them.
+ */
+const ADVICE = /write "(.*)" for any depth, or "(.*)" for one level/;
+
+/**
+ * Why a spec glob cannot be read, or null when it can.
+ *
+ * spec-core is given only what is below the base, and writes its advice for
+ * `**` inside a name from what it was given: `docs/**.md` would be told to
+ * write `**\/*.md`, which in `specs` is every Markdown file in the repository.
+ * The base holds no glob syntax and the advice keeps everything but a run of
+ * stars as written, so each pattern it names is put back below the base. That
+ * is the advice spec-core gives `glob=` for the whole pattern, and a base
+ * outside the root, whose `..` spec-core refuses, is given it too.
+ */
+function specRefusal({ base, reading }: SpecGlob): string | null {
+  if (reading.parsed.ok) return null;
+  const { error } = reading.parsed;
+  if (base === '') return error;
+  return error.replace(ADVICE, (_, deep: string, flat: string) => `write "${base}/${deep}" for any depth, or "${base}/${flat}" for one level`);
+}
+
+/**
  * Why a spec pattern cannot be read, or null when it can.
  *
- * Asked by the command line and the configuration before anything runs, in the
- * words `expandSpecPatterns` would throw. A path with no glob syntax is a path,
- * found or not; only a glob can be malformed.
+ * Asked by the command line and the configuration before anything runs, and
+ * thrown by `expandSpecPatterns`. A path with no glob syntax is a path, found
+ * or not; only a glob can be malformed.
  */
 export function specPatternError(pattern: string): string | null {
-  return isGlob(toPosix(pattern)) ? refusal(readSpecGlob(pattern).reading, 'spec', pattern) : null;
+  if (!isGlob(toPosix(pattern))) return null;
+  const refused = specRefusal(readSpecGlob(pattern));
+  return refused === null ? null : `invalid spec pattern "${pattern}": ${refused}`;
 }
 
 /**
@@ -747,6 +775,8 @@ export async function expandSpecPatterns(
       continue;
     }
 
+    const refused = specPatternError(rawPattern);
+    if (refused !== null) throw new Error(refused);
     const { base, absolute, normalized, reading } = readSpecGlob(pattern);
     const walkRoot = absolute ? base || path.parse(normalized).root : path.resolve(root, base);
     const matches = matcherOf(reading, 'spec', rawPattern);

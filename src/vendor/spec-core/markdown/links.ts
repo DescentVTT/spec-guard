@@ -10,6 +10,12 @@
  * badge wrapped in a link has two destinations - and for nothing else; each
  * is listed after the link it lies in.
  *
+ * Links may not contain links, as CommonMark has it: in
+ * `[a [b](inner.md) c](outer.md)` the inner pair is the link, and the outer
+ * brackets and `(outer.md)` are text. So before a paragraph is read its pairs
+ * are read innermost first, as CommonMark reads them, to learn which `[`
+ * holds a link at any depth.
+ *
  * Brackets are paired once per paragraph with a stack, and the tables that
  * say where a destination or a title ends are built once per paragraph, so
  * no bracket searches the text again for its partner. A document of nothing
@@ -124,23 +130,45 @@ function readAutolinks(layout: Layout): Link[] {
   return out;
 }
 
-/** Pairs `[` with `]` inside a paragraph, innermost first, skipping escaped ones. */
-function pairBrackets(structure: string, from: number, to: number): Map<number, number> {
-  const pairs = new Map<number, number>();
-  const open: number[] = [];
+/** The brackets of a paragraph, `[` paired with `]` as a stack pairs them, escaped ones skipped. */
+interface Brackets {
+  /** Each `[` a `]` closes, to that `]`, in the order of the `]`s: every pair after the pairs inside it. */
+  readonly pairs: Map<number, number>;
+  /** Each paired `[` to the `[` still open around it, where there is one. */
+  readonly outer: Map<number, number>;
+  /** Each paired `[` to how many pairs had closed when it opened: the pairs wholly before it. */
+  readonly before: Map<number, number>;
+  /** Every `[` written after an unescaped `!`: an image's. */
+  readonly images: Set<number>;
+}
+
+function pairBrackets(structure: string, from: number, to: number): Brackets {
+  const brackets: Brackets = { pairs: new Map(), outer: new Map(), before: new Map(), images: new Set() };
+  const { pairs } = brackets;
+  const open: { readonly at: number; readonly before: number }[] = [];
+  let escaped = -1;
   for (let at = from; at < to; at += 1) {
     const ch = structure.charCodeAt(at);
-    if (ch === BACKSLASH) at += 1;
-    else if (ch === OPEN_BRACKET) open.push(at);
-    else if (ch === CLOSE_BRACKET) {
+    if (ch === BACKSLASH) {
+      escaped = at + 1;
+      at += 1;
+    } else if (ch === OPEN_BRACKET) {
+      open.push({ at, before: pairs.size });
+      if (structure.charCodeAt(at - 1) === BANG && escaped !== at - 1) brackets.images.add(at);
+    } else if (ch === CLOSE_BRACKET) {
       // A `]` with nothing to close pairs with nothing; recorded under
       // `undefined` it would not be found either, so this test changes no
-      // answer, only what the map holds.
+      // answer, only what the maps hold.
       const opened = open.pop();
-      if (opened !== undefined) pairs.set(opened, at);
+      if (opened !== undefined) {
+        pairs.set(opened.at, at);
+        brackets.before.set(opened.at, opened.before);
+        const around = open[open.length - 1];
+        if (around !== undefined) brackets.outer.set(opened.at, around.at);
+      }
     }
   }
-  return pairs;
+  return brackets;
 }
 
 /**
@@ -223,7 +251,10 @@ function readBrackets(layout: Layout, definitions: ReadonlyMap<string, Definitio
     while (inParagraph(last + 1) && continues.has(last + 2)) last += 1;
     const from = (lines[first] as ScannedLine).start;
     const to = (lines[last] as ScannedLine).end;
-    const pairs = pairBrackets(structure, from, to);
+    const brackets = pairBrackets(structure, from, to);
+    const { pairs } = brackets;
+    // Each `[` with a link inside it, at any depth.
+    const holding = new Set<number>();
     let ends: Ends | null = null;
 
     // Spaces and tabs, and at most one line ending inside the paragraph. The
@@ -316,7 +347,8 @@ function readBrackets(layout: Layout, definitions: ReadonlyMap<string, Definitio
 
     const bracket = (at: number, start: number, image: boolean, line: ScannedLine): Link | null => {
       const close = pairs.get(at);
-      if (close === undefined) return null;
+      // A link holding a link is text; an image holding one is still an image.
+      if (close === undefined || (!image && holding.has(at))) return null;
       const label = (): string => text.slice(at + 1, close).trim();
       if (structure.charCodeAt(close + 1) === OPEN_PAREN) {
         const dest = destination(close + 2);
@@ -342,10 +374,33 @@ function readBrackets(layout: Layout, definitions: ReadonlyMap<string, Definitio
       return { form: 'shortcut', image, text: label(), label: label(), start, end: close + 1, line: line.line, ...found };
     };
 
-    let escaped = -1;
+    const lineAt = (at: number): ScannedLine => lines[layout.index.positionAt(at).line - 1] as ScannedLine;
+
+    // CommonMark reads each pair at its `]`, so the pairs inside a `[` are
+    // read before it, and a link among them makes it text, and every `[`
+    // open around it: the pairs come innermost first, and fill `holding` on
+    // the way out. An image among them does not; a link may hold one. What a
+    // link or an image reads past its `]` - a destination, a title, a second
+    // label - is not read for links again: `reach` is the furthest any of the
+    // first so many pairs read to, and a `[` short of it opens nothing.
+    const reach = [from];
+    for (const at of pairs.keys()) {
+      const line = lineAt(at);
+      const image = brackets.images.has(at);
+      const passed = (reach[brackets.before.get(at) as number] as number) > at;
+      const link = passed || defined.has(line.line) ? null : bracket(at, at, image, line);
+      reach.push(Math.max(reach[reach.length - 1] as number, link === null ? from : link.end));
+      const around = brackets.outer.get(at);
+      if (around !== undefined && (holding.has(at) || (link !== null && !image))) holding.add(around);
+    }
+
     let at = from;
     // Inside a link's text, up to its `]`, where CommonMark reads an image -
     // a badge wrapped in a link - but no other link; then on past the link.
+    // `textEnd` is -1 or a `]` that closes a `[`, so never 0, and the `]` is
+    // read as no link. Leaving one step later, past it, resumes at the same
+    // place, or ends the paragraph where a shortcut link ended it anyway: the
+    // test below reads the same with `textEnd > 0` or `at > textEnd`.
     let textEnd = -1;
     let resume = -1;
     while (at < to) {
@@ -356,7 +411,6 @@ function readBrackets(layout: Layout, definitions: ReadonlyMap<string, Definitio
       }
       const ch = structure.charCodeAt(at);
       if (ch === BACKSLASH) {
-        escaped = at + 1;
         at += 2;
         continue;
       }
@@ -364,14 +418,14 @@ function readBrackets(layout: Layout, definitions: ReadonlyMap<string, Definitio
         at += 1;
         continue;
       }
-      const line = lines[layout.index.positionAt(at).line - 1] as ScannedLine;
+      const line = lineAt(at);
       // A definition's line holds its label, its destination and its title,
       // and none of them is a link.
       if (defined.has(line.line)) {
         at = line.end;
         continue;
       }
-      const image = structure.charCodeAt(at - 1) === BANG && escaped !== at - 1;
+      const image = brackets.images.has(at);
       const start = image ? at - 1 : at;
       const link = wiki(at, start, image, line) ?? bracket(at, start, image, line);
       if (textEnd >= 0) {
