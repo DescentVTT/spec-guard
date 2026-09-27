@@ -190,3 +190,38 @@ without it: the scan is paid once per document and edit, and the 20 ms holds
 again. A command run once takes no memo and pays for every scan, as it did.
 [ADR-0012](0012-query-and-mcp.md)'s amendment of 2026-09-27 has both
 measurements.
+
+## Amended 2026-09-28: front matter never closed
+
+A first line of `---` or `+++` that no later line closes opens nothing:
+spec-core's scanner reads the line as a thematic break and every line after
+it as Markdown, as every renderer shows them, and since `119345e` it says so,
+in `unclosedFrontMatter`. The parser read that document as one that wrote no
+front matter, and said nothing. What it costs is the status: front matter's
+`status` decides ahead of the section and the label
+([ADR-0010](0010-spec-status.md)), and one that is not read decides nothing,
+so `status: superseded` above a `## Status` section still saying `Accepted`
+ran rules its author had taken out of force, and the report looked like one
+over a document with no front matter at all.
+
+It is a warning now, beside the one for a block never closed and shaped like
+it: on the line the front matter opened on, always the first, naming the
+delimiter it opened with, saying that none of it is read as front matter and
+that the document, its status included, is read as one without any, and
+ending with what to do - close it with `---`, or `+++` for TOML, on a line of
+its own. `unclosed-front-matter` is its kind in `specWarnings`, and it
+reaches every format the others reach: the human report, the `--json` of a
+run and of `prove`, SARIF, the GitHub and GitLab annotations, and the MCP
+server's `check_architecture`.
+
+<!-- @assert-count target="src/parser.ts" symbol="unclosedFrontMatter" min="2" reason="front matter never closed is a warning, not a document read as having none without a word" -->
+
+It fails nothing, under `--strict` either, for the reason a block never
+closed fails nothing: the document is read as its reader sees it, and the
+warning says so rather than reading it as its author may have meant. Nothing
+else is read differently. The status is found where it was found - the
+section, or the label, which may be the block's own `status:` line - and a
+directive under the opening line runs, as it did. A first line with only
+blank lines after it has no front matter to lose, and is no warning. None of
+the 164 Markdown files of the five spec-* repositories has such front matter,
+so no run of them says anything new.
