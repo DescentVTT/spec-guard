@@ -524,6 +524,91 @@ describe('a front-matter status that cannot be read', () => {
   });
 });
 
+describe('front matter never closed', () => {
+  // The gap: a first line of `---` that nothing closes is no front matter, so a
+  // `status: superseded` under it decides nothing, the section below decides,
+  // and a document its author took out of force ran its rules without a word.
+  const context = { file: '/r/docs/a.md', relativeFile: 'docs/a.md' };
+  const warningOf = (source: string) => parseDocument(source, context).warnings?.map(({ location, kind, message }) => [location.line, kind, message]);
+  const said = (delimiter: string) =>
+    `the front matter opened here with ${delimiter} is never closed, so none of it is read as front matter, and the document, its status included, is read as one without any; close it with ${delimiter} on a line of its own`;
+  const SUPERSEDED_ABOVE_ACCEPTED = '---\nstatus: superseded\n\n# ADR-1\n\n## Status\n\nAccepted\n';
+
+  it('is a warning on the line it opened on, for YAML and for TOML, saying how to close it', () => {
+    expect(warningOf(SUPERSEDED_ABOVE_ACCEPTED)).toEqual([[1, 'unclosed-front-matter', said('---')]]);
+    expect(warningOf('+++\nstatus = "draft"\n\n# ADR-1\n')).toEqual([[1, 'unclosed-front-matter', said('+++')]]);
+    // Behind a byte-order mark and with CRLF endings the first line is still line 1.
+    expect(warningOf(`${String.fromCharCode(0xfeff)}---\r\nstatus: draft\r\n\r\n# ADR-1\r\n`)).toEqual([[1, 'unclosed-front-matter', said('---')]]);
+  });
+
+  it('changes nothing about how the document is read: the warning only says so', () => {
+    // As in a document with no front matter: the section decides, the block's
+    // own `status:` line is a label in the preamble, a quoted one is no word,
+    // and a directive in it is a directive.
+    expect(parseStatus(SUPERSEDED_ABOVE_ACCEPTED)).toMatchObject({ value: 'accepted', source: 'heading' });
+    expect(parseStatus('---\nstatus: superseded\n# ADR-1\n')).toMatchObject({ value: 'superseded', source: 'label' });
+    expect(parseStatus('---\nstatus: "superseded"\n# ADR-1\n')).toBeUndefined();
+    const document = parseDocument(`---\n${VIOLATION}\n# ADR-1\n`, context);
+    expect(document.directives.map(({ location }) => location.line)).toEqual([2]);
+    expect(document.masked).toBeUndefined();
+  });
+
+  it('is no warning for front matter that closes, for none, or for a first line with nothing after it', () => {
+    expect(warningOf('---\nstatus: draft\n---\n\n# ADR-1\n')).toBeUndefined();
+    expect(warningOf('---\nstatus: draft\n...\n\n# ADR-1\n')).toBeUndefined();
+    expect(warningOf('+++\nstatus = "draft"\n+++\n\n# ADR-1\n')).toBeUndefined();
+    // A first line of `---` closed by the next is front matter with nothing in it.
+    expect(warningOf('---\n---\n\n# ADR-1\n')).toBeUndefined();
+    // A `---` further down, in a document with no front matter, is a thematic break.
+    expect(warningOf('# ADR-1\n\nContext.\n\n---\n\nstatus: draft\n')).toBeUndefined();
+    expect(warningOf('# ADR-1\n\n## Status\n\nAccepted\n')).toBeUndefined();
+    // Nothing after the opening line: there is no front matter to have lost.
+    expect(warningOf('---\n')).toBeUndefined();
+    expect(warningOf('---\n\n  \n')).toBeUndefined();
+  });
+
+  it('comes before a block never closed, in the order they are in the document', () => {
+    expect(warningOf('---\nstatus: draft\n\n# ADR-1\n\n```sh\nnpm test\n')?.map(([line, kind]) => [line, kind])).toEqual([
+      [1, 'unclosed-front-matter'],
+      [6, 'unclosed-block'],
+    ]);
+  });
+
+  it('runs the rules its front matter would have withheld, as before, and says why in every format', async () => {
+    const root = await repo({ 'docs/a.md': `${SUPERSEDED_ABOVE_ACCEPTED}\n${VIOLATION}`, ...CODE });
+
+    const report = await run(root);
+
+    expect(report.ok).toBe(false);
+    expect(report.summary).toMatchObject({ total: 1, failed: 1, inactive: 0 });
+    expect(report.specWarnings?.map(({ location, kind }) => [location.relativeFile, location.line, kind])).toEqual([['docs/a.md', 1, 'unclosed-front-matter']]);
+
+    expect(formatReport(report, { color: false, verbose: false })).toContain(`⚠ docs/a.md:1  ${said('---')}`);
+    const json = JSON.parse(formatJson(report)) as { specWarnings: unknown };
+    expect(json.specWarnings).toEqual([{ spec: { file: 'docs/a.md', line: 1, column: 1 }, kind: 'unclosed-front-matter', message: said('---') }]);
+    const sarif = JSON.parse(formatSarif(report)) as { runs: Array<{ invocations?: Array<{ toolExecutionNotifications: unknown }> }> };
+    expect(sarif.runs[0]?.invocations?.[0]?.toolExecutionNotifications).toEqual([{ level: 'warning', message: { text: `docs/a.md:1 ${said('---')}` } }]);
+    expect(runAnnotations(report).filter(({ rule }) => rule === 'spec-warning')).toEqual([
+      { rule: 'spec-warning', identity: ['spec-warning', 'docs/a.md', 'unclosed-front-matter'], level: 'warning', severity: 'minor', file: 'docs/a.md', line: 1, message: said('---') },
+    ]);
+  });
+
+  it('fails nothing from the command line, --strict included, and is in its --json', async () => {
+    const root = await repo({ 'docs/a.md': '+++\nstatus = "draft"\n\n# ADR-1\n\n<!-- @assert-absence target="src" symbol="Nowhere" -->\n', ...CODE });
+    const out: string[] = [];
+    const io: CliIO = { stdout: (text) => out.push(text), stderr: () => {}, env: { NO_COLOR: '1' }, cwd: root, isTTY: false };
+
+    expect(await main(['docs/a.md', '--engine', 'js', '--strict'], io)).toBe(EXIT_OK);
+    expect(out.join('\n')).toContain(`docs/a.md:1  ${said('+++')}`);
+    expect(out.join('\n')).toContain('1 passed');
+    out.length = 0;
+    expect(await main(['docs/a.md', '--engine', 'js', '--strict', '--json'], io)).toBe(EXIT_OK);
+    expect((JSON.parse(out.join('\n')) as { specWarnings: unknown }).specWarnings).toEqual([
+      { spec: { file: 'docs/a.md', line: 1, column: 1 }, kind: 'unclosed-front-matter', message: said('+++') },
+    ]);
+  });
+});
+
 describe('which words withhold a document', () => {
   it('is exactly these six', () => {
     // Written out rather than derived. Every word here is another way for a
