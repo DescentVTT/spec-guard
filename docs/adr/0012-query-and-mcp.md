@@ -687,3 +687,16 @@ holds have been read.
 - **Keeping predicates as well as readings** took a further 30 to 60 ms off
   `src/parser.ts` at 1,300 specs. A predicate holds every segment it has been
   asked about, and in a server that is a map without a bound.
+
+### The budget, restated
+
+Decided on 2026-09-27, after the figures above. **A warm query answers in
+20 ms over up to about 70 specs of this repository's size**, and past that in
+time that grows with the specs' bytes: about 45 ms over 130 and about a third
+of a second over 1,300, on the machine these were measured on.
+**Nothing is served stale** stays the stronger promise: every request reads
+every spec, so an edit is answered as edited, and the time that costs is what
+a large repository pays. Watching the specs in place of reading them is the
+option on record, for when a repository that size needs the budget more than
+the promise; it would be a new decision, not an amendment of this one.
+`scripts/bench-query.mjs` measures a repository's own figure.
