@@ -373,6 +373,31 @@ function unclosedBlocks(scan: MarkdownScan): Array<{ line: number; message: stri
   return found;
 }
 
+/**
+ * Front matter opened on the first line and never closed, with something
+ * after its opening line.
+ *
+ * The scanner reads it as CommonMark does: the first line is a thematic break
+ * and every line after it Markdown, so none of it is front matter. A `status`
+ * written there does not decide ahead of everything else, as front matter's
+ * does (ADR-0010): a `## Status` section or a label decides, as in a document
+ * with none, and a document its author marked superseded can run its rules.
+ * It is read that way still - a renderer shows the line as a rule and the
+ * block as text - and the report says so on that line. One with nothing after
+ * its opening line has nothing in it to lose.
+ */
+function unclosedFrontMatter(scan: MarkdownScan): Array<{ line: number; message: string }> {
+  const open = scan.unclosedFrontMatter;
+  if (open === null || scan.lines.slice(open.line).every((line) => line.blank)) return [];
+  const delimiter = open.kind === 'yaml' ? '---' : '+++';
+  return [
+    {
+      line: open.line,
+      message: `the front matter opened here with ${delimiter} is never closed, so none of it is read as front matter, and the document, its status included, is read as one without any; close it with ${delimiter} on a line of its own`,
+    },
+  ];
+}
+
 const DIRECTIVE_RE = /<!--\s*@([a-zA-Z][\w-]*)([\s\S]*?)-->/g;
 /** The opening of a directive, `<!-- @kind`, wherever it is written. */
 const DIRECTIVE_SHAPE_RE = /<!--\s*@([a-zA-Z][\w-]*)/g;
@@ -514,6 +539,7 @@ function directivesOf(source: string, scan: MarkdownScan, context: ParseContext)
   const { status, problem } = statusOf(scan);
   const at = (line: number): SourceLocation => ({ file: context.file, relativeFile: context.relativeFile, line, column: 1 });
   const warnings: SpecWarning[] = [
+    ...unclosedFrontMatter(scan).map(({ line, message }) => ({ location: at(line), kind: 'unclosed-front-matter' as const, message })),
     ...(problem === undefined ? [] : [{ location: at(problem.line), kind: 'unreadable-status' as const, message: problem.message }]),
     ...unclosedBlocks(scan).map(({ line, message }) => ({ location: at(line), kind: 'unclosed-block' as const, message })),
   ];

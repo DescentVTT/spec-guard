@@ -100,14 +100,14 @@ export interface SpecStatus {
 
 /**
  * Something about how a spec document was read that a reader should know and
- * that fails nothing: a status that could not be read, a block that is never
- * closed. Each changes which of the document's rules run, which is why none is
- * left unsaid.
+ * that fails nothing: a status that could not be read, front matter or a block
+ * that is never closed. Each changes which of the document's rules run, which
+ * is why none is left unsaid.
  */
 export interface SpecWarning {
   location: SourceLocation;
   /** Which of them, in words that stay the same while the document changes around it. */
-  kind: 'unreadable-status' | 'unclosed-block';
+  kind: 'unreadable-status' | 'unclosed-front-matter' | 'unclosed-block';
   message: string;
 }
 
@@ -420,8 +420,8 @@ export interface RunReport {
   inactiveSpecs: InactiveSpec[];
   /**
    * What changed how a spec document was read: a status that could not be
-   * read, a block never closed. Not failures, and never left unsaid, since
-   * each decides which of a document's rules run.
+   * read, front matter or a block never closed. Not failures, and never left
+   * unsaid, since each decides which of a document's rules run.
    */
   specWarnings?: SpecWarning[];
   /**
