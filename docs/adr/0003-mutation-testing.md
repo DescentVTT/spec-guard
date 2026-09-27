@@ -1555,6 +1555,24 @@ ran high where they were least measured: `runner.ts` and `text.ts` took 7m35s
 against 15.2 minutes, and `cli.ts` alone 8m18s against 15.1, so the next
 split starts from this run's logs rather than 398fe94's.
 
+### 0.12.3: eight survivors, none that decides an answer
+
+CI's full sweep of d63598e (run 36329762494) came out at **99.14% over 11,584
+mutants with 97 survivors and 3 without coverage**; the shards took from
+4m42s to 15m24s. Every survivor of 0.12.2 is still one, on the same source,
+and eight are new, all in `src/glob.ts`, all replayed:
+
+- **Seven are the store that keeps each glob reading**: never keeping one,
+  clearing it on every call or never, keeping past the bound. Whether a
+  reading is kept, and for how long, decides how long an answer takes and
+  never the answer; the code says so, and over 1,300 specs `queryRules` gave
+  byte-identical JSON with and without the store
+  ([ADR-0012](0012-query-and-mcp.md)).
+- **One is the `'spec'` in `expandSpecPatterns`' call to `matcherOf`**, the
+  word its refusal would name. `specPatternError` is asked first and throws
+  for every pattern `matcherOf` would refuse, so that refusal is never
+  written.
+
 ### 0.12.2: nothing to measure but the same sweep
 
 0.12.2 changes `package.json`'s `files` and a test, and no source. CI's full
