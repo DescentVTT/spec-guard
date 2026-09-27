@@ -22,6 +22,7 @@ import {
   globPatternError,
   globPredicate,
   globToRegExp,
+  MAX_READINGS,
   modulePatternError,
   moduleWitness,
   normalizeExclude,
@@ -145,6 +146,54 @@ describe('a module pattern', () => {
     expect(matches('node:fs/promises')).toBe(true);
     expect(matches('node:fsx')).toBe(false);
     expect(createExcludeMatcher(['App.Db'])('App.Db/Client')).toBe(true);
+  });
+});
+
+/*
+ * A reading is kept by its pattern (ADR-0012's amendment of 2026-09-27), so
+ * what these hold is that a kept one answers as a fresh one would. Each uses
+ * patterns no other test reads, since what is kept outlives a test. Whether a
+ * reading is kept at all changes how long an answer takes and never the
+ * answer, which is why no test here can tell a kept one from a fresh one.
+ */
+describe('a pattern read again', () => {
+  it('answers as the way it is read says, whichever way it was read first', () => {
+    // A name to glob=, any directory on the way to exclude=: read in both
+    // orders, twice each, so a reading one of them kept cannot answer for the other.
+    for (const [first, second] of [['readings-a', 'readings-b'], ['readings-b', 'readings-a']] as const) {
+      expect(createGlobMatcher([first])('src/readings-a')).toBe(first === 'readings-a');
+      expect(createExcludeMatcher([first])(`${first}/x.ts`)).toBe(true);
+      expect(createGlobMatcher([first])(`${first}/x.ts`)).toBe(false);
+      expect(createExcludeMatcher([second])(`src/${second}/x.ts`)).toBe(true);
+      expect(createPathMatcher(second)(`src/${second}`)).toBe(false);
+      expect(createPathMatcher(second)(second)).toBe(true);
+    }
+  });
+
+  it('is refused every time it cannot be read, in the words of whoever asks', () => {
+    for (let time = 0; time < 2; time++) {
+      expect(modulePatternError('[readings')).toBe('invalid module pattern "[readings": a "[" is never closed');
+      expect(modulePatternError('[readings', 'layer')).toBe('invalid layer pattern "[readings": a "[" is never closed');
+      expect(excludePatternError('[readings')).toBe('invalid exclude pattern "[readings": a "[" is never closed');
+      expect(() => createExcludeMatcher(['[readings'])).toThrow('invalid exclude pattern "[readings": a "[" is never closed');
+      expect(globPatternError('[readings')).toBe('invalid glob pattern "[readings": a "[" is never closed');
+      expect(() => createGlobMatcher(['[readings'])).toThrow('invalid glob pattern "[readings": a "[" is never closed');
+    }
+  });
+
+  it('answers as it did after more distinct patterns than are kept have been read', () => {
+    const answers = () => [
+      createExcludeMatcher(['kept/**/gen-*.ts'])('kept/a/gen-x.ts'),
+      createExcludeMatcher(['kept/**/gen-*.ts'])('kept/a/x.ts'),
+      createGlobMatcher(['kept-*.md'])('docs/kept-1.md'),
+      createGlobMatcher(['kept-*.md'])('docs/1.md'),
+    ];
+    expect(answers()).toEqual([true, false, true, false]);
+    for (let index = 0; index <= MAX_READINGS; index++) {
+      expect(createExcludeMatcher([`flood-${index}/*.ts`])(`flood-${index}/a.ts`)).toBe(true);
+      expect(createGlobMatcher([`flood-${index}.md`])(`docs/flood-${index}.md`)).toBe(true);
+    }
+    expect(answers()).toEqual([true, false, true, false]);
   });
 });
 

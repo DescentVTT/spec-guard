@@ -161,11 +161,59 @@ const WHOLE: GlobOptions = { dialect: 'path', caseSensitive: true, literal: 'fil
  */
 export type PatternShape = 'last' | 'any' | 'whole';
 
-/** A pattern as spec-core read it, and what of a path its answer depends on. */
+/**
+ * A pattern as spec-core read it, and what of a path its answer depends on.
+ * Shared by everything that reads the same pattern the same way, so never
+ * changed after it is made.
+ */
 interface Reading {
-  parsed: GlobParse;
-  shape: PatternShape;
+  readonly parsed: GlobParse;
+  readonly shape: PatternShape;
 }
+
+/**
+ * The most readings of one kind kept at once.
+ *
+ * A reading is a function of its pattern alone, and making one - parsing the
+ * glob and building its automaton - was the largest part of what a query cost
+ * the MCP server. A directive's patterns are read when it is resolved and
+ * again each time a query asks whether its rule governs a path, the project's
+ * exclusions once for every rule, and all of it on every request: ADR-0012's
+ * amendment of 2026-09-27 measured a warm query spending two fifths of its
+ * time there. So a pattern is read once and its reading kept. A reading holds
+ * a few kilobytes of automaton, and the bound keeps a process that meets
+ * endless distinct patterns from holding them all; this repository's specs
+ * read 33.
+ */
+export const MAX_READINGS = 4096;
+
+/**
+ * A reading kept by its pattern, made by `read` the first time it is asked for.
+ *
+ * Emptied when full rather than pruned: a working set that fits is never
+ * dropped, and one that does not is read again, as every pattern was before.
+ * Whether a reading is kept, and for how long, decides how long an answer
+ * takes and never the answer, so a mutant that keeps one less often or longer
+ * is equivalent; the suite holds what a kept reading answers instead.
+ */
+function readings(): (pattern: string, read: () => Reading) => Reading {
+  const held = new Map<string, Reading>();
+  return (pattern, read) => {
+    let reading = held.get(pattern);
+    if (reading === undefined) {
+      if (held.size >= MAX_READINGS) held.clear();
+      reading = read();
+      held.set(pattern, reading);
+    }
+    return reading;
+  };
+}
+
+// One store for each way of reading, since one pattern read two ways is two
+// readings: `tests` is a file name to glob= and any directory to exclude=.
+const includeReadings = readings();
+const excludeReadings = readings();
+const wholeReadings = readings();
 
 /**
  * An include glob, as `glob=` means it.
@@ -178,11 +226,13 @@ interface Reading {
  * a path's last segment alone.
  */
 function readInclude(pattern: string): Reading {
-  const normalized = normalizeGlob(pattern);
-  // The first run of slashes, which a pattern that starts with one starts with.
-  if (normalized.startsWith('/')) return { parsed: parseGlob(normalized.replace(/\/+/, ''), WHOLE), shape: 'whole' };
-  const parsed = parseGlob(normalized, RIPGREP);
-  return { parsed, shape: parsed.ok && oneSegment(normalized) ? 'last' : 'whole' };
+  return includeReadings(pattern, () => {
+    const normalized = normalizeGlob(pattern);
+    // The first run of slashes, which a pattern that starts with one starts with.
+    if (normalized.startsWith('/')) return { parsed: parseGlob(normalized.replace(/\/+/, ''), WHOLE), shape: 'whole' };
+    const parsed = parseGlob(normalized, RIPGREP);
+    return { parsed, shape: parsed.ok && oneSegment(normalized) ? 'last' : 'whole' };
+  });
 }
 
 /**
@@ -191,15 +241,17 @@ function readInclude(pattern: string): Reading {
  * a path when it matches any one of the path's segments.
  */
 function readExclude(pattern: string): Reading {
-  const normalized = normalizeExclude(pattern);
-  const parsed = parseGlob(normalized, GITIGNORE);
-  const floating = parsed.ok && !normalized.startsWith('/') && oneSegment(normalized);
-  return { parsed, shape: floating ? 'any' : 'whole' };
+  return excludeReadings(pattern, () => {
+    const normalized = normalizeExclude(pattern);
+    const parsed = parseGlob(normalized, GITIGNORE);
+    const floating = parsed.ok && !normalized.startsWith('/') && oneSegment(normalized);
+    return { parsed, shape: floating ? 'any' : 'whole' };
+  });
 }
 
 /** A pattern matched against a whole path from where it starts, with `\` a separator as it is everywhere here. */
 function readWhole(pattern: string): Reading {
-  return { parsed: parseGlob(toPosix(pattern), WHOLE), shape: 'whole' };
+  return wholeReadings(pattern, () => ({ parsed: parseGlob(toPosix(pattern), WHOLE), shape: 'whole' }));
 }
 
 /** What of a path decides whether a glob or an exclusion matches it. */
