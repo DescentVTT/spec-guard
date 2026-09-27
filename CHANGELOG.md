@@ -29,6 +29,21 @@ with the flag that restores the previous behaviour.
   and [ADR-0010](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0010-spec-status.md)'s
   amendments.
 
+### Changed
+
+- **spec-core is copied again, from `65ef842`**, `markdown` alone, and
+  verified by hash. Its scanner reads link reference definitions as
+  CommonMark does: `[r]: r.md` on the line under a paragraph's text is that
+  text and defines nothing, a label holds no unescaped bracket and at most
+  999 characters, and a second bracket that is no label leaves the first
+  read as a shortcut. Nothing here reads a Markdown link, so nothing a
+  command reports changes: every directive, error, status, title and
+  warning reads as it did in the 164 Markdown files of the five spec-*
+  repositories and in the 95 definition cases spec-core checked against
+  commonmark.js, each set inside a spec, and a run, `prove`, `cites`,
+  `query` and `impact` of this repository answer as they did.
+  [ADR-0015](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0015-globs-from-spec-core.md).
+
 ## 0.12.3
 
 A query takes about half the time, the refusal of `**` inside a name is

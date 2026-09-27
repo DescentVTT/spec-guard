@@ -28,8 +28,9 @@
  */
 
 import { inRanges, mergeRanges } from '../text/index.js';
-import { isMarkdown, isSpaceOrTab, visibleLead, type Layout } from './layout.js';
-import type { Link, ScannedLine } from './types.js';
+import { isMarkdown, isSpaceOrTab, leadOffset, visibleLead, type Layout } from './layout.js';
+import { atxLevel, isThematicBreak, listMarker } from './syntax.js';
+import type { Heading, Link, ScannedLine } from './types.js';
 
 const BANG = 33;
 const DOUBLE_QUOTE = 34;
@@ -47,7 +48,11 @@ const CR = 13;
 /** CommonMark: a link label holds at most 999 characters. */
 const MAX_LABEL = 999;
 
-const DEFINITION = /^ {0,3}\[(?!\^)([^\]]+)\]:[ \t]*(<[^<>]*>|\S+)/;
+/**
+ * A label holds no bracket but an escaped one. Its two alternatives never
+ * start on the same character, so a label is read without backtracking.
+ */
+const DEFINITION = /^ {0,3}\[(?!\^)((?:[^[\]\\]|\\.)+)\]:[ \t]*(<[^<>]*>|\S+)/;
 /** What may follow a definition's destination: nothing, or a title after whitespace. */
 const TITLE_ONLY = /^(?:[ \t]+(?:"[^"]*"|'[^']*'|\([^)]*\)))?[ \t]*$/;
 const AUTOLINK = /<((?:https?|ftp|mailto):[^<>\s]+)>/g;
@@ -58,9 +63,9 @@ interface Definition {
   readonly targetEnd: number;
 }
 
-export function findLinks(layout: Layout): Link[] {
+export function findLinks(layout: Layout, headings: readonly Heading[]): Link[] {
   const definitions = new Map<string, Definition>();
-  const defined = readDefinitions(layout, definitions);
+  const defined = readDefinitions(layout, headings, definitions);
   const bracketed = readBrackets(layout, definitions, new Set(defined.map((d) => d.line)));
   // `<https://x>` as a link's destination or text is part of that link.
   const taken = mergeRanges([...defined, ...bracketed]);
@@ -84,18 +89,28 @@ function normalizeLabel(label: string): string {
  *
  * `[Note]: this matters` is prose that looks like one, so a definition has
  * nothing after its destination but a title. `[^1]: text` is a footnote.
+ *
+ * A definition cannot interrupt a paragraph, as CommonMark has it: one
+ * written on the line under a paragraph's text is that text. It opens a
+ * paragraph, or follows a definition that did.
  */
-function readDefinitions(layout: Layout, definitions: Map<string, Definition>): Link[] {
-  const { text, structure } = layout;
+function readDefinitions(layout: Layout, headings: readonly Heading[], definitions: Map<string, Definition>): Link[] {
+  const { text, structure, lines, continues } = layout;
+  const closed = closingLines(layout, headings);
   const out: Link[] = [];
-  for (const line of layout.lines) {
+  for (const line of lines) {
     if (!isMarkdown(line) || !visibleLead(layout, line)) continue;
     const masked = structure.slice(line.contentStart, line.end);
     const match = DEFINITION.exec(masked);
     if (match === null || !TITLE_ONLY.test(masked.slice(match[0].length))) continue;
+    // Under a definition the paragraph holds nothing else yet. `continues`
+    // holds no first line, so there is a line above whenever it is asked about.
+    const follows = out[out.length - 1]?.line === line.line - 1;
+    if (!follows && continues.has(line.line) && paragraphOpen(lines[line.line - 2] as ScannedLine, closed)) continue;
+    const between = (match[1] as string).length;
     const start = line.contentStart + match[0].indexOf('[');
-    const label = text.slice(start + 1, start + 1 + (match[1] as string).length).trim();
-    if (label.length === 0) continue;
+    const label = text.slice(start + 1, start + 1 + between).trim();
+    if (label.length === 0 || between > MAX_LABEL) continue;
     const written = match[2] as string;
     const end = line.contentStart + match[0].length;
     const angle = written.charCodeAt(0) === LESS_THAN ? 1 : 0;
@@ -107,6 +122,38 @@ function readDefinitions(layout: Layout, definitions: Map<string, Definition>): 
     out.push({ form: 'definition', image: false, text: label, target, label, start, end, targetStart, targetEnd, line: line.line });
   }
   return out;
+}
+
+/**
+ * The lines after which no paragraph is open, though the line under one
+ * would go on with a paragraph written there: the last line of a heading,
+ * and of an HTML block a comment opens. Such a block starts where a comment
+ * opens a line, after at most three columns, and ends on the line the
+ * comment closes on.
+ */
+function closingLines(layout: Layout, headings: readonly Heading[]): Set<number> {
+  const closed = new Set<number>();
+  for (const heading of headings) closed.add(heading.endLine);
+  for (const comment of layout.comments) {
+    const opened = layout.lines[comment.line - 1] as ScannedLine;
+    if (opened.indent <= 3 && comment.start === leadOffset(opened)) closed.add(layout.index.positionAt(comment.end).line);
+  }
+  return closed;
+}
+
+/**
+ * Whether a paragraph is open after a line, for the line under it to go on
+ * with. None is after a blank line, code, a thematic break or a closing
+ * line, and none is open in a list item whose marker has nothing after it,
+ * or a heading or a thematic break.
+ */
+function paragraphOpen(line: ScannedLine, closed: ReadonlySet<number>): boolean {
+  if (!isMarkdown(line) || line.blank || closed.has(line.line) || isThematicBreak(line.content)) return false;
+  const marker = listMarker(line.content);
+  if (marker === null) return true;
+  // The marker takes every space after it, so what is left is empty or text.
+  const rest = line.content.slice(marker.offset + marker.width);
+  return rest.length > 0 && atxLevel(rest) === 0 && !isThematicBreak(rest);
 }
 
 function readAutolinks(layout: Layout): Link[] {
@@ -140,10 +187,12 @@ interface Brackets {
   readonly before: Map<number, number>;
   /** Every `[` written after an unescaped `!`: an image's. */
   readonly images: Set<number>;
+  /** Every `[` with a pair inside it: those whose text holds an unescaped bracket. */
+  readonly nested: Set<number>;
 }
 
 function pairBrackets(structure: string, from: number, to: number): Brackets {
-  const brackets: Brackets = { pairs: new Map(), outer: new Map(), before: new Map(), images: new Set() };
+  const brackets: Brackets = { pairs: new Map(), outer: new Map(), before: new Map(), images: new Set(), nested: new Set() };
   const { pairs } = brackets;
   const open: { readonly at: number; readonly before: number }[] = [];
   let escaped = -1;
@@ -164,7 +213,10 @@ function pairBrackets(structure: string, from: number, to: number): Brackets {
         pairs.set(opened.at, at);
         brackets.before.set(opened.at, opened.before);
         const around = open[open.length - 1];
-        if (around !== undefined) brackets.outer.set(opened.at, around.at);
+        if (around !== undefined) {
+          brackets.outer.set(opened.at, around.at);
+          brackets.nested.add(around.at);
+        }
       }
     }
   }
@@ -225,8 +277,9 @@ interface Destination {
 
 /**
  * The bracket forms, a paragraph at a time. A paragraph here is a run of
- * Markdown lines, none blank, each continuing the one above: a bracket never
- * pairs across a blank line, a heading, or the start of another block.
+ * Markdown lines, none blank or a definition, each continuing the one above:
+ * a bracket never pairs across a blank line, a heading, a definition, or the
+ * start of another block.
  */
 function readBrackets(layout: Layout, definitions: ReadonlyMap<string, Definition>, defined: ReadonlySet<number>): Link[] {
   const { lines, continues, structure, text } = layout;
@@ -239,10 +292,13 @@ function readBrackets(layout: Layout, definitions: ReadonlyMap<string, Definitio
     to - from > MAX_LABEL ? undefined : definitions.get(normalizeLabel(text.slice(from, to)));
 
   // A blank or code line let into a paragraph would bring only characters the
-  // structure mask blanks, so this test shapes the runs and changes no link.
+  // structure mask blanks, so those two tests shape the runs and change no
+  // link. A definition's line is no paragraph's: it holds a label, a
+  // destination and a title, none of them a link, and the text after it is a
+  // paragraph of its own, whose brackets pair with nothing before it.
   const inParagraph = (i: number): boolean => {
     const line = lines[i];
-    return line !== undefined && isMarkdown(line) && !line.blank;
+    return line !== undefined && isMarkdown(line) && !line.blank && !defined.has(i + 1);
   };
 
   for (let first = 0; first < lines.length; first += 1) {
@@ -357,11 +413,14 @@ function readBrackets(layout: Layout, definitions: ReadonlyMap<string, Definitio
           return { form: 'inline', image, text: label(), target, label: null, start, line: line.line, ...dest };
         }
       } else {
-        // Only a `[` is paired, so a second label follows exactly when this finds one.
+        // Only a `[` is paired, so a second bracket follows exactly when this
+        // finds one. It is a label unless it holds a bracket, which it does
+        // when a pair lies inside it, or more than 999 characters; one that is
+        // not leaves the first bracket to be read as a shortcut.
         const refClose = pairs.get(close + 1);
-        if (refClose !== undefined) {
+        if (refClose !== undefined && refClose - close - 2 <= MAX_LABEL && !brackets.nested.has(close + 1)) {
           // `[text][]` is read through its text; `[text][label]` through its label.
-          const collapsed = refClose - close - 2 <= MAX_LABEL && text.slice(close + 2, refClose).trim() === '';
+          const collapsed = text.slice(close + 2, refClose).trim() === '';
           const found = collapsed ? lookup(at + 1, close) : lookup(close + 2, refClose);
           if (found === undefined) return null;
           const written = collapsed ? label() : text.slice(close + 2, refClose).trim();
@@ -388,7 +447,7 @@ function readBrackets(layout: Layout, definitions: ReadonlyMap<string, Definitio
       const line = lineAt(at);
       const image = brackets.images.has(at);
       const passed = (reach[brackets.before.get(at) as number] as number) > at;
-      const link = passed || defined.has(line.line) ? null : bracket(at, at, image, line);
+      const link = passed ? null : bracket(at, at, image, line);
       reach.push(Math.max(reach[reach.length - 1] as number, link === null ? from : link.end));
       const around = brackets.outer.get(at);
       if (around !== undefined && (holding.has(at) || (link !== null && !image))) holding.add(around);
@@ -419,12 +478,6 @@ function readBrackets(layout: Layout, definitions: ReadonlyMap<string, Definitio
         continue;
       }
       const line = lineAt(at);
-      // A definition's line holds its label, its destination and its title,
-      // and none of them is a link.
-      if (defined.has(line.line)) {
-        at = line.end;
-        continue;
-      }
       const image = brackets.images.has(at);
       const start = image ? at - 1 : at;
       const link = wiki(at, start, image, line) ?? bracket(at, start, image, line);
