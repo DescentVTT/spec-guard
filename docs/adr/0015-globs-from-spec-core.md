@@ -222,26 +222,31 @@ differences below, so the adoption changed exactly what this ADR says it did.
   braces it was dropped and the alternative named the directory itself.
   spec-core now reads each alternative as it reads it written alone (its
   ADR-0003's amendment of this date): `src/` is the directory's contents to
-  `glob=`, a spec pattern and `dirs=`, and, as before, the directory with
-  everything in it to `exclude=`, `module=` and a layer. A directive's list
-  attribute splits on the comma, so only a spec pattern - on the command line
-  or in `specs` - `dirs=`, which is one pattern, and a caller of the API can
-  write such a group with two alternatives.
+  `glob=` and a spec pattern, and, as before, the directory with everything
+  in it to `exclude=`, `module=` and a layer. A directive's list attribute
+  splits on the comma, so only a spec pattern - on the command line or in
+  `specs` - `dirs=`, which is one pattern, and a caller of the API can write
+  such a group with two alternatives.
 
   | Pattern | Until `f9ce375` | Now |
   | --- | --- | --- |
   | spec pattern or `glob` `{src/,*.md}` | a `.md`, and a file named `src` at any depth | a `.md`, and everything under `src`; not `lib/src` |
   | spec pattern `docs/{adr/,a.md}` | `docs/a.md`, and a file named `docs/adr` | `docs/a.md`, and everything under `docs/adr` |
-  | `dirs="{a/,d}"` | `a` and `d` | every directory below `a`, and `d` |
+  | `dirs="{a/,d}"` | `a` and `d` | `a` and `d`: `dirs` drops the slash |
   | `exclude` `{build/,dist}` | `build` and `dist` at any depth, with what they hold | the same |
 
-  A slash that ends the whole of `dirs=` is still dropped, as the attribute
-  always dropped it, so `dirs="a/"` chooses `a`. spec-guard's own readings had
-  to follow spec-core's. `patternShape` counted `{src/,*.md}` as one segment in
-  every alternative and answered `src/a.ts` by its last segment, `a.ts`: no,
-  where spec-core says yes. And `ripgrepGlobs` handed ripgrep `src`, which it
-  matches against a file of that name at any depth and never against what the
-  directory holds. Both now read such an alternative as `src/**`, so the
+  Until 2026-09-29 `dirs=` read it the copy's way, choosing every directory
+  below `a`, and `d`, though a slash ending the whole of it was still
+  dropped, so `dirs="a/"` chose `a`; no release read it so. It names
+  directories, and now drops the slash from each alternative as from the
+  whole: [ADR-0013](0013-structure-assertions.md)'s amendment of that date.
+
+  spec-guard's own readings had to follow spec-core's. `patternShape` counted
+  `{src/,*.md}` as one segment in every alternative and answered `src/a.ts`
+  by its last segment, `a.ts`: no, where spec-core says yes. And
+  `ripgrepGlobs` handed ripgrep `src`, which it matches against a file of
+  that name at any depth and never against what the directory holds. Both
+  now read such an alternative as `src/**`, so the
   shortcut, the globs ripgrep is handed and spec-core agree on the universe
   below for eight more patterns, and `tests/glob-parity.test.ts` states the
   files five more shapes find under each engine, and that an exclusion is
