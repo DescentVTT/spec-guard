@@ -36,34 +36,61 @@ with the flag that restores the previous behaviour.
   [ADR-0010](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0010-spec-status.md)'s
   and [ADR-0002](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0002-directive-format.md)'s
   amendments of 2026-09-29.
-- **A brace alternative that names no path is refused, as it is written
-  alone, and every refusal of one names it.** spec-core, copied again from
-  `56c7e54`, had read a trailing `/` on an alternative since `f9ce375` before
-  it asked whether the alternative named a path, so the `./` in `{./,docs}`
-  was the contents of `.`. As a spec pattern - on the command line, `--spec`
-  or in `specs` - `{./,docs}` took in every file under the root, Markdown or
-  not; `glob="{./}"` and `pattern="{./}"` were every file; and
-  `createGlobMatcher` and `globPatternError` read `{./,a}` as every path.
-  Each is now refused, with `{a,./}`, `{.//,a}` and `.{/,a}`:
-  `invalid spec pattern "{./,docs}": the braces expand to "./", which names
-  no path`, exit 2 on the command line and in `specs`, and an invalid
-  directive in `glob` and `pattern`. So is a spec pattern `docs/{./,adr}`,
-  which was everything under `docs`: what is below a spec pattern's base is
-  read alone, and `docs/{,adr}` was always refused so. `exclude`, `module`,
-  `order`, `dirs` and `--exclude` refused such a group already, and every
-  refusal of `{.,a}`, `{/,a}`, `{,a}`, `{}` or `{dist/**,}`, which said `the
-  pattern names no path`, now names the alternative -
-  `the braces expand to "."` - or says `the braces expand to an empty
-  pattern`. A directive's list attribute and `--exclude` split on commas, so
-  they hold such a group only with one alternative. `src/{./,a}`,
-  `a{,.ts}`, `{./a,b}` and `{a/,b}` read as they did, and a trailing `/` on
-  a whole glob is still read as `/**` before spec-core is asked, so
-  `glob="/./"` is every file, as it was. Nothing restores the old reading:
-  `**` says what the `./` did. A run, `prove`, `cites`, `query` and `impact`
-  of the five spec-* repositories answer as they did.
+- **A pattern that names no path is refused wherever spec-core refuses it,
+  and every refusal of a brace alternative names it.** spec-core, copied
+  again from `56c7e54`, had read a trailing `/` on an alternative since
+  `f9ce375` before it asked whether the alternative named a path, so the
+  `./` in `{./,docs}` was the contents of `.`. As a spec pattern - on the
+  command line, `--spec` or in `specs` - `{./,docs}` took in every file
+  under the root, Markdown or not; `glob="{./}"` and `pattern="{./}"` were
+  every file; and `createGlobMatcher` and `globPatternError` read `{./,a}`
+  as every path. Each is now refused, with `{a,./}`, `{.//,a}` and
+  `.{/,a}`: `invalid spec pattern "{./,docs}": the braces expand to "./",
+  which names no path`, exit 2 on the command line and in `specs`, and an
+  invalid directive in `glob` and `pattern`. A glob that ends in `/` was
+  read as ending in `/**` before spec-core was asked, and `**` names a path
+  whatever comes before it, so `glob="/./"`, `glob="/"`, `glob=".//"` and
+  `glob="{./}/"`, and a spec pattern `{.,docs}/`, were every file too. Such
+  a glob is now asked of spec-core as written as well, and refused in its
+  words where it refuses it: `the pattern names no path`, `the pattern
+  names the root itself, not a path under it`, `the braces expand to
+  ".//", which names no path`. `exclude`, `module`, `order`, `dirs` and
+  `--exclude` refused such patterns already, and every refusal of `{.,a}`,
+  `{/,a}`, `{,a}`, `{}` or `{dist/**,}`, which said `the pattern names no
+  path`, now names the alternative - `the braces expand to "."` - or says
+  `the braces expand to an empty pattern`. A directive's list attribute and
+  `--exclude` split on commas, so they hold such a group only with one
+  alternative. `src/{./,a}`, `a{,.ts}`, `{./a,b}`, `{a/,b}`, `src/`,
+  `/src/`, `{a/,src}/` and `docs/**/` read as they did. Nothing restores
+  the old reading: `**` says what the `./` did. A run, `prove`, `cites`,
+  `query` and `impact` of the five spec-* repositories answer as they did.
   [ADR-0015](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0015-globs-from-spec-core.md)'s
   and [ADR-0013](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0013-structure-assertions.md)'s
   amendments of 2026-09-29.
+
+### Fixed
+
+- **A spec pattern below a literal base is judged as spec-core judges the
+  whole pattern.** A spec pattern is walked from its base, and only what is
+  below the base was given to spec-core, so a pattern it reads whole could
+  be refused for what the base supplies: `docs/{,adr}` and `docs/{.,a.md}`
+  were refused, `the pattern names no path`, where spec-core reads
+  `docs/` as everything under `docs` and `docs/.` as `docs` itself; and
+  `docs/!*.md` was refused as a negation, where `glob="docs/!*.md"` is a
+  name that starts with `!`. Each is now read as spec-core reads it whole:
+  everything under `docs`; `docs/a.md`; and the `.md` files in `docs` whose
+  names start with `!`. So is `docs/{./,adr}`, everything under `docs` as in
+  0.13.1, which the copy from `56c7e54` would have refused. What is below a
+  base is asked of spec-core alone first, so every pattern read so reads as
+  it did; one refused alone is asked again below a directory standing for
+  the base, which is never given to spec-core itself, so
+  `../shared/docs/{./,deep}` is read the same way. What spec-core refuses of
+  the whole is refused for its reason: `docs/{./,..}` for its `..`, and
+  `docs/{./,**.md}` with advice that names `docs`. A base that names no
+  directory, as in `/{./,docs}` or `././{./,docs}`, stands for none, and
+  those are refused.
+  [ADR-0015](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0015-globs-from-spec-core.md)'s
+  amendment of 2026-09-29.
 
 ## 0.13.1
 

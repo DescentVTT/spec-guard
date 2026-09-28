@@ -267,8 +267,9 @@ differences below, so the adoption changed exactly what this ADR says it did.
   than 65536 states`. A directive holding one is invalid, exit 1, and one on
   the command line, in `specs`, `exclude` or `cites` in the configuration, or
   given to `--exclude` is exit 2.
-- **Amended 2026-09-29: a brace alternative that names no path is refused,
-  and named.** From the copy of `f9ce375` until the copy of `56c7e54`
+- **Amended 2026-09-29: a pattern is refused as naming no path where
+  spec-core refuses it, and only there, and the refusal names the
+  alternative.** From the copy of `f9ce375` until the copy of `56c7e54`
   spec-core read a trailing `/` on an alternative before it asked whether the
   alternative named a path, so the `./` in `{./,a}` was the contents of `.`,
   and so was what `{a,./}`, `{.//,a}`, `.{/,a}` and `{./}` expand to: every
@@ -287,25 +288,51 @@ differences below, so the adoption changed exactly what this ADR says it did.
   | spec pattern `{./,docs}`, on the command line, `--spec` or in `specs` | every file under the root, Markdown or not | exit 2: `invalid spec pattern "{./,docs}": the braces expand to "./", which names no path` |
   | `glob="{./}"`, `pattern="{./}"` | every file | an invalid directive, in those words |
   | `createGlobMatcher(['{./,a}'])`, `globPatternError('{./,a}')` | every path; `null` | throws; the refusal |
-  | spec pattern `docs/{./,adr}` | every file under `docs` | exit 2, as `docs/{,adr}` always was |
+  | spec pattern `docs/{./,adr}` | every file under `docs` | the same, judged as spec-core judges the whole pattern |
+  | spec pattern `docs/{,adr}`, `docs/{.,a.md}` | refused: `the pattern names no path` | every file under `docs`; `docs/a.md` |
+  | spec pattern `docs/!*.md` | refused: `a negated pattern is a list entry, not a glob; ...` | a name that starts with `!`, under `docs` |
+  | `glob="/./"`, `glob="/"`, `glob="{./}/"`, spec pattern `{.,docs}/` | every file | refused: `the pattern names no path`; `the pattern names the root itself, not a path under it`; `the braces expand to ".//"` or `"./"`, `which names no path` |
   | `{./,a}` or `{./}` in `exclude`, `module`, a layer or `dirs`, `--exclude "{./}"` | refused: `the pattern names no path` | refused, naming `./` |
   | `{.,a}`, `{/,a}`, `{,a}`, `{}`, `{dist/**,}`, wherever a pattern is read | refused: `the pattern names no path` | refused, naming `.` or `/`, or an empty pattern |
 
   A list attribute splits on commas, and `--exclude` as one does, so those
   hold such a group only with one alternative, `{./}`; a spec pattern,
   `specs` and `exclude` in the configuration, `dirs=` and the API take
-  `{./,a}` whole. A spec pattern is walked from its literal base, and
-  spec-core is given what is below it, so `docs/{./,adr}` is refused as
-  `{./,adr}` is, where spec-core, given the whole of it, reads `docs/./` as
-  what is under `docs`; `docs/{,adr}` has always been refused so. `/./` and
-  `/.//`, which spec-core now refuses as it refuses `/.`, change nothing
-  here: `exclude=` and `dirs=` refused them already and a spec pattern
-  without glob syntax is a path. What spec-guard reads for itself is as it
-  was: `normalizeGlob` makes a trailing `/` on a whole glob `/**` before
-  spec-core is asked, so `glob="/./"` and `glob="{./}/"`, and a spec pattern
-  `{.,docs}/`, are read as `/./**`, `{./}/**` and `{.,docs}/**`, every path,
-  as they were, where spec-core would refuse them as written.
-  `tests/glob-core.test.ts` holds each door to its words.
+  `{./,a}` whole.
+
+  A spec pattern is walked from its literal base, and spec-core was given
+  only what is below it: with this copy `docs/{./,adr}` would have been
+  refused as `{./,adr}` is, and `docs/{,adr}` and `docs/{.,adr}` always were,
+  where spec-core reads the whole of each - `docs/./` and `docs/` as what is
+  under `docs`, and `docs/.` as `docs` itself, which is no file under it.
+  What is below a base is still asked of spec-core alone first, so every
+  pattern read so reads as it did. One refused alone is asked again below
+  one literal directory standing for the base, and read or refused as
+  spec-core has it there, for the reason it gives there; the base itself,
+  with its `..` or its drive, is never spec-core's to read. So
+  `docs/{./,..}` is refused for its `..`, the advice for `docs/{./,**.md}`
+  names `docs`, `docs/!*.md`, a negation alone, is a name that starts with
+  `!` below `docs`, as `glob=` reads it, and `../shared/docs/{./,deep}` is
+  everything under `../shared/docs`. A base that names no directory - the
+  root in `/{./,a}` or `//{./,a}`, `.` in `././{./,a}` - stands for none,
+  and those are refused, as spec-core refuses them whole.
+
+  `normalizeGlob` writes a trailing `/` on a glob as `/**` before spec-core
+  is asked, and `**` names a path whatever comes before it: `glob="/./"`,
+  `glob="/"`, `glob=".//"` and `glob="{./}/"`, a structure rule's
+  `pattern="{./}/"`, and a spec pattern `{.,docs}/` were every path. A glob
+  that ends in `/` is now also asked of spec-core as written, in the dialect
+  it is read in and with its leading slashes, and refused for spec-core's
+  reason when spec-core refuses it. Every glob spec-core accepts as written,
+  `src/`, `/src/`, `{a/,src}/`, `docs/**/`, `*/` and `src/{./}/` among them,
+  reads and reaches ripgrep as it did, and one refused as it is read keeps
+  its words. That is how `/./` and `/.//`, which spec-core now refuses
+  outside braces as it refuses `/.`, reach `glob=`, and they are refused
+  there; `exclude=` and `dirs=` drop a trailing slash rather than read it,
+  and refused both already, and a spec pattern without glob syntax is a
+  path.
+  `tests/glob-core.test.ts` holds each door to its words, and each shape
+  that must read as it did.
 
 ### Both engines, one reading
 
