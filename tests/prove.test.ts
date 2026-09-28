@@ -712,18 +712,20 @@ describe('the report', () => {
     expect(report.errors.map((error) => error.message)).toEqual(['Attribute "glob" has an invalid glob pattern "[a": a "[" is never closed.']);
   });
 
-  it('says so when front matter never closed, and proves the rules of the document read without it', async () => {
-    // The front matter says superseded and is not read; the section says
-    // accepted, so the rule is in force and proved, and the report says why.
-    const report = await prove('---\nstatus: superseded\n\n## Status\n\nAccepted\n\n<!-- @assert-absence target="src" symbol="Legacy" -->');
+  it('says so when front matter never closed, and proves the rules its section would have withheld', async () => {
+    // The front matter says accepted and cannot be read, so the document stays
+    // in force; the section says proposed and is not read in its place. The
+    // rule is proved, and the report says why.
+    const report = await prove('---\nstatus: accepted\n\n## Status\n\nProposed\n\n<!-- @assert-absence target="src" symbol="Legacy" -->');
     expect(report.summary).toMatchObject({ total: 1, killed: 1, inactive: 0 });
+    expect(report.inactiveSpecs).toEqual([]);
     expect(report.ok).toBe(true);
     expect(report.specWarnings).toEqual([
       {
         location: { file: path.join(ROOT, 'docs/rules.md'), relativeFile: 'docs/rules.md', line: 1, column: 1 },
         kind: 'unclosed-front-matter',
         message:
-          'the front matter opened here with --- is never closed, so none of it is read as front matter, and the document, its status included, is read as one without any; close it with --- on a line of its own',
+          'the front matter opened here with --- is never closed, so none of it is read as front matter, its status is unrecognised and the document stays in force; a status written below the front matter is not read in its place; close it with --- on a line of its own',
       },
     ]);
   });

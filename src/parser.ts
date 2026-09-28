@@ -232,8 +232,16 @@ interface StatusReading {
  * `## Status` section or a `Status:` line further down was read in its place:
  * `status: "accepted" (2024-05-01)` above a section still saying `Proposed`
  * took an accepted decision out of force.
+ *
+ * Front matter opened on the first line and never closed decides the same
+ * way. Its author wrote front matter, and what it says cannot be read, so the
+ * status is unrecognised and the document stays in force; reading the section
+ * or the label in its place took `status: accepted` above a section still
+ * saying `Proposed` out of force. `unclosedFrontMatter` says so on line 1,
+ * which is why no problem is returned here as well.
  */
 function fromFrontmatter(scan: MarkdownScan): StatusReading | undefined {
+  if (scan.unclosedFrontMatter !== null) return {};
   if (scan.frontMatter === null) return undefined;
   const entry = findEntry(readFrontMatter(scan.text.slice(0, scan.frontMatter.bodyStart)), 'status');
   if (entry === undefined) return undefined;
@@ -306,9 +314,9 @@ function fromLabel(scan: MarkdownScan): SpecStatus | undefined {
  * Three spellings are recognised because three are in use, including two in
  * this repository's own ADRs: YAML front-matter (MADR), a `## Status` section
  * (Nygard), and a bold `**Status:**` label. Front-matter wins when it has a
- * `status` key, readable or not - it is machine-readable metadata rather than
- * a convention read out of prose, and a value it cannot read is no licence to
- * read the prose instead.
+ * `status` key, readable or not, and when it never closes - it is
+ * machine-readable metadata rather than a convention read out of prose, and
+ * front matter that cannot be read is no licence to read the prose instead.
  *
  * The section and the label are read with code masked, so a document that
  * documents this syntax inside a fence - this project's README does - is not
@@ -378,13 +386,13 @@ function unclosedBlocks(scan: MarkdownScan): Array<{ line: number; message: stri
  * after its opening line.
  *
  * The scanner reads it as CommonMark does: the first line is a thematic break
- * and every line after it Markdown, so none of it is front matter. A `status`
- * written there does not decide ahead of everything else, as front matter's
- * does (ADR-0010): a `## Status` section or a label decides, as in a document
- * with none, and a document its author marked superseded can run its rules.
- * It is read that way still - a renderer shows the line as a rule and the
- * block as text - and the report says so on that line. One with nothing after
- * its opening line has nothing in it to lose.
+ * and every line after it Markdown, so none of it is front matter, and a
+ * directive under the opening line runs. Its status is read as a front-matter
+ * status that cannot be read is (ADR-0010): unrecognised, with the document
+ * in force and neither the section nor the label read in its place. The
+ * report says so on that line, in the words the unreadable status is given,
+ * since both leave a document in force that its prose may say is not. One
+ * with nothing after its opening line has nothing in it to lose.
  */
 function unclosedFrontMatter(scan: MarkdownScan): Array<{ line: number; message: string }> {
   const open = scan.unclosedFrontMatter;
@@ -393,7 +401,7 @@ function unclosedFrontMatter(scan: MarkdownScan): Array<{ line: number; message:
   return [
     {
       line: open.line,
-      message: `the front matter opened here with ${delimiter} is never closed, so none of it is read as front matter, and the document, its status included, is read as one without any; close it with ${delimiter} on a line of its own`,
+      message: `the front matter opened here with ${delimiter} is never closed, so none of it is read as front matter, its status is unrecognised and the document stays in force; a status written below the front matter is not read in its place; close it with ${delimiter} on a line of its own`,
     },
   ];
 }
