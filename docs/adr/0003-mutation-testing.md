@@ -1555,6 +1555,18 @@ ran high where they were least measured: `runner.ts` and `text.ts` took 7m35s
 against 15.2 minutes, and `cli.ts` alone 8m18s against 15.1, so the next
 split starts from this run's logs rather than 398fe94's.
 
+### 0.13.1: one survivor more, and it decides nothing
+
+CI's full sweep of 6cd7bac (run 36455886015) came out at **99.13% over 11,650
+mutants with 98 survivors and 3 without coverage**; the shards took from
+4m40s to 17m44s. Every survivor of 0.13.0 is still one, on the same source,
+and one is new: the `'include'` that `readInclude` passes to `oneSegment`,
+made `""`. There the kind decides only whether a trailing slash on a brace
+alternative adds a segment, and the text a kind naming neither reading adds
+is a segment too, so the shape is the same; the comment at the code says so.
+The reading of a slash ending an alternative and `dirs=`'s own reading added
+45 mutants and left no other alive.
+
 ### 0.13.0: the same survivors
 
 CI's full sweep of b5218f6 (run 36355513046) came out at **99.14% over 11,605
