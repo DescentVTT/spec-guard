@@ -398,6 +398,19 @@ describe('required', () => {
     expect(await one(root, '<!-- @assert-structure target="svc" dirs="./*/" required="Dockerfile" -->')).toMatchObject({ ok: true, actual: 0 });
   });
 
+  it('with a brace alternative ending in /, holds the directories below it and not it', async () => {
+    // spec-core reads each alternative as it would be written alone from its
+    // copy of f9ce375, and in a whole-path pattern a trailing slash means the
+    // directory's contents; before, `{a/,d}` chose `a` itself. A slash that
+    // ends the whole of dirs= is dropped, as the case above shows.
+    const root = await tree({ 'svc/a/Dockerfile': '', 'svc/a/b/x.ts': '', 'svc/d/Dockerfile': '' });
+    expect(await one(root, '<!-- @assert-structure target="svc" dirs="{a/,d}" required="Dockerfile" -->')).toMatchObject({
+      ok: false,
+      actual: 1,
+      listed: ['svc/a/b  missing Dockerfile'],
+    });
+  });
+
   it('wants a file for a name and a directory for a name ending in /', async () => {
     const root = await tree({ 'x/src/index.ts': '', 'x/docs': '' });
     expect(await one(root, '<!-- @assert-structure target="x" required="src/, docs" -->')).toMatchObject({ ok: true });

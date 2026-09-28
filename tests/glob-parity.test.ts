@@ -32,6 +32,7 @@ function tree(): Promise<string> {
         'c/d.log',
         'docs/a.md',
         'docs/x/b.md',
+        'lib/src',
         'src/a.ts',
         'src/b.md',
         'src/!a',
@@ -66,6 +67,7 @@ const EVERY = [
   'c/d.log',
   'docs/a.md',
   'docs/x/b.md',
+  'lib/src',
   'src/!a',
   'src/a.ts',
   'src/b.md',
@@ -101,6 +103,24 @@ const cases: Case[] = [
   { name: 'a leading / on a name', globs: ['/*.ts'], files: ['a.ts', '}a.ts'] },
   { name: 'a leading / on a path', globs: ['/src/*.ts'], files: ['src/a.ts'] },
   { name: 'a leading / on braces', globs: ['/{a,src/a}.ts'], files: ['a.ts', 'src/a.ts'] },
+  // An alternative that ends in `/` is the directory's contents, as a whole
+  // pattern that ends in one is: never the file `lib/src`, which the scanner's
+  // segment shortcut and ripgrep's `src` both took for it before.
+  {
+    name: 'an alternative that ends in /',
+    globs: ['{src/,*.md}'],
+    files: ['README.md', 'docs/a.md', 'docs/x/b.md', 'src/!a', 'src/a.ts', 'src/b.md', 'src/deep/c.ts', 'src/tests/t.ts', 'src/x}y'],
+  },
+  { name: 'every alternative ending in /', globs: ['{docs/,c/}'], files: ['c/d.log', 'docs/a.md', 'docs/x/b.md'] },
+  { name: 'an alternative that ends in /, in nested braces', globs: ['{x.log,{docs/x/,tests/}}'], files: ['docs/x/b.md', 'tests/u.ts', 'x.log'] },
+  { name: 'an alternative that ends in /, after a globstar', globs: ['**/{tests/,*.log}'], files: ['c/d.log', 'src/tests/t.ts', 'tests/u.ts', 'x.log'] },
+  { name: 'an alternative that ends in /, anchored', globs: ['/{src/deep/,*.log}'], files: ['src/deep/c.ts', 'x.log'] },
+  // To exclude= the slash is dropped, on an alternative as on a whole pattern.
+  {
+    name: 'an alternative that ends in /, excluded',
+    exclude: ['{src/,*.log}'],
+    files: without('c/d.log', 'lib/src', 'src/!a', 'src/a.ts', 'src/b.md', 'src/deep/c.ts', 'src/tests/t.ts', 'src/x}y', 'x.log'),
+  },
   // ripgrep applies no glob to a path it is handed by name.
   { name: 'a file target the glob does not match', targets: ['src/a.ts'], globs: ['*.md'], files: [] },
   { name: 'a target inside an excluded directory', targets: ['src/tests'], exclude: ['tests'], files: [] },

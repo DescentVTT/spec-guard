@@ -55,9 +55,9 @@ with it. An eighth, from `f9ce375`, changed `pattern`, and `markdown` and
 `text` in comments only: a trailing `/` on a brace alternative is read as it
 is on the alternative written alone, and a pattern past the automaton's state
 ceiling is refused with a reason rather than thrown. Both reach what a user
-sees; the amendment of 2026-09-28 below says how the second does.
-`VENDOR.json` records the commit and the SHA-256 of every file. Nothing in
-this repository edits them.
+sees, and the two amendments of 2026-09-28 below say how. `VENDOR.json`
+records the commit and the SHA-256 of every file. Nothing in this repository
+edits them.
 
 spec-core's `LICENSE` lies beside the copies, and `package.json` names it in
 `files`: the package carries spec-core's compiled code under
@@ -216,6 +216,36 @@ differences below, so the adoption changed exactly what this ADR says it did.
   typo whose empty alternative matched the empty string. Only the loop that
   tested a path's ancestors stopping short of the empty one kept it from
   excluding the whole tree.
+- **Amended 2026-09-28: a trailing `/` on a brace alternative means what it
+  means on the alternative written alone.** Until the copy from `f9ce375`
+  spec-core read the slash only at the end of the whole pattern, so inside
+  braces it was dropped and the alternative named the directory itself.
+  spec-core now reads each alternative as it reads it written alone (its
+  ADR-0003's amendment of this date): `src/` is the directory's contents to
+  `glob=`, a spec pattern and `dirs=`, and, as before, the directory with
+  everything in it to `exclude=`, `module=` and a layer. A directive's list
+  attribute splits on the comma, so only a spec pattern - on the command line
+  or in `specs` - `dirs=`, which is one pattern, and a caller of the API can
+  write such a group with two alternatives.
+
+  | Pattern | Until `f9ce375` | Now |
+  | --- | --- | --- |
+  | spec pattern or `glob` `{src/,*.md}` | a `.md`, and a file named `src` at any depth | a `.md`, and everything under `src`; not `lib/src` |
+  | spec pattern `docs/{adr/,a.md}` | `docs/a.md`, and a file named `docs/adr` | `docs/a.md`, and everything under `docs/adr` |
+  | `dirs="{a/,d}"` | `a` and `d` | every directory below `a`, and `d` |
+  | `exclude` `{build/,dist}` | `build` and `dist` at any depth, with what they hold | the same |
+
+  A slash that ends the whole of `dirs=` is still dropped, as the attribute
+  always dropped it, so `dirs="a/"` chooses `a`. spec-guard's own readings had
+  to follow spec-core's. `patternShape` counted `{src/,*.md}` as one segment in
+  every alternative and answered `src/a.ts` by its last segment, `a.ts`: no,
+  where spec-core says yes. And `ripgrepGlobs` handed ripgrep `src`, which it
+  matches against a file of that name at any depth and never against what the
+  directory holds. Both now read such an alternative as `src/**`, so the
+  shortcut, the globs ripgrep is handed and spec-core agree on the universe
+  below for eight more patterns, and `tests/glob-parity.test.ts` states the
+  files five more shapes find under each engine, and that an exclusion is
+  unchanged.
 - **Amended 2026-09-28: a pattern too large to compile is refused as a
   malformed one is.** spec-core refuses braces that expand to more than 256
   patterns, and a pattern whose automaton would pass 65,536 states: a literal of
@@ -255,13 +285,16 @@ shape must find, under each engine:
 
 - **ripgrep is handed spec-core's reading, spelled for globset.**
   `ripgrepGlobs` expands a pattern's braces into one glob per alternative, as
-  spec-core expands them; drops `.` and empty segments; writes a lone `}` as the
-  class `[}]`; and anchors each alternative, or not, by its own shape - a
-  leading `/` where it must be anchored and `**/` where an alternative starting
-  with `!` must not become a negation. `tests/glob-core.test.ts` holds that
-  spelling to spec-core's reading on every path of a universe of 3,615, for 28
-  patterns chosen for each piece of syntax, and the parity tests hold ripgrep to
-  the same reading on a real tree. Removing the spelling fails six of them.
+  spec-core expands them; reads a trailing `/` on each as the kind of pattern
+  reads it (amended 2026-09-28, above); drops `.` and empty segments; writes a
+  lone `}` as the class `[}]`; and anchors each alternative, or not, by its own
+  shape - a leading `/` where it must be anchored and `**/` where an
+  alternative starting with `!` must not become a negation.
+  `tests/glob-core.test.ts` holds that spelling, and the matchers' segment
+  shortcut, to spec-core's own answer for the whole path on every path of a
+  universe of 3,615, for 36 patterns chosen for each piece of syntax, and the
+  parity tests hold ripgrep to the same reading on a real tree. Removing the
+  spelling fails six of them.
 - **ripgrep's list is held to the scanner's filters.** A file ripgrep names is
   kept only if `glob` admits it and no `exclude` does, which is the question the
   walk asks of every file it finds. ripgrep still prunes what it can, which is

@@ -131,6 +131,33 @@ describe('a whole-path pattern', () => {
   });
 });
 
+/*
+ * spec-core reads each brace alternative as it would be written alone, from
+ * the copy of f9ce375, so a trailing `/` means what it means on a whole pattern
+ * of that kind. Before, it was dropped inside braces, and the alternative named
+ * the directory itself.
+ */
+describe('a brace alternative that ends in /', () => {
+  it("is the directory's contents to glob=, matched against the whole path", () => {
+    const matches = createGlobMatcher(['{src/,*.md}']);
+    expect(['src/a.ts', 'src/deep/a.ts', 'docs/a.md', 'README.md'].map(matches)).toEqual([true, true, true, true]);
+    // Neither the directory itself nor a name at any depth.
+    expect(['src', 'lib/src', 'lib/src/a.ts', 'a.ts'].map(matches)).toEqual([false, false, false, false]);
+  });
+
+  it('is the directory and everything in it to exclude=, at any depth, as before', () => {
+    const excluded = createExcludeMatcher(['{build/,*.log}']);
+    expect(['build', 'build/a.ts', 'lib/build', 'lib/build/a.ts', 'x.log', 'src/x.log'].map(excluded)).toEqual([true, true, true, true, true, true]);
+    expect(['src/a.ts', 'builds/a.ts'].map(excluded)).toEqual([false, false]);
+  });
+
+  it("is the directory's contents to a whole-path pattern, and not the directory", () => {
+    const matches = createPathMatcher('{packages/,apps}');
+    expect(['packages/api', 'packages/api/src', 'apps'].map(matches)).toEqual([true, true, true]);
+    expect(['packages', 'apps/web'].map(matches)).toEqual([false, false]);
+  });
+});
+
 describe('a name a module pattern matches', () => {
   it('is the pattern itself for a literal, one just below it for a glob, and none for what is not a pattern', () => {
     expect(moduleWitness('node:fs')).toBe('node:fs');
@@ -255,6 +282,16 @@ describe('a predicate over one compiled glob', () => {
     ['src/', 'include', 'whole'],
     ['/*.ts', 'include', 'whole'],
     ['{src/*.ts,*.md}', 'include', 'whole'],
+    // An alternative that ends in `/` is `name/**` to glob=, two segments, and
+    // a name to exclude=.
+    ['{src/,*.md}', 'include', 'whole'],
+    ['{a/,b/}', 'include', 'whole'],
+    ['{src/}', 'include', 'whole'],
+    ['{a,{b/,c}}', 'include', 'whole'],
+    ['{src,*.md}', 'include', 'last'],
+    ['{a,{b,c}}', 'include', 'last'],
+    ['{build/,dist}', 'exclude', 'any'],
+    ['{src/tests/,dist}', 'exclude', 'whole'],
     ['tests', 'exclude', 'any'],
     ['tests/', 'exclude', 'any'],
     ['*.test.ts', 'exclude', 'any'],
@@ -313,6 +350,23 @@ describe('the globs ripgrep is handed', () => {
     // An alternative that starts with `!` is a name, not a negation.
     ['{!a,b}', 'include', ['**/!a', 'b']],
     ['{!a,b}/c', 'include', ['/!a/c', 'b/c']],
+    // An alternative that ends in `/` is the directory's contents, as a whole
+    // pattern that ends in one is, and so is anchored: handed `src`, ripgrep
+    // matched a file named src at any depth and nothing under the directory.
+    ['{src/,*.md}', 'include', ['src/**', '*.md']],
+    ['{a/,b/}', 'include', ['a/**', 'b/**']],
+    ['{src/}', 'include', ['src/**']],
+    ['{a,{src/,b}}', 'include', ['a', 'src/**', 'b']],
+    ['**/{tests/,*.log}', 'include', ['**/tests/**', '**/*.log']],
+    ['{src/,**}', 'include', ['src/**', '**']],
+    ['/{src/,a}', 'include', ['/src/**', '/a']],
+    ['{src//,a}', 'include', ['src/**', 'a']],
+    ['{./,a}', 'include', ['**', 'a']],
+    ['{!a/,b}', 'include', ['/!a/**', 'b']],
+    // Only a trailing `/` makes an alternative a directory's contents.
+    ['{src,*.md}', 'include', ['src', '*.md']],
+    ['{src/a,b}', 'include', ['src/a', 'b']],
+    ['{a,b}/', 'include', ['a/**', 'b/**']],
     ['tests', 'exclude', ['tests']],
     ['/target', 'exclude', ['/target']],
     ['build/', 'exclude', ['build']],
@@ -321,8 +375,13 @@ describe('the globs ripgrep is handed', () => {
     ['{!keep,tmp}', 'exclude', ['**/!keep', 'tmp']],
     [' tests/ ', 'exclude', ['tests']],
     ['//build', 'exclude', ['/build']],
+    // In an exclusion a trailing `/` is dropped, on an alternative as on the
+    // whole pattern, and the directory is excluded with everything in it.
+    ['{build/,dist}', 'exclude', ['build', 'dist']],
+    ['{src/tests/,*.log}', 'exclude', ['src/tests', '*.log']],
+    ['**/{tests/,*.log}', 'exclude', ['**/tests', '**/*.log']],
   ])('%s as an %s is %j', (pattern, kind, globs) => {
-    expect(ripgrepGlobs(kind === 'include' ? normalizeGlob(pattern) : normalizeExclude(pattern))).toEqual(globs);
+    expect(ripgrepGlobs(kind === 'include' ? normalizeGlob(pattern) : normalizeExclude(pattern), kind)).toEqual(globs);
   });
 
   // The paths every pattern below is tried against: every path of one to three
@@ -367,6 +426,14 @@ describe('the globs ripgrep is handed', () => {
     '{[]{]*,b}',
     '**/{tests,a}',
     '{src,tests}/**/*.ts',
+    '{src/,*.md}',
+    '{a/,b/}',
+    '{src/}',
+    '{a,{src/,b}}',
+    '**/{src/,a.ts}',
+    '{src/,**}',
+    '/{src/,a}',
+    '{!a/,b}',
   ];
 
   /**
@@ -388,15 +455,36 @@ describe('the globs ripgrep is handed', () => {
     return (candidate) => compiled.match(candidate);
   };
 
+  /**
+   * spec-core's own answer for a whole path, in the dialect ADR-0015's table
+   * gives each kind, with no shortcut: `glob=` is `ripgrep`, or `path` from the
+   * root when it starts with `/`, and `exclude=` is `gitignore`.
+   */
+  const asSpecCore = (pattern: string, kind: 'include' | 'exclude'): ((candidate: string) => boolean) => {
+    const normalized = kind === 'include' ? normalizeGlob(pattern) : normalizeExclude(pattern);
+    const compiled =
+      kind === 'exclude'
+        ? compileGlob(normalized, { dialect: 'gitignore', caseSensitive: true })
+        : normalized.startsWith('/')
+          ? compileGlob(normalized.replace(/^\/+/, ''), { dialect: 'path', caseSensitive: true, literal: 'file' })
+          : compileGlob(normalized, { dialect: 'ripgrep', caseSensitive: true });
+    return (candidate) => compiled.match(candidate);
+  };
+
   it.each(PATTERNS)('reads %s as spec-core does, on every path, as an inclusion and as an exclusion', (pattern) => {
     const include = createGlobMatcher([pattern]);
-    const includes = ripgrepGlobs(normalizeGlob(pattern)).map((glob) => asRipgrep(glob, 'include'));
+    const includes = ripgrepGlobs(normalizeGlob(pattern), 'include').map((glob) => asRipgrep(glob, 'include'));
     const exclude = createExcludeMatcher([pattern]);
-    const excludes = ripgrepGlobs(normalizeExclude(pattern)).map((glob) => asRipgrep(glob, 'exclude'));
+    const excludes = ripgrepGlobs(normalizeExclude(pattern), 'exclude').map((glob) => asRipgrep(glob, 'exclude'));
+    // The matchers answer through the segment shortcut, ripgrep through the
+    // globs it is handed, and spec-core for the whole path: all three agree.
+    const [included, excluded] = [asSpecCore(pattern, 'include'), asSpecCore(pattern, 'exclude')];
     const disagreements = UNIVERSE.filter(
       (candidate) =>
         include(candidate) !== includes.some((matches) => matches(candidate)) ||
-        exclude(candidate) !== excludes.some((matches) => matches(candidate)),
+        include(candidate) !== included(candidate) ||
+        exclude(candidate) !== excludes.some((matches) => matches(candidate)) ||
+        exclude(candidate) !== excluded(candidate),
     );
     expect(disagreements).toEqual([]);
     // A pattern that matched nothing in the universe would prove nothing.
@@ -537,6 +625,11 @@ describe('spec patterns', () => {
     expect(await expand(['docs/*.md'])).toEqual(inRepo('docs/a.md'));
     expect(await expand(['docs/**/*.md'])).toEqual(inRepo('docs/a.md', 'docs/adr/b.md'));
     expect(await expand(['{docs/*.md,README.md}'])).toEqual(inRepo('README.md', 'docs/a.md'));
+  });
+
+  it("reads a brace alternative that ends in / as the directory's contents, with a base or without", async () => {
+    expect(await expand(['{docs/,README.md}'])).toEqual(inRepo('README.md', 'docs/a.md', 'docs/adr/b.md'));
+    expect(await expand(['docs/{adr/,a.md}'])).toEqual(inRepo('docs/a.md', 'docs/adr/b.md'));
   });
 
   it('walks from a base outside the root, which a glob may not name', async () => {
