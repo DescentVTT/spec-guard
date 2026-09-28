@@ -399,7 +399,7 @@ reads it by spec-core's rules chooses what the run chooses.
 | `{a/,d}` | `a` and `d` | every directory below `a`, and `d` | `a` and `d`, described as `{a,d}` |
 | `{a/,{b/,c}}` | `a`, `b` and `c` | every directory below `a` and below `b`, and `c` | `a`, `b` and `c`, described as `{a,b,c}` |
 | `x/{a/,b}` | `x/a` and `x/b` | every directory below `x/a`, and `x/b` | `x/a` and `x/b`, described as `{x/a,x/b}` |
-| `{./,d}` | refused: it names no path | every directory, and `d` | refused: it names no path |
+| `{./,d}` | refused: it names no path | every directory, and `d`; refused from `56c7e54`, naming `./` | refused: the braces expand to `./`, which names no path |
 | `a\` | every directory below `a` | the same | `a` |
 | `a/`, `{a,d}/`, `{a/,b}c` | `a`; `a` and `d`; `a/c` and `bc` | the same | the same |
 
@@ -410,9 +410,15 @@ reads it by spec-core's rules chooses what the run chooses.
   became one, so `dirs="a\\"`, which is `a\`, chose every directory below `a`.
   The description writes each `\` as `/`.
 - **`./` alone is the target**, as `dirs="./"` is, and `dirs` never chooses
-  the target. With its slash dropped nothing is left of the alternative, and
-  `{./,d}` is refused as 0.13.0 refused it. A refused `dirs` is named as it
-  was written, as every other attribute's pattern is, and not as it is read.
+  the target, so `{./,d}` is refused as 0.13.0 refused it. Until spec-core's
+  copy from `56c7e54` it was refused here for what dropping the slash left,
+  `{,d}`, whose empty alternative names no path. spec-core now refuses the
+  alternative itself, before its slash is read, and a pattern spec-core
+  refuses keeps its braces as written, so the refusal names it:
+  `the braces expand to "./", which names no path`
+  ([ADR-0015](0015-globs-from-spec-core.md)'s amendment of 2026-09-29). A
+  refused `dirs` is named as it was written, as every other attribute's
+  pattern is, and not as it is read.
 - **A leading `/` still roots the pattern** at the filesystem's root, which no
   directory below a target is under: `/{a/,d}` chooses nothing, as `/a` does,
   and is described as `/{a,d}`. Inside braces spec-core reads a leading `/` as

@@ -191,7 +191,9 @@ message that says so. Write `glob="*.ts, *.tsx"`. A configuration's `exclude` an
 `specs` are JSON arrays, where a brace group keeps its commas, and a trailing
 `/` on an alternative means what it means on a whole pattern: `{build/,dist}`
 in `exclude` is both directories and what they hold, and `{docs/,README.md}`
-in `specs` is everything under `docs`, and the README.)
+in `specs` is everything under `docs`, and the README. An alternative that
+names no path is refused, as it is written alone: `{./,docs}` in `specs` is
+exit 2, `the braces expand to "./", which names no path`.)
 
 ### `comments` - the note about a deletion is not the deletion
 
