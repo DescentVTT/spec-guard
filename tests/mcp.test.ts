@@ -652,23 +652,32 @@ describe('check_architecture', () => {
     }
   });
 
-  it('says which documents wrote front matter that was not read, since it never closed', async () => {
-    // Its status decides nothing, so a model told this document is in force
+  it('keeps in force a document whose front matter never closed, whatever its section says, and says why', async () => {
+    // Its status is unrecognised and its section is not read in its place, so
+    // a model told that a document whose section says Proposed is in force
     // has to be told why.
     const other = await makeTempRepo({
       'docs/a.md': '---\nstatus: superseded\n\n# A\n\n## Status\n\nAccepted\n\n<!-- @assert-absence target="src" symbol="Legacy" -->\n',
+      'docs/b.md': '---\nstatus: accepted\n\n# B\n\n## Status\n\nProposed\n\n<!-- @assert-absence target="src" symbol="Legacy" -->\n',
       'src/a.ts': 'export {};\n',
     });
     try {
       const called = await tool('check_architecture', {}, { root: other });
-      expect(called.structuredContent).toMatchObject({ ok: true, rules: { inForce: 1, checked: 1, passed: 1, failed: 0 }, inactiveSpecs: [] });
+      expect(called.structuredContent).toMatchObject({ ok: true, rules: { inForce: 2, checked: 2, passed: 2, failed: 0 }, inactiveSpecs: [] });
+      const message =
+        'the front matter opened here with --- is never closed, so none of it is read as front matter, its status is unrecognised and the document stays in force; a status written below the front matter is not read in its place; close it with --- on a line of its own';
       expect((called.structuredContent as { specWarnings: unknown }).specWarnings).toEqual([
-        {
-          file: 'docs/a.md',
-          line: 1,
-          message: 'the front matter opened here with --- is never closed, so none of it is read as front matter, and the document, its status included, is read as one without any; close it with --- on a line of its own',
-        },
+        { file: 'docs/a.md', line: 1, message },
+        { file: 'docs/b.md', line: 1, message },
       ]);
+      const rules = (await tool('get_architectural_rules', { path: 'src/a.ts' }, { root: other })).structuredContent as {
+        results: Array<{ rules: Array<Record<string, unknown>>; withheld: unknown }>;
+      };
+      expect(rules.results[0]?.rules.map((rule) => [rule['document'], rule['inForce']])).toEqual([
+        ['docs/a.md', true],
+        ['docs/b.md', true],
+      ]);
+      expect(rules.results[0]?.withheld).toEqual({ rules: 0, documents: [] });
     } finally {
       await removeTempRepo(other);
     }
