@@ -5,7 +5,13 @@ All notable changes to this project are documented here. Versions follow
 may change in a minor release — each such change is listed under **Changed**
 with the flag that restores the previous behaviour.
 
-## Unreleased
+## 0.14.0
+
+Front matter that never closes keeps its document in force, as front matter
+that cannot be read does; spec-core is at 56c7e54, so a pattern that names no
+path - braces such as `{./,a}`, or `/./` - is refused at every door where it
+read as every path; and a spec pattern below a literal base is judged as
+spec-core judges the whole pattern.
 
 ### Changed
 

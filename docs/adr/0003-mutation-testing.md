@@ -1555,6 +1555,19 @@ ran high where they were least measured: `runner.ts` and `text.ts` took 7m35s
 against 15.2 minutes, and `cli.ts` alone 8m18s against 15.1, so the next
 split starts from this run's logs rather than 398fe94's.
 
+### 0.14.0: one survivor more, and it decides nothing
+
+CI's full sweep of 01fc988 (run 36490302166) came out at **99.13% over 11,686
+mutants with 99 survivors and 3 without coverage**; the shards took from
+5m44s to 18m14s. Every survivor of 0.13.1 is still one, on the same source,
+and one is new: the `'/'` in `parseAsWritten`'s `written.endsWith('/')`,
+made `""`, which asks spec-core again about every glob and not only one
+ending in `/`. A glob that does not end in `/` is read as written already, so
+asking again answers as it was read: that decides how long a reading takes
+and never what it is, and the comment at the code says so. Front matter that
+never closes, the reading of a spec pattern below its base and of a glob
+ending in `/` added 36 mutants and left no other alive.
+
 ### 0.13.1: one survivor more, and it decides nothing
 
 CI's full sweep of 6cd7bac (run 36455886015) came out at **99.13% over 11,650
