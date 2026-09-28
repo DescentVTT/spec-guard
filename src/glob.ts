@@ -768,7 +768,17 @@ interface SpecGlob {
   absolute: boolean;
   normalized: string;
   reading: Reading;
+  /** What a path below the base is put under for `reading` to be asked of it: nothing, or `BASE` and a `/`. */
+  under: string;
 }
+
+/**
+ * The directory a spec pattern's base stands as when spec-core is asked what
+ * is below it as the whole pattern puts it: one literal name, since the base
+ * itself is never given to spec-core, which refuses its `..` and reads no
+ * drive.
+ */
+const BASE = 'base';
 
 /**
  * A spec pattern that holds glob syntax, read.
@@ -778,14 +788,32 @@ interface SpecGlob {
  * `..` a glob may not hold, and `C:/repo/docs/*.md` a drive. What is below is
  * read as `glob=` reads the pattern: `*.md` by name at any depth, `docs/*.md`
  * as the whole path.
+ *
+ * What is below a base is asked of spec-core alone first, and a pattern it
+ * reads so reads as it always has, a few characters short of the state
+ * ceiling too, where the directory standing for the base would take it past.
+ * One it refuses alone is judged as spec-core judges the whole pattern, with
+ * the base in front: below a directory standing for the base, read there when
+ * spec-core reads it there and refused for the reason spec-core gives there.
+ * So `docs/{./,adr}` is everything under `docs`, as spec-core reads it whole,
+ * where `{./,adr}` alone names no path; and `docs/!*.md` is a name that
+ * starts with `!`, where `!*.md` alone is a negation. A base that names no
+ * directory - the root in `/{./,a}` or `//{./,a}`, `.` in `././{./,a}` -
+ * stands for none, and what is below it is judged alone, as spec-core judges
+ * the whole: refused.
  */
 function readSpecGlob(pattern: string): SpecGlob {
   const normalized = normalizeGlob(toPosix(pattern));
   const absolute = path.isAbsolute(normalized);
   const { base, rest } = globBase(normalized);
+  const spec = { base, absolute, normalized };
   // With no base, what is left is the whole pattern, and reads as glob= does.
+  if (base === '' && !absolute) return { ...spec, reading: readInclude(rest), under: '' };
   // Below a base every alternative is anchored, since each holds the base's `/`.
-  return { base, absolute, normalized, reading: base === '' && !absolute ? readInclude(rest) : readWhole(rest) };
+  const alone = readWhole(rest);
+  return alone.parsed.ok || segmentsOf(base).length === 0
+    ? { ...spec, reading: alone, under: '' }
+    : { ...spec, reading: readWhole(`${BASE}/${rest}`), under: `${BASE}/` };
 }
 
 /**
@@ -799,19 +827,22 @@ const ADVICE = /write "(.*)" for any depth, or "(.*)" for one level/;
 /**
  * Why a spec glob cannot be read, or null when it can.
  *
- * spec-core is given only what is below the base, and writes its advice for
- * `**` inside a name from what it was given: `docs/**.md` would be told to
- * write `**\/*.md`, which in `specs` is every Markdown file in the repository.
- * The base holds no glob syntax and the advice keeps everything but a run of
- * stars as written, so each pattern it names is put back below the base. That
- * is the advice spec-core gives `glob=` for the whole pattern, and a base
- * outside the root, whose `..` spec-core refuses, is given it too.
+ * spec-core is given only what is below the base, alone or below the directory
+ * standing for it, and writes its advice for `**` inside a name from what it
+ * was given: `docs/**.md` would be told to write `base/**\/*.md`, or, given
+ * what is below the base alone, `**\/*.md`, which in `specs` is every
+ * Markdown file in the repository. The base holds no glob syntax and the
+ * advice keeps everything but a run of stars as written, so each pattern it
+ * names is put back below the base. That is the advice spec-core gives
+ * `glob=` for the whole pattern, and a base outside the root, whose `..`
+ * spec-core refuses, is given it too.
  */
-function specRefusal({ base, reading }: SpecGlob): string | null {
+function specRefusal({ base, reading, under }: SpecGlob): string | null {
   if (reading.parsed.ok) return null;
   const { error } = reading.parsed;
   if (base === '') return error;
-  return error.replace(ADVICE, (_, deep: string, flat: string) => `write "${base}/${deep}" for any depth, or "${base}/${flat}" for one level`);
+  const below = (advised: string): string => `${base}/${advised.slice(under.length)}`;
+  return error.replace(ADVICE, (_, deep: string, flat: string) => `write "${below(deep)}" for any depth, or "${below(flat)}" for one level`);
 }
 
 /**
@@ -862,12 +893,12 @@ export async function expandSpecPatterns(
 
     const refused = specPatternError(rawPattern);
     if (refused !== null) throw new Error(refused);
-    const { base, absolute, normalized, reading } = readSpecGlob(pattern);
+    const { base, absolute, normalized, reading, under } = readSpecGlob(pattern);
     const walkRoot = absolute ? base || path.parse(normalized).root : path.resolve(root, base);
     const matches = matcherOf(reading, 'spec', rawPattern);
 
     for await (const file of walkPaths(walkRoot, { io })) {
-      if (matches(file.relativePath)) found.add(file.absolutePath);
+      if (matches(`${under}${file.relativePath}`)) found.add(file.absolutePath);
     }
   }
 

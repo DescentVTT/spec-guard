@@ -1107,14 +1107,78 @@ describe('a brace alternative that names no path, wherever a pattern is given', 
     expect(['a', 'a/b', 'ab'].map(createPathMatcher('a{/,b}'))).toEqual([false, true, true]);
   });
 
-  it('is refused in a spec pattern below its literal base too, since only what is below the base is read', () => {
-    // A spec pattern is walked from its base and spec-core is given what is
-    // below it alone, so `docs/{./,adr}` is refused as `{./,adr}` is, and as
-    // `docs/{,adr}` always was. Until the copy of 56c7e54 it was everything
-    // under docs, as spec-core reads the whole of it still.
-    expect(specPatternError('docs/{./,adr}')).toBe(`invalid spec pattern "docs/{./,adr}": ${NO_PATH}`);
-    expect(specPatternError('docs/{,adr}')).toBe('invalid spec pattern "docs/{,adr}": the braces expand to an empty pattern');
-    expect(specPatternError('docs/{./a,adr}/*.md')).toBeNull();
+  describe('in a spec pattern below its literal base, judged as spec-core judges the whole pattern', () => {
+    // A spec pattern is walked from its base, and what is below it was given
+    // to spec-core alone: `{./,adr}` names no path, so `docs/{./,adr}` was
+    // refused, where spec-core reads the whole of it as everything under
+    // docs. What spec-core refuses alone is asked again below a directory
+    // standing for the base, and read or refused as spec-core has it there.
+    const root = path.resolve('/virtual/based');
+    const io = memoryIo(root, {
+      'repo/README.md': '',
+      'repo/docs/a.md': '',
+      'repo/docs/!b.md': '',
+      'repo/docs/adr/c.md': '',
+      'shared/docs/d.md': '',
+      'shared/docs/deep/e.md': '',
+    });
+    const repo = path.join(root, 'repo');
+    const expand = (pattern: string) => expandSpecPatterns([pattern], repo, undefined, io);
+    const found = (...files: string[]) => files.map((file) => path.join(root, file)).sort();
+    const DOCS = found('repo/docs/!b.md', 'repo/docs/a.md', 'repo/docs/adr/c.md');
+
+    it.each(['docs/{./,adr}', 'docs/{,adr}', 'docs/.{/,adr}', 'docs/{.//,adr}', 'docs/{./}', 'docs/./{./,adr}'])(
+      'reads %s as everything under the base, as spec-core reads the whole',
+      async (pattern) => {
+        expect(specPatternError(pattern)).toBeNull();
+        expect(await expand(pattern)).toEqual(DOCS);
+      },
+    );
+
+    it('reads `.` below the base as the base itself, which is no file under it', async () => {
+      expect(specPatternError('docs/{.,adr}')).toBeNull();
+      expect(await expand('docs/{.,a.md}')).toEqual(found('repo/docs/a.md'));
+    });
+
+    it('reads a name that starts with ! below the base, where the part below alone is a negation', async () => {
+      expect(specPatternError('docs/!*.md')).toBeNull();
+      expect(await expand('docs/!*.md')).toEqual(found('repo/docs/!b.md'));
+    });
+
+    it('reads a base outside the root as the directory it is, which spec-core is never given', async () => {
+      expect(await expand('../shared/docs/{./,deep}')).toEqual(found('shared/docs/d.md', 'shared/docs/deep/e.md'));
+    });
+
+    it('still refuses what names no path below a base that names no directory: none, the root, or .', async () => {
+      for (const pattern of ['{./,docs}', '/{./,docs}', '//{./,docs}', '././{./,docs}', './/./{./,docs}']) {
+        expect(specPatternError(pattern), pattern).toBe(`invalid spec pattern "${pattern}": ${NO_PATH}`);
+      }
+      await expect(expand('{./,docs}')).rejects.toThrow(`invalid spec pattern "{./,docs}": ${NO_PATH}`);
+    });
+
+    it("refuses what spec-core refuses of the whole, for the whole's reason, naming the base and never the directory standing for it", () => {
+      expect(specPatternError('docs/{./,..}')).toBe('invalid spec pattern "docs/{./,..}": a pattern cannot climb out of its root with ".."');
+      expect(specPatternError('docs/{./,**.md}')).toBe(
+        'invalid spec pattern "docs/{./,**.md}": "**" means any number of directories only as a whole segment: write "docs/{./,*/**/*.md}" for any depth, or "docs/{./,*.md}" for one level',
+      );
+      expect(specPatternError('docs/{./,[a}')).toBe('invalid spec pattern "docs/{./,[a}": a "[" is never closed');
+    });
+
+    it('runs from the command line, where a run of it was exit 2', async () => {
+      const { code, out } = await run(TREE, ['docs/{./,adr}', '--json', '--engine', 'js']);
+      expect(code).toBe(EXIT_OK);
+      expect((JSON.parse(out.join('\n')) as { specFiles: string[] }).specFiles).toEqual(['docs/rules.md']);
+    });
+
+    it('reads a pattern spec-core reads alone as it always did, up to the state ceiling', async () => {
+      expect(await expand('docs/{./a,adr}/*.md')).toEqual(found('repo/docs/adr/c.md'));
+      expect(await expand('docs/*.md')).toEqual(found('repo/docs/!b.md', 'repo/docs/a.md'));
+      // The directory standing for the base costs states of its own, so read
+      // below it this would be refused a few characters short of the ceiling.
+      const longest = `docs/*${'a'.repeat(65_533)}`;
+      expect(specPatternError(longest)).toBeNull();
+      expect(specPatternError(`${longest}a`)).toBe(`invalid spec pattern "${longest}a": the pattern compiles to more than 65536 states`);
+    });
   });
 
   it.each([
