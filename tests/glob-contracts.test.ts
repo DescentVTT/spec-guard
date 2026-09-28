@@ -213,8 +213,9 @@ describe('the exclude matcher', () => {
     // `{dist/**,}` is an ordinary typo, and its empty alternative matches the
     // empty string. The ancestor loop this replaced had to stop short of the
     // empty prefix, or that alternative excluded every file in the tree and an
-    // assertion inspected nothing and passed. spec-core refuses it outright.
-    expect(excludePatternError('{dist/**,}')).toBe('invalid exclude pattern "{dist/**,}": the pattern names no path');
+    // assertion inspected nothing and passed. spec-core refuses it outright,
+    // and from its copy of 56c7e54 says which alternative it refused.
+    expect(excludePatternError('{dist/**,}')).toBe('invalid exclude pattern "{dist/**,}": the braces expand to an empty pattern');
     expect(() => createExcludeMatcher(['{dist/**,}'])).toThrow('invalid exclude pattern "{dist/**,}"');
   });
 });

@@ -856,9 +856,12 @@ describe('resolving @assert-structure', () => {
 
   it('refuses dirs that spec-core refuses, or with an alternative that names the target itself, naming it as written', () => {
     expect(errorOf('<!-- @assert-structure dirs=" ./{a/,d/ " required="x" -->')).toBe('Attribute "dirs" has an invalid glob pattern "./{a/,d/": a "{" is never closed.');
-    // `./` alone is the target, as dirs="./" is, which dirs never chooses:
-    // with its slash dropped, nothing is left of it.
-    expect(errorOf('<!-- @assert-structure dirs="{./,d}" required="x" -->')).toBe('Attribute "dirs" has an invalid glob pattern "{./,d}": the pattern names no path.');
+    // `./` alone is the target, as dirs="./" is, which dirs never chooses.
+    // spec-core refuses the alternative, from its copy of 56c7e54, and a
+    // pattern spec-core refuses keeps its braces as written in normalizeDirs,
+    // so the refusal names `./`, not the empty alternative dropping its slash
+    // would leave.
+    expect(errorOf('<!-- @assert-structure dirs="{./,d}" required="x" -->')).toBe('Attribute "dirs" has an invalid glob pattern "{./,d}": the braces expand to "./", which names no path.');
   });
 
   it('takes a baseline, a ratchet and allow-empty like every rule that forbids something', () => {
