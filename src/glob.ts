@@ -144,6 +144,51 @@ export function normalizeExclude(pattern: string): string {
   return toPosix(pattern.trim()).replace(/^\.\//, '').replace(/\/+$/, '');
 }
 
+/**
+ * A `dirs=` pattern in the one form it is read in: forward slashes, no
+ * surrounding space, and no leading `./` or trailing `/`, on the whole of it
+ * and on each alternative of its braces. A pattern spec-core refuses keeps
+ * its braces as written, since they may not close.
+ *
+ * `dirs=` names directories, so a trailing slash there says only that the
+ * name is a directory's, and the attribute always dropped the one ending it:
+ * `dirs="a/"` is `a`. spec-core, from its copy of `f9ce375`, reads a slash
+ * ending a brace alternative as the directory's contents, and `{a/,d}` became
+ * every directory below `a`, and `d`, where it had been `a` and `d`. So each
+ * alternative is read as the whole is, and the braces written again from what
+ * is left: `{a/,d}` is `{a,d}`, and `x/{a/,b}` is `{x/a,x/b}`. A `\` is a
+ * separator here as everywhere, so `{a\/,d}` is `{a,d}` too. ADR-0013.
+ */
+export function normalizeDirs(pattern: string): string {
+  const whole = bareDirectory(toPosix(pattern.trim()));
+  // The helpers below expect braces that close, which only a pattern spec-core
+  // accepts is sure to have.
+  if (!readWhole(whole).parsed.ok) return whole;
+  // What spec-core takes off the front before it reads braces stays in front
+  // of them, since a leading `/` there roots the pattern and one inside braces
+  // does not: `/{a/,d}` names paths under the filesystem's root, as `/a` does.
+  const body = whole.replace(/^(?:\.?\/)+/, '');
+  const written = expandBraces(lex(body)).map((tokens) => tokens.map(asCharacter).join(''));
+  const read = written.map(bareDirectory);
+  return read.every((alternative, index) => alternative === written[index])
+    ? whole
+    : `${whole.slice(0, whole.length - body.length)}{${read.join(',')}}`;
+}
+
+/** A pattern, or one alternative of one, without the `./` it starts with or the slashes it ends with. */
+function bareDirectory(pattern: string): string {
+  return pattern.replace(/^\.\//, '').replace(/\/+$/, '');
+}
+
+/**
+ * A brace or a comma no group took, spelled as the class that matches it, so
+ * braces written around it again do not read it as syntax. A `{` is never
+ * left over: every one closes in a pattern spec-core accepted.
+ */
+function asCharacter(token: string): string {
+  return token === '}' || token === ',' ? `[${token}]` : token;
+}
+
 /* --------------------------------------------------------------- readings */
 
 // Case-sensitive, every one: the family's rule for paths, since git's are and a
@@ -353,9 +398,14 @@ export function moduleWitness(pattern: string): string | null {
   return found.kind === 'found' ? found.path : null;
 }
 
-/** Why a pattern read against a whole path - `dirs=`, a required entry's name - cannot be read, or null. */
-export function pathPatternError(pattern: string): string | null {
-  return refusal(readWhole(pattern), 'glob', pattern);
+/**
+ * Why a pattern read against a whole path - `dirs=`, a required entry's name -
+ * cannot be read, or null. The refusal names `written`, the pattern as the
+ * writer spelled it: `dirs=` is read after `normalizeDirs` rewrites it, and
+ * `{./,d}` read is `{,d}`.
+ */
+export function pathPatternError(pattern: string, written = pattern): string | null {
+  return refusal(readWhole(pattern), 'glob', written);
 }
 
 /**

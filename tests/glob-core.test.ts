@@ -25,6 +25,7 @@ import {
   MAX_READINGS,
   modulePatternError,
   moduleWitness,
+  normalizeDirs,
   normalizeExclude,
   normalizeGlob,
   pathPatternError,
@@ -155,6 +156,15 @@ describe('a brace alternative that ends in /', () => {
     const matches = createPathMatcher('{packages/,apps}');
     expect(['packages/api', 'packages/api/src', 'apps'].map(matches)).toEqual([true, true, true]);
     expect(['packages', 'apps/web'].map(matches)).toEqual([false, false]);
+  });
+
+  it('is the directory itself to dirs= alone, which names directories, as a slash ending the whole of it always was', () => {
+    // dirs= is read after normalizeDirs; glob=, a spec pattern, a required
+    // entry's name and a cites template keep spec-core's reading. ADR-0013.
+    const paths = ['a', 'a/b', 'd'];
+    expect(paths.map(createPathMatcher(normalizeDirs('{a/,d}')))).toEqual([true, false, true]);
+    expect(paths.map(createPathMatcher('{a/,d}'))).toEqual([false, true, true]);
+    expect(paths.map(createGlobMatcher(['{a/,d}']))).toEqual([false, true, true]);
   });
 });
 

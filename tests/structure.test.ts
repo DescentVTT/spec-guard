@@ -11,7 +11,7 @@
 
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { javascriptEngine } from '../src/engine.js';
 import { nodeIo, type DirectoryReader } from '../src/io.js';
@@ -398,16 +398,66 @@ describe('required', () => {
     expect(await one(root, '<!-- @assert-structure target="svc" dirs="./*/" required="Dockerfile" -->')).toMatchObject({ ok: true, actual: 0 });
   });
 
-  it('with a brace alternative ending in /, holds the directories below it and not it', async () => {
-    // spec-core reads each alternative as it would be written alone from its
-    // copy of f9ce375, and in a whole-path pattern a trailing slash means the
-    // directory's contents; before, `{a/,d}` chose `a` itself. A slash that
-    // ends the whole of dirs= is dropped, as the case above shows.
-    const root = await tree({ 'svc/a/Dockerfile': '', 'svc/a/b/x.ts': '', 'svc/d/Dockerfile': '' });
-    expect(await one(root, '<!-- @assert-structure target="svc" dirs="{a/,d}" required="Dockerfile" -->')).toMatchObject({
-      ok: false,
-      actual: 1,
-      listed: ['svc/a/b  missing Dockerfile'],
+  describe('with a brace alternative ending in /', () => {
+    // dirs= names directories, so a trailing slash there says only that the
+    // name is a directory's, on an alternative as on the whole attribute.
+    // spec-core reads one ending an alternative as the directory's contents
+    // from its copy of f9ce375, and `{a/,d}` chose every directory below `a`,
+    // and `d`. Every directory these rules can hold lacks the entry, and every
+    // one below them has it, so what is listed is what was chosen.
+    const missing = (...directories: string[]): string[] => directories.map((directory) => `${directory}  missing Dockerfile`);
+    let root = '';
+    const held = async (dirs: string, target = 'svc'): Promise<string[]> =>
+      (await one(root, `<!-- @assert-structure target="${target}" dirs="${dirs}" required="Dockerfile" -->`)).listed;
+
+    beforeAll(async () => {
+      root = await tree({
+        'svc/a/x.ts': '',
+        'svc/a/b/Dockerfile': '',
+        'svc/a/q/x.ts': '',
+        'svc/c/x.ts': '',
+        'svc/c/e/Dockerfile': '',
+        'svc/d/x.ts': '',
+        'svc/x,a/x.ts': '',
+        'svc/x,b/x.ts': '',
+        'svc/}a/x.ts': '',
+        'svc/}b/x.ts': '',
+      });
+    });
+
+    it('holds that directory, as dirs="a/" holds a, in braces nested or not', async () => {
+      expect(await held('{a/,d}')).toEqual(missing('svc/a', 'svc/d'));
+      expect(await held('{a/,c/}')).toEqual(missing('svc/a', 'svc/c'));
+      expect(await held('{a/,{c/,d}}')).toEqual(missing('svc/a', 'svc/c', 'svc/d'));
+      expect(await held('{a//,d}')).toEqual(missing('svc/a', 'svc/d'));
+    });
+
+    it('reads a \\ as the separator it is in every pattern here, never as an escape', async () => {
+      // `a\/` is `a//`, and `svc\{a/,d}` is `svc/{a/,d}`, a group after a
+      // separator. A \ ending the whole of dirs= is a slash ending it.
+      expect(await held('{a\\/,d}')).toEqual(missing('svc/a', 'svc/d'));
+      expect(await held('svc\\{a/,d}', '.')).toEqual(missing('svc/a', 'svc/d'));
+      expect(await held('a\\\\')).toEqual(missing('svc/a'));
+    });
+
+    it('keeps a comma or a brace no group took a character of the name', async () => {
+      expect(await held('x,{a/,b}')).toEqual(missing('svc/x,a', 'svc/x,b'));
+      expect(await held('}{a/,b}')).toEqual(missing('svc/}a', 'svc/}b'));
+    });
+
+    it('keeps a leading / rooting the pattern, which no directory below a target is under', async () => {
+      // Nothing is chosen, so the rule fails with nothing listed, as it does
+      // for dirs="/a". Inside braces a leading / roots nothing.
+      expect(await held('/{a/,d}')).toEqual([]);
+      expect(await held('././/{a/,d}')).toEqual([]);
+      expect(await held('{/a/,d}')).toEqual(missing('svc/a', 'svc/d'));
+    });
+
+    it('changes nothing about a slash ending the whole of dirs=, braces without one, or one an alternative goes on after', async () => {
+      expect(await held('a/')).toEqual(missing('svc/a'));
+      expect(await held('{a,d}')).toEqual(missing('svc/a', 'svc/d'));
+      expect(await held('{a,c}/')).toEqual(missing('svc/a', 'svc/c'));
+      expect(await held('{a/,c}q')).toEqual(missing('svc/a/q'));
     });
   });
 
@@ -783,6 +833,32 @@ describe('resolving @assert-structure', () => {
     expect(assertionOf('<!-- @assert-structure dirs="v1./" required="x" -->').structure?.dirs).toBe('v1.');
     expect(assertionOf('<!-- @assert-structure dirs="*//" required="x" -->').structure?.dirs).toBe('*');
     expect(assertionOf('<!-- @assert-structure required="x" -->').structure).toEqual({ claim: 'required', values: ['x'] });
+  });
+
+  it('writes the braces of dirs again when an alternative loses its ./ or its trailing slash, and says so in the description', () => {
+    const dirsOf = (dirs: string): string | undefined => assertionOf(`<!-- @assert-structure dirs="${dirs}" required="x" -->`).structure?.dirs;
+    expect(dirsOf('{a/,d}')).toBe('{a,d}');
+    expect(dirsOf('{./a/,{b//,c}}')).toBe('{a,b,c}');
+    expect(dirsOf('{./a,d}')).toBe('{a,d}');
+    expect(dirsOf('x/{a/,b}')).toBe('{x/a,x/b}');
+    // What spec-core takes off the front before braces stays in front of them.
+    expect(dirsOf('/{a/,d}')).toBe('/{a,d}');
+    expect(dirsOf('//{a/,d}')).toBe('//{a,d}');
+    expect(dirsOf('././/{a/,d}')).toBe('.//{a,d}');
+    expect(dirsOf('x,{a/,b}')).toBe('{x[,]a,x[,]b}');
+    // A \ is a separator, so the pattern is written with /.
+    expect(dirsOf('a\\\\b')).toBe('a/b');
+    // Otherwise the braces stay as written.
+    expect(dirsOf('x/{a,b}/')).toBe('x/{a,b}');
+    expect(dirsOf('{a/,b}c')).toBe('{a/,b}c');
+    expect(assertionOf('<!-- @assert-structure target="svc" dirs="{a/,d}" required="x" -->').description).toBe('directories matching {a,d} under svc must contain x');
+  });
+
+  it('refuses dirs that spec-core refuses, or with an alternative that names the target itself, naming it as written', () => {
+    expect(errorOf('<!-- @assert-structure dirs=" ./{a/,d/ " required="x" -->')).toBe('Attribute "dirs" has an invalid glob pattern "./{a/,d/": a "{" is never closed.');
+    // `./` alone is the target, as dirs="./" is, which dirs never chooses:
+    // with its slash dropped, nothing is left of it.
+    expect(errorOf('<!-- @assert-structure dirs="{./,d}" required="x" -->')).toBe('Attribute "dirs" has an invalid glob pattern "{./,d}": the pattern names no path.');
   });
 
   it('takes a baseline, a ratchet and allow-empty like every rule that forbids something', () => {

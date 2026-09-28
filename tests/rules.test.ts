@@ -524,6 +524,12 @@ describe('@assert-structure', () => {
     expect(governed(deep, [file('svc/a/api/x.ts'), file('svc/api/x.ts'), file('svc/a/x.ts'), file('api/x.ts')])).toEqual(['svc/a/api/x.ts', 'svc/api/x.ts']);
   });
 
+  it('governs a file in a directory a brace alternative of dirs names with a trailing slash, as a run holds it', () => {
+    const braces = rule('<!-- @assert-structure target="svc" dirs="{a/,d}" required="Dockerfile" -->');
+    expect(governed(braces, [file('svc/a/x.ts'), file('svc/a/b/x.ts'), file('svc/d/x.ts'), file('svc/c/x.ts')])).toEqual(['svc/a/x.ts', 'svc/d/x.ts']);
+    expect(viewRule(braces, accepted).dirs).toBe('{a,d}');
+  });
+
   it('without dirs, governs the files directly in a target and every directory on the way to one', () => {
     const root = rule('<!-- @assert-structure target="., pkg" required="LICENSE" -->');
     expect(governed(root, [file('README.md'), file('pkg/index.ts'), file('src/a.ts'), file('pkg/src/a.ts')])).toEqual(['README.md', 'pkg/index.ts']);
