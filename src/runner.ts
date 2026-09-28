@@ -28,6 +28,7 @@ import {
   excludeListError,
   globPatternError,
   modulePatternError,
+  normalizeDirs,
   pathPatternError,
   patternListError,
   toPosix,
@@ -855,9 +856,10 @@ function resolveStructure(
   if (required && globs.length > 0) {
     throw new Error(`Attribute "glob" chooses files, and required="..." is about directories; dirs="..." chooses those.`);
   }
-  const dirs = attributes["dirs"]?.trim().replace(/^\.\//, "").replace(/\/+$/, "");
+  const written = attributes["dirs"];
+  const dirs = written === undefined ? undefined : normalizeDirs(written);
   if (dirs === "") throw new Error(`Attribute "dirs" must not be empty.`);
-  const dirsError = dirs === undefined ? null : pathPatternError(dirs);
+  const dirsError = dirs === undefined ? null : pathPatternError(dirs, (written as string).trim());
   if (dirsError !== null) throw new Error(`Attribute "dirs" has an ${dirsError}.`);
   const namesError = claim === "pattern" ? patternListError(values, globPatternError) : null;
   if (namesError !== null) throw new Error(patternAttributeError("pattern", attributes["pattern"] as string, namesError));
