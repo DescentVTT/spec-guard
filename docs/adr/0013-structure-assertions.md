@@ -89,7 +89,9 @@ Without `dirs`, the rule is about the target directories themselves. With it,
 `dirs` is a glob matched against the paths of directories below the target:
 `*` means the immediate children and `**` means every directory at any depth.
 The target itself is never selected by `dirs`; leave `dirs` out for that.
-`exclude` removes directories as it removes files.
+`exclude` removes directories as it removes files. A trailing `/` on `dirs`,
+or on an alternative of its braces, says only that the name is a directory's,
+and is dropped ([amended 2026-09-29](#amended-2026-09-29-a-trailing-slash-in-dirs)).
 
 Each entry in `required` is a path relative to the directory:
 - its last segment may be a glob (`*.csproj`), in which case at least one match
@@ -373,3 +375,54 @@ attribute.
 
 **Existence by `stat`.** It is slower, and it disagrees with itself across
 platforms.
+
+## Amended 2026-09-29: a trailing slash in `dirs`
+
+`dirs` names directories, so a trailing `/` on it says only that the name is a
+directory's: `dirs="a/"` has always chosen `a`, the slash dropped, with a
+leading `./`, before the pattern is read. spec-core's copy from `f9ce375`
+reads a slash ending a brace alternative as the directory's contents, as it
+reads one ending a whole path pattern
+([ADR-0015](0015-globs-from-spec-core.md)'s amendment of 2026-09-28), so
+`dirs="{a/,d}"` began choosing every directory below `a`, and `d`, where it
+had chosen `a` and `d`: the same `a/` meant `a` outside braces and what is
+below `a` inside them. No release read it that way.
+
+`dirs` now reads each alternative of its braces as it reads the whole of it:
+a leading `./` and every trailing `/` are dropped from each, and the braces
+are written again, as one group, from what is left. That group is the glob
+the rule's description names and the query shows as `dirs`, so a client that
+reads it by spec-core's rules chooses what the run chooses.
+
+| `dirs=` | 0.13.0 | spec-core's copy alone | Now |
+| --- | --- | --- | --- |
+| `{a/,d}` | `a` and `d` | every directory below `a`, and `d` | `a` and `d`, described as `{a,d}` |
+| `{a/,{b/,c}}` | `a`, `b` and `c` | every directory below `a` and below `b`, and `c` | `a`, `b` and `c`, described as `{a,b,c}` |
+| `x/{a/,b}` | `x/a` and `x/b` | every directory below `x/a`, and `x/b` | `x/a` and `x/b`, described as `{x/a,x/b}` |
+| `{./,d}` | refused: it names no path | every directory, and `d` | refused: it names no path |
+| `a\` | every directory below `a` | the same | `a` |
+| `a/`, `{a,d}/`, `{a/,b}c` | `a`; `a` and `d`; `a/c` and `bc` | the same | the same |
+
+- **A `\` is a separator in `dirs`**, as in every pattern spec-guard reads,
+  and never an escape: `{a\/,d}` is `{a//,d}`, and `x\{a/,b}` is `x/{a/,b}`, a
+  group after a separator. So a `\` that ends an alternative or the whole
+  attribute is dropped as a `/` is. The slash used to be dropped before a `\`
+  became one, so `dirs="a\\"`, which is `a\`, chose every directory below `a`.
+  The description writes each `\` as `/`.
+- **`./` alone is the target**, as `dirs="./"` is, and `dirs` never chooses
+  the target. With its slash dropped nothing is left of the alternative, and
+  `{./,d}` is refused as 0.13.0 refused it. A refused `dirs` is named as it
+  was written, as every other attribute's pattern is, and not as it is read.
+- **A leading `/` still roots the pattern** at the filesystem's root, which no
+  directory below a target is under: `/{a/,d}` chooses nothing, as `/a` does,
+  and is described as `/{a,d}`. Inside braces spec-core reads a leading `/` as
+  nothing, so `{/a/,d}` chooses `a` and `d`.
+- **Only `dirs` changes.** `glob=`, `exclude=`, a spec pattern, a required
+  entry's name and a `cites` files template read a trailing `/` on an
+  alternative as spec-core does. `tests/structure.test.ts` holds a run on a
+  real tree to each shape above, and the description and the refusals to
+  their words; `tests/rules.test.ts` holds the query to the run; and
+  `tests/glob-core.test.ts` holds the other readings of `{a/,d}` where they
+  were.
+
+<!-- @assert-count target="src/runner.ts" symbol="normalizeDirs(" min="1" reason="dirs drops a trailing slash from each alternative of its braces, not from the whole of it alone" -->

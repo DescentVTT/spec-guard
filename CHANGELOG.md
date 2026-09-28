@@ -7,9 +7,9 @@ with the flag that restores the previous behaviour.
 
 ## Unreleased
 
-A trailing `/` on a brace alternative means the directory's contents, a
-pattern too large to compile is refused where it was thrown, and spec-core is
-at f9ce375.
+A trailing `/` on a brace alternative means the directory's contents, except
+in `dirs=`, which names directories; a pattern too large to compile is
+refused where it was thrown; and spec-core is at f9ce375.
 
 ### Changed
 
@@ -19,14 +19,12 @@ at f9ce375.
   pattern and dropped it inside braces. `{src/,*.md}` as a spec pattern - in
   `specs` or on the command line - or as a glob given to the API is
   everything under `src` and a `.md` at any depth, where it was a file named
-  `src` at any depth; `docs/{adr/,a.md}` is `docs/a.md` and everything under
-  `docs/adr`, where `adr` named a file; and `dirs="{a/,d}"` chooses every
-  directory below `a`, and `d`, where it chose `a` and `d`. A slash that ends
-  the whole of `dirs=` is still dropped, so `dirs="a/"` chooses `a`.
-  `exclude`, `module` and `order` read as they did: `{build/,dist}` is both
-  directories, at any depth, with what they hold. A directive's list
-  attribute splits on commas, so `glob=` and `exclude=` cannot hold such a
-  group with two alternatives. Both engines find the same files for it:
+  `src` at any depth; and `docs/{adr/,a.md}` is `docs/a.md` and everything
+  under `docs/adr`, where `adr` named a file. `dirs=` keeps its reading, as
+  **Fixed** says below. `exclude`, `module` and `order` read as they did:
+  `{build/,dist}` is both directories, at any depth, with what they hold. A
+  directive's list attribute splits on commas, so `glob=` and `exclude=`
+  cannot hold such a group with two alternatives. Both engines find the same files for it:
   spec-guard's shortcut for a pattern of one segment and the globs it hands
   ripgrep read `src/` there as `src/**`, as spec-core does, where the shortcut
   would have answered `src/a.ts` no and ripgrep was handed `src`, which it
@@ -38,6 +36,26 @@ at f9ce375.
 
 ### Fixed
 
+- **`dirs=` reads a trailing `/` on a brace alternative as it reads one
+  ending the whole of it: as nothing.** `dirs` names directories, and
+  `dirs="a/"` has always chosen `a`. spec-core's copy from `f9ce375`, above,
+  reads a slash ending an alternative as the directory's contents, which
+  would have made `dirs="{a/,d}"` choose every directory below `a`, and `d`.
+  Each alternative now drops its trailing `/`, and a leading `./`, as the
+  whole attribute does, so `{a/,d}` chooses `a` and `d`, `{a/,{b/,c}}`
+  chooses `a`, `b` and `c`, and `x/{a/,b}` chooses `x/a` and `x/b`, as they
+  did in 0.13.0. The braces are written again from what is left, and the
+  rule's description and `dirs` in the rules `query` and the MCP server show
+  them so: `directories matching {a,d} under svc`. A `\`, a separator in
+  `dirs` as in every pattern here, goes the way of a `/`: `dirs="a\\"` chose
+  every directory below `a` and now chooses `a`, and each `\` is shown as
+  `/`. `{./,d}` is refused, as in 0.13.0: `./` alone is the target, which
+  `dirs` never chooses. A refused `dirs` is named as it was written, as every
+  other attribute's pattern is, where its `./` and trailing `/` were dropped
+  first. `glob=`, `exclude=`, spec patterns, required entries and `cites`
+  templates read as they did.
+  [ADR-0013](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0013-structure-assertions.md)'s
+  amendment.
 - **A pattern too large to compile is refused, not thrown.** A pattern whose
   automaton would pass 65,536 states, as a literal of 65,536 characters does,
   given as a spec pattern on the command line or `--spec` ended a run,

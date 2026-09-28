@@ -571,7 +571,10 @@ files one by one. Each directive makes exactly one of three claims:
   against the path from the root.
 - **`required`** - every directory holds every entry. Without `dirs` the
   directories are the targets; `dirs="*"` means their immediate children and
-  `dirs="**"` every directory below them. An entry may be a path
+  `dirs="**"` every directory below them. `dirs` names directories, so a
+  trailing `/` there changes nothing, on the whole of it or on an alternative
+  of its braces: `dirs="{api/,web}"` is `api` and `web`, where a spec
+  pattern reads `api/` there as what `api` holds. An entry may be a path
   (`src/index.ts`), may end in a glob (`*.csproj`), and must be a directory
   when it ends in `/`.
 - **`partner`** - every file has a partner, named by a template.
@@ -676,7 +679,7 @@ Passes when every listed path exists relative to `--root`. Directories count.
 | `order` | layers | The layers, from the one everything may depend on to the one that may depend on everything |
 | `pattern` | structure | The names every file in scope must match one of |
 | `required` | structure | The entries every chosen directory must hold; a trailing `/` means a directory |
-| `dirs` | structure, with `required` | Which directories below each target: `*` for children, `**` for all |
+| `dirs` | structure, with `required` | Which directories below each target: `*` for children, `**` for all; a trailing `/` changes nothing, in braces or out |
 | `partner` | structure | Partner templates, any one of which must exist: `[name].test.[ext]` |
 | `types` | import assertions, layers, cycles | `include` (default) or `ignore` for `import type` |
 | `dynamic` | cycles | `include` (default) or `ignore` for `import('x')` |
