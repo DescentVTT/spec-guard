@@ -1,6 +1,6 @@
 {
   "source": "https://github.com/DescentVTT/spec-core",
-  "commit": "65ef84273a90fa1c10c81d580bb9eb068c974ab3",
+  "commit": "f9ce37519aeaa2a7a990847c0f2389be8e9c6403",
   "modules": {
     "jsonrpc": {
       "files": {
@@ -14,11 +14,11 @@
         "headings.ts": "sha256-6b1f88429004b64d62cc690136916fe64ddffb5df8ce7c96415e869e33bf23e2",
         "index.ts": "sha256-6b6bbd394d85c1830be81f08492cd96f9b9ad0a92df440267db7c4040fd1c37b",
         "layout.ts": "sha256-11293f9961ce7fcc672743e72945dcaa0a1475a8adea166ea10fa9c542cd6f75",
-        "links.ts": "sha256-28146a050a97a112321f5c269b962889bb66387edacae5f7f531926a82dc1ffb",
+        "links.ts": "sha256-9905f8a62ec39f200ce67458fafc49df90c65017bed931f2aabcf9dc9e718e2a",
         "lists.ts": "sha256-ac2fa8e5c35ca0b17b2727f4a3d9b52edb56ebb7392955d79aa029bc3ae11ea6",
         "scan.ts": "sha256-2ad8b220531ad0262880523bf99174aa5490c107cc610494229730e1849a584d",
         "syntax.ts": "sha256-9331a2594dfec7a2bab7194fa88ffb35c2f1c0f45676f2c442b7854594c73cc9",
-        "tables.ts": "sha256-494a4785827e73f9cfd496a8f082fb7aa070c6b4ce9e1142939c4506230fde5b",
+        "tables.ts": "sha256-7981389b636987c95f9b610e9553bf3e1a931418fa2154bd591fd93c57e0b145",
         "types.ts": "sha256-c42a4c40b2ea1808a084204d63297528d8e62bfc04240889fbd1cf52c568b660"
       }
     },
@@ -30,9 +30,9 @@
     },
     "pattern": {
       "files": {
-        "automaton.ts": "sha256-83362ad1e669c79cbff0baa8ad11d87bb5c669238f07f686eea3611db4454b6f",
-        "charset.ts": "sha256-8d294a77ad7fad55f84cd914b64665fde342e01f71eae77f338218f3da141a81",
-        "glob.ts": "sha256-a59f28f99e309969ded7c32617376b2e57c61ba6ea6d2f6ffce92150a7c618dd",
+        "automaton.ts": "sha256-83c5f0cc7c06e0e072543e0829b61e4f663da29af5cc2142d5056d0edada4b27",
+        "charset.ts": "sha256-0dff9f4eae0d29532bfa71840d560bb65e79b79fa805dcf6e9fd8e9047cb0448",
+        "glob.ts": "sha256-1817521cc83bc61720818a73faecbe7b6f5e019fbda5951bddbd268cffd4d0ce",
         "index.ts": "sha256-ef2ebf1aca4dd1be073f15432a3c23b83bd10bbf5cd1e415ecd6e6b5c9a197ba",
         "regex.ts": "sha256-be88d0d57af98e0bcbfb7cb3242d7333066e7be10664e31397d779bac0cff928"
       }
@@ -40,7 +40,7 @@
     "text": {
       "files": {
         "index.ts": "sha256-38e3afe3a18f8a5126e7a845c92e6123c4dac18b16d13c800b80f7d81177cf99",
-        "lines.ts": "sha256-921f060180f318eb8735e646466701a63510d64e5286ab6f75b9aec93bdfd463"
+        "lines.ts": "sha256-365a4ffcca8de5a0bbc5a9150e4a3c0d49b187f128c06a30366950c9bdd899f9"
       }
     }
   }

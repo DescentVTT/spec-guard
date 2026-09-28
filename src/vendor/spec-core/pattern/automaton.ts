@@ -57,6 +57,12 @@ interface Hole {
  */
 export const MAX_STATES = 65_536;
 
+/**
+ * Thrown by the builder past {@link MAX_STATES}. `parseGlob` answers it as a
+ * refusal and `compileGlob` as a `GlobError`, so no function the pattern
+ * module exports lets it out; it stays exported for callers written when
+ * `parseGlob` did.
+ */
 export class AutomatonTooLarge extends Error {
   constructor() {
     super(`the pattern compiles to more than ${MAX_STATES} states`);
@@ -64,7 +70,13 @@ export class AutomatonTooLarge extends Error {
   }
 }
 
-/** Thompson's construction, one fragment at a time. */
+/**
+ * Thompson's construction, one fragment at a time.
+ *
+ * An arrow written as -1 is a hole that `patch` aims before `finish` returns,
+ * or one nothing follows: a CHAR's second and both of a MATCH's. What it
+ * starts as is never read, so any other start gives the same automaton.
+ */
 export class Builder {
   private readonly kinds: number[] = [];
   private readonly first: number[] = [];
@@ -101,6 +113,10 @@ export class Builder {
 
   /** Each fragment after the one before it. */
   sequence(parts: readonly Fragment[]): Fragment {
+    // A glob never asks for an empty sequence, nor below for an empty
+    // alternation: a segment holds a token, a pattern an alternative. The two
+    // guards change no answer the module gives; they meet a misuse where it
+    // happens rather than in whatever reads the fragment next.
     if (parts.length === 0) return this.empty();
     let current = parts[0] as Fragment;
     for (let i = 1; i < parts.length; i += 1) {
@@ -192,7 +208,8 @@ function close(
  * A reusable matcher over one automaton.
  *
  * Holds its buffers between subjects; it is not reentrant, and nothing needs
- * it to be - matching calls out to nothing.
+ * it to be - matching calls out to nothing. `test` empties each buffer before
+ * it reads one, so what a buffer starts with is never read.
  */
 export class Matcher {
   private readonly automaton: Automaton;
@@ -228,6 +245,8 @@ export class Matcher {
         this.stack.push(automaton.first[state] as number);
         close(automaton, this.stack, this.visited, this.stamp, this.next);
       }
+      // With no live state the rest of the subject changes nothing, and the
+      // answer is false either way; this only stops early.
       if (this.next.length === 0) return false;
       const spent = this.live;
       this.live = this.next;
