@@ -60,7 +60,8 @@ Accepted (0.3.0).
 ```
 
 Front-matter wins, then the section, then the label. A front-matter `status`
-wins whether or not its value can be read (the amendment below). Not a
+wins whether or not its value can be read, and so does front matter that never
+closes (the amendments below). Not a
 tie-break for its own sake: a document carrying two of them is a document mid-migration between
 conventions, and the machine-readable one is the one somebody wrote for a
 machine. This repository turned out to need two of the three - ADRs 0001-0007
@@ -292,4 +293,54 @@ and how to close it, in every format, failing nothing
 The warning is what shows which way it went, since it can go either way:
 `status: superseded` above a section saying `Accepted` runs the rules its
 author took out of force, and `status: accepted` above one still saying
-`Proposed` withholds them.
+`Proposed` withholds them. The amendment of 2026-09-29, below, keeps such a
+document in force instead.
+
+## Amended 2026-09-29: front matter never closed keeps its document in force
+
+The amendment of 2026-09-28 read front matter that nothing closes as none, so
+the section or the label decided, and warned on line 1. That is the
+fall-through the second amendment refused for a status that cannot be read,
+and it found what that amendment said it would: `status: accepted` above a
+section still saying `Proposed` withheld its rules, and so did `status: draft`
+above no section at all, since the block's own line was read as a label in the
+preamble. The warning said which way the status went; it did not keep it from
+going the way that withholds.
+
+Front matter that opens on the first line and never closes is now read as
+front matter whose status cannot be read. Its author wrote front matter, and
+nothing says where it ends, so nothing in it can be read: the status is
+unrecognised, the document stays in force, and neither the section nor the
+label is read in its place. `+++` is read so, as `---` is. Nothing else moves:
+the scanner still reads the opening line as a thematic break and the rest as
+Markdown, so a directive under it runs and none of it is masked, and a first
+line with only blank lines after it is still no warning, with no status to
+read either way.
+
+<!-- @assert-count target="src/parser.ts" symbol="scan.unclosedFrontMatter !== null" min="1" reason="front matter never closed decides the status as front matter that cannot be read does, so the prose is not read in its place" -->
+
+The warning stays on line 1, of the kind it was, in every format it reached,
+and says what the warning for a status that cannot be read says, in its words:
+none of it is read as front matter, its status is unrecognised and the
+document stays in force, and a status written below the front matter is not
+read in its place; then how to close it, as before
+([ADR-0002](0002-directive-format.md)'s amendment of 2026-09-29). It fails
+nothing, under `--strict` either. `prove` proves the rules of such a document,
+and `cites` reads its status as a run does, so a citation of it is not stale.
+
+Closing the front matter makes its `status` decide; taking the opening line out
+leaves a document without front matter, whose section or label decides. No
+flag restores the reading of 2026-09-28: `--ignore-status` runs every
+document, which is not that reading. One kind of document pays for this that
+did not: one whose first line is a thematic break meant as no front matter at
+all, and whose section says it is superseded, is now in force, and the warning
+names it on line 1. A thematic break anywhere but the first line is read as it
+was.
+
+TOML front matter that closes is still not read for a status, and hands over to
+the section, as the second amendment says; only front matter that never closes
+is read this way.
+
+None of the 164 Markdown files of the five spec-* repositories has front matter
+that never closes, so every status there is read as it was, and a run,
+`prove`, `cites` and `query` of each answer as they did.

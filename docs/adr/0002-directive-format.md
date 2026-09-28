@@ -225,4 +225,21 @@ section, or the label, which may be the block's own `status:` line - and a
 directive under the opening line runs, as it did. A first line with only
 blank lines after it has no front matter to lose, and is no warning. None of
 the 164 Markdown files of the five spec-* repositories has such front matter,
-so no run of them says anything new.
+so no run of them says anything new. The amendment of 2026-09-29, below,
+reads the status otherwise.
+
+## Amended 2026-09-29: the warning says the document stays in force
+
+The warning of 2026-09-28 said the document, its status included, was read as
+one without front matter, and so it was. [ADR-0010](0010-spec-status.md)'s
+amendment of 2026-09-29 reads front matter that never closes as front matter
+whose status cannot be read instead: the status is unrecognised, the document
+stays in force, and the section and the label are not read in its place. The
+warning says so in the words of the one for a status that cannot be read -
+none of it is read as front matter, its status is unrecognised and the
+document stays in force, and a status written below the front matter is not
+read in its place - and ends, as it did, with how to close it. Its line, its
+kind, the formats it reaches and what it fails, which is nothing, are as they
+were. What the scanner reads is as it was too: the opening line is a thematic
+break and the rest Markdown, so a directive under it runs and none of it is
+masked, and a first line with only blank lines after it is no warning.

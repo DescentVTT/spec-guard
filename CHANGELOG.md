@@ -5,6 +5,38 @@ All notable changes to this project are documented here. Versions follow
 may change in a minor release — each such change is listed under **Changed**
 with the flag that restores the previous behaviour.
 
+## Unreleased
+
+### Changed
+
+- **Front matter that never closes keeps its document in force.** A first
+  line of `---`, or `+++`, that no later line closes was read since 0.13.0 as
+  no front matter, so the `## Status` section or the `Status:` label decided -
+  the block's own `status:` line was read as that label - and a warning on
+  line 1 said so: `status: accepted` above a section still saying `Proposed`
+  was withheld, and so was `status: draft` above no section at all. It is now
+  read as a front-matter status that cannot be read is: the status is
+  unrecognised, the document stays in force, and neither the section nor the
+  label is read in its place. Its rules run, `prove` proves them, a `cites`
+  citation of it is not stale, and `parseStatus` and `parseDocument` give it
+  no status. The warning keeps its line, its kind
+  `unclosed-front-matter` and every format it reached, fails nothing, and
+  says what the one for an unreadable status says: `the front matter opened
+  here with --- is never closed, so none of it is read as front matter, its
+  status is unrecognised and the document stays in force; a status written
+  below the front matter is not read in its place; close it with --- on a
+  line of its own`. A directive under the opening line runs, as it did, and a
+  first line with only blank lines after it is no warning. A document whose
+  first line is a thematic break meant as no front matter is read the same
+  way. Nothing restores the old reading: closing the front matter makes its
+  `status` decide, and taking the opening line out leaves the section or the
+  label to decide. None of the 164 Markdown files of the five spec-*
+  repositories has such front matter, and a run, `prove`, `cites` and
+  `query` of each answer as they did.
+  [ADR-0010](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0010-spec-status.md)'s
+  and [ADR-0002](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0002-directive-format.md)'s
+  amendments of 2026-09-29.
+
 ## 0.13.1
 
 A trailing `/` on a brace alternative means the directory's contents, except

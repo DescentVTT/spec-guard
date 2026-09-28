@@ -792,12 +792,12 @@ only read above the first section heading). A front-matter `status` wins even
 when its value cannot be read - `status: "accepted" (2024-05-01)`, text after
 a closing quote - and then the document stays in force, the section and the
 label are not read in its place, and the report warns on the key's line with
-the reason. Front matter that never closes is no front matter, as every
-renderer shows it: the document is read as one without any, so a `status` in
-it decides nothing ahead of the section or the label, and the report warns on
-line 1 that it was not read. Headings are read as CommonMark reads them, so an
-underlined `Status` is the section and a `## Status` kept in a comment is not.
-Anything else - `Provisional`, `In review`, a
+the reason. So does front matter that opens on the first line and never
+closes: none of it can be read, so the status is unrecognised, the document
+stays in force, the section and the label are not read in its place, and the
+report warns on line 1 and says how to close it. Headings are read as
+CommonMark reads them, so an underlined `Status` is the section and a `## Status`
+kept in a comment is not. Anything else - `Provisional`, `In review`, a
 misspelled `Supersedded`, or no status at all - keeps enforcing. That asymmetry
 is deliberate: an unanticipated word that keeps enforcing is a visible failure
 with an obvious fix, while one that stops enforcing is a green build over a rule
@@ -1572,8 +1572,10 @@ report says how many there were and where, on one line (every one under
 accident is not a rule gone quiet without a word. A code fence or raw-text
 block that is never closed, which makes the rest of its document code, is a
 warning on its opening line. So is front matter that opens on the first line
-and never closes: none of it is read as front matter, and the warning, on
-line 1, says to close it with `---`, or `+++` for TOML, on a line of its own.
+and never closes: none of it is read as front matter, its status is
+unrecognised and the document stays in force, and the warning, on line 1,
+says so and says to close it with `---`, or `+++` for TOML, on a line of its
+own.
 Neither fails a run, under `--strict` either.
 
 **A document's lifecycle status is read; a directive's is not.** Status is
