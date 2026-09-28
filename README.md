@@ -187,8 +187,11 @@ List attributes accept commas or whitespace, so both of these work:
 (A path containing a space therefore cannot be written; there is no quoting
 inside an attribute value. Nor can a brace group with a comma in it:
 `glob="*.{ts,tsx}"` is the two patterns `*.{ts` and `tsx}`, and is refused with a
-message that says so. Write `glob="*.ts, *.tsx"`. A configuration's `exclude` is
-a JSON array, where a brace group keeps its commas.)
+message that says so. Write `glob="*.ts, *.tsx"`. A configuration's `exclude` and
+`specs` are JSON arrays, where a brace group keeps its commas, and a trailing
+`/` on an alternative means what it means on a whole pattern: `{build/,dist}`
+in `exclude` is both directories and what they hold, and `{docs/,README.md}`
+in `specs` is everything under `docs`, and the README.)
 
 ### `comments` - the note about a deletion is not the deletion
 

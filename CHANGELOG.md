@@ -7,8 +7,34 @@ with the flag that restores the previous behaviour.
 
 ## Unreleased
 
-A pattern too large to compile is refused where it was thrown, and spec-core
-is at f9ce375.
+A trailing `/` on a brace alternative means the directory's contents, a
+pattern too large to compile is refused where it was thrown, and spec-core is
+at f9ce375.
+
+### Changed
+
+- **A trailing `/` on a brace alternative means what it means on the
+  alternative written alone.** spec-core, copied again from `f9ce375`, reads
+  each alternative so, where it read the slash only at the end of the whole
+  pattern and dropped it inside braces. `{src/,*.md}` as a spec pattern - in
+  `specs` or on the command line - or as a glob given to the API is
+  everything under `src` and a `.md` at any depth, where it was a file named
+  `src` at any depth; `docs/{adr/,a.md}` is `docs/a.md` and everything under
+  `docs/adr`, where `adr` named a file; and `dirs="{a/,d}"` chooses every
+  directory below `a`, and `d`, where it chose `a` and `d`. A slash that ends
+  the whole of `dirs=` is still dropped, so `dirs="a/"` chooses `a`.
+  `exclude`, `module` and `order` read as they did: `{build/,dist}` is both
+  directories, at any depth, with what they hold. A directive's list
+  attribute splits on commas, so `glob=` and `exclude=` cannot hold such a
+  group with two alternatives. Both engines find the same files for it:
+  spec-guard's shortcut for a pattern of one segment and the globs it hands
+  ripgrep read `src/` there as `src/**`, as spec-core does, where the shortcut
+  would have answered `src/a.ts` no and ripgrep was handed `src`, which it
+  matches against a file of that name and never against what the directory
+  holds. Every other command's output is as it was: a run, `prove`, `cites`,
+  `query` and `impact` of the five spec-* repositories answer as they did.
+  [ADR-0015](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0015-globs-from-spec-core.md)'s
+  amendment.
 
 ### Fixed
 

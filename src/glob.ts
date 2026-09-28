@@ -231,7 +231,10 @@ function readInclude(pattern: string): Reading {
     // The first run of slashes, which a pattern that starts with one starts with.
     if (normalized.startsWith('/')) return { parsed: parseGlob(normalized.replace(/\/+/, ''), WHOLE), shape: 'whole' };
     const parsed = parseGlob(normalized, RIPGREP);
-    return { parsed, shape: parsed.ok && oneSegment(normalized) ? 'last' : 'whole' };
+    // The kind decides here only whether a trailing slash on an alternative
+    // adds a segment, and any text after the slash is one: a kind naming
+    // neither reading, whose lookup adds `undefined`, gives the same shape.
+    return { parsed, shape: parsed.ok && oneSegment(normalized, 'include') ? 'last' : 'whole' };
   });
 }
 
@@ -244,7 +247,7 @@ function readExclude(pattern: string): Reading {
   return excludeReadings(pattern, () => {
     const normalized = normalizeExclude(pattern);
     const parsed = parseGlob(normalized, GITIGNORE);
-    const floating = parsed.ok && !normalized.startsWith('/') && oneSegment(normalized);
+    const floating = parsed.ok && !normalized.startsWith('/') && oneSegment(normalized, 'exclude');
     return { parsed, shape: floating ? 'any' : 'whole' };
   });
 }
@@ -254,8 +257,11 @@ function readWhole(pattern: string): Reading {
   return wholeReadings(pattern, () => ({ parsed: parseGlob(toPosix(pattern), WHOLE), shape: 'whole' }));
 }
 
+/** A pattern read as `glob=` reads it, or as `exclude=` does. */
+export type PatternKind = 'include' | 'exclude';
+
 /** What of a path decides whether a glob or an exclusion matches it. */
-export function patternShape(pattern: string, kind: 'include' | 'exclude'): PatternShape {
+export function patternShape(pattern: string, kind: PatternKind): PatternShape {
   return (kind === 'include' ? readInclude(pattern) : readExclude(pattern)).shape;
 }
 
@@ -264,9 +270,9 @@ function segmentsOf(pattern: string): string[] {
   return pattern.split('/').filter((segment) => segment !== '' && segment !== '.');
 }
 
-/** Whether every alternative of a pattern spec-core accepted is one segment. */
-function oneSegment(pattern: string): boolean {
-  return expandBraces(lex(pattern)).every((tokens) => segmentsOf(tokens.join('')).length === 1);
+/** Whether every alternative of a pattern spec-core accepted is one segment, read as `kind` reads it. */
+function oneSegment(pattern: string, kind: PatternKind): boolean {
+  return alternatives(pattern, kind).every((alternative) => segmentsOf(alternative).length === 1);
 }
 
 /** The predicate a reading produced, or an error naming the pattern as it was written. */
@@ -457,14 +463,15 @@ export function createPathMatcher(pattern: string): (relativePath: string) => bo
  * - it refuses a `}` that closes nothing, which spec-core reads as itself.
  *
  * So the braces are expanded here, one glob per alternative, each alternative
- * is cleaned of `.` and empty segments and anchored or not by its own shape,
- * and a lone `}` is written as the class `[}]`. Only ever given a pattern
- * spec-core accepts, since a directive's are refused before anything runs.
+ * is read as `kind` reads it, cleaned of `.` and empty segments and anchored or
+ * not by its own shape, and a lone `}` is written as the class `[}]`. Only ever
+ * given a pattern spec-core accepts, since a directive's are refused before
+ * anything runs.
  */
-export function ripgrepGlobs(normalized: string): string[] {
+export function ripgrepGlobs(normalized: string, kind: PatternKind): string[] {
   const rooted = normalized.startsWith('/');
-  const globs = expandBraces(lex(normalized)).map((tokens) => {
-    const segments = segmentsOf(tokens.map((token) => (token === '}' ? '[}]' : token)).join(''));
+  const globs = alternatives(normalized, kind).map((alternative) => {
+    const segments = segmentsOf(alternative);
     const text = segments.join('/');
     // ripgrep reads a leading `!` as negation and spec-core reads it as a
     // character. Only an alternative can start with one - a pattern that does
@@ -473,6 +480,34 @@ export function ripgrepGlobs(normalized: string): string[] {
     return text.startsWith('!') ? `**/${text}` : text;
   });
   return [...new Set(globs)];
+}
+
+/**
+ * What a trailing `/` on an alternative adds, by how the pattern is read. To
+ * `glob=` it is the directory's contents, as `normalizeGlob` reads `src/`. To
+ * `exclude=` it adds nothing: the slash is dropped with the empty segment after
+ * it, and the directory excluded with everything in it.
+ */
+const TRAILING_SLASH: Readonly<Record<PatternKind, string>> = { include: '**', exclude: '' };
+
+/**
+ * The patterns a pattern's braces stand for, each read as spec-core reads an
+ * alternative: as it would be written alone, a trailing `/` included. So
+ * `{src/,*.md}` is `src/**` or a `.md` at any depth to `glob=`, and
+ * `{build/,dist}` is `build` or `dist` to `exclude=`.
+ *
+ * Until spec-core's copy from `f9ce375` the slash was read only at the end of
+ * the whole pattern, so inside braces it was dropped, and `{src/,*.md}` was a
+ * name at any depth. Read that way here too, with spec-core reading contents,
+ * the segment shortcut asked `a.ts` about `src/a.ts` and answered no, and
+ * ripgrep was handed `src`, which it matches against a file named `src` at any
+ * depth and never against what is under the directory. ADR-0015.
+ */
+function alternatives(pattern: string, kind: PatternKind): string[] {
+  return expandBraces(lex(pattern)).map((tokens) => {
+    const alternative = tokens.map((token) => (token === '}' ? '[}]' : token)).join('');
+    return alternative.endsWith('/') ? `${alternative}${TRAILING_SLASH[kind]}` : alternative;
+  });
 }
 
 /**

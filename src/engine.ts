@@ -352,12 +352,12 @@ export function buildRipgrepArgs(request: SearchRequest, patterns: readonly stri
   // (ADR-0015), and the same rule counted differently on either side of the
   // size at which `auto` changes engine.
   for (const glob of options.globs) {
-    for (const each of ripgrepGlobs(normalizeGlob(glob))) args.push('--glob', each);
+    for (const each of ripgrepGlobs(normalizeGlob(glob), 'include')) args.push('--glob', each);
   }
   // ripgrep reads a leading "!" as an exclusion, with gitignore semantics that
   // createExcludeMatcher reads the same way for the JavaScript engine.
   for (const glob of options.excludeGlobs) {
-    for (const each of ripgrepGlobs(normalizeExclude(glob))) args.push('--glob', `!${each}`);
+    for (const each of ripgrepGlobs(normalizeExclude(glob), 'exclude')) args.push('--glob', `!${each}`);
   }
   for (const name of options.scope.skippedDirectories.keys()) args.push('--glob', `!${name}/`);
   for (const pattern of patterns) args.push('--regexp', pattern);

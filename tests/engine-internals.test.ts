@@ -82,6 +82,15 @@ describe('buildRipgrepArgs', () => {
     expect(globs.slice(0, 6)).toEqual(['src/*.ts', 'lib/**', '!build', '!src/gen', '!dist', '!/target']);
   });
 
+  it('hands ripgrep a brace alternative ending in / as each kind reads it: contents to a glob, the directory to an exclusion', () => {
+    // The scanner's filter holds whatever ripgrep lists, so a count cannot
+    // tell an exclusion ripgrep was handed too narrow from the right one;
+    // only what it prunes can.
+    const options = searchOptions({ globs: ['{src/,*.md}'], excludeGlobs: ['{build/,dist}'] });
+    const globs = buildRipgrepArgs(request({ options })).filter((_, index, args) => args[index - 1] === '--glob');
+    expect(globs.slice(0, 4)).toEqual(['src/**', '*.md', '!build', '!dist']);
+  });
+
   it('passes the search flags an assertion asked for', () => {
     const options = searchOptions({ regex: true, word: true, ignoreCase: true });
     const args = buildRipgrepArgs(request({ options }));
