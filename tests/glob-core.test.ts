@@ -1240,3 +1240,140 @@ describe('a brace alternative that names no path, wherever a pattern is given', 
     expect(report.errors.map((error) => error.message)).toEqual([`Attribute "glob" has an invalid glob pattern "{./}": ${NO_PATH}.`]);
   });
 });
+
+/* ----------------------------------------- a glob that ends in /, as written */
+
+describe('a glob that ends in /, asked of spec-core as it was written', () => {
+  // normalizeGlob writes a trailing `/` as `/**` before spec-core reads the
+  // glob, and `**` names a path whatever comes before it: `glob="/./"` and
+  // `glob="{./}/"` were every path, where spec-core refuses `/./` as it
+  // refuses `/.`, and `.//` as it refuses `./`. spec-core is now asked about
+  // the glob as written too, and a glob it refuses so is refused.
+  const TREE = {
+    'docs/rules.md': '# Rules\n\n<!-- @assert-absence target="src" symbol="Nowhere" -->\n',
+    'src/main.ts': 'export {};\n',
+  };
+  const temporary: string[] = [];
+  afterAll(async () => {
+    await Promise.all(temporary.splice(0).map(removeTempRepo));
+  });
+
+  async function run(files: Record<string, string>, argv: string[]): Promise<{ code: number; out: string[]; err: string[] }> {
+    const root = await makeTempRepo(files);
+    temporary.push(root);
+    const out: string[] = [];
+    const err: string[] = [];
+    const cli: CliIO = { stdout: (text) => out.push(text), stderr: (text) => err.push(text), env: { NO_COLOR: '1' }, cwd: root, isTTY: false };
+    return { code: await main(argv, cli), out, err };
+  }
+
+  it.each([
+    ['/', 'the pattern names the root itself, not a path under it'],
+    ['//', 'the pattern names the root itself, not a path under it'],
+    ['.//', 'the pattern names the root itself, not a path under it'],
+    ['/./', 'the pattern names no path'],
+    ['/.//', 'the pattern names no path'],
+    ['{./}/', 'the braces expand to ".//", which names no path'],
+    ['.{/}/', 'the braces expand to ".//", which names no path'],
+    ['{.,a}/', 'the braces expand to "./", which names no path'],
+    ['/{./}/', 'the braces expand to ".//", which names no path'],
+  ])('refuses %s as a glob, as spec-core refuses it as written', (pattern, reason) => {
+    expect(globPatternError(pattern)).toBe(`invalid glob pattern "${pattern}": ${reason}`);
+    expect(() => createGlobMatcher([pattern])).toThrow(`invalid glob pattern "${pattern}": ${reason}`);
+  });
+
+  it.each([
+    ['{.,docs}/', 'the braces expand to "./", which names no path'],
+    ['{./}/', 'the braces expand to ".//", which names no path'],
+    ['/{./}/', 'the braces expand to ".//", which names no path'],
+  ])('refuses %s as a spec pattern, as spec-core refuses it as written', (pattern, reason) => {
+    expect(specPatternError(pattern)).toBe(`invalid spec pattern "${pattern}": ${reason}`);
+  });
+
+  it('walks a spec pattern that starts with / and has no base from the root of the filesystem, ending in / or not', async () => {
+    const top = path.resolve('/');
+    const io = memoryIo(top, { 'top.md': '', 'x/deep.md': '' });
+    const expand = async (pattern: string) => (await expandSpecPatterns([pattern], path.join(top, 'repo'), undefined, io)).map((file) => path.resolve(file));
+    expect(await expand('/*.md')).toEqual([path.resolve(top, 'top.md')]);
+    expect(await expand('/*/')).toEqual([path.resolve(top, 'x/deep.md')]);
+  });
+
+  it('keeps the words a glob refused as it is read was refused in', () => {
+    // Asked as written, spec-core would write its advice without the `**` the
+    // trailing slash became; the advice is for the glob it read.
+    expect(globPatternError('src/**.ts/')).toBe(
+      'invalid glob pattern "src/**.ts/": "**" means any number of directories only as a whole segment: write "src/**/*.ts/**" for any depth, or "src/*.ts/**" for one level',
+    );
+    expect(specPatternError('docs/**.md/')).toBe(
+      'invalid spec pattern "docs/**.md/": "**" means any number of directories only as a whole segment: write "docs/**/*.md/**" for any depth, or "docs/*.md/**" for one level',
+    );
+  });
+
+  // Each read as it was, against the paths below: the trailing slash is still
+  // the directory's contents, and the glob still reaches ripgrep as it did.
+  const PATHS = ['a', 'a/b', 'src', 'src/a.ts', 'src/deep/b.ts', 'docs/x.md', 'docs/adr/y.md', 'lib/src/c.ts', 'x/b'];
+  it.each<[string, string[], PatternShape, string[]]>([
+    ['src/', ['src/a.ts', 'src/deep/b.ts'], 'whole', ['src/**']],
+    ['./src/', ['src/a.ts', 'src/deep/b.ts'], 'whole', ['src/**']],
+    ['/src/', ['src/a.ts', 'src/deep/b.ts'], 'whole', ['/src/**']],
+    ['src//', ['src/a.ts', 'src/deep/b.ts'], 'whole', ['src/**']],
+    ['src/./', ['src/a.ts', 'src/deep/b.ts'], 'whole', ['src/**']],
+    ['{a/,b}', ['a/b', 'x/b'], 'whole', ['a/**', 'b']],
+    ['{a/,src}/', ['a/b', 'src/a.ts', 'src/deep/b.ts'], 'whole', ['a/**', 'src/**']],
+    ['{src,docs}/', ['src/a.ts', 'src/deep/b.ts', 'docs/x.md', 'docs/adr/y.md'], 'whole', ['src/**', 'docs/**']],
+    ['docs/**/', ['docs/x.md', 'docs/adr/y.md'], 'whole', ['docs/**/**']],
+    ['*/', ['a/b', 'src/a.ts', 'src/deep/b.ts', 'docs/x.md', 'docs/adr/y.md', 'lib/src/c.ts', 'x/b'], 'whole', ['*/**']],
+    ['src/{./}/', ['src/a.ts', 'src/deep/b.ts'], 'whole', ['src/**']],
+    ['x/{.,a}/', ['x/b'], 'whole', ['x/**', 'x/a/**']],
+  ])('reads %s as it did, since spec-core reads it as written', (pattern, matched, shape, globs) => {
+    expect(globPatternError(pattern)).toBeNull();
+    expect(PATHS.filter(createGlobMatcher([pattern]))).toEqual(matched);
+    expect(patternShape(pattern, 'include')).toBe(shape);
+    expect(ripgrepGlobs(normalizeGlob(pattern), 'include')).toEqual(globs);
+  });
+
+  it('reads a spec pattern below its base, ending in /, as spec-core reads the whole', async () => {
+    const root = path.resolve('/virtual/slashed');
+    const io = memoryIo(root, { 'README.md': '', 'docs/a.md': '', 'docs/adr/b.md': '', 'src/c.md': '' });
+    const expand = (pattern: string) => expandSpecPatterns([pattern], root, undefined, io);
+    const inRoot = (...files: string[]) => files.map((file) => path.join(root, file)).sort();
+    expect(await expand('docs/**/')).toEqual(inRoot('docs/a.md', 'docs/adr/b.md'));
+    expect(await expand('{docs,src}/')).toEqual(inRoot('docs/a.md', 'docs/adr/b.md', 'src/c.md'));
+    // `docs/./` names docs, as spec-core reads it whole, where `./` alone is refused.
+    expect(await expand('docs/{.,adr}/')).toEqual(inRoot('docs/a.md', 'docs/adr/b.md'));
+    expect(await expand('docs/{./}/')).toEqual(inRoot('docs/a.md', 'docs/adr/b.md'));
+  });
+
+  it('is exit 2 as a spec pattern on the command line or in specs', async () => {
+    const argv = await run(TREE, ['{.,docs}/']);
+    expect([argv.code, argv.out]).toEqual([EXIT_ERROR, []]);
+    expect(argv.err).toEqual(['spec-guard: invalid spec pattern "{.,docs}/": the braces expand to "./", which names no path']);
+
+    const specs = await run({ ...TREE, '.spec-guard.json': JSON.stringify({ specs: ['{.,docs}/'] }) }, []);
+    expect([specs.code, specs.out]).toEqual([EXIT_ERROR, []]);
+    expect(specs.err).toEqual(['spec-guard: .spec-guard.json: "specs" has an invalid spec pattern "{.,docs}/": the braces expand to "./", which names no path.']);
+  });
+
+  it.each([
+    ['glob="/./"', '<!-- @assert-absence target="src" symbol="X" glob="/./" -->', 'Attribute "glob" has an invalid glob pattern "/./": the pattern names no path.'],
+    ['glob="/"', '<!-- @assert-absence target="src" symbol="X" glob="/" -->', 'Attribute "glob" has an invalid glob pattern "/": the pattern names the root itself, not a path under it.'],
+    ['glob="{./}/"', '<!-- @assert-absence target="src" symbol="X" glob="{./}/" -->', 'Attribute "glob" has an invalid glob pattern "{./}/": the braces expand to ".//", which names no path.'],
+    ['pattern="{./}/"', '<!-- @assert-structure target="src" pattern="{./}/" -->', 'Attribute "pattern" has an invalid glob pattern "{./}/": the braces expand to ".//", which names no path.'],
+  ])('makes a directive with %s invalid', (_, source, message) => {
+    const { directives, errors } = parseDirectives(source, { file: path.resolve('/virtual/docs/a.md'), relativeFile: 'docs/a.md' });
+    expect(errors).toEqual([]);
+    const resolved = resolveDirective(directives[0] as NonNullable<(typeof directives)[0]>, { root: path.resolve('/virtual'), excludeFiles: new Set() });
+    expect('error' in resolved ? resolved.error.message : null).toBe(message);
+  });
+
+  it('fails a run whose glob is /./, where the rule searched every file in its target and passed', async () => {
+    const { code, out } = await run(
+      { ...TREE, 'docs/rules.md': '# Rules\n\n<!-- @assert-absence target="src" symbol="Nowhere" glob="/./" -->\n' },
+      ['--json', '--engine', 'js'],
+    );
+    expect(code).toBe(EXIT_FAILED);
+    const report = JSON.parse(out.join('\n')) as { summary: { total: number }; errors: Array<{ message: string }> };
+    expect(report.summary.total).toBe(0);
+    expect(report.errors.map((error) => error.message)).toEqual(['Attribute "glob" has an invalid glob pattern "/./": the pattern names no path.']);
+  });
+});

@@ -127,8 +127,40 @@ export function globToRegExp(pattern: string, options: { ignoreCase?: boolean } 
  * as part of a name.
  */
 export function normalizeGlob(pattern: string): string {
-  const normalized = toPosix(pattern.trim()).replace(/^\.\//, '');
-  return normalized.endsWith('/') ? `${normalized}**` : normalized;
+  return slashAsContents(writtenGlob(pattern));
+}
+
+/** A glob in the form `normalizeGlob` gives it, but for its trailing slash. */
+function writtenGlob(pattern: string): string {
+  return toPosix(pattern.trim()).replace(/^\.\//, '');
+}
+
+/** A glob with a trailing slash written as everything under the directory. */
+function slashAsContents(written: string): string {
+  return written.endsWith('/') ? `${written}**` : written;
+}
+
+/**
+ * A glob parsed in the form both engines are given, unless spec-core refuses
+ * it as written: `read` says what of it spec-core is given to read, and
+ * `options` how.
+ *
+ * spec-core reads a trailing `/` as the directory's contents too, so asking it
+ * about the glob as written changes the reading of none it accepts. But `**`
+ * names a path whatever comes before it, and `normalizeGlob` adds it before
+ * spec-core is asked: `glob="/./"` and `glob="{./}/"` were read as `/./**`
+ * and `{./}/**`, every path, where spec-core refuses `/./` as it refuses `/.`,
+ * and the `.//` the braces give as it refuses `./`. A glob refused as read
+ * keeps the words it was refused in.
+ */
+function parseAsWritten(written: string, options: GlobOptions, read: (text: string) => string = (text) => text): GlobParse {
+  const parsed = parseGlob(read(slashAsContents(written)), options);
+  // Only a glob that ends in `/` is read as other than written. Any other,
+  // asked again as written, is answered as it was read, its leading slashes
+  // kept or not, so this decides how long a reading takes and never what it is.
+  if (!parsed.ok || !written.endsWith('/')) return parsed;
+  const judged = parseGlob(written, options);
+  return judged.ok ? parsed : judged;
 }
 
 /**
@@ -259,6 +291,7 @@ function readings(): (pattern: string, read: () => Reading) => Reading {
 const includeReadings = readings();
 const excludeReadings = readings();
 const wholeReadings = readings();
+const belowReadings = readings();
 
 /**
  * An include glob, as `glob=` means it.
@@ -272,10 +305,13 @@ const wholeReadings = readings();
  */
 function readInclude(pattern: string): Reading {
   return includeReadings(pattern, () => {
-    const normalized = normalizeGlob(pattern);
-    // The first run of slashes, which a pattern that starts with one starts with.
-    if (normalized.startsWith('/')) return { parsed: parseGlob(normalized.replace(/\/+/, ''), WHOLE), shape: 'whole' };
-    const parsed = parseGlob(normalized, RIPGREP);
+    const written = writtenGlob(pattern);
+    const normalized = slashAsContents(written);
+    // The first run of slashes, which a pattern that starts with one starts
+    // with. As written it keeps them, so that `/` is refused as naming the
+    // root, and `/./` as `/.` is.
+    if (written.startsWith('/')) return { parsed: parseAsWritten(written, WHOLE, (text) => text.replace(/\/+/, '')), shape: 'whole' };
+    const parsed = parseAsWritten(written, RIPGREP);
     // The kind decides here only whether a trailing slash on an alternative
     // adds a segment, and any text after the slash is one: a kind naming
     // neither reading, whose lookup adds `undefined`, gives the same shape.
@@ -766,7 +802,8 @@ interface SpecGlob {
   /** The literal directories the pattern starts with, and whether they are absolute. */
   base: string;
   absolute: boolean;
-  normalized: string;
+  /** The pattern in the form it is read in, but for a trailing slash: the walk takes its root when there is no base. */
+  written: string;
   reading: Reading;
   /** What a path below the base is put under for `reading` to be asked of it: nothing, or `BASE` and a `/`. */
   under: string;
@@ -803,17 +840,27 @@ const BASE = 'base';
  * the whole: refused.
  */
 function readSpecGlob(pattern: string): SpecGlob {
-  const normalized = normalizeGlob(toPosix(pattern));
-  const absolute = path.isAbsolute(normalized);
-  const { base, rest } = globBase(normalized);
-  const spec = { base, absolute, normalized };
+  const written = writtenGlob(pattern);
+  const absolute = path.isAbsolute(written);
+  // The base ends at the first segment holding glob syntax, which comes before
+  // the empty one a trailing `/` leaves, so the glob as written has the base
+  // the glob as read has.
+  const { base, rest } = globBase(written);
+  const spec = { base, absolute, written };
   // With no base, what is left is the whole pattern, and reads as glob= does.
   if (base === '' && !absolute) return { ...spec, reading: readInclude(rest), under: '' };
-  // Below a base every alternative is anchored, since each holds the base's `/`.
-  const alone = readWhole(rest);
+  const alone = readBelow(rest);
   return alone.parsed.ok || segmentsOf(base).length === 0
     ? { ...spec, reading: alone, under: '' }
-    : { ...spec, reading: readWhole(`${BASE}/${rest}`), under: `${BASE}/` };
+    : { ...spec, reading: readBelow(`${BASE}/${rest}`), under: `${BASE}/` };
+}
+
+/**
+ * What a spec pattern holds below its base, matched against the whole path
+ * from there, since each alternative holds the base's `/` and so is anchored.
+ */
+function readBelow(rest: string): Reading {
+  return belowReadings(rest, () => ({ parsed: parseAsWritten(rest, WHOLE), shape: 'whole' }));
 }
 
 /**
@@ -893,8 +940,8 @@ export async function expandSpecPatterns(
 
     const refused = specPatternError(rawPattern);
     if (refused !== null) throw new Error(refused);
-    const { base, absolute, normalized, reading, under } = readSpecGlob(pattern);
-    const walkRoot = absolute ? base || path.parse(normalized).root : path.resolve(root, base);
+    const { base, absolute, written, reading, under } = readSpecGlob(pattern);
+    const walkRoot = absolute ? base || path.parse(written).root : path.resolve(root, base);
     const matches = matcherOf(reading, 'spec', rawPattern);
 
     for await (const file of walkPaths(walkRoot, { io })) {
