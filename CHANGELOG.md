@@ -36,6 +36,34 @@ with the flag that restores the previous behaviour.
   [ADR-0010](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0010-spec-status.md)'s
   and [ADR-0002](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0002-directive-format.md)'s
   amendments of 2026-09-29.
+- **A brace alternative that names no path is refused, as it is written
+  alone, and every refusal of one names it.** spec-core, copied again from
+  `56c7e54`, had read a trailing `/` on an alternative since `f9ce375` before
+  it asked whether the alternative named a path, so the `./` in `{./,docs}`
+  was the contents of `.`. As a spec pattern - on the command line, `--spec`
+  or in `specs` - `{./,docs}` took in every file under the root, Markdown or
+  not; `glob="{./}"` and `pattern="{./}"` were every file; and
+  `createGlobMatcher` and `globPatternError` read `{./,a}` as every path.
+  Each is now refused, with `{a,./}`, `{.//,a}` and `.{/,a}`:
+  `invalid spec pattern "{./,docs}": the braces expand to "./", which names
+  no path`, exit 2 on the command line and in `specs`, and an invalid
+  directive in `glob` and `pattern`. So is a spec pattern `docs/{./,adr}`,
+  which was everything under `docs`: what is below a spec pattern's base is
+  read alone, and `docs/{,adr}` was always refused so. `exclude`, `module`,
+  `order`, `dirs` and `--exclude` refused such a group already, and every
+  refusal of `{.,a}`, `{/,a}`, `{,a}`, `{}` or `{dist/**,}`, which said `the
+  pattern names no path`, now names the alternative -
+  `the braces expand to "."` - or says `the braces expand to an empty
+  pattern`. A directive's list attribute and `--exclude` split on commas, so
+  they hold such a group only with one alternative. `src/{./,a}`,
+  `a{,.ts}`, `{./a,b}` and `{a/,b}` read as they did, and a trailing `/` on
+  a whole glob is still read as `/**` before spec-core is asked, so
+  `glob="/./"` is every file, as it was. Nothing restores the old reading:
+  `**` says what the `./` did. A run, `prove`, `cites`, `query` and `impact`
+  of the five spec-* repositories answer as they did.
+  [ADR-0015](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0015-globs-from-spec-core.md)'s
+  and [ADR-0013](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0013-structure-assertions.md)'s
+  amendments of 2026-09-29.
 
 ## 0.13.1
 

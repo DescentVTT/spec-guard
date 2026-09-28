@@ -401,8 +401,8 @@ export function moduleWitness(pattern: string): string | null {
 /**
  * Why a pattern read against a whole path - `dirs=`, a required entry's name -
  * cannot be read, or null. The refusal names `written`, the pattern as the
- * writer spelled it: `dirs=` is read after `normalizeDirs` rewrites it, and
- * `{./,d}` read is `{,d}`.
+ * writer spelled it: `dirs=` is read after `normalizeDirs` drops a leading
+ * `./` and a trailing `/`, and ` ./{a/,d/ ` read is `{a/,d`.
  */
 export function pathPatternError(pattern: string, written = pattern): string | null {
   return refusal(readWhole(pattern), 'glob', written);
