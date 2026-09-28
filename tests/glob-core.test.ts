@@ -817,3 +817,109 @@ describe('** inside a name, wherever a pattern is given', () => {
     await expect(expandSpecPatterns(['../shared/docs/**.md'], root, undefined, memoryIo(path.dirname(root), { 'shared/docs/a.md': '' }))).rejects.toThrow(shared);
   });
 });
+
+/* ------------------------------------- past the automaton's ceiling, everywhere */
+
+describe("a pattern past the automaton's state ceiling, wherever a pattern is given", () => {
+  // A literal takes a state for each character and one to accept, so this is
+  // past the ceiling in every dialect. Until the copy of f9ce375 spec-core threw
+  // it: a spec pattern on the command line ended the process with a stack
+  // trace, and every other door gave the reason alone, naming neither the
+  // pattern nor where it was written.
+  const LONG = 'a'.repeat(65_536);
+  const TOO_LARGE = 'the pattern compiles to more than 65536 states';
+  const TREE = {
+    'docs/rules.md': '# Rules\n\n<!-- @assert-absence target="src" symbol="Nowhere" -->\n',
+    'src/main.ts': 'export {};\n',
+  };
+  const temporary: string[] = [];
+  afterAll(async () => {
+    await Promise.all(temporary.splice(0).map(removeTempRepo));
+  });
+
+  async function run(files: Record<string, string>, argv: string[]): Promise<{ code: number; out: string[]; err: string[] }> {
+    const root = await makeTempRepo(files);
+    temporary.push(root);
+    const out: string[] = [];
+    const err: string[] = [];
+    const cli: CliIO = { stdout: (text) => out.push(text), stderr: (text) => err.push(text), env: { NO_COLOR: '1' }, cwd: root, isTTY: false };
+    return { code: await main(argv, cli), out, err };
+  }
+
+  it('is refused by every check, in the words of the kind of pattern it is, and matches nothing', () => {
+    expect(globPatternError(LONG)).toBe(`invalid glob pattern "${LONG}": ${TOO_LARGE}`);
+    expect(excludePatternError(LONG)).toBe(`invalid exclude pattern "${LONG}": ${TOO_LARGE}`);
+    expect(modulePatternError(LONG)).toBe(`invalid module pattern "${LONG}": ${TOO_LARGE}`);
+    expect(modulePatternError(LONG, 'layer')).toBe(`invalid layer pattern "${LONG}": ${TOO_LARGE}`);
+    expect(pathPatternError(LONG)).toBe(`invalid glob pattern "${LONG}": ${TOO_LARGE}`);
+    expect(specPatternError(`*${LONG}`)).toBe(`invalid spec pattern "*${LONG}": ${TOO_LARGE}`);
+    expect(specPatternError(`docs/*${LONG}`)).toBe(`invalid spec pattern "docs/*${LONG}": ${TOO_LARGE}`);
+    expect(() => createGlobMatcher([LONG])).toThrow(`invalid glob pattern "${LONG}": ${TOO_LARGE}`);
+    expect(() => createExcludeMatcher([LONG])).toThrow(`invalid exclude pattern "${LONG}": ${TOO_LARGE}`);
+    expect(() => createPathMatcher(LONG)).toThrow(`invalid glob pattern "${LONG}": ${TOO_LARGE}`);
+    expect(moduleWitness(LONG)).toBeNull();
+  });
+
+  it.each([
+    ['a run', [`docs/*${LONG}`]],
+    ['a run, given --spec', ['--spec', `docs/*${LONG}`]],
+    ['a run, with no base', [`*${LONG}`]],
+    ['query', ['query', 'src/main.ts', '--spec', `docs/*${LONG}`]],
+    ['impact', ['impact', 'src/main.ts', '--spec', `docs/*${LONG}`]],
+    ['cites', ['cites', '--spec', `docs/*${LONG}`]],
+    ['prove', ['prove', '--spec', `docs/*${LONG}`]],
+    ['mcp', ['mcp', '--spec', `docs/*${LONG}`]],
+  ])('is exit 2 as a spec pattern on the command line of %s, before anything is answered', async (_, argv) => {
+    const { code, out, err } = await run(TREE, argv);
+    expect(code).toBe(EXIT_ERROR);
+    expect(out).toEqual([]);
+    const pattern = argv.find((arg) => arg.endsWith(LONG)) as string;
+    expect(err).toEqual([`spec-guard: invalid spec pattern "${pattern}": ${TOO_LARGE}`]);
+  });
+
+  it('is exit 2 in the configuration or given to --exclude, naming where it was written', async () => {
+    const specs = await run({ ...TREE, 'package.json': JSON.stringify({ specGuard: { specs: [`docs/*${LONG}`] } }) }, []);
+    expect([specs.code, specs.out]).toEqual([EXIT_ERROR, []]);
+    expect(specs.err).toEqual([`spec-guard: package.json: "specGuard.specs" has an invalid spec pattern "docs/*${LONG}": ${TOO_LARGE}.`]);
+
+    const exclude = await run({ ...TREE, '.spec-guard.json': JSON.stringify({ exclude: [LONG] }) }, []);
+    expect([exclude.code, exclude.out]).toEqual([EXIT_ERROR, []]);
+    expect(exclude.err).toEqual([`spec-guard: .spec-guard.json: "exclude" has an invalid exclude pattern "${LONG}": ${TOO_LARGE}.`]);
+
+    const cites = await run({ ...TREE, '.spec-guard.json': JSON.stringify({ cites: [{ id: 'ADR-{n}', files: `docs/{n}-*${LONG}.md` }] }) }, ['cites']);
+    expect([cites.code, cites.out]).toEqual([EXIT_ERROR, []]);
+    expect(cites.err).toEqual([
+      `spec-guard: .spec-guard.json: "cites" entry 1: "docs/{n}-*${LONG}.md": invalid glob pattern "docs/*-*${LONG}.md": ${TOO_LARGE}.`,
+    ]);
+
+    const option = await run(TREE, ['--exclude', LONG]);
+    expect([option.code, option.out]).toEqual([EXIT_ERROR, []]);
+    expect(option.err[0]).toBe(`Option --exclude has an invalid exclude pattern "${LONG}": ${TOO_LARGE}.`);
+  });
+
+  it.each([
+    ['glob', `<!-- @assert-absence target="src" symbol="X" glob="${LONG}" -->`, `Attribute "glob" has an invalid glob pattern "${LONG}"`],
+    ['exclude', `<!-- @assert-absence target="src" symbol="X" exclude="${LONG}" -->`, `Attribute "exclude" has an invalid exclude pattern "${LONG}"`],
+    ['module', `<!-- @assert-import-absence target="src" module="${LONG}" -->`, `Attribute "module" has an invalid module pattern "${LONG}"`],
+    ['order', `<!-- @assert-layers target="src" order="domain, ${LONG}" -->`, `Attribute "order" has an invalid layer pattern "${LONG}"`],
+    ['pattern', `<!-- @assert-structure target="src" pattern="${LONG}" -->`, `Attribute "pattern" has an invalid glob pattern "${LONG}"`],
+    ['dirs', `<!-- @assert-structure target="packages" dirs="${LONG}" required="package.json" -->`, `Attribute "dirs" has an invalid glob pattern "${LONG}"`],
+    ['required', `<!-- @assert-structure target="packages" required="*${LONG}" -->`, `Required entry "*${LONG}" has an invalid glob pattern "*${LONG}"`],
+  ])('makes a directive with it in %s invalid, naming the attribute and the pattern', (_, source, message) => {
+    const { directives, errors } = parseDirectives(source, { file: path.resolve('/virtual/docs/a.md'), relativeFile: 'docs/a.md' });
+    expect(errors).toEqual([]);
+    const resolved = resolveDirective(directives[0] as NonNullable<(typeof directives)[0]>, { root: path.resolve('/virtual'), excludeFiles: new Set() });
+    expect('error' in resolved ? resolved.error.message : null).toBe(`${message}: ${TOO_LARGE}.`);
+  });
+
+  it('fails a run whose directive holds it, as any invalid directive does', async () => {
+    const { code, out } = await run(
+      { ...TREE, 'docs/rules.md': `# Rules\n\n<!-- @assert-absence target="src" symbol="Nowhere" glob="${LONG}" -->\n` },
+      ['--json', '--engine', 'js'],
+    );
+    expect(code).toBe(EXIT_FAILED);
+    const report = JSON.parse(out.join('\n')) as { summary: { total: number }; errors: Array<{ message: string }> };
+    expect(report.summary.total).toBe(0);
+    expect(report.errors.map((error) => error.message)).toEqual([`Attribute "glob" has an invalid glob pattern "${LONG}": ${TOO_LARGE}.`]);
+  });
+});

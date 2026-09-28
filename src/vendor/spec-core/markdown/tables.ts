@@ -33,6 +33,9 @@ export function findTables(layout: Layout, atx: readonly Pick<Heading, 'line'>[]
   };
 
   const out: Table[] = [];
+  // A header needs a line under it. `row` answers null for a line past the
+  // last, so a bound that lets `i` reach one or two further finds the same
+  // tables.
   for (let i = 0; i + 1 < lines.length; i += 1) {
     const header = row(i);
     const delimiter = row(i + 1);

@@ -5,6 +5,28 @@ All notable changes to this project are documented here. Versions follow
 may change in a minor release — each such change is listed under **Changed**
 with the flag that restores the previous behaviour.
 
+## Unreleased
+
+A pattern too large to compile is refused where it was thrown, and spec-core
+is at f9ce375.
+
+### Fixed
+
+- **A pattern too large to compile is refused, not thrown.** A pattern whose
+  automaton would pass 65,536 states, as a literal of 65,536 characters does,
+  given as a spec pattern on the command line or `--spec` ended a run,
+  `query`, `impact`, `cites`, `prove` and `mcp` with a stack trace and exit 1;
+  `--exclude` printed `AutomatonTooLarge:` above the usage; and a directive,
+  the configuration and a `cites` files template gave the reason alone,
+  naming neither the pattern nor where it was written. Each now refuses it
+  as it refuses any pattern it cannot read, with spec-core's reason -
+  `invalid spec pattern "<pattern>": the pattern compiles to more than 65536
+  states` - exit 2 on the command line, for `specs`, `exclude` and `cites` in
+  the configuration and for `--exclude`, and in `glob`, `exclude`, `module`,
+  `order`, `pattern`, `dirs` and `required` an invalid directive, exit 1.
+  [ADR-0015](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0015-globs-from-spec-core.md)'s
+  amendment.
+
 ## 0.13.0
 
 Front matter that opens and never closes is a warning, and spec-core is at

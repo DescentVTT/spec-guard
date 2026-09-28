@@ -160,9 +160,9 @@ can never exclude anything:
 
 So is any pattern the glob engine cannot read - an unclosed `[` or `{`, an
 extended glob such as `+(a|b)`, a range that runs backwards, `**` inside a
-name - rather than being read as a literal that excludes nothing. The same goes
-for `glob`, `module`, `order` and the structure rules' patterns, and for a spec
-pattern.
+name, one too large to compile - rather than being read as a literal that
+excludes nothing. The same goes for `glob`, `module`, `order` and the
+structure rules' patterns, and for a spec pattern.
 
 `**` means any number of directories only as a whole segment. `docs/**.md` is
 refused, with the two ways to say what was meant, written from the pattern:

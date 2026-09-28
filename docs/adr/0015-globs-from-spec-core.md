@@ -51,8 +51,13 @@ reference definition no longer interrupts a paragraph, a definition's label
 holds no unescaped bracket and at most 999 characters, and a second bracket
 that is no label leaves the first read as a shortcut, each as CommonMark has
 it. Nothing here reads a scan's links, so nothing spec-guard reports changed
-with it. `VENDOR.json` records the commit and the SHA-256 of every file.
-Nothing in this repository edits them.
+with it. An eighth, from `f9ce375`, changed `pattern`, and `markdown` and
+`text` in comments only: a trailing `/` on a brace alternative is read as it
+is on the alternative written alone, and a pattern past the automaton's state
+ceiling is refused with a reason rather than thrown. Both reach what a user
+sees; the amendment of 2026-09-28 below says how the second does.
+`VENDOR.json` records the commit and the SHA-256 of every file. Nothing in
+this repository edits them.
 
 spec-core's `LICENSE` lies beside the copies, and `package.json` names it in
 `files`: the package carries spec-core's compiled code under
@@ -211,6 +216,19 @@ differences below, so the adoption changed exactly what this ADR says it did.
   typo whose empty alternative matched the empty string. Only the loop that
   tested a path's ancestors stopping short of the empty one kept it from
   excluding the whole tree.
+- **Amended 2026-09-28: a pattern too large to compile is refused as a
+  malformed one is.** spec-core refuses braces that expand to more than 256
+  patterns, and a pattern whose automaton would pass 65,536 states: a literal of
+  65,536 characters is one. Until the copy from `f9ce375` it threw the second.
+  A spec pattern on the command line or `--spec` ended the process with a stack
+  trace and exit 1, `--exclude` printed `AutomatonTooLarge:` above the usage,
+  and a directive, the configuration and a `cites` files template gave the
+  reason alone, naming neither the pattern nor where it was written. Every door
+  now refuses it as it refuses a pattern it cannot read, with spec-core's
+  reason: `invalid glob pattern "<pattern>": the pattern compiles to more
+  than 65536 states`. A directive holding one is invalid, exit 1, and one on
+  the command line, in `specs`, `exclude` or `cites` in the configuration, or
+  given to `--exclude` is exit 2.
 
 ### Both engines, one reading
 

@@ -295,7 +295,10 @@ function readBrackets(layout: Layout, definitions: ReadonlyMap<string, Definitio
   // structure mask blanks, so those two tests shape the runs and change no
   // link. A definition's line is no paragraph's: it holds a label, a
   // destination and a title, none of them a link, and the text after it is a
-  // paragraph of its own, whose brackets pair with nothing before it.
+  // paragraph of its own, whose brackets pair with nothing before it. Past
+  // the last line there is no line, and `continues` holds nothing there, so
+  // no run reaches past it: the loop below could take one step more, and the
+  // test for a line that is not there could go.
   const inParagraph = (i: number): boolean => {
     const line = lines[i];
     return line !== undefined && isMarkdown(line) && !line.blank && !defined.has(i + 1);
@@ -418,6 +421,8 @@ function readBrackets(layout: Layout, definitions: ReadonlyMap<string, Definitio
         // when a pair lies inside it, or more than 999 characters; one that is
         // not leaves the first bracket to be read as a shortcut.
         const refClose = pairs.get(close + 1);
+        // With no second bracket the length is NaN and the comparison false,
+        // so the first test only narrows the type.
         if (refClose !== undefined && refClose - close - 2 <= MAX_LABEL && !brackets.nested.has(close + 1)) {
           // `[text][]` is read through its text; `[text][label]` through its label.
           const collapsed = text.slice(close + 2, refClose).trim() === '';
@@ -450,6 +455,8 @@ function readBrackets(layout: Layout, definitions: ReadonlyMap<string, Definitio
       const link = passed ? null : bracket(at, at, image, line);
       reach.push(Math.max(reach[reach.length - 1] as number, link === null ? from : link.end));
       const around = brackets.outer.get(at);
+      // `holding` is asked only about offsets, so the first test only
+      // narrows the type.
       if (around !== undefined && (holding.has(at) || (link !== null && !image))) holding.add(around);
     }
 
@@ -459,7 +466,10 @@ function readBrackets(layout: Layout, definitions: ReadonlyMap<string, Definitio
     // `textEnd` is -1 or a `]` that closes a `[`, so never 0, and the `]` is
     // read as no link. Leaving one step later, past it, resumes at the same
     // place, or ends the paragraph where a shortcut link ended it anyway: the
-    // test below reads the same with `textEnd > 0` or `at > textEnd`.
+    // test below reads the same with `textEnd > 0` or `at > textEnd`, and so
+    // does the one further into the loop with `textEnd > 0`. `resume` is read
+    // only while `textEnd` is set, and the two are set together, so its first
+    // value is never read.
     let textEnd = -1;
     let resume = -1;
     while (at < to) {
@@ -497,6 +507,9 @@ function readBrackets(layout: Layout, definitions: ReadonlyMap<string, Definitio
         if (!link.image && link.form !== 'wiki') {
           textEnd = pairs.get(at) as number;
           resume = link.end;
+          // Into the text. A step back instead reads the character before
+          // the `[`, which opens nothing there - it opened no link before
+          // this one, or it is escaped - and comes back here.
           at += 1;
         } else {
           at = link.end;

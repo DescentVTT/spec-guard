@@ -25,13 +25,20 @@ export const SLASH = 0x2f;
 export const DOT = 0x2e;
 export const MAX_CODE_POINT = 0x10ffff;
 
-/** The separator, and nothing else. */
+/**
+ * The separator, and nothing else. `separator` is what `accepts` asks; the
+ * range is read only for the points a witness search tries, and `/` and `0`,
+ * the point after it, are tried whatever the sets hold.
+ */
 export const SEPARATOR: CharSet = { negated: false, ranges: [[SLASH, SLASH]], separator: true };
 
 /** Any character but the separator: `?`, and the body of `*`. */
 export const ANY: CharSet = { negated: true, ranges: [], separator: false };
 
 export function literalSet(point: number): CharSet {
+  // A glob's literals are read from inside one segment, so none is `/` and
+  // `separator` is false for every one compiled; it is computed so the set
+  // holds true for any point it is given.
   return { negated: false, ranges: [[point, point]], separator: point === SLASH };
 }
 

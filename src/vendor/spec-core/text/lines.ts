@@ -39,6 +39,8 @@ const CR = 13;
 /** Offsets at which each line starts; index 0 is line 1. */
 export function lineStarts(text: string): number[] {
   const starts: number[] = [0];
+  // One step past the end reads NaN, no terminator, so the bound could be one
+  // further and give the same table.
   for (let i = 0; i < text.length; i += 1) {
     const ch = text.charCodeAt(i);
     if (ch === LF) {
@@ -58,6 +60,8 @@ export function lineStarts(text: string): number[] {
 export function createLineIndex(text: string): LineIndex {
   const starts = lineStarts(text);
   const lineCount = starts.length;
+  // Each clamp, here and in `positionAt`, answers the bound itself at the
+  // bound, so `<=` and `>=` for `<` and `>` give the same answers.
   const clamp = (line: number): number => (line < 1 ? 1 : line > lineCount ? lineCount : line);
   const startOf = (line: number): number => starts[clamp(line) - 1] as number;
   const endOf = (line: number): number => {
@@ -65,6 +69,11 @@ export function createLineIndex(text: string): LineIndex {
     const start = starts[index - 1] as number;
     let end = index === lineCount ? text.length : (starts[index] as number);
     // At most two terminator characters, and never past the line's own start.
+    // With the table `lineStarts` builds, `end > start` never decides: a line
+    // holds no character, terminator included, only in the empty text, and
+    // one that holds only `\n` follows a `\n`, since a `\r` before it would
+    // have made one `\r\n` with it. The guards keep the promise without
+    // leaning on that.
     if (end > start && text.charCodeAt(end - 1) === LF) end -= 1;
     if (end > start && text.charCodeAt(end - 1) === CR) end -= 1;
     return end;
@@ -140,6 +149,7 @@ const NOT_A_TERMINATOR = /[^\n\r]/g;
  */
 export function maskRanges(text: string, ranges: readonly Range[]): string {
   const merged = mergeRanges(ranges);
+  // Only a shortcut: with nothing to blank, the loop below gives the text back.
   if (merged.length === 0) return text;
   let out = '';
   let cursor = 0;
