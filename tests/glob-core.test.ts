@@ -52,7 +52,7 @@ describe('a pattern spec-core cannot read', () => {
     ['!*.ts', 'a negated pattern is a list entry, not a glob; narrow the positive pattern'],
     ['../x/*.ts', 'a pattern cannot climb out of its root with ".."'],
     ['[z-a].ts', 'the range "z-a" runs backwards'],
-    ['{a,}', 'the pattern names no path'],
+    ['{a,}', 'the braces expand to an empty pattern'],
   ])('is refused as a glob: %s', (pattern, reason) => {
     expect(globPatternError(pattern)).toBe(`invalid glob pattern "${pattern}": ${reason}`);
   });
@@ -371,7 +371,6 @@ describe('the globs ripgrep is handed', () => {
     ['{src/,**}', 'include', ['src/**', '**']],
     ['/{src/,a}', 'include', ['/src/**', '/a']],
     ['{src//,a}', 'include', ['src/**', 'a']],
-    ['{./,a}', 'include', ['**', 'a']],
     ['{!a/,b}', 'include', ['/!a/**', 'b']],
     // Only a trailing `/` makes an alternative a directory's contents.
     ['{src,*.md}', 'include', ['src', '*.md']],
@@ -392,6 +391,15 @@ describe('the globs ripgrep is handed', () => {
     ['**/{tests/,*.log}', 'exclude', ['**/tests', '**/*.log']],
   ])('%s as an %s is %j', (pattern, kind, globs) => {
     expect(ripgrepGlobs(kind === 'include' ? normalizeGlob(pattern) : normalizeExclude(pattern), kind)).toEqual(globs);
+  });
+
+  it('is handed no brace alternative that names no path, since spec-core refuses the pattern before anything is searched', () => {
+    // From the copy of f9ce375 until the copy of 56c7e54, `./` inside braces
+    // was the contents of `.`, and `{./,a}` was read and handed to ripgrep as
+    // `**` and `a`: every path. A directive's glob is refused when the
+    // directive is resolved, so ripgrepGlobs is never given one.
+    expect(globPatternError('{./,a}')).toBe('invalid glob pattern "{./,a}": the braces expand to "./", which names no path');
+    expect(globPatternError('.{/}')).toBe('invalid glob pattern ".{/}": the braces expand to "./", which names no path');
   });
 
   // The paths every pattern below is tried against: every path of one to three
@@ -1024,5 +1032,147 @@ describe("a pattern past the automaton's state ceiling, wherever a pattern is gi
     const report = JSON.parse(out.join('\n')) as { summary: { total: number }; errors: Array<{ message: string }> };
     expect(report.summary.total).toBe(0);
     expect(report.errors.map((error) => error.message)).toEqual([`Attribute "glob" has an invalid glob pattern "${LONG}": ${TOO_LARGE}.`]);
+  });
+});
+
+/* ------------------------------ a brace alternative that names no path, everywhere */
+
+describe('a brace alternative that names no path, wherever a pattern is given', () => {
+  // spec-core refuses such an alternative as it refuses the same text written
+  // alone, from its copy of 56c7e54, and names it as the braces expanded it.
+  // From the copy of f9ce375 until then a trailing `/` on an alternative was
+  // read before anything asked whether the alternative named a path, so `./`
+  // inside braces was the contents of `.`: a glob or a spec pattern holding
+  // `{./,a}` was every path. exclude=, module= and a layer, which drop the
+  // slash, refused it already, in words that named no alternative.
+  const NO_PATH = 'the braces expand to "./", which names no path';
+  const TREE = {
+    'docs/rules.md': '# Rules\n\n<!-- @assert-absence target="src" symbol="Nowhere" -->\n',
+    'src/main.ts': 'export {};\n',
+  };
+  const temporary: string[] = [];
+  afterAll(async () => {
+    await Promise.all(temporary.splice(0).map(removeTempRepo));
+  });
+
+  async function run(files: Record<string, string>, argv: string[]): Promise<{ code: number; out: string[]; err: string[] }> {
+    const root = await makeTempRepo(files);
+    temporary.push(root);
+    const out: string[] = [];
+    const err: string[] = [];
+    const cli: CliIO = { stdout: (text) => out.push(text), stderr: (text) => err.push(text), env: { NO_COLOR: '1' }, cwd: root, isTTY: false };
+    return { code: await main(argv, cli), out, err };
+  }
+
+  it.each([
+    ['{./,a}', './'],
+    ['{a,./}', './'],
+    ['{.//,a}', './/'],
+    ['.{/,a}', './'],
+    ['{./}', './'],
+  ])('is refused by every check, naming what the braces expand %s to', (pattern, text) => {
+    const reason = `the braces expand to "${text}", which names no path`;
+    expect(globPatternError(pattern)).toBe(`invalid glob pattern "${pattern}": ${reason}`);
+    expect(specPatternError(pattern)).toBe(`invalid spec pattern "${pattern}": ${reason}`);
+    expect(pathPatternError(pattern)).toBe(`invalid glob pattern "${pattern}": ${reason}`);
+    expect(excludePatternError(pattern)).toBe(`invalid exclude pattern "${pattern}": ${reason}`);
+    expect(modulePatternError(pattern)).toBe(`invalid module pattern "${pattern}": ${reason}`);
+    expect(() => createGlobMatcher([pattern])).toThrow(`invalid glob pattern "${pattern}": ${reason}`);
+    expect(() => createPathMatcher(pattern)).toThrow(`invalid glob pattern "${pattern}": ${reason}`);
+  });
+
+  it.each([
+    ['{.,a}', 'the braces expand to ".", which names no path'],
+    ['{/,a}', 'the braces expand to "/", which names no path'],
+    ['{,a}', 'the braces expand to an empty pattern'],
+    ['{}', 'the braces expand to an empty pattern'],
+  ])('names the alternative %s gives, where its refusal said only that the pattern named no path', (pattern, reason) => {
+    expect(globPatternError(pattern)).toBe(`invalid glob pattern "${pattern}": ${reason}`);
+    expect(excludePatternError(pattern)).toBe(`invalid exclude pattern "${pattern}": ${reason}`);
+  });
+
+  it('refuses a pattern without braces that names no path in the words it always did, since it holds no alternative to name', () => {
+    expect(globPatternError('.')).toBe('invalid glob pattern ".": the pattern names no path');
+    expect(globPatternError('/.')).toBe('invalid glob pattern "/.": the pattern names no path');
+    expect(excludePatternError('/.')).toBe('invalid exclude pattern "/.": the pattern names no path');
+    expect(pathPatternError('/.')).toBe('invalid glob pattern "/.": the pattern names no path');
+  });
+
+  it('reads an alternative that names a path once what is around it is read, as it did', () => {
+    // `src/{./,a}` expands to `src/./`, the contents of `src`, and `src/a`.
+    expect(['src/a.ts', 'src/deep/b.ts', 'lib/a.ts', 'src'].map(createGlobMatcher(['src/{./,a}']))).toEqual([true, true, false, false]);
+    expect(['a', 'a.ts', 'x/a.ts', 'b.ts'].map(createGlobMatcher(['a{,.ts}']))).toEqual([true, true, true, false]);
+    expect(['a', 'x/a', 'b', 'c'].map(createGlobMatcher(['{./a,b}']))).toEqual([true, true, true, false]);
+    expect(['.github/workflows/ci.yml', 'x/a', '.github'].map(createGlobMatcher(['{.github/,a}']))).toEqual([true, true, false]);
+    expect(['a', 'a/b', 'ab'].map(createPathMatcher('a{/,b}'))).toEqual([false, true, true]);
+  });
+
+  it('is refused in a spec pattern below its literal base too, since only what is below the base is read', () => {
+    // A spec pattern is walked from its base and spec-core is given what is
+    // below it alone, so `docs/{./,adr}` is refused as `{./,adr}` is, and as
+    // `docs/{,adr}` always was. Until the copy of 56c7e54 it was everything
+    // under docs, as spec-core reads the whole of it still.
+    expect(specPatternError('docs/{./,adr}')).toBe(`invalid spec pattern "docs/{./,adr}": ${NO_PATH}`);
+    expect(specPatternError('docs/{,adr}')).toBe('invalid spec pattern "docs/{,adr}": the braces expand to an empty pattern');
+    expect(specPatternError('docs/{./a,adr}/*.md')).toBeNull();
+  });
+
+  it.each([
+    ['a run', ['{./,docs}']],
+    ['a run, given --spec', ['--spec', '{./,docs}']],
+    ['query', ['query', 'src/main.ts', '--spec', '{./,docs}']],
+    ['prove', ['prove', '--spec', '{./,docs}']],
+  ])('is exit 2 as a spec pattern on the command line of %s, where it took in every file under the root', async (_, argv) => {
+    const { code, out, err } = await run(TREE, argv);
+    expect(code).toBe(EXIT_ERROR);
+    expect(out).toEqual([]);
+    expect(err).toEqual([`spec-guard: invalid spec pattern "{./,docs}": ${NO_PATH}`]);
+  });
+
+  it("is exit 2 in the configuration's specs, naming the file and the key", async () => {
+    const { code, out, err } = await run({ ...TREE, 'package.json': JSON.stringify({ specGuard: { specs: ['{./,docs}'] } }) }, []);
+    expect([code, out]).toEqual([EXIT_ERROR, []]);
+    expect(err).toEqual([`spec-guard: package.json: "specGuard.specs" has an invalid spec pattern "{./,docs}": ${NO_PATH}.`]);
+  });
+
+  it("is exit 2 given to --exclude or in the configuration's exclude, as it was, now naming the alternative", async () => {
+    // --exclude splits on commas, as a list attribute does, so a group it holds
+    // has one alternative: `{./,a}` there is `{./` and `a}`, refused for the
+    // brace that never closes, before and after.
+    const option = await run(TREE, ['--exclude', '{./}', '--engine', 'js']);
+    expect([option.code, option.out]).toEqual([EXIT_ERROR, []]);
+    expect(option.err[0]).toBe(`Option --exclude has an invalid exclude pattern "{./}": ${NO_PATH}.`);
+
+    const configured = await run({ ...TREE, '.spec-guard.json': JSON.stringify({ exclude: ['{./,a}'] }) }, ['--engine', 'js']);
+    expect([configured.code, configured.out]).toEqual([EXIT_ERROR, []]);
+    expect(configured.err).toEqual([`spec-guard: .spec-guard.json: "exclude" has an invalid exclude pattern "{./,a}": ${NO_PATH}.`]);
+  });
+
+  // A list attribute splits on commas, so the group it can hold has one
+  // alternative; dirs= is one pattern, and holds two.
+  it.each([
+    ['glob="{./}"', '<!-- @assert-absence target="src" symbol="X" glob="{./}" -->', 'Attribute "glob" has an invalid glob pattern "{./}"'],
+    ['glob=".{/}"', '<!-- @assert-absence target="src" symbol="X" glob=".{/}" -->', 'Attribute "glob" has an invalid glob pattern ".{/}"'],
+    ['pattern="{./}"', '<!-- @assert-structure target="src" pattern="{./}" -->', 'Attribute "pattern" has an invalid glob pattern "{./}"'],
+    ['exclude="{./}"', '<!-- @assert-absence target="src" symbol="X" exclude="{./}" -->', 'Attribute "exclude" has an invalid exclude pattern "{./}"'],
+    ['module="{./}"', '<!-- @assert-import-absence target="src" module="{./}" -->', 'Attribute "module" has an invalid module pattern "{./}"'],
+    ['order="domain, {./}"', '<!-- @assert-layers target="src" order="domain, {./}" -->', 'Attribute "order" has an invalid layer pattern "{./}"'],
+    ['dirs="{./,d}"', '<!-- @assert-structure target="packages" dirs="{./,d}" required="package.json" -->', 'Attribute "dirs" has an invalid glob pattern "{./,d}"'],
+  ])('makes a directive with %s invalid, naming the attribute and the pattern', (_, source, message) => {
+    const { directives, errors } = parseDirectives(source, { file: path.resolve('/virtual/docs/a.md'), relativeFile: 'docs/a.md' });
+    expect(errors).toEqual([]);
+    const resolved = resolveDirective(directives[0] as NonNullable<(typeof directives)[0]>, { root: path.resolve('/virtual'), excludeFiles: new Set() });
+    expect('error' in resolved ? resolved.error.message : null).toBe(`${message}: ${NO_PATH}.`);
+  });
+
+  it('fails a run whose glob holds it, where the rule searched every file in its target and passed', async () => {
+    const { code, out } = await run(
+      { ...TREE, 'docs/rules.md': '# Rules\n\n<!-- @assert-absence target="src" symbol="Nowhere" glob="{./}" -->\n' },
+      ['--json', '--engine', 'js'],
+    );
+    expect(code).toBe(EXIT_FAILED);
+    const report = JSON.parse(out.join('\n')) as { summary: { total: number }; errors: Array<{ message: string }> };
+    expect(report.summary.total).toBe(0);
+    expect(report.errors.map((error) => error.message)).toEqual([`Attribute "glob" has an invalid glob pattern "{./}": ${NO_PATH}.`]);
   });
 });

@@ -1,6 +1,6 @@
 {
   "source": "https://github.com/DescentVTT/spec-core",
-  "commit": "f9ce37519aeaa2a7a990847c0f2389be8e9c6403",
+  "commit": "56c7e5466e1c35692810827435cfb419a401b7ec",
   "modules": {
     "jsonrpc": {
       "files": {
@@ -32,7 +32,7 @@
       "files": {
         "automaton.ts": "sha256-83c5f0cc7c06e0e072543e0829b61e4f663da29af5cc2142d5056d0edada4b27",
         "charset.ts": "sha256-0dff9f4eae0d29532bfa71840d560bb65e79b79fa805dcf6e9fd8e9047cb0448",
-        "glob.ts": "sha256-1817521cc83bc61720818a73faecbe7b6f5e019fbda5951bddbd268cffd4d0ce",
+        "glob.ts": "sha256-092f3a15644c30d233d2d7be5fe55eab09a4998fe89c412ae1a298f99f81667d",
         "index.ts": "sha256-ef2ebf1aca4dd1be073f15432a3c23b83bd10bbf5cd1e415ecd6e6b5c9a197ba",
         "regex.ts": "sha256-be88d0d57af98e0bcbfb7cb3242d7333066e7be10664e31397d779bac0cff928"
       }

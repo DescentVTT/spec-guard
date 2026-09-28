@@ -29,6 +29,8 @@
  * - Braces expand first, and each alternative reads as it would written on
  *   its own: `{src/,lib}` is `src/` or `lib`, and a trailing `/` means the
  *   directory's contents - in an exclusion, the directory and its contents.
+ *   One that names no path, `{./,lib}` or `{,lib}`, is refused, as `./` and
+ *   the empty pattern are.
  * - Case is the caller's decision, stated every time. A result must not
  *   depend on the host it ran on.
  * - A malformed pattern is an error, never a literal. An unclosed `[` or `{`,
@@ -169,6 +171,11 @@ function build(source: string, options: GlobOptions): Glob | string {
 
   const alternatives: Alternative[] = [];
   for (const text of expanded) {
+    // Refused before its trailing slash is read, which would make `./` the
+    // contents of `.`, every path: `{./,a}` is refused as `./` alone is.
+    // Each text the braces give is shorter than the pattern, so only a
+    // pattern without braces is its own text.
+    if (namesNoPath(text)) return text === pattern ? 'the pattern names no path' : bracesNamingNoPath(text);
     const parsed = parseAlternative(trailingSlash(text, options.dialect), escapes);
     if (parsed === GLOBSTAR_IN_NAME) return `${GLOBSTAR_IN_NAME}: ${globstarAdvice(written)}`;
     if (typeof parsed === 'string') return parsed;
@@ -305,6 +312,19 @@ function classEnd(pattern: string, open: number, escapes: boolean): number {
 
 /* ---------------------------------------------------------------- segments */
 
+/** Whether a pattern's text names no path: nothing in it but `/` and `.` segments. */
+function namesNoPath(text: string): boolean {
+  return text.split('/').every((part) => part === '' || part === '.');
+}
+
+/**
+ * The refusal of an alternative the braces give that names no path, naming
+ * it as it was expanded, so that `.{/,a}` is told `./`, the text refused.
+ */
+function bracesNamingNoPath(text: string): string {
+  return text === '' ? 'the braces expand to an empty pattern' : `the braces expand to "${text}", which names no path`;
+}
+
 /**
  * What a trailing slash means, read on each alternative the braces give, so
  * that `{src/,lib}` reads `src/` as `src/` alone reads: the directory's
@@ -313,18 +333,22 @@ function classEnd(pattern: string, open: number, escapes: boolean): number {
  * In an exclusion `build/` excludes what `build` does. Git's rule is that a
  * trailing slash matches only a directory, and a directory is excluded with
  * everything in it; a matcher that sees only a path cannot tell a directory
- * from a file, so the slash is dropped, and it anchors nothing. An
- * alternative that is only slashes names the root, which `parseAlternative`
- * refuses as naming no path.
+ * from a file, so the slash is dropped, and it anchors nothing.
  *
- * The whole run of slashes is taken, so that `{//,a}` is refused as `{/,a}`
- * is; taken lazily it is the whole run all the same, since it ends the text.
+ * Only ever given a text that names a path, so a name is left. The whole run
+ * of slashes is taken, but one slash would read the same, since
+ * `parseAlternative` drops the empty segments the rest leave; and taken
+ * lazily it is the whole run all the same, since it ends the text.
  */
 function trailingSlash(text: string, dialect: GlobDialect): string {
   const name = text.replace(/\/+$/, '');
-  return name === text || name === '' || dialect === 'gitignore' ? name : `${name}/**`;
+  return name === text || dialect === 'gitignore' ? name : `${name}/**`;
 }
 
+/**
+ * The segments of a text that names a path - `build` refuses one that does
+ * not - so at least one segment is left.
+ */
 function parseAlternative(text: string, escapes: boolean): Alternative | string {
   const segments: Segment[] = [];
   const raw = text.split('/');
@@ -339,7 +363,6 @@ function parseAlternative(text: string, escapes: boolean): Alternative | string 
     if (typeof tokens === 'string') return tokens;
     segments.push({ kind: 'name', tokens });
   }
-  if (segments.length === 0) return 'the pattern names no path';
   return { segments, slashed: raw.filter((part) => part !== '' && part !== '.').length > 1 };
 }
 
