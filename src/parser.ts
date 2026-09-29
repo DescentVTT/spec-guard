@@ -31,6 +31,7 @@ import {
   titleOf,
   type Block,
   type FrontMatterBlock,
+  type Heading,
   type MarkdownScan,
 } from './vendor/spec-core/markdown/index.js';
 import type {
@@ -194,34 +195,57 @@ export const INACTIVE_STATUSES: ReadonlySet<string> = new Set([
  */
 const STATUS_LABEL_RE = /^[ \t]{0,3}(?:(\*\*|__)status(?:\1[ \t]*:|[ \t]*:\1)|status[ \t]*:)(.*)/i;
 
+/** A status line read: the status, or no status and why, where there is more to say than that no word begins it. */
+type StatusRead = { readonly status: SpecStatus } | { readonly reason?: string };
+
 /**
- * Turns a status line into a status, or into nothing.
+ * Turns a status line into a status, or into why it is none.
  *
  * The value is the first run of letters, so "Accepted (0.3.0)." and
  * "Superseded by ADR-0007" normalise to one word while the line as written
  * survives for the report - a reader shown "superseded" learns much less than
  * one shown what it was superseded by.
  */
-function toStatus(raw: string, source: SpecStatus['source']): SpecStatus | undefined {
+function toStatus(raw: string, source: SpecStatus['source']): StatusRead {
   const trimmed = raw.trim();
   // The word is read through any leading emphasis, so `**Superseded** by
   // ADR-0007` is superseded rather than nothing at all - which is what a rule
   // that required the markers to balance made of it.
   const word = /^[*_]*([a-zA-Z]+)/.exec(trimmed);
-  if (!word) return undefined;
+  if (!word) return {};
   // The label loses emphasis only when it wraps the whole line. `**Draft**` is
   // a status written in bold and reads better without the markers; "Superseded
   // by *ADR-0007*" is a sentence with emphasis inside it, and taking one marker
   // off each end would put a half-mangled line in the report.
   const label = trimmed.replace(/^(\*{1,2}|_{1,2})(.*)\1$/, '$2');
   const value = (word[1] as string).toLowerCase();
-  return { value, label, source, active: !INACTIVE_STATUSES.has(value) };
+  return { status: { value, label, source, active: !INACTIVE_STATUSES.has(value) } };
 }
 
-/** A document's status as read, or why front matter's could not be, and on which line. */
+/** Why a status written as `text` cannot be read: the reason it was given, or what the text holds. */
+function unreadable(text: string, reason: string | undefined): string {
+  return reason ?? (text.trim() === '' ? 'it is empty' : `"${text}" does not begin with a word`);
+}
+
+/** A document's status as read, or why the status it declares could not be, and on which line. */
 interface StatusReading {
   status?: SpecStatus;
   problem?: { line: number; message: string };
+}
+
+/**
+ * The reading of a status written in the body - a section, or a label - on
+ * `line`: the status, or a warning there that it cannot be read, which keeps
+ * the document in force. `subject` names where it was written.
+ */
+function decided(read: StatusRead, line: number, text: string, subject: string, below: string): StatusReading {
+  if ('status' in read) return { status: read.status };
+  return {
+    problem: {
+      line,
+      message: `${subject} cannot be read (${unreadable(text, read.reason)}), so its status is unrecognised and the document stays in force${below}`,
+    },
+  };
 }
 
 /**
@@ -264,10 +288,9 @@ function fromFrontmatter(scan: MarkdownScan): StatusReading | undefined {
   const declared =
     block.kind === 'toml' ? tomlStatus(block.raw, (offset) => scan.index.positionAt(block.start + offset).line) : yamlStatus(scan, block);
   if (declared === undefined) return undefined;
-  const status = 'text' in declared ? toStatus(declared.text, 'frontmatter') : undefined;
-  if (status !== undefined) return { status };
-  const reason =
-    'reason' in declared ? declared.reason : declared.text.trim() === '' ? 'it is empty' : `"${declared.text}" does not begin with a word`;
+  const read = 'text' in declared ? toStatus(declared.text, 'frontmatter') : declared;
+  if ('status' in read) return { status: read.status };
+  const reason = unreadable('text' in declared ? declared.text : '', read.reason);
   return {
     problem: {
       line: declared.line,
@@ -500,27 +523,37 @@ function tomlStatus(raw: string, lineAt: (offset: number) => number): Declared |
   return undefined;
 }
 
+/** What a status in the body that cannot be read says of the spellings ranked below it. */
+const NOT_READ_BELOW = '; a status written elsewhere in the document is not read in its place';
+
 /**
- * A `## Status` section, whose value is the first line of prose under it.
+ * A `## Status` section, whose value is the first line of prose under it,
+ * before the next heading.
  *
  * The section is a heading the scanner reads - ATX or setext, at any level, and
  * never one inside code or a comment, which is where a template keeps a
  * `## Status` it has not filled in. Its text is compared whole, so `## Status
  * of the migration` is a section about something else.
  *
- * A section with nothing but the next heading under it declares no status.
- * There is no guard for that here: an ATX heading begins with `#`, and a value
- * that does not begin with a letter is already no status at all.
+ * A section that is there decides, as front matter's key does: one whose value
+ * cannot be read - nothing under it before the next heading, or a line that
+ * begins with no word - keeps the document in force, says so on that line, and
+ * the label is not read in its place. It used to be: `## Status` over
+ * `2024-05-01: accepted` handed over to a `Status: draft` line in the preamble,
+ * and a status that cannot be read withheld a document by accident.
  */
-function fromHeading(scan: MarkdownScan): SpecStatus | undefined {
-  const heading = scan.headings.find((candidate) => candidate.text.toLowerCase() === 'status');
-  if (heading === undefined) return undefined;
+function fromHeading(scan: MarkdownScan): StatusReading | undefined {
+  const at = scan.headings.findIndex((candidate) => candidate.text.toLowerCase() === 'status');
+  if (at === -1) return undefined;
+  const heading = scan.headings[at] as Heading;
+  const next = scan.headings[at + 1];
+  const subject = `the status under the heading "${heading.text}"`;
   const view = scan.masks.directives;
-  for (const line of scan.lines.slice(heading.endLine)) {
+  for (const line of scan.lines.slice(heading.endLine, next === undefined ? undefined : next.line - 1)) {
     const candidate = view.slice(line.start, line.end).trim();
-    if (candidate.length > 0) return toStatus(candidate, 'heading');
+    if (candidate.length > 0) return decided(toStatus(candidate, 'heading'), line.line, candidate, subject, NOT_READ_BELOW);
   }
-  return undefined;
+  return decided({}, heading.line, '', subject, NOT_READ_BELOW);
 }
 
 /**
@@ -530,14 +563,15 @@ function fromHeading(scan: MarkdownScan): SpecStatus | undefined {
  * or deeper - because this form is a line of prose with a colon in it, and a
  * tool that accepts one anywhere in a long document will eventually find one in
  * a sentence. The bound is a heading the scanner reads, so a `##` shown in code
- * or kept in a comment does not end the preamble early.
+ * or kept in a comment does not end the preamble early. The first such line
+ * decides, and one whose value cannot be read says so, as a section does.
  */
-function fromLabel(scan: MarkdownScan): SpecStatus | undefined {
+function fromLabel(scan: MarkdownScan): StatusReading | undefined {
   const section = scan.headings.find((heading) => heading.level >= 2);
   const view = scan.masks.directives;
   for (const line of section === undefined ? scan.lines : scan.lines.slice(0, section.line - 1)) {
     const found = STATUS_LABEL_RE.exec(view.slice(line.start, line.end));
-    if (found) return toStatus(found[2] as string, 'label');
+    if (found) return decided(toStatus(found[2] as string, 'label'), line.line, (found[2] as string).trim(), 'the status label', '');
   }
   return undefined;
 }
@@ -562,7 +596,7 @@ export function parseStatus(source: string): SpecStatus | undefined {
 }
 
 function statusOf(scan: MarkdownScan): StatusReading {
-  return fromFrontmatter(scan) ?? { status: fromHeading(scan) ?? fromLabel(scan) };
+  return fromFrontmatter(scan) ?? fromHeading(scan) ?? fromLabel(scan) ?? {};
 }
 
 /**
