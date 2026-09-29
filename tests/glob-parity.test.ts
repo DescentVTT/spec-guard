@@ -25,6 +25,7 @@ function tree(): Promise<string> {
   treeOnce ??= makeTempRepo(
     Object.fromEntries(
       [
+        '!b',
         'a.ts',
         'README.md',
         'x.log',
@@ -62,6 +63,7 @@ interface Case {
 }
 
 const EVERY = [
+  '!b',
   'README.md',
   'a.ts',
   'c/d.log',
@@ -103,6 +105,8 @@ const cases: Case[] = [
   { name: 'a leading / on a name', globs: ['/*.ts'], files: ['a.ts', '}a.ts'] },
   { name: 'a leading / on a path', globs: ['/src/*.ts'], files: ['src/a.ts'] },
   { name: 'a leading / on braces', globs: ['/{a,src/a}.ts'], files: ['a.ts', 'src/a.ts'] },
+  // A ! after the leading / is part of a name at the root, not a negation.
+  { name: 'a leading / before a !', globs: ['/!b', '/src/!a'], files: ['!b', 'src/!a'] },
   // An alternative that ends in `/` is the directory's contents, as a whole
   // pattern that ends in one is: never the file `lib/src`, which the scanner's
   // segment shortcut and ripgrep's `src` both took for it before.
