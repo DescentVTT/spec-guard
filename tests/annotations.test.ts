@@ -76,7 +76,7 @@ describe('a run\'s findings', () => {
       },
       {
         rule: 'invalid-directive',
-        identity: ['invalid-directive', 'docs/rules.md', '@assert-count requires expected="...", min="..." or max="...".'],
+        identity: ['invalid-directive', 'docs/rules.md', '<!-- @assert-count symbol="X" -->'],
         level: 'error',
         severity: 'major',
         file: 'docs/rules.md',
@@ -211,7 +211,7 @@ describe('a proof\'s findings', () => {
     expect(annotations.map(({ identity }) => identity)).toEqual([
       ['rule-cannot-fail', 'docs/rules.md', 'assert-absence', '"Legacy" must not appear in src'],
       ['rule-unprovable', 'docs/rules.md', 'assert-absence', '"there" must not appear in src'],
-      ['invalid-directive', 'docs/rules.md', 'Unknown directive "@assert-bogus". Expected one of: @assert-absence, @assert-count, @assert-present, @assert-import-absence, @assert-import-count, @assert-import-cycle, @assert-layers, @assert-structure.'],
+      ['invalid-directive', 'docs/rules.md', '<!-- @assert-bogus -->'],
       ['not-in-force', 'docs/draft.md'],
     ]);
   });
@@ -268,6 +268,19 @@ describe('GitLab Code Quality', () => {
       sha256('ghost-citation', 'src/ledger.rs', 'ADR-{n}', 'ADR-0099', '2'),
     ]);
     expect(gitlab([{ ...annotation, line: 0 }])[0]?.location).toEqual({ path: 'src/ledger.rs', lines: { begin: 1 } });
+  });
+
+  it('gives a directive that cannot be read the fingerprint it had while its message is worded again and its line moves', async () => {
+    const report = await runSpecGuard({ patterns: ['docs/*.md'], root: ROOT, io: memoryIo(ROOT, TREE) });
+    const fingerprints = (errors: typeof report.errors): string[] => gitlab(runAnnotations({ ...report, results: [], inactiveSpecs: [], errors })).map((issue) => issue.fingerprint);
+    const [error] = report.errors;
+    const before = fingerprints(report.errors);
+    const reworded = fingerprints([{ ...(error as NonNullable<typeof error>), message: 'a count needs a bound', location: { ...(error as NonNullable<typeof error>).location, line: 40 } }]);
+    expect(reworded).toEqual(before);
+    expect(before).toEqual([sha256('invalid-directive', 'docs/rules.md', '<!-- @assert-count symbol="X" -->')]);
+    // Another directive is another finding, and the same one written twice is two.
+    expect(fingerprints([{ ...(error as NonNullable<typeof error>), raw: '<!-- @assert-count symbol="Y" -->' }])).not.toEqual(before);
+    expect(fingerprints([error as NonNullable<typeof error>, error as NonNullable<typeof error>])).toEqual([before[0], sha256('invalid-directive', 'docs/rules.md', '<!-- @assert-count symbol="X" -->', '1')]);
   });
 
   it('gives a failing assertion the fingerprint it had while its count and its line change', async () => {
