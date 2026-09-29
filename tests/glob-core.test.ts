@@ -237,6 +237,51 @@ describe('a brace alternative that starts with /', () => {
   });
 });
 
+/*
+ * A glob that starts with `/` is asked of spec-core as written, its leading
+ * slashes kept, as the same text is asked inside braces. They were taken off
+ * first, so what spec-core said was about the rest.
+ */
+describe('a glob that starts with /, asked of spec-core as written', () => {
+  it('reads a ! after the slash as part of a name at the root, as it reads the same text inside braces', () => {
+    expect(globPatternError('/!a')).toBeNull();
+    expect(globPatternError('//!a')).toBeNull();
+    const paths = ['!a', 'x/!a', 'a', 'x'];
+    expect(paths.map(createGlobMatcher(['/!a']))).toEqual([true, false, false, false]);
+    expect(paths.map(createGlobMatcher(['{/!a,x}']))).toEqual([true, false, false, true]);
+    expect(ripgrepGlobs(normalizeGlob('/!a'), 'include')).toEqual(['/!a']);
+    // An exclusion read it so already.
+    expect(paths.map(createExcludeMatcher(['/!a']))).toEqual([true, false, false, false]);
+    // A pattern that starts with the ! is a negation, and is refused as it was.
+    expect(globPatternError('!a')).toBe('invalid glob pattern "!a": a negated pattern is a list entry, not a glob; narrow the positive pattern');
+    expect(excludePatternError('!a')).toBe('invalid exclude pattern "!a": negation patterns are not supported in exclude');
+  });
+
+  it('is told to write what it meant from the root, at every door that reads such a pattern', () => {
+    const advice = (deep: string, flat: string): string => `"**" means any number of directories only as a whole segment: write "${deep}" for any depth, or "${flat}" for one level`;
+    expect(globPatternError('/**.md')).toBe(`invalid glob pattern "/**.md": ${advice('/**/*.md', '/*.md')}`);
+    expect(globPatternError('/docs/**.md')).toBe(`invalid glob pattern "/docs/**.md": ${advice('/docs/**/*.md', '/docs/*.md')}`);
+    expect(globPatternError('//**.md')).toBe(`invalid glob pattern "//**.md": ${advice('//**/*.md', '//*.md')}`);
+    expect(globPatternError('/{a,b}/**.md')).toBe(`invalid glob pattern "/{a,b}/**.md": ${advice('/{a,b}/**/*.md', '/{a,b}/*.md')}`);
+    expect(specPatternError('/**.md')).toBe(`invalid spec pattern "/**.md": ${advice('/**/*.md', '/*.md')}`);
+    expect(specPatternError('/{a,b}/**.md')).toBe(`invalid spec pattern "/{a,b}/**.md": ${advice('/{a,b}/**/*.md', '/{a,b}/*.md')}`);
+    expect(specPatternError('//**.md')).toBe(`invalid spec pattern "//**.md": ${advice('//**/*.md', '//*.md')}`);
+    // The doors that read the pattern whole already kept the root.
+    expect(excludePatternError('/**.md')).toBe(`invalid exclude pattern "/**.md": ${advice('/**/*.md', '/*.md')}`);
+    expect(modulePatternError('/**.md', 'layer')).toBe(`invalid layer pattern "/**.md": ${advice('/**/*.md', '/*.md')}`);
+    expect(pathPatternError(normalizeDirs('/**.md/'), '/**.md/')).toBe(`invalid glob pattern "/**.md/": ${advice('/**/*.md', '/*.md')}`);
+    // Without a leading slash the advice is what it was.
+    expect(globPatternError('**.md')).toBe(`invalid glob pattern "**.md": ${advice('**/*.md', '*.md')}`);
+    expect(specPatternError('**.md')).toBe(`invalid spec pattern "**.md": ${advice('**/*.md', '*.md')}`);
+  });
+
+  it('is refused past the state ceiling spec-core gives it with its slash', () => {
+    const longest = `/${'a'.repeat(65_534)}`;
+    expect(globPatternError(longest)).toBeNull();
+    expect(globPatternError(`${longest}a`)).toBe(`invalid glob pattern "${longest}a": the pattern compiles to more than 65536 states`);
+  });
+});
+
 describe('a name a module pattern matches', () => {
   it('is the pattern itself for a literal, one just below it for a glob, and none for what is not a pattern', () => {
     expect(moduleWitness('node:fs')).toBe('node:fs');
@@ -750,6 +795,9 @@ describe('spec patterns', () => {
   it('reads a pattern with no slash by name at any depth, as glob= does', async () => {
     expect(await expand(['*.md'])).toEqual(inRepo('README.md', 'docs/a.md', 'docs/adr/b.md'));
     expect(await expand(['./*.md'])).toEqual(inRepo('README.md', 'docs/a.md', 'docs/adr/b.md'));
+    // `.` is a base, though one that names no directory, and below a base the
+    // whole path is matched from where the walk starts.
+    expect(await expand(['././*.md'])).toEqual(inRepo('README.md'));
   });
 
   it('reads a pattern with a slash as the whole path', async () => {
@@ -1282,9 +1330,13 @@ describe('a brace alternative that names no path, wherever a pattern is given', 
     });
 
     it('still refuses what names no path below a base that names no directory: none, the root, or .', async () => {
-      for (const pattern of ['{./,docs}', '/{./,docs}', '//{./,docs}', '././{./,docs}', './/./{./,docs}']) {
+      for (const pattern of ['{./,docs}', '/{./,docs}', '//{./,docs}', '././{./,docs}']) {
         expect(specPatternError(pattern), pattern).toBe(`invalid spec pattern "${pattern}": ${NO_PATH}`);
       }
+      // Below the root spec-core is asked the whole pattern, as glob= asks it,
+      // and names what its braces give there, the `./` after the root kept.
+      expect(specPatternError('.//./{./,docs}')).toBe('invalid spec pattern ".//./{./,docs}": the braces expand to "././", which names no path');
+      expect(globPatternError('/./{./,docs}')).toBe('invalid glob pattern "/./{./,docs}": the braces expand to "././", which names no path');
       await expect(expand('{./,docs}')).rejects.toThrow(`invalid spec pattern "{./,docs}": ${NO_PATH}`);
     });
 
@@ -1431,6 +1483,15 @@ describe('a glob that ends in /, asked of spec-core as it was written', () => {
     // An alternative's own leading / roots it where the whole pattern's does,
     // at the root the walk starts from, as spec-core reads `/{/x,y}` whole.
     expect(await expand('/{/x,y}/*.md')).toEqual([path.resolve(top, 'x/deep.md')]);
+  });
+
+  it('reads a spec pattern below the root as spec-core reads the whole, a ! after the slash part of a name', async () => {
+    const top = path.resolve('/');
+    const io = memoryIo(top, { '!n.md': '', 'n.md': '', 'x/!n.md': '' });
+    const expand = async (pattern: string) => (await expandSpecPatterns([pattern], path.join(top, 'repo'), undefined, io)).map((file) => path.resolve(file));
+    expect(specPatternError('/!*.md')).toBeNull();
+    expect(await expand('/!*.md')).toEqual([path.resolve(top, '!n.md')]);
+    expect(await expand('//!*.md')).toEqual([path.resolve(top, '!n.md')]);
   });
 
   it('keeps the words a glob refused as it is read was refused in', () => {

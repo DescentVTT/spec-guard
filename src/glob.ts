@@ -142,8 +142,7 @@ function slashAsContents(written: string): string {
 
 /**
  * A glob parsed in the form both engines are given, unless spec-core refuses
- * it as written: `read` says what of it spec-core is given to read, and
- * `options` how.
+ * it as written, read as `options` say.
  *
  * spec-core reads a trailing `/` as the directory's contents too, so asking it
  * about the glob as written changes the reading of none it accepts. But `**`
@@ -153,11 +152,11 @@ function slashAsContents(written: string): string {
  * and the `.//` the braces give as it refuses `./`. A glob refused as read
  * keeps the words it was refused in.
  */
-function parseAsWritten(written: string, options: GlobOptions, read: (text: string) => string = (text) => text): GlobParse {
-  const parsed = parseGlob(read(slashAsContents(written)), options);
+function parseAsWritten(written: string, options: GlobOptions): GlobParse {
+  const parsed = parseGlob(slashAsContents(written), options);
   // Only a glob that ends in `/` is read as other than written. Any other,
-  // asked again as written, is answered as it was read, its leading slashes
-  // kept or not, so this decides how long a reading takes and never what it is.
+  // asked again as written, is answered as it was read, so this decides how
+  // long a reading takes and never what it is.
   if (!parsed.ok || !written.endsWith('/')) return parsed;
   const judged = parseGlob(written, options);
   return judged.ok ? parsed : judged;
@@ -307,15 +306,18 @@ const belowReadings = readings();
  * is `/src/*.ts` from the root, or a `.md` at any depth. Otherwise a pattern
  * that is one segment in every alternative is a file name at any depth, and
  * so decided by a path's last segment alone.
+ *
+ * Whether it can be read at all is asked of spec-core as written, its leading
+ * slashes kept, as `{/!a,x}` and `{/**.md,x}` are asked. The slashes were
+ * taken off first, so `/!a` was refused as the negation `!a` is, where
+ * spec-core reads the name `!a` at the root; and `/**.md` was told to write
+ * `*.md` for one level, a name at any depth, rather than `/*.md`.
  */
 function readInclude(pattern: string): Reading {
   return includeReadings(pattern, () => {
     const written = writtenGlob(pattern);
     const normalized = slashAsContents(written);
-    // The first run of slashes, which a pattern that starts with one starts
-    // with. As written it keeps them, so that `/` is refused as naming the
-    // root, and `/./` as `/.` is.
-    const parsed = written.startsWith('/') ? parseAsWritten(written, WHOLE, (text) => text.replace(/\/+/, '')) : parseAsWritten(written, RIPGREP);
+    const parsed = parseAsWritten(written, RIPGREP);
     // In the `path` dialect every alternative is a whole path, so one that
     // ripgrep reads as a name at any depth is written as one.
     const rooted = parsed.ok ? fromWhereRead(normalized, (alternative) => (segmentsOf(alternative).length > 1 ? alternative : `**/${alternative}`)) : null;
@@ -856,6 +858,8 @@ interface SpecGlob {
   reading: Reading;
   /** What a path below the base is put under for `reading` to be asked of it: nothing, or `BASE` and a `/`. */
   under: string;
+  /** Whether spec-core was asked the whole pattern as written, so that what it says names the pattern as it is. */
+  whole: boolean;
 }
 
 /**
@@ -885,9 +889,15 @@ const BASE = 'base';
  * So `docs/{./,adr}` is everything under `docs`, as spec-core reads it whole,
  * where `{./,adr}` alone names no path; and `docs/!*.md` is a name that
  * starts with `!`, where `!*.md` alone is a negation. A base that names no
- * directory - the root in `/{./,a}` or `//{./,a}`, `.` in `././{./,a}` -
- * stands for none, and what is below it is judged alone, as spec-core judges
- * the whole: refused.
+ * directory - `.` in `././{./,a}` - stands for none, and what is below it
+ * is judged alone, as spec-core judges the whole: refused.
+ *
+ * Where the base is the root itself, as in `/*.md` or `/{./,a}`, spec-core
+ * is asked the whole pattern, as `glob=` asks it of a glob that starts with
+ * `/`, and it is read from the root the walk starts at. Asked what is below
+ * the root alone, spec-core refused `/!*.md` as the negation `!*.md` is, and
+ * told `/**.md` to write `**\/*.md` or `*.md`, where it reads the whole as
+ * the names `!*.md` at the root and tells it to write `/**\/*.md` or `/*.md`.
  */
 function readSpecGlob(pattern: string): SpecGlob {
   const written = writtenGlob(pattern);
@@ -896,9 +906,10 @@ function readSpecGlob(pattern: string): SpecGlob {
   // the empty one a trailing `/` leaves, so the glob as written has the base
   // the glob as read has.
   const { base, rest } = globBase(written);
-  const spec = { base, absolute, written };
-  // With no base, what is left is the whole pattern, and reads as glob= does.
-  if (base === '' && !absolute) return { ...spec, reading: readInclude(rest), under: '' };
+  const spec = { base, absolute, written, whole: false };
+  // With no base, or the root for one, the pattern is read as glob= reads it,
+  // from where the walk starts.
+  if (base === '' || (absolute && segmentsOf(base).length === 0)) return { ...spec, whole: true, reading: readInclude(written), under: '' };
   const alone = readBelow(rest);
   return alone.parsed.ok || segmentsOf(base).length === 0
     ? { ...spec, reading: alone, under: '' }
@@ -913,9 +924,7 @@ function readSpecGlob(pattern: string): SpecGlob {
  * spec-core reads `docs/{/adr,x}` whole as `docs//adr` or `docs/x`, and
  * `docs//adr` is `docs/adr`. Given what is below the base alone, it reads
  * `{/adr,x}` from its copy of `7e41240` as `/adr`, under the filesystem's
- * root, which nothing below a base is. Where the base is the root itself,
- * as in `/{/a,b}`, the walk starts there, and spec-core reads the whole as
- * `/a` or `/b`: `a` or `b` below it.
+ * root, which nothing below a base is.
  */
 function readBelow(rest: string): Reading {
   return belowReadings(rest, () => {
@@ -945,10 +954,10 @@ const ADVICE = /write "(.*)" for any depth, or "(.*)" for one level/;
  * `glob=` for the whole pattern, and a base outside the root, whose `..`
  * spec-core refuses, is given it too.
  */
-function specRefusal({ base, reading, under }: SpecGlob): string | null {
+function specRefusal({ base, reading, under, whole }: SpecGlob): string | null {
   if (reading.parsed.ok) return null;
   const { error } = reading.parsed;
-  if (base === '') return error;
+  if (whole) return error;
   const below = (advised: string): string => `${base}/${advised.slice(under.length)}`;
   return error.replace(ADVICE, (_, deep: string, flat: string) => `write "${below(deep)}" for any depth, or "${below(flat)}" for one level`);
 }
