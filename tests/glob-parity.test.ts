@@ -121,6 +121,15 @@ const cases: Case[] = [
     exclude: ['{src/,*.log}'],
     files: without('c/d.log', 'lib/src', 'src/!a', 'src/a.ts', 'src/b.md', 'src/deep/c.ts', 'src/tests/t.ts', 'src/x}y', 'x.log'),
   },
+  // An alternative that starts with `/` is anchored at the root, as the same
+  // text written alone is: never `src/a.ts` for `/a.ts`, and never
+  // `src/tests` for `/tests`, which both engines took it for before.
+  { name: 'an alternative that starts with /, on a path', globs: ['{/src/*.ts,x.log}'], files: ['src/a.ts', 'x.log'] },
+  { name: 'an alternative that starts with /, on a name', globs: ['{/a.ts,x.log}'], files: ['a.ts', 'x.log'] },
+  { name: 'an alternative that starts with /, in nested braces', globs: ['{*.log,{/a.ts,docs/*.md}}'], files: ['a.ts', 'c/d.log', 'docs/a.md', 'x.log'] },
+  { name: 'an alternative that starts with / and ends in /', globs: ['{/docs/,x.log}'], files: ['docs/a.md', 'docs/x/b.md', 'x.log'] },
+  { name: 'an alternative that starts with /, excluded', exclude: ['{/tests,x.log}'], files: without('tests/u.ts', 'x.log') },
+  { name: 'an alternative that starts with /, excluded, in nested braces', exclude: ['{*.log,{/tests,/src/deep}}'], files: without('c/d.log', 'src/deep/c.ts', 'tests/u.ts', 'x.log') },
   // ripgrep applies no glob to a path it is handed by name.
   { name: 'a file target the glob does not match', targets: ['src/a.ts'], globs: ['*.md'], files: [] },
   { name: 'a target inside an excluded directory', targets: ['src/tests'], exclude: ['tests'], files: [] },

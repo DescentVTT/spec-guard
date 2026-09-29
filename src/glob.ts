@@ -301,9 +301,12 @@ const belowReadings = readings();
  * A leading `/` anchors it at the root, as ripgrep reads `-g /src/*.ts` and as
  * `exclude` reads `/build`. spec-core's ripgrep dialect reads it as the root of
  * the filesystem, which no path relative to the root is under, so the slash is
- * dropped and the rest read as a whole path. Otherwise a pattern that is one
- * segment in every alternative is a file name at any depth, and so decided by
- * a path's last segment alone.
+ * dropped and the rest read as a whole path. One leading an alternative of its
+ * braces anchors that alternative alone, since spec-core, from its copy of
+ * `7e41240`, reads it as it reads one leading the pattern: `{/src/*.ts,*.md}`
+ * is `/src/*.ts` from the root, or a `.md` at any depth. Otherwise a pattern
+ * that is one segment in every alternative is a file name at any depth, and
+ * so decided by a path's last segment alone.
  */
 function readInclude(pattern: string): Reading {
   return includeReadings(pattern, () => {
@@ -312,8 +315,11 @@ function readInclude(pattern: string): Reading {
     // The first run of slashes, which a pattern that starts with one starts
     // with. As written it keeps them, so that `/` is refused as naming the
     // root, and `/./` as `/.` is.
-    if (written.startsWith('/')) return { parsed: parseAsWritten(written, WHOLE, (text) => text.replace(/\/+/, '')), shape: 'whole' };
-    const parsed = parseAsWritten(written, RIPGREP);
+    const parsed = written.startsWith('/') ? parseAsWritten(written, WHOLE, (text) => text.replace(/\/+/, '')) : parseAsWritten(written, RIPGREP);
+    // In the `path` dialect every alternative is a whole path, so one that
+    // ripgrep reads as a name at any depth is written as one.
+    const rooted = parsed.ok ? fromWhereRead(normalized, (alternative) => (segmentsOf(alternative).length > 1 ? alternative : `**/${alternative}`)) : null;
+    if (rooted !== null) return { parsed: rooted, shape: 'whole' };
     // The kind decides here only whether a trailing slash on an alternative
     // adds a segment, and any text after the slash is one: a kind naming
     // neither reading, whose lookup adds `undefined`, gives the same shape.
@@ -322,16 +328,48 @@ function readInclude(pattern: string): Reading {
 }
 
 /**
+ * What roots a pattern, or a text its braces give, as spec-core reads it: the
+ * slashes that lead it once the `./` it starts with are dropped, with those
+ * `./`, or nothing. A rooted text is rooted at the filesystem's root in the
+ * `path` and `ripgrep` dialects, and anchored at the repository root in
+ * `gitignore`; `.//docs` is, as `/docs` is.
+ */
+function rootOf(text: string): string {
+  return /^(?:\.\/)*\/+/.exec(text)?.[0] ?? '';
+}
+
+/** Whether a pattern, or a text its braces give, is rooted. */
+function isRooted(text: string): boolean {
+  return rootOf(text) !== '';
+}
+
+/**
+ * A pattern spec-core accepted, read in the `path` dialect from where it is
+ * read when a text its braces give is rooted - each rooted text without its
+ * root, and every other written by `write` - or null when none is. What no
+ * path relative to the root is under, spec-core's reading of a rooted text, is
+ * never what a writer meant by it: `glob="/src/*.ts"` anchors at the root, and
+ * below a spec pattern's base `docs/{/adr,x}` is `docs//adr`, which is
+ * `docs/adr`. The braces are written again around what is left, a brace or a
+ * comma no group took written as a character.
+ */
+function fromWhereRead(pattern: string, write: (text: string) => string): GlobParse | null {
+  const texts = alternatives(pattern, 'include', asCharacter);
+  if (!texts.some(isRooted)) return null;
+  const read = texts.map((text) => (isRooted(text) ? text.slice(rootOf(text).length) : write(text)));
+  return parseGlob(`{${read.join(',')}}`, WHOLE);
+}
+
+/**
  * An exclusion, a module or a layer, as `.gitignore` reads a line: one that is
- * one segment in every alternative, and not anchored by a leading `/`, matches
- * a path when it matches any one of the path's segments.
+ * one segment in every alternative, and none of them anchored by a leading
+ * `/`, matches a path when it matches any one of the path's segments.
  */
 function readExclude(pattern: string): Reading {
   return excludeReadings(pattern, () => {
     const normalized = normalizeExclude(pattern);
     const parsed = parseGlob(normalized, GITIGNORE);
-    const floating = parsed.ok && !normalized.startsWith('/') && oneSegment(normalized, 'exclude');
-    return { parsed, shape: floating ? 'any' : 'whole' };
+    return { parsed, shape: parsed.ok && oneSegment(normalized, 'exclude') ? 'any' : 'whole' };
   });
 }
 
@@ -353,9 +391,13 @@ function segmentsOf(pattern: string): string[] {
   return pattern.split('/').filter((segment) => segment !== '' && segment !== '.');
 }
 
-/** Whether every alternative of a pattern spec-core accepted is one segment, read as `kind` reads it. */
+/**
+ * Whether every alternative of a pattern spec-core accepted is one segment,
+ * read as `kind` reads it, and none is rooted: `{/build,x}` anchors `build`
+ * at the root, as `/build` does, so a segment of a path cannot answer for it.
+ */
 function oneSegment(pattern: string, kind: PatternKind): boolean {
-  return alternatives(pattern, kind).every((alternative) => segmentsOf(alternative).length === 1);
+  return alternatives(pattern, kind).every((alternative) => !isRooted(alternative) && segmentsOf(alternative).length === 1);
 }
 
 /** The predicate a reading produced, or an error naming the pattern as it was written. */
@@ -552,19 +594,20 @@ export function createPathMatcher(pattern: string): (relativePath: string) => bo
  *
  * So the braces are expanded here, one glob per alternative, each alternative
  * is read as `kind` reads it, cleaned of `.` and empty segments and anchored or
- * not by its own shape, and a lone `}` is written as the class `[}]`. Only ever
+ * not by its own shape - by a leading `/` on the pattern or on the alternative
+ * too, since spec-core, from its copy of `7e41240`, reads `{/build,x}` as
+ * `/build` or `x` - and a lone `}` is written as the class `[}]`. Only ever
  * given a pattern spec-core accepts, since a directive's are refused before
  * anything runs.
  */
 export function ripgrepGlobs(normalized: string, kind: PatternKind): string[] {
-  const rooted = normalized.startsWith('/');
   const globs = alternatives(normalized, kind).map((alternative) => {
     const segments = segmentsOf(alternative);
     const text = segments.join('/');
     // ripgrep reads a leading `!` as negation and spec-core reads it as a
     // character. Only an alternative can start with one - a pattern that does
     // is refused - and a prefix that changes nothing else keeps it a character.
-    if (rooted || (segments.length > 1 && text.startsWith('!'))) return `/${text}`;
+    if (isRooted(alternative) || (segments.length > 1 && text.startsWith('!'))) return `/${text}`;
     return text.startsWith('!') ? `**/${text}` : text;
   });
   return [...new Set(globs)];
@@ -590,10 +633,14 @@ const TRAILING_SLASH: Readonly<Record<PatternKind, string>> = { include: '**', e
  * the segment shortcut asked `a.ts` about `src/a.ts` and answered no, and
  * ripgrep was handed `src`, which it matches against a file named `src` at any
  * depth and never against what is under the directory. ADR-0015.
+ *
+ * A `}` no group took is written as the class that matches it, and so is a
+ * comma when `spell` says so: in braces written again it would part two
+ * alternatives, where ripgrep, handed it alone, reads it as itself.
  */
-function alternatives(pattern: string, kind: PatternKind): string[] {
+function alternatives(pattern: string, kind: PatternKind, spell: (token: string) => string = (token) => (token === '}' ? '[}]' : token)): string[] {
   return expandBraces(lex(pattern)).map((tokens) => {
-    const alternative = tokens.map((token) => (token === '}' ? '[}]' : token)).join('');
+    const alternative = tokens.map(spell).join('');
     return alternative.endsWith('/') ? `${alternative}${TRAILING_SLASH[kind]}` : alternative;
   });
 }

@@ -177,6 +177,66 @@ describe('a brace alternative that ends in /', () => {
   });
 });
 
+/*
+ * spec-core reads a leading `/` on a brace alternative as it reads one on the
+ * whole pattern, from the copy of 7e41240: `{/docs,x}` is `/docs` or `x`, where
+ * the slash was dropped. glob= and exclude= anchor a leading `/` at the root,
+ * and now anchor one leading an alternative the same way.
+ */
+describe('a brace alternative that starts with /', () => {
+  it('is anchored at the root to glob=, as the same text written alone is', () => {
+    const matches = createGlobMatcher(['{/src/*.ts,*.md}']);
+    expect(['src/a.ts', 'docs/a.md', 'README.md'].map(matches)).toEqual([true, true, true]);
+    expect(['lib/src/a.ts', 'src/deep/a.ts', 'a.ts'].map(matches)).toEqual([false, false, false]);
+    // One segment is a name at the root only, not at any depth.
+    const named = createGlobMatcher(['{/f.ts,x}']);
+    expect(['f.ts', 'x', 'src/x', 'src/f.ts'].map(named)).toEqual([true, true, true, false]);
+  });
+
+  it('is anchored at the root to exclude=, a module and a layer, as /build is', () => {
+    const excluded = createExcludeMatcher(['{/build,*.log}']);
+    expect(['build', 'build/a.ts', 'x.log', 'src/x.log'].map(excluded)).toEqual([true, true, true, true]);
+    expect(['src/build', 'src/build/a.ts', 'builds/a.ts'].map(excluded)).toEqual([false, false, false]);
+    expect(['node:fs', 'db', 'app/db'].map(createExcludeMatcher(['{/db,node:*}']))).toEqual([true, true, false]);
+  });
+
+  it('means what it means written alone, however the braces nest or what stands around them', () => {
+    const paths = ['a', 'b', 'c', 'x', 'bc', 'ac', 'src/a', 'src/b', 'src/x', 'a/b', 'a/c', 'src/a/b', 'docs/a', 'docs/b/c', 'a,c', 'b,c', 'x/a,c', 'x/b,c', 'a}', 'b}', 'x/b}'];
+    const alone = (patterns: string[]) => (candidate: string) => patterns.some((pattern) => createGlobMatcher([pattern])(candidate));
+    const cases: Array<[string, string[]]> = [
+      ['{/a,x}', ['/a', 'x']],
+      ['{x,{/src/a,b}}', ['x', '/src/a', 'b']],
+      ['{//a,x}', ['//a', 'x']],
+      ['{.//a,x}', ['.//a', 'x']],
+      ['{././/a,x}', ['././/a', 'x']],
+      ['{/./a,x}', ['/./a', 'x']],
+      ['{/a/,x}', ['/a/', 'x']],
+      ['{a,/b}c', ['ac', '/bc']],
+      ['/{a,/src/b}', ['/a', '/src/b']],
+      ['{/docs/*,x}', ['/docs/*', 'x']],
+      // A comma or a brace no group took is a character, beside a rooted
+      // alternative as anywhere.
+      ['{/a,b},c', ['/a,c', 'b,c']],
+      ['{/a,b}}', ['/a}', 'b}']],
+    ];
+    for (const [pattern, each] of cases) expect([pattern, paths.map(createGlobMatcher([pattern]))]).toEqual([pattern, paths.map(alone(each))]);
+    // Those that must not read so, since no alternative starts with the slash:
+    // `a/{/b,c}` is `a//b` or `a/c`, `a{/b,c}` is `a/b` or `ac`.
+    expect(paths.map(createGlobMatcher(['a/{/b,c}']))).toEqual(paths.map(alone(['a/b', 'a/c'])));
+    expect(paths.map(createGlobMatcher(['a{/b,c}']))).toEqual(paths.map(alone(['a/b', 'ac'])));
+    expect(paths.map(createGlobMatcher(['{./a,x}']))).toEqual(paths.map(alone(['a', 'x'])));
+  });
+
+  it('is refused where the same text alone is, in the words it always was', () => {
+    expect(globPatternError('{/,a}')).toBe('invalid glob pattern "{/,a}": the braces expand to "/", which names no path');
+    expect(excludePatternError('{/,a}')).toBe('invalid exclude pattern "{/,a}": the braces expand to "/", which names no path');
+    expect(globPatternError('{/../a,b}')).toBe('invalid glob pattern "{/../a,b}": a pattern cannot climb out of its root with ".."');
+    expect(globPatternError('{/**.md,x}')).toBe(
+      'invalid glob pattern "{/**.md,x}": "**" means any number of directories only as a whole segment: write "{/**/*.md,x}" for any depth, or "{/*.md,x}" for one level',
+    );
+  });
+});
+
 describe('a name a module pattern matches', () => {
   it('is the pattern itself for a literal, one just below it for a glob, and none for what is not a pattern', () => {
     expect(moduleWitness('node:fs')).toBe('node:fs');
@@ -320,6 +380,19 @@ describe('a predicate over one compiled glob', () => {
     ['/tests', 'exclude', 'whole'],
     ['src/tests', 'exclude', 'whole'],
     ['**/dist/**', 'exclude', 'whole'],
+    // An alternative that starts with `/` is anchored at the root, so no one
+    // segment of a path answers for it.
+    ['{/f.ts,x}', 'include', 'whole'],
+    ['{/src/*.ts,x}', 'include', 'whole'],
+    ['{x,{/f.ts,y}}', 'include', 'whole'],
+    ['{.//f.ts,x}', 'include', 'whole'],
+    ['{/build,x}', 'exclude', 'whole'],
+    ['{x,{/build,y}}', 'exclude', 'whole'],
+    ['{.//build,x}', 'exclude', 'whole'],
+    ['{/build/,x}', 'exclude', 'whole'],
+    // A slash after a segment, or after a `.` that is dropped first, anchors nothing.
+    ['{./f.ts,x}', 'include', 'last'],
+    ['{./build,x}', 'exclude', 'any'],
   ])('reads %s as an %s decided by %s of a path', (pattern, kind, shape) => {
     expect(patternShape(pattern, kind)).toBe(shape);
   });
@@ -339,6 +412,20 @@ describe('the globs ripgrep is handed', () => {
     ['/src/*.ts', 'include', ['/src/*.ts']],
     ['//src/*.ts', 'include', ['/src/*.ts']],
     ['/{a,b/c}', 'include', ['/a', '/b/c']],
+    // So does one that leads an alternative, and that alternative alone.
+    ['{/src/*.ts,x}', 'include', ['/src/*.ts', 'x']],
+    ['{/f.ts,x}', 'include', ['/f.ts', 'x']],
+    ['{x,{/f.ts,y}}', 'include', ['x', '/f.ts', 'y']],
+    ['{//f.ts,x}', 'include', ['/f.ts', 'x']],
+    ['{.//f.ts,x}', 'include', ['/f.ts', 'x']],
+    ['{././/f.ts,x}', 'include', ['/f.ts', 'x']],
+    ['{/./f.ts,x}', 'include', ['/f.ts', 'x']],
+    ['{/src/,x}', 'include', ['/src/**', 'x']],
+    ['{a,/b}c', 'include', ['ac', '/bc']],
+    ['/{a,/b}', 'include', ['/a', '/b']],
+    // A slash after a segment starts no alternative: `a//b` is `a/b`.
+    ['a/{/b,c}', 'include', ['a/b', 'a/c']],
+    ['a{/b,c}', 'include', ['a/b', 'ac']],
     // Each alternative is anchored or not by its own shape.
     ['{src/*.ts,*.md}', 'include', ['src/*.ts', '*.md']],
     ['{a/b,c}/d', 'include', ['a/b/d', 'c/d']],
@@ -393,6 +480,10 @@ describe('the globs ripgrep is handed', () => {
     ['{!keep,tmp}', 'exclude', ['**/!keep', 'tmp']],
     [' tests/ ', 'exclude', ['tests']],
     ['//build', 'exclude', ['/build']],
+    ['{/build,x}', 'exclude', ['/build', 'x']],
+    ['{/build/,x}', 'exclude', ['/build', 'x']],
+    ['{x,{/build,y}}', 'exclude', ['x', '/build', 'y']],
+    ['{.//build,x}', 'exclude', ['/build', 'x']],
     // In an exclusion a trailing `/` is dropped, on an alternative as on the
     // whole pattern, and the directory is excluded with everything in it.
     ['{build/,dist}', 'exclude', ['build', 'dist']],
@@ -461,6 +552,17 @@ describe('the globs ripgrep is handed', () => {
     '{src/,**}',
     '/{src/,a}',
     '{!a/,b}',
+    // A leading `/` on an alternative anchors that alternative alone.
+    '{/src/*.ts,x}',
+    '{/a.ts,x}',
+    '{/tests,x}',
+    '{a.md,{/src/a.ts,b}}',
+    '/{a,/src}/a.ts',
+    '{//a.ts,.//b}',
+    '{/src/,a.md}',
+    '{src/a,/a}.ts',
+    'src/{/a.ts,b}',
+    '{/a.ts,src/}',
   ];
 
   /**
@@ -484,18 +586,20 @@ describe('the globs ripgrep is handed', () => {
 
   /**
    * spec-core's own answer for a whole path, in the dialect ADR-0015's table
-   * gives each kind, with no shortcut: `glob=` is `ripgrep`, or `path` from the
-   * root when it starts with `/`, and `exclude=` is `gitignore`.
+   * gives each kind, with no shortcut: `glob=` is `ripgrep`, anchored at the
+   * root where the pattern or an alternative starts with `/`, and `exclude=`
+   * is `gitignore`. spec-core roots such a glob or alternative at the
+   * filesystem's root, so it is asked about the path from there too: `/` and
+   * the path. No alternative here that does not start with `/` matches a path
+   * that does, since none starts with a segment that may be empty.
    */
   const asSpecCore = (pattern: string, kind: 'include' | 'exclude'): ((candidate: string) => boolean) => {
-    const normalized = kind === 'include' ? normalizeGlob(pattern) : normalizeExclude(pattern);
-    const compiled =
-      kind === 'exclude'
-        ? compileGlob(normalized, { dialect: 'gitignore', caseSensitive: true })
-        : normalized.startsWith('/')
-          ? compileGlob(normalized.replace(/^\/+/, ''), { dialect: 'path', caseSensitive: true, literal: 'file' })
-          : compileGlob(normalized, { dialect: 'ripgrep', caseSensitive: true });
-    return (candidate) => compiled.match(candidate);
+    if (kind === 'exclude') {
+      const compiled = compileGlob(normalizeExclude(pattern), { dialect: 'gitignore', caseSensitive: true });
+      return (candidate) => compiled.match(candidate);
+    }
+    const compiled = compileGlob(normalizeGlob(pattern), { dialect: 'ripgrep', caseSensitive: true });
+    return (candidate) => compiled.match(candidate) || compiled.match(`/${candidate}`);
   };
 
   it.each(PATTERNS)('reads %s as spec-core does, on every path, as an inclusion and as an exclusion', (pattern) => {
@@ -657,6 +761,13 @@ describe('spec patterns', () => {
   it("reads a brace alternative that ends in / as the directory's contents, with a base or without", async () => {
     expect(await expand(['{docs/,README.md}'])).toEqual(inRepo('README.md', 'docs/a.md', 'docs/adr/b.md'));
     expect(await expand(['docs/{adr/,a.md}'])).toEqual(inRepo('docs/a.md', 'docs/adr/b.md'));
+  });
+
+  it('reads an alternative that starts with / without a base from the root, as glob= does', async () => {
+    expect(await expand(['{/docs/*.md,README.md}'])).toEqual(inRepo('README.md', 'docs/a.md'));
+    // A name at the root only, as glob="/a.md" is, where `README.md` is one at any depth.
+    expect(await expand(['{/a.md,README.md}'])).toEqual(inRepo('README.md'));
+    expect(await expand(['{/b.md,a.md}'])).toEqual(inRepo('docs/a.md'));
   });
 
   it('walks from a base outside the root, which a glob may not name', async () => {
