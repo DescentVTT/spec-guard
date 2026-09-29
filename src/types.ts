@@ -93,7 +93,7 @@ export interface SpecStatus {
   /** The whole line as written, which is what a reader wants to be shown. */
   label: string;
   /** Where in the document it was found. */
-  source: 'frontmatter' | 'heading' | 'label';
+  source: 'frontmatter' | 'heading' | 'table' | 'label';
   /** Whether the directives in this document execute. */
   active: boolean;
 }

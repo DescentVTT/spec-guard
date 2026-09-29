@@ -966,6 +966,68 @@ describe('a status written in Chinese', () => {
   });
 });
 
+describe('a status given in a table', () => {
+  // A table of two columns in the preamble whose left cell names the status
+  // (the family's decision; ADR-0010's amendment of 2026-09-30).
+  const context = { file: '/r/docs/a.md', relativeFile: 'docs/a.md' };
+  const warningOf = (source: string) => parseDocument(source, context).warnings?.map(({ location, message }) => [location.line, message]);
+
+  it('reads the row that names the status, the header row among them', () => {
+    expect(parseStatus('# ADR-1\n\n| 狀態 | 已接受 |\n| --- | --- |\n\n## Context\n')).toEqual({ value: 'accepted', label: '已接受', source: 'table', active: true });
+    expect(parseStatus('# ADR-1\n\n| Field | Value |\n| --- | --- |\n| Date | 2024-05-01 |\n| Status | Superseded by ADR-3 |\n\n## Context\n')).toEqual({
+      value: 'superseded',
+      label: 'Superseded by ADR-3',
+      source: 'table',
+      active: false,
+    });
+    for (const key of ['**Status**', 'STATE', 'state', '状态', '__狀態__', '*Status*']) {
+      expect(parseStatus(`# ADR-1\n\n| ${key} | draft |\n| :-- | --: |\n`)?.value, key).toBe('draft');
+    }
+  });
+
+  it('reads no table of more columns, none after the first section, and no cell that only begins with the key', () => {
+    expect(parseStatus('# ADR-1\n\n| Status | Draft | Note |\n| --- | --- | --- |\n')).toBeUndefined();
+    expect(parseStatus('# ADR-1\n\n| Status |\n| --- |\n| Draft |\n')).toBeUndefined();
+    expect(parseStatus('# ADR-1\n\n## Context\n\n| Status | Draft |\n| --- | --- |\n')).toBeUndefined();
+    expect(parseStatus('# ADR-1\n\n| Status of the migration | Draft |\n| --- | --- |\n')).toBeUndefined();
+    expect(parseStatus('# ADR-1\n\n| `Status` | Draft |\n| --- | --- |\n')).toBeUndefined();
+    // A register of other documents names theirs, in a column of its own.
+    expect(parseStatus('# ADRs\n\n| ADR | Status |\n| --- | --- |\n| 0001 | Superseded |\n')).toBeUndefined();
+    expect(parseStatus('# ADR-1\n\n```md\n| Status | Draft |\n| --- | --- |\n```\n')).toBeUndefined();
+    // A table in the preamble of a document with no section is read.
+    expect(parseStatus('# ADR-1\n\nIntro.\n\n| Status | Draft |\n| --- | --- |\n')?.value).toBe('draft');
+  });
+
+  it('ranks where the section does: after front matter and the section, before the label', () => {
+    const table = '| Status | Draft |\n| --- | --- |\n';
+    expect(parseStatus(`---\nstatus: accepted\n---\n\n# ADR-1\n\n${table}`)).toMatchObject({ value: 'accepted', source: 'frontmatter' });
+    expect(parseStatus(`# ADR-1\n\n${table}\n## Status\n\nAccepted\n`)).toMatchObject({ value: 'accepted', source: 'heading' });
+    expect(parseStatus(`# ADR-1\n\nStatus: accepted\n\n${table}`)).toMatchObject({ value: 'draft', source: 'table' });
+    // The first table that names it decides.
+    expect(parseStatus(`# ADR-1\n\n${table}\n| Status | Accepted |\n| --- | --- |\n`)?.value).toBe('draft');
+  });
+
+  it('keeps its document in force when its value cannot be read, says so on its row, and reads no label in its place', () => {
+    const said = (reason: string) =>
+      `the status in the table cannot be read (${reason}), so its status is unrecognised and the document stays in force; a status written elsewhere in the document is not read in its place`;
+    const source = '# ADR-1\n\nStatus: draft\n\n| Field | Value |\n| --- | --- |\n| Status | 2024-05-01 |\n';
+    expect(parseStatus(source)).toBeUndefined();
+    expect(warningOf(source)).toEqual([[7, said('"2024-05-01" does not begin with a word')]]);
+    expect(warningOf('# ADR-1\n\n| Status | `draft` |\n| --- | --- |\n')).toEqual([[3, said('it is empty')]]);
+    expect(warningOf('# ADR-1\n\n| Field | Value |\n| --- | --- |\n| Status |\n')).toEqual([[5, said('it is empty')]]);
+    expect(warningOf('# ADR-1\n\n| 狀態 | 已取代 ADR-0002 |\n| --- | --- |\n')).toEqual([
+      [3, said('"已取代" before a document reference names the document this one supersedes, not this one\'s status')],
+    ]);
+  });
+
+  it('withholds the rules of a document its table takes out of force', async () => {
+    const root = await repo({ 'docs/a.md': `# ADR-1\n\n| 狀態 | 已棄用 |\n| --- | --- |\n\n## Context\n\n${VIOLATION}`, ...CODE });
+    const report = await run(root);
+    expect(report.summary).toMatchObject({ total: 0, inactive: 1 });
+    expect(report.inactiveSpecs).toEqual([{ file: 'docs/a.md', status: 'deprecated', label: '已棄用', directives: 1 }]);
+  });
+});
+
 describe('front matter never closed', () => {
   // A first line of `---` or `+++` that nothing closes opens no front matter,
   // but its author wrote some, and what it says cannot be read: the status is

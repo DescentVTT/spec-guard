@@ -34,6 +34,7 @@ import {
   type FrontMatterBlock,
   type Heading,
   type MarkdownScan,
+  type TableCell,
 } from './vendor/spec-core/markdown/index.js';
 import type {
   Directive,
@@ -188,6 +189,9 @@ export const INACTIVE_STATUSES: ReadonlySet<string> = new Set([
  */
 const STATUS_KEYS: ReadonlySet<string> = new Set(['status', '狀態', '状态']);
 
+/** What a table's left cell may name the status by: the status keys, and `State`, which tables of that form write as often. */
+const TABLE_STATUS_KEYS: ReadonlySet<string> = new Set([...STATUS_KEYS, 'state']);
+
 /**
  * Chinese status words, each under the English word it translates: the
  * family's table (spec-core's ADR-0005; ADR-0010's amendment of 2026-09-30).
@@ -315,8 +319,13 @@ function toStatus(raw: string, source: SpecStatus['source']): StatusRead {
   // a status written in bold and reads better without the markers; "Superseded
   // by *ADR-0007*" is a sentence with emphasis inside it, and taking one marker
   // off each end would put a half-mangled line in the report.
-  const label = trimmed.replace(/^(\*{1,2}|_{1,2})(.*)\1$/, '$2');
+  const label = unwrapped(trimmed);
   return { status: { value: read.value, label, source, active: !INACTIVE_STATUSES.has(read.value) } };
+}
+
+/** A text without the emphasis that wraps the whole of it, if any does. */
+function unwrapped(text: string): string {
+  return text.replace(/^(\*{1,2}|_{1,2})(.*)\1$/, '$2');
 }
 
 /** Why a status written as `text` cannot be read: the reason it was given, or what the text holds. */
@@ -690,19 +699,58 @@ function fromHeading(scan: MarkdownScan): StatusReading | undefined {
 }
 
 /**
+ * The line the document's preamble ends before: that of its first heading of
+ * level two or deeper, or past the last line. A heading the scanner reads, so
+ * a `##` shown in code or kept in a comment does not end the preamble early.
+ */
+function preambleEnd(scan: MarkdownScan): number {
+  return scan.headings.find((heading) => heading.level >= 2)?.line ?? Number.POSITIVE_INFINITY;
+}
+
+/**
+ * A table of two columns in the preamble, one of whose rows - the header row
+ * among them - names the status in its left cell and gives it in its right:
+ * `| 狀態 | 已接受 |`, or `| Status | Accepted |` under a header row.
+ *
+ * It ranks where a `## Status` section does, after one, before the label:
+ * front matter still decides first. Two columns and the preamble are what
+ * make it this document's status. A table of more columns, or one further
+ * down, is a register of other documents or a legend of what each word means,
+ * whose status column is theirs; neither is read, whatever it holds. The left
+ * cell is compared whole, without the emphasis that wraps it and in any case,
+ * so `**Status**` names the status and `Status of the migration` does not; the
+ * right cell is read with code masked, as a section's line is. The first row
+ * that names it decides, readable or not, as a section does.
+ */
+function fromTable(scan: MarkdownScan): StatusReading | undefined {
+  const end = preambleEnd(scan);
+  const view = scan.masks.directives;
+  // `<` and `<=` read alike: the scanner makes no row of a heading's line, so
+  // no table starts on the one that ends the preamble.
+  for (const table of scan.tables.filter((candidate) => candidate.line < end && candidate.headers.length === 2)) {
+    for (const row of [{ cells: table.headers, line: table.line }, ...table.rows]) {
+      // Every row has a cell: the scanner ends a table at a line with none.
+      const [key, value] = row.cells as readonly [TableCell, TableCell | undefined];
+      if (!TABLE_STATUS_KEYS.has(unwrapped(key.text).toLowerCase())) continue;
+      const text = value === undefined ? '' : view.slice(value.start, value.end).trim();
+      return decided(toStatus(text, 'table'), row.line, text, 'the status in the table', NOT_READ_BELOW);
+    }
+  }
+  return undefined;
+}
+
+/**
  * A `**Status:** accepted` line in the document's preamble.
  *
  * Bounded to the preamble - everything before the first heading of level two
  * or deeper - because this form is a line of prose with a colon in it, and a
  * tool that accepts one anywhere in a long document will eventually find one in
- * a sentence. The bound is a heading the scanner reads, so a `##` shown in code
- * or kept in a comment does not end the preamble early. The first such line
- * decides, and one whose value cannot be read says so, as a section does.
+ * a sentence. The first such line decides, and one whose value cannot be read
+ * says so, as a section does.
  */
 function fromLabel(scan: MarkdownScan): StatusReading | undefined {
-  const section = scan.headings.find((heading) => heading.level >= 2);
   const view = scan.masks.directives;
-  for (const line of section === undefined ? scan.lines : scan.lines.slice(0, section.line - 1)) {
+  for (const line of scan.lines.slice(0, preambleEnd(scan) - 1)) {
     const found = STATUS_LABEL_RE.exec(view.slice(line.start, line.end));
     if (found) return decided(toStatus(found[2] as string, 'label'), line.line, (found[2] as string).trim(), 'the status label', '');
   }
@@ -712,24 +760,26 @@ function fromLabel(scan: MarkdownScan): StatusReading | undefined {
 /**
  * The lifecycle status a Markdown document declares about itself.
  *
- * Three spellings are recognised because three are in use, including two in
+ * Four spellings are recognised because four are in use, including two in
  * this repository's own ADRs: front-matter (MADR's YAML, or TOML between `+++`
- * lines), a `## Status` section (Nygard), and a bold `**Status:**` label.
- * Front-matter wins when it has a `status` key, readable or not, and when it
- * never closes - it is machine-readable metadata rather than a convention read
- * out of prose, and front matter that cannot be read is no licence to read the
- * prose instead.
+ * lines), a `## Status` section (Nygard), a table of two columns in the
+ * preamble, and a bold `**Status:**` label; each with the key in English or in
+ * Chinese. Front-matter wins when it has a status key, readable or not, and
+ * when it never closes - it is machine-readable metadata rather than a
+ * convention read out of prose, and front matter that cannot be read is no
+ * licence to read the prose instead. Then the section, the table and the
+ * label, the first of them that is there deciding, readable or not.
  *
- * The section and the label are read with code masked, so a document that
- * documents this syntax inside a fence - this project's README does - is not
- * read as declaring a status.
+ * The section, the table and the label are read with code masked, so a
+ * document that documents this syntax inside a fence - this project's README
+ * does - is not read as declaring a status.
  */
 export function parseStatus(source: string): SpecStatus | undefined {
   return statusOf(scanMarkdown(source)).status;
 }
 
 function statusOf(scan: MarkdownScan): StatusReading {
-  return fromFrontmatter(scan) ?? fromHeading(scan) ?? fromLabel(scan) ?? {};
+  return fromFrontmatter(scan) ?? fromHeading(scan) ?? fromTable(scan) ?? fromLabel(scan) ?? {};
 }
 
 /**
