@@ -708,7 +708,8 @@ export function formatSarif(report: RunResult, options: { version?: string } = {
     });
   }
 
-  for (const error of report.errors) {
+  const invalid = invalidFingerprints(report.errors);
+  report.errors.forEach((error, index) => {
     results.push({
       ruleId: 'invalid-directive',
       level: SARIF_LEVEL,
@@ -717,11 +718,9 @@ export function formatSarif(report: RunResult, options: { version?: string } = {
         sarifLocation(error.location.relativeFile, error.location.line, error.location.column),
       ],
       relatedLocations: [],
-      partialFingerprints: {
-        specGuardAssertion: fingerprint([error.location.relativeFile, 'invalid', error.message]),
-      },
+      partialFingerprints: { specGuardAssertion: invalid[index] as string },
     });
-  }
+  });
   results.push(...nothingVerifiedResults(report, NOTHING_VERIFIED));
 
   return JSON.stringify(
@@ -758,6 +757,17 @@ export function formatSarif(report: RunResult, options: { version?: string } = {
     null,
     2,
   );
+}
+
+/**
+ * The SARIF fingerprint of each directive that could not be read: of what GitLab's
+ * is made of - the rule, the file and the directive as written, with a count
+ * for a second copy of one - and so the first 32 characters of GitLab's. Never
+ * of the message, which a release may word differently: that closed each such
+ * alert and opened a new one.
+ */
+function invalidFingerprints(errors: readonly DirectiveError[]): string[] {
+  return occurrences(errorAnnotations(errors)).map(fingerprint);
 }
 
 /**
@@ -952,15 +962,16 @@ export function formatProveSarif(report: ProveReport, options: { version?: strin
         },
       };
     });
-  for (const error of report.errors) {
+  const invalid = invalidFingerprints(report.errors);
+  report.errors.forEach((error, index) => {
     results.push({
       ruleId: 'invalid-directive',
       level: SARIF_LEVEL,
       message: { text: error.message },
       locations: [sarifLocation(error.location.relativeFile, error.location.line, error.location.column)],
-      partialFingerprints: { specGuardAssertion: fingerprint([error.location.relativeFile, 'invalid', error.message]) },
+      partialFingerprints: { specGuardAssertion: invalid[index] as string },
     });
-  }
+  });
   results.push(...nothingVerifiedResults(report, NOTHING_PROVED));
   return JSON.stringify(
     {
@@ -1044,24 +1055,31 @@ function described(annotation: Annotation): string {
  * the order they come in, each a finding of its own.
  */
 export function formatGitlab(annotations: readonly Annotation[]): string {
-  const seen = new Map<string, number>();
-  const issues = [];
-  for (const annotation of annotations) {
-    const identity = annotation.identity.join('\u0000');
-    const repeat = seen.get(identity) ?? 0;
-    seen.set(identity, repeat + 1);
-    const fingerprint = createHash('sha256')
-      .update(repeat === 0 ? identity : `${identity}\u0000${repeat}`)
-      .digest('hex');
-    issues.push({
-      description: described(annotation),
-      check_name: annotation.rule,
-      fingerprint,
-      severity: annotation.severity,
-      location: { path: annotation.file, lines: { begin: Math.max(annotation.line, 1) } },
-    });
-  }
+  const identities = occurrences(annotations);
+  const issues = annotations.map((annotation, index) => ({
+    description: described(annotation),
+    check_name: annotation.rule,
+    fingerprint: createHash('sha256')
+      .update((identities[index] as readonly string[]).join('\u0000'))
+      .digest('hex'),
+    severity: annotation.severity,
+    location: { path: annotation.file, lines: { begin: Math.max(annotation.line, 1) } },
+  }));
   return JSON.stringify(issues, null, 2);
+}
+
+/**
+ * Each finding's identity, and for the second and later of those that share
+ * one, the count of those before it: what a fingerprint is made of.
+ */
+function occurrences(annotations: readonly Annotation[]): Array<readonly string[]> {
+  const seen = new Map<string, number>();
+  return annotations.map(({ identity }) => {
+    const key = identity.join('\u0000');
+    const repeat = seen.get(key) ?? 0;
+    seen.set(key, repeat + 1);
+    return repeat === 0 ? identity : [...identity, String(repeat)];
+  });
 }
 
 /** A workflow command's message: `%`, and the line breaks that would end the command. */
