@@ -528,6 +528,11 @@ describe('the sarif document, in full', () => {
                   name: 'invalid-directive',
                   shortDescription: { text: 'A directive that could not be parsed, so nothing was checked.' },
                 },
+                {
+                  id: 'nothing-verified',
+                  name: 'nothing-verified',
+                  shortDescription: { text: 'A run under --strict whose specs state no rule in force: it verified nothing.' },
+                },
               ],
             },
           },

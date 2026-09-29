@@ -57,7 +57,7 @@ describe('the document', () => {
     expect(document.runs[0]?.tool.driver.version).toBe('9.9.9');
   });
 
-  it('declares a rule for every directive kind', async () => {
+  it('declares a rule for every directive kind, a directive that cannot be read, and a strict run that verified nothing', async () => {
     const report = await runSpecGuard({ patterns: ['docs/adr/0001-passing.md'], root: DEMO_REPO, engine: 'javascript' });
     const ids = sarif(report).runs[0]?.tool.driver.rules.map((rule) => rule.id);
 
@@ -71,6 +71,7 @@ describe('the document', () => {
       'assert-layers',
       'assert-structure',
       'invalid-directive',
+      'nothing-verified',
     ]);
   });
 });

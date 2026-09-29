@@ -329,6 +329,8 @@ export function createMcpHandler(options: McpServerOptions): (message: unknown) 
         : `${report.summary.total} of ${inForce} rules in force - the ones that govern ${paths.map((query) => query.path).join(', ')}`;
     const structured = {
       ok: report.ok,
+      // Why `ok` is false when nothing failed, under strict: see ADR-0010.
+      ...(report.nothingVerified === true ? { nothingVerified: true } : {}),
       engine: report.engine,
       paths: paths?.map((query) => query.path) ?? null,
       rules: { inForce, checked: report.summary.total, passed: report.summary.passed, failed: report.summary.failed },

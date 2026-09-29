@@ -442,6 +442,15 @@ export interface RunReport {
   exclude: string[];
   /** What the command line took from the project's configuration, when it took anything. */
   config?: ConfigUse;
+  /**
+   * True when the run failed because it verified nothing under `--strict`:
+   * its specs state no rule in force to execute. The family contract says a
+   * check that measured nothing is not clean and that a strict one refuses
+   * (spec-core's ADR-0005); without `--strict` the report says so and passes.
+   * A selection that leaves out every rule, as the MCP server's check of
+   * paths no rule governs does, is not this. Absent otherwise. ADR-0010.
+   */
+  nothingVerified?: boolean;
 }
 
 /* -------------------------------------------------------------------- prove */
@@ -495,7 +504,7 @@ export interface ProveResult {
 }
 
 export interface ProveReport {
-  /** Whether no rule survived and every directive could be read. */
+  /** Whether no rule survived, every directive could be read, and, under `--strict`, a rule was proved. */
   ok: boolean;
   root: string;
   durationMs: number;
@@ -519,6 +528,8 @@ export interface ProveReport {
   config?: ConfigUse;
   /** Spec files that were read, relative to the root. */
   specFiles: string[];
+  /** As a run's: true when the proof failed under `--strict` because its specs state no rule in force. */
+  nothingVerified?: boolean;
 }
 
 /* -------------------------------------------------------------------- cites */

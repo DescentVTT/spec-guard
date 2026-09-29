@@ -596,7 +596,8 @@ export async function proveSpecGuard(options: ProveOptions): Promise<ProveReport
 
   const count = (outcome: ProveResult['outcome']): number => results.filter((result) => result.outcome === outcome).length;
   return {
-    ok: count('survived') === 0 && plan.errors.length === 0,
+    ok: count('survived') === 0 && plan.errors.length === 0 && !plan.nothingVerified,
+    ...(plan.nothingVerified ? { nothingVerified: true } : {}),
     root,
     durationMs: elapsed(startedAt),
     summary: {
