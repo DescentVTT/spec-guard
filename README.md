@@ -790,14 +790,19 @@ Accepted (0.3.0).
 ```
 
 Front-matter wins, then the `## Status` section, then the bold label (which is
-only read above the first section heading). A front-matter `status` wins even
-when its value cannot be read - `status: "accepted" (2024-05-01)`, text after
-a closing quote - and then the document stays in force, the section and the
-label are not read in its place, and the report warns on the key's line with
-the reason. So does front matter that opens on the first line and never
-closes: none of it can be read, so the status is unrecognised, the document
-stays in force, the section and the label are not read in its place, and the
-report warns on line 1 and says how to close it. Headings are read as
+only read above the first section heading). Front matter is YAML between `---`
+lines or TOML between `+++` lines; of TOML, only the top-level `status` key is
+read, and only as a string on one line: `status = "accepted"` or
+`status = 'accepted'`. A front-matter `status` wins even when its value cannot
+be read - `status: "accepted" (2024-05-01)`, text after a closing quote, or in
+TOML a multi-line string, an array, a table or a value that is not a string -
+and then the document stays in force, the section and the label are not read
+in its place, and the report warns on the key's line with the reason. So does
+front matter that opens on the first line and never closes: none of it can be
+read, so the status is unrecognised, the document stays in force, the section
+and the label are not read in its place, and the report warns on line 1 and
+says how to close it. Front matter without a `status` key, YAML or TOML, hands
+over to the section and the label. Headings are read as
 CommonMark reads them, so an underlined `Status` is the section and a `## Status`
 kept in a comment is not. Anything else - `Provisional`, `In review`, a
 misspelled `Supersedded`, or no status at all - keeps enforcing. That asymmetry
