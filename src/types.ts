@@ -618,4 +618,11 @@ export interface CitesReport {
   notes: string[];
   exclude: string[];
   config?: ConfigUse;
+  /**
+   * Set when the check failed under `--strict` because it read no source
+   * file - it looked for no citation, or found no file to read - with the
+   * file its finding is shown on: the first spec matched, else the first
+   * document cited, else the root. Absent otherwise. ADR-0017.
+   */
+  nothingRead?: { file: string };
 }

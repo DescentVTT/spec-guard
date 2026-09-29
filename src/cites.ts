@@ -618,12 +618,16 @@ export async function findCitations(options: CitesOptions): Promise<CitesReport>
     documents: [...documents.values()].reduce((total, list) => total + list.length, 0),
   }));
 
+  // A check that read nothing is shown on the first spec, as a run that
+  // verified nothing is, or on a document it would have cited, or on the root.
+  const nothingRead = strict && read === 0 ? { file: specs.documents[0]?.relativeFile ?? [...cited][0] ?? '.' } : undefined;
   return {
     // Under --strict, anything short of every comment read and every citation
     // in force fails: a stale citation, a file read in part, and a check that
     // read nothing - which one that looked for nothing did not - since the
     // family contract says a strict run refuses that rather than reports clean.
-    ok: ghosts === 0 && !(strict && (stale > 0 || gaps.length > 0 || read === 0)),
+    ok: ghosts === 0 && !(strict && (stale > 0 || gaps.length > 0)) && nothingRead === undefined,
+    ...(nothingRead === undefined ? {} : { nothingRead }),
     root: toPosix(root),
     durationMs: performance.now() - startedAt,
     families: familyReports,
