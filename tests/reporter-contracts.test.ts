@@ -17,9 +17,11 @@ import { describe, expect, it } from 'vitest';
 import {
   createPainter,
   formatBaselines,
+  formatGitlab,
   formatJson,
   formatReport,
   formatSarif,
+  runAnnotations,
   shouldUseAscii,
 } from '../src/reporter.js';
 import { EMPTY_LEDGER } from '../src/scope.js';
@@ -606,7 +608,9 @@ describe('the sarif document, in full', () => {
     // as the identity of an alert: change how one is derived and every open
     // alert closes and a new one opens in its place, which is a worse outcome
     // than most of the changes that would cause it. Anything that moves these
-    // two values is a decision, and this is where it gets made.
+    // two values is a decision, and this is where it gets made. The second
+    // moved once, deliberately: it was of the message, which a release may
+    // word differently, and is now of the directive as written, as GitLab's is.
     const report = fixture({
       results: [{ ...failing, matches: [], fileMatches: [], description: 'd', message: 'm', actual: 1 }],
       errors: [
@@ -623,8 +627,28 @@ describe('the sarif document, in full', () => {
 
     expect(parsed.runs[0]?.results.map((r) => [r.ruleId, r.partialFingerprints.specGuardAssertion])).toEqual([
       ['assert-absence', '0cb6fa74e5d77b5da7bb402a905cd949'],
-      ['invalid-directive', 'fb3833b92384c9998504212683068631'],
+      ['invalid-directive', '4bf635a439608d9e4804cf6c35b9d2b2'],
     ]);
+  });
+
+  it('knows a directive that cannot be read by the directive as written, as GitLab does, and counts a second copy of it', () => {
+    const at = { file: 'C:/repo/docs/a.md', relativeFile: 'docs/a.md', line: 9, column: 1 };
+    const error = { location: at, raw: '<!-- @assert-count symbol="X" -->', message: 'a count needs a bound' };
+    const fingerprints = (errors: RunResult['errors']): string[] =>
+      (JSON.parse(formatSarif(fixture({ results: [], errors }))) as { runs: Array<{ results: Array<{ partialFingerprints: { specGuardAssertion: string } }> }> }).runs[0]?.results.map(
+        (result) => result.partialFingerprints.specGuardAssertion,
+      ) ?? [];
+    const [before] = fingerprints([error]);
+    // Worded again, or moved down the page, it is the same alert.
+    expect(fingerprints([{ ...error, message: '@assert-count requires a bound', location: { ...at, line: 40 } }])).toEqual([before]);
+    // Another directive is another alert, and two copies of one are two.
+    expect(fingerprints([{ ...error, raw: '<!-- @assert-count symbol="Y" -->' }])).not.toEqual([before]);
+    const twice = fingerprints([error, error]);
+    expect(twice[0]).toBe(before);
+    expect(new Set(twice).size).toBe(2);
+    // Each is the first half of the GitLab fingerprint of the same finding.
+    const gitlab = (JSON.parse(formatGitlab(runAnnotations(fixture({ results: [], errors: [error, error] })))) as Array<{ fingerprint: string }>).map(({ fingerprint }) => fingerprint.slice(0, 32));
+    expect(twice).toEqual(gitlab);
   });
 
   it('separates the target list of a fingerprint the same way', () => {

@@ -1262,7 +1262,8 @@ describe('the report, rendered', () => {
         level: 'error',
         message: { text: 'Unknown attribute "expct".' },
         locations: [place('docs/typo.md', 9)],
-        partialFingerprints: { specGuardAssertion: fingerprint('docs/typo.md', 'invalid', 'Unknown attribute "expct".') },
+        // The directive as written, never the message, as GitLab's fingerprint is.
+        partialFingerprints: { specGuardAssertion: fingerprint('invalid-directive', 'docs/typo.md', '<!-- @assert-count expct="1"\n  target="src" -->') },
       },
     ]);
   });
