@@ -652,6 +652,25 @@ describe('check_architecture', () => {
     }
   });
 
+  it('under strict, fails a check whose specs state no rule in force, and not one whose paths no rule governs', async () => {
+    const strict = { run: { engine: 'javascript' as const, strictTargets: true } };
+    // Paths no rule governs, among rules in force: the check verified what it was asked to.
+    const unruled = await tool('check_architecture', { paths: ['README.md'] }, strict);
+    expect(unruled.structuredContent).toMatchObject({ ok: true, rules: { inForce: 3, checked: 0 } });
+    expect(unruled.structuredContent).not.toHaveProperty('nothingVerified');
+    expect(unruled.content[0]?.text.split('\n').at(-1)).toBe('! no assertion was executed, so nothing was verified');
+    // Only a draft: nothing in force to check, which strict refuses, with the paths or without.
+    for (const args of [{ paths: ['src'] }, {}]) {
+      const drafted = await tool('check_architecture', args, { ...strict, patterns: ['docs/adr/0002-clocks.md'] });
+      expect(drafted.structuredContent).toMatchObject({ ok: false, nothingVerified: true, rules: { inForce: 0, checked: 0 }, failures: [], errors: [] });
+      expect(drafted.content[0]?.text.split('\n').at(-1)).toBe('x no assertion was executed, so nothing was verified, which --strict refuses');
+    }
+    // Without strict it is said, and passes.
+    const relaxed = await tool('check_architecture', {}, { patterns: ['docs/adr/0002-clocks.md'] });
+    expect(relaxed.structuredContent).toMatchObject({ ok: true });
+    expect(relaxed.structuredContent).not.toHaveProperty('nothingVerified');
+  });
+
   it('keeps in force a document whose front matter never closed, whatever its section says, and says why', async () => {
     // Its status is unrecognised and its section is not read in its place, so
     // a model told that a document whose section says Proposed is in force

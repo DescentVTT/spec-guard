@@ -19,12 +19,13 @@
 
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
 import { EXIT_FAILED, EXIT_OK, HELP, main, parseArgs, type CliIO } from '../src/cli.js';
 import { INACTIVE_STATUSES, parseDocument, parseStatus } from '../src/parser.js';
-import { formatJson, formatReport, formatSarif, runAnnotations } from '../src/reporter.js';
+import { formatGitlab, formatJson, formatReport, formatSarif, runAnnotations } from '../src/reporter.js';
 import { runSpecGuard, type RunResult } from '../src/runner.js';
 import { makeTempRepo, PROJECT_ROOT, removeTempRepo } from './helpers.js';
 
@@ -1251,6 +1252,136 @@ describe('how withholding is reported', () => {
     // The control: nothing withheld, no invocations block at all.
     const live = await repo({ 'docs/a.md': VIOLATION, 'src/app.ts': 'const ok = 1;\n' });
     expect(JSON.parse(formatSarif(await run(live))).runs[0].invocations).toBeUndefined();
+  });
+});
+
+/* ------------------------------------------------ a strict run that verified nothing */
+
+describe('a run under --strict that verified nothing', () => {
+  // The family contract: a check that measured nothing is not clean, and a
+  // strict one refuses (spec-core's ADR-0005). Every format and the exit code
+  // say the same thing; ADR-0010's amendment of 2026-09-30.
+  const REFUSED = 'no assertion was executed, so nothing was verified, which --strict refuses';
+  const HINT = 'put a rule in force, or point the spec patterns at the documents that state the rules; --ignore-status also runs those of documents not in force';
+
+  async function cli(root: string, argv: string[]): Promise<{ code: number; out: string }> {
+    const out: string[] = [];
+    const io: CliIO = { stdout: (text) => out.push(text), stderr: () => {}, env: { NO_COLOR: '1', TERM: 'xterm' }, cwd: root, isTTY: false };
+    return { code: await main([...argv, '--engine', 'js'], io), out: out.join('\n') };
+  }
+
+  it('fails, and says so the same way in every format', async () => {
+    const root = await repo({ 'docs/a.md': `# ADR-1\n\n## Status\n\nDraft\n\n${VIOLATION}`, ...CODE });
+
+    const human = await cli(root, ['docs/a.md', '--strict']);
+    expect(human.code).toBe(EXIT_FAILED);
+    expect(human.out.split('\n').at(-1)).toBe(`✖ ${REFUSED}`);
+    expect(human.out).not.toContain('⚠ no assertion was executed');
+
+    const json = await cli(root, ['docs/a.md', '--strict', '--json']);
+    expect(json.code).toBe(EXIT_FAILED);
+    expect(JSON.parse(json.out)).toMatchObject({ ok: false, nothingVerified: true, summary: { total: 0, failed: 0, inactive: 1 }, errors: [] });
+
+    const gitlab = await cli(root, ['docs/a.md', '--strict', '--format', 'gitlab']);
+    expect(gitlab.code).toBe(EXIT_FAILED);
+    const issues = JSON.parse(gitlab.out) as Array<{ check_name: string; severity: string; description: string; location: unknown }>;
+    expect(issues.map(({ check_name, severity, location }) => [check_name, severity, location])).toEqual([
+      ['nothing-verified', 'major', { path: 'docs/a.md', lines: { begin: 1 } }],
+      ['not-in-force', 'info', { path: 'docs/a.md', lines: { begin: 1 } }],
+    ]);
+    expect(issues[0]?.description).toBe(`${REFUSED}. ${HINT}`);
+
+    const github = await cli(root, ['docs/a.md', '--strict', '--format', 'github']);
+    expect(github.code).toBe(EXIT_FAILED);
+    expect(github.out.split('\n')[0]).toBe(`::error file=docs/a.md,line=1,title=nothing-verified::${REFUSED}. ${HINT}`);
+
+    const sarif = await cli(root, ['docs/a.md', '--strict', '--format', 'sarif']);
+    expect(sarif.code).toBe(EXIT_FAILED);
+    const run = (JSON.parse(sarif.out) as { runs: Array<{ results: Array<Record<string, unknown>>; invocations: Array<{ executionSuccessful: boolean }> }> }).runs[0];
+    expect(run?.results).toEqual([
+      {
+        ruleId: 'nothing-verified',
+        level: 'error',
+        message: { text: `${REFUSED}. ${HINT}` },
+        locations: [{ physicalLocation: { artifactLocation: { uri: 'docs/a.md' }, region: { startLine: 1, startColumn: 1 } } }],
+        relatedLocations: [],
+        partialFingerprints: { specGuardAssertion: expect.stringMatching(/^[0-9a-f]{32}$/) },
+      },
+    ]);
+    expect(run?.invocations[0]?.executionSuccessful).toBe(false);
+  });
+
+  it('is one GitLab issue whatever spec it is shown on, fingerprinted by its rule alone', async () => {
+    // It is about the specs matched, not a line of one, so a spec added in
+    // front of the first does not make it a new issue.
+    const fingerprintOf = async (files: Record<string, string>): Promise<string[]> => {
+      const report = await run(await repo({ ...files, ...CODE }), ['docs/*.md'], { strictTargets: true });
+      return (JSON.parse(formatGitlab(runAnnotations(report))) as Array<{ check_name: string; fingerprint: string; location: { path: string } }>)
+        .filter(({ check_name }) => check_name === 'nothing-verified')
+        .map(({ fingerprint, location }) => `${location.path} ${fingerprint}`);
+    };
+    const expected = createHash('sha256').update('nothing-verified').digest('hex');
+    expect(await fingerprintOf({ 'docs/b.md': '# Notes\n' })).toEqual([`docs/b.md ${expected}`]);
+    expect(await fingerprintOf({ 'docs/a.md': '# More notes\n', 'docs/b.md': '# Notes\n' })).toEqual([`docs/a.md ${expected}`]);
+  });
+
+  it('fails when the configuration asks for strict, and passes when the command line says --no-strict', async () => {
+    const root = await repo({
+      'package.json': JSON.stringify({ specGuard: { specs: ['docs/*.md'], strict: true } }),
+      'docs/a.md': `# ADR-1\n\n## Status\n\nProposed\n\n${VIOLATION}`,
+      ...CODE,
+    });
+    const strict = await cli(root, []);
+    expect(strict.code).toBe(EXIT_FAILED);
+    expect(strict.out.split('\n').at(-1)).toBe(`✖ ${REFUSED}`);
+    const relaxed = await cli(root, ['--no-strict']);
+    expect(relaxed.code).toBe(EXIT_OK);
+    expect(relaxed.out.split('\n').at(-1)).toBe('⚠ no assertion was executed, so nothing was verified');
+  });
+
+  it('fails over specs that state no rule at all, and over rules that cannot be read', async () => {
+    const root = await repo({ 'docs/a.md': '# Notes\n\nNo rules here.\n', 'docs/b.md': '<!-- @assert-count target="src" symbol="L" -->\n', ...CODE });
+    const empty = await run(root, ['docs/a.md'], { strictTargets: true });
+    expect([empty.ok, empty.nothingVerified]).toEqual([false, true]);
+    // An invalid directive fails the run already; that it verified nothing is said beside it.
+    const invalid = await run(root, ['docs/b.md'], { strictTargets: true });
+    expect([invalid.ok, invalid.nothingVerified, invalid.errors.length]).toEqual([false, true, 1]);
+    expect(runAnnotations(invalid).map(({ rule }) => rule)).toEqual(['invalid-directive', 'nothing-verified']);
+  });
+
+  it('passes with one rule in force, whatever else is withheld, and says nothing of it', async () => {
+    // ADR-0010 refused to treat a withheld document as a strict failure, and
+    // still does: only a run that verified nothing at all is refused.
+    const root = await repo({
+      'docs/a.md': `# ADR-1\n\n## Status\n\nSuperseded\n\n${VIOLATION}`,
+      'docs/b.md': '# ADR-2\n\n<!-- @assert-absence target="src" symbol="Nowhere" -->\n',
+      ...CODE,
+    });
+    const report = await run(root, ['docs/*.md'], { strictTargets: true });
+    expect(report.ok).toBe(true);
+    expect(report).not.toHaveProperty('nothingVerified');
+    expect(JSON.parse(formatJson(report))).not.toHaveProperty('nothingVerified');
+    expect(runAnnotations(report).map(({ rule }) => rule)).toEqual(['not-in-force']);
+    expect((await cli(root, ['docs/*.md', '--strict'])).code).toBe(EXIT_OK);
+  });
+
+  it('is no concern of a selection that leaves out every rule there is, which verified what it was asked to', async () => {
+    const root = await repo({ 'docs/a.md': VIOLATION, ...CODE });
+    const none = await run(root, ['docs/a.md'], { strictTargets: true, select: () => false });
+    expect([none.ok, none.summary.total]).toEqual([true, 0]);
+    expect(none).not.toHaveProperty('nothingVerified');
+    // A selection over no rule in force verified nothing because there was nothing.
+    const withheld = await repo({ 'docs/a.md': `**Status:** draft\n\n${VIOLATION}`, ...CODE });
+    const empty = await run(withheld, ['docs/a.md'], { strictTargets: true, select: () => false });
+    expect([empty.ok, empty.nothingVerified]).toEqual([false, true]);
+  });
+
+  it('leaves a run that matched no spec to the command line, which refuses it unless --allow-empty says otherwise', async () => {
+    const root = await repo({ ...CODE });
+    expect((await cli(root, ['docs/*.md', '--strict'])).code).toBe(2);
+    expect((await cli(root, ['docs/*.md', '--strict', '--allow-empty'])).code).toBe(EXIT_OK);
+    const report = await run(root, ['docs/*.md'], { strictTargets: true });
+    expect([report.ok, report.summary.specs]).toEqual([true, 0]);
   });
 });
 

@@ -13,7 +13,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 
-import { main, version, type CliIO } from '../src/cli.js';
+import { EXIT_FAILED, EXIT_OK, main, version, type CliIO } from '../src/cli.js';
 import { walkFiles } from '../src/glob.js';
 import { importLine, proveSpecGuard, PROVE_NAME, regexWitness, type ProveOptions } from '../src/prove.js';
 import { formatProve, formatProveJson, formatProveSarif } from '../src/reporter.js';
@@ -918,7 +918,7 @@ describe('spec-guard prove', () => {
     };
     const [first] = sarif.runs;
     expect(first?.tool.driver.name).toBe('spec-guard prove');
-    expect(first?.tool.driver.rules.map((rule) => rule.id)).toEqual(['rule-cannot-fail', 'rule-unprovable', 'invalid-directive']);
+    expect(first?.tool.driver.rules.map((rule) => rule.id)).toEqual(['rule-cannot-fail', 'rule-unprovable', 'invalid-directive', 'nothing-verified']);
     expect(first?.results.map((result) => [result.ruleId, result.level, result.message.text])).toEqual([
       [
         'rule-cannot-fail',
@@ -1232,6 +1232,7 @@ describe('the report, rendered', () => {
         { id: 'rule-cannot-fail', name: 'rule-cannot-fail', shortDescription: { text: 'A rule that passed with a violation of itself in place.' } },
         { id: 'rule-unprovable', name: 'rule-unprovable', shortDescription: { text: 'A rule no violation could be made for.' } },
         { id: 'invalid-directive', name: 'invalid-directive', shortDescription: { text: 'A directive that could not be parsed, so nothing was checked.' } },
+        { id: 'nothing-verified', name: 'nothing-verified', shortDescription: { text: 'A proof under --strict whose specs state no rule in force: it showed nothing.' } },
       ],
     });
     expect(sarif.runs[0]?.results).toEqual([
@@ -1264,5 +1265,41 @@ describe('the report, rendered', () => {
         partialFingerprints: { specGuardAssertion: fingerprint('docs/typo.md', 'invalid', 'Unknown attribute "expct".') },
       },
     ]);
+  });
+});
+
+describe('prove under --strict, over specs that state no rule in force', () => {
+  it('fails, and says so in every format, where without --strict it is said and passes', async () => {
+    const root = await makeTempRepo({ 'docs/a.md': '**Status:** proposed\n\n<!-- @assert-absence target="src" symbol="Legacy" -->\n', 'src/a.ts': 'export {};\n' });
+    try {
+      const prove = async (...argv: string[]) => {
+        const out: string[] = [];
+        const io: CliIO = { stdout: (text) => out.push(text), stderr: () => {}, env: { NO_COLOR: '1', TERM: 'xterm' }, cwd: root, isTTY: false };
+        return { code: await main(['prove', 'docs/a.md', ...argv], io), out: out.join('\n') };
+      };
+      const refused = 'no rule was proved, so nothing was shown, which --strict refuses';
+      const human = await prove('--strict');
+      expect([human.code, human.out.split('\n').at(-1)]).toEqual([EXIT_FAILED, `✖ ${refused}`]);
+      const json = await prove('--strict', '--json');
+      expect([json.code, JSON.parse(json.out)]).toEqual([EXIT_FAILED, expect.objectContaining({ ok: false, nothingVerified: true })]);
+      const gitlab = await prove('--strict', '--format', 'gitlab');
+      expect((JSON.parse(gitlab.out) as Array<{ check_name: string; severity: string }>).map(({ check_name, severity }) => [check_name, severity])).toEqual([
+        ['nothing-verified', 'major'],
+        ['not-in-force', 'info'],
+      ]);
+      const sarif = await prove('--strict', '--format', 'sarif');
+      expect((JSON.parse(sarif.out) as { runs: Array<{ results: Array<{ ruleId: string; message: { text: string } }> }> }).runs[0]?.results.map(({ ruleId, message }) => [ruleId, message.text.split('. ')[0]])).toEqual([
+        ['nothing-verified', refused],
+      ]);
+      const relaxed = await prove('--json');
+      expect(relaxed.code).toBe(EXIT_OK);
+      expect(JSON.parse(relaxed.out)).not.toHaveProperty('nothingVerified');
+      // The report says it only when it is why the proof failed.
+      expect(await proveSpecGuard({ patterns: ['docs/a.md'], root })).not.toHaveProperty('nothingVerified');
+      expect(await proveSpecGuard({ patterns: ['docs/a.md'], root, strictTargets: true })).toMatchObject({ ok: false, nothingVerified: true });
+      expect((await prove()).out.split('\n').at(-1)).toBe('⚠ no rule was proved, so nothing was shown');
+    } finally {
+      await removeTempRepo(root);
+    }
   });
 });

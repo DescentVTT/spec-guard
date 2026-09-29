@@ -105,7 +105,10 @@ export interface RunOptions {
    * clean" from "the directory moved" reports success while verifying nothing.
    */
   allowMissingTargets?: boolean;
-  /** Treat analysis that could not be completed as a failure. */
+  /**
+   * Treat analysis that could not be completed as a failure, and a run whose
+   * specs state no rule in force, which verified nothing (ADR-0010).
+   */
   strictTargets?: boolean;
   /**
    * Tolerate assertions whose scope contains no files.
@@ -1666,6 +1669,13 @@ export interface RunPlan {
   masked: MaskedDirective[];
   /** The project's exclusions every rule was resolved with. */
   exclude: string[];
+  /**
+   * Whether the run fails for verifying nothing: under `strictTargets`, specs
+   * were matched and none of them states a rule in force that resolves. A
+   * selection that leaves out every rule there is does not make this true -
+   * those rules exist, and the caller asked for none of them.
+   */
+  nothingVerified: boolean;
 }
 
 /**
@@ -1691,7 +1701,7 @@ export function checkProjectExcludes(exclude: readonly string[] | undefined): st
 export function planRun(
   specs: SpecSet,
   root: string,
-  options: Pick<RunOptions, "includeSpecs" | "defaultSkips" | "ignoreStatus" | "select" | "exclude">,
+  options: Pick<RunOptions, "includeSpecs" | "defaultSkips" | "ignoreStatus" | "select" | "exclude" | "strictTargets">,
 ): RunPlan {
   const exclude = checkProjectExcludes(options.exclude);
   const scope = createScope(options.defaultSkips ?? true);
@@ -1721,13 +1731,18 @@ export function planRun(
   }
 
   const assertions: Assertion[] = [];
+  let inForce = 0;
   for (const directive of directives) {
     const resolved = resolveDirective(directive, { root, excludeFiles, scope, exclude });
-    if ("error" in resolved) errors.push(resolved.error);
+    if ("error" in resolved) {
+      errors.push(resolved.error);
+      continue;
+    }
+    inForce += 1;
     // Selection happens after resolution, so a directive that is not selected
     // is still held to being well-formed - the same bargain ADR-0010 strikes
     // for a document that is not in force.
-    else if (options.select?.(resolved.assertion) ?? true) assertions.push(resolved.assertion);
+    if (options.select?.(resolved.assertion) ?? true) assertions.push(resolved.assertion);
   }
 
   // Not in force is not the same as not checked. A withheld directive is still
@@ -1748,7 +1763,11 @@ export function planRun(
     }
   }
 
-  return { root, specFiles: specs.files, assertions, withheld: notRun, errors, inactiveSpecs, warnings: specs.warnings, masked: specs.masked, exclude };
+  // Specs matched and not one rule in force among them: a strict run refuses
+  // that rather than report clean, as the family contract has it. No spec at
+  // all is the command line's to refuse, and it does, as exit 2.
+  const nothingVerified = (options.strictTargets ?? false) && specs.files.length > 0 && inForce === 0;
+  return { root, specFiles: specs.files, assertions, withheld: notRun, errors, inactiveSpecs, warnings: specs.warnings, masked: specs.masked, exclude, nothingVerified };
 }
 
 /**
@@ -1777,7 +1796,8 @@ export function reportRun(
 
   const failed = results.filter((result) => !result.ok).length;
   return {
-    ok: failed === 0 && errors.length === 0,
+    ok: failed === 0 && errors.length === 0 && !plan.nothingVerified,
+    ...(plan.nothingVerified ? { nothingVerified: true } : {}),
     root: plan.root,
     engine: warnings.length > 0 ? "javascript" : engine.name,
     durationMs: elapsed(startedAt),

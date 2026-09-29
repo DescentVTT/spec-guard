@@ -84,6 +84,20 @@ function symbols(ascii: boolean): { pass: string; fail: string; warn: string; sk
     : { pass: '✔', fail: '✖', warn: '⚠', skip: '○', more: '…' };
 }
 
+/**
+ * What a report says when no rule ran, written once so that the human report
+ * and every format that places findings say it in the same words.
+ */
+const NOTHING_VERIFIED = 'no assertion was executed, so nothing was verified';
+const NOTHING_PROVED = 'no rule was proved, so nothing was shown';
+
+/**
+ * What `--strict` adds, where it fails a run or a proof that verified nothing
+ * over the specs it matched: the family contract's "nothing measured is not
+ * clean" (spec-core's ADR-0005, and ADR-0010 here).
+ */
+const STRICT_REFUSES = 'which --strict refuses';
+
 function formatDuration(ms: number): string {
   return ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(2)}s`;
 }
@@ -428,8 +442,12 @@ export function formatReport(report: RunResult, options: ReporterOptions, maxSni
     lines.push(
       report.summary.total > 0
         ? paint(`${glyphs.pass} every spec assertion holds`, 'green')
-        : paint(`${glyphs.warn} no assertion was executed, so nothing was verified`, 'yellow'),
+        : paint(`${glyphs.warn} ${NOTHING_VERIFIED}`, 'yellow'),
     );
+  } else if (report.nothingVerified === true) {
+    // Under --strict the same sentence is why the run failed, and a failed
+    // run with no failure and no invalid directive in it says nothing else.
+    lines.push(paint(`${glyphs.fail} ${NOTHING_VERIFIED}, ${STRICT_REFUSES}`, 'red', 'bold'));
   }
 
   return lines.join('\n');
@@ -485,6 +503,9 @@ export function formatJson(report: RunResult): string {
     {
       formatVersion: RUN_FORMAT_VERSION,
       ok: report.ok,
+      // Present only when it is why `ok` is false, as `config` is present
+      // only when something came from a configuration.
+      ...(report.nothingVerified === true ? { nothingVerified: true } : {}),
       root: report.root,
       engine: report.engine,
       durationMs: Math.round(report.durationMs * 1000) / 1000,
@@ -588,6 +609,7 @@ const SARIF_RULES: ReadonlyArray<{ id: string; text: string }> = [
   { id: 'assert-layers', text: 'A file importing from a layer the architecture places above it.' },
   { id: 'assert-structure', text: 'A file or directory that breaks a naming or layout convention.' },
   { id: 'invalid-directive', text: 'A directive that could not be parsed, so nothing was checked.' },
+  { id: 'nothing-verified', text: 'A run under --strict whose specs state no rule in force: it verified nothing.' },
 ];
 
 /**
@@ -700,6 +722,7 @@ export function formatSarif(report: RunResult, options: { version?: string } = {
       },
     });
   }
+  results.push(...nothingVerifiedResults(report, NOTHING_VERIFIED));
 
   return JSON.stringify(
     {
@@ -735,6 +758,22 @@ export function formatSarif(report: RunResult, options: { version?: string } = {
     null,
     2,
   );
+}
+
+/**
+ * The result for a run or a proof that verified nothing under `--strict`, as
+ * its annotation places it, for a code-scanning page that would otherwise show
+ * a failed run with nothing on it.
+ */
+function nothingVerifiedResults(report: { nothingVerified?: boolean; specFiles: readonly string[] }, said: string) {
+  return nothingVerifiedAnnotations(report, said).map((annotation) => ({
+    ruleId: annotation.rule,
+    level: SARIF_LEVEL,
+    message: { text: described(annotation) },
+    locations: [sarifLocation(annotation.file, annotation.line, 1)],
+    relatedLocations: [],
+    partialFingerprints: { specGuardAssertion: fingerprint(annotation.identity) },
+  }));
 }
 
 /* -------------------------------------------------------------------- prove */
@@ -822,8 +861,10 @@ export function formatProve(report: ProveReport, options: ReporterOptions): stri
   if (summary.survived > 0) {
     const them = summary.survived === 1 ? 'itself' : 'themselves';
     lines.push(paint(`${glyphs.fail} ${countLabel(summary.survived, 'rule')} passed with a violation of ${them} in place`, 'red', 'bold'));
+  } else if (report.nothingVerified === true) {
+    lines.push(paint(`${glyphs.fail} ${NOTHING_PROVED}, ${STRICT_REFUSES}`, 'red', 'bold'));
   } else if (summary.total === 0) {
-    lines.push(paint(`${glyphs.warn} no rule was proved, so nothing was shown`, 'yellow'));
+    lines.push(paint(`${glyphs.warn} ${NOTHING_PROVED}`, 'yellow'));
   } else if (summary.killed === summary.total) {
     lines.push(paint(`${glyphs.pass} every rule in force was seen to fail`, 'green'));
   }
@@ -842,6 +883,7 @@ export function formatProveJson(report: ProveReport): string {
     {
       formatVersion: PROVE_FORMAT_VERSION,
       ok: report.ok,
+      ...(report.nothingVerified === true ? { nothingVerified: true } : {}),
       root: report.root,
       durationMs: Math.round(report.durationMs * 1000) / 1000,
       summary: report.summary,
@@ -877,6 +919,7 @@ const PROVE_RULES: ReadonlyArray<{ id: string; text: string }> = [
   { id: 'rule-cannot-fail', text: 'A rule that passed with a violation of itself in place.' },
   { id: 'rule-unprovable', text: 'A rule no violation could be made for.' },
   { id: 'invalid-directive', text: 'A directive that could not be parsed, so nothing was checked.' },
+  { id: 'nothing-verified', text: 'A proof under --strict whose specs state no rule in force: it showed nothing.' },
 ];
 
 /**
@@ -918,6 +961,7 @@ export function formatProveSarif(report: ProveReport, options: { version?: strin
       partialFingerprints: { specGuardAssertion: fingerprint([error.location.relativeFile, 'invalid', error.message]) },
     });
   }
+  results.push(...nothingVerifiedResults(report, NOTHING_PROVED));
   return JSON.stringify(
     {
       $schema: 'https://json.schemastore.org/sarif-2.1.0.json',
@@ -1081,6 +1125,28 @@ function warningAnnotations(warnings: readonly SpecWarning[] | undefined): Annot
   }));
 }
 
+/**
+ * A run or a proof under `--strict` that verified nothing, which fails it: one
+ * finding, placed on the first spec's first line, since it is about the specs
+ * matched and no line of them. Its identity is its rule alone: there is one to
+ * a run, and the spec it is shown on is where it is shown, not what it is about.
+ */
+function nothingVerifiedAnnotations(report: { nothingVerified?: boolean; specFiles: readonly string[] }, said: string): Annotation[] {
+  if (report.nothingVerified !== true) return [];
+  return [
+    {
+      rule: 'nothing-verified',
+      identity: ['nothing-verified'],
+      level: 'error',
+      severity: 'major',
+      file: report.specFiles[0] as string,
+      line: 1,
+      message: `${said}, ${STRICT_REFUSES}`,
+      hint: 'put a rule in force, or point the spec patterns at the documents that state the rules; --ignore-status also runs those of documents not in force',
+    },
+  ];
+}
+
 /** A directive that could not be read: nothing it states was checked. */
 function errorAnnotations(errors: readonly DirectiveError[]): Annotation[] {
   return errors.map((error) => ({
@@ -1125,6 +1191,7 @@ export function runAnnotations(report: RunResult): Annotation[] {
   return [
     ...failed,
     ...errorAnnotations(report.errors),
+    ...nothingVerifiedAnnotations(report, NOTHING_VERIFIED),
     ...warningAnnotations(report.specWarnings),
     ...inactiveAnnotations(report.inactiveSpecs, 'assertion', 'executed'),
   ];
@@ -1164,6 +1231,7 @@ export function proveAnnotations(report: ProveReport): Annotation[] {
   return [
     ...results,
     ...errorAnnotations(report.errors),
+    ...nothingVerifiedAnnotations(report, NOTHING_PROVED),
     ...warningAnnotations(report.specWarnings),
     ...inactiveAnnotations(report.inactiveSpecs, 'rule', 'proved'),
   ];

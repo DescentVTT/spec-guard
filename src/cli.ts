@@ -3,7 +3,8 @@
  *
  * Exit codes are the contract CI depends on:
  *   0 - every assertion held
- *   1 - an assertion failed, or a directive was invalid
+ *   1 - an assertion failed, a directive was invalid, or under --strict no
+ *       assertion was executed
  *   2 - spec-guard could not run (bad usage, no spec files, missing engine)
  */
 
@@ -189,7 +190,8 @@ Options
       --format <name>     human | json | sarif | github | gitlab  (sarif uploads to code scanning,
                           github annotates a pull request from the log, gitlab is Code Quality)
       --engine <name>     auto | rg | js  (default: auto - scanner for small trees, ripgrep for big ones)
-      --strict            Treat analysis that could not be completed as a failure
+      --strict            Treat analysis that could not be completed, and a run that
+                          executed no assertion, as a failure
       --allow-missing-targets
                           Tolerate target paths that do not exist (they fail by default)
       --allow-empty-scope Tolerate assertions whose scope holds no files (they fail by default)
@@ -252,8 +254,8 @@ impact's, as the tools get_architectural_rules, check_architecture and
 get_dependents.
 
 Exit codes
-  0 all assertions passed   1 an assertion failed   2 spec-guard could not run
-  130 a --watch session was stopped`;
+  0 all assertions passed   1 an assertion failed, or none ran under --strict
+  2 spec-guard could not run   130 a --watch session was stopped`;
 
 /**
  * Takes the next argv element as a value.
