@@ -1105,8 +1105,9 @@ in the file name:
   the one in force.
 
 A ghost exits 1. A stale citation is a warning, and exits 1 under `--strict`,
-as does a file read in part or a check that looked for nothing. A family whose
-files match no document exits 2. `--json` (versioned by `formatVersion`),
+as does a file read in part or a check that looked for nothing or read no
+source file - which every format then places as a `nothing-read` finding, an
+error, with what to do. A family whose files match no document exits 2. `--json` (versioned by `formatVersion`),
 `--format sarif`, `--format github` and `--format gitlab` carry the same
 findings; `spec-guard cites src lib/a.ts` reads only those paths.
 [ADR-0017](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0017-citations-in-comments.md) has the design, and what is
@@ -1332,7 +1333,7 @@ symbolic link, and anything outside the root. CI stays the authority.
 | Code | Meaning |
 | --- | --- |
 | `0` | Every assertion held |
-| `1` | An assertion failed, or a directive was malformed; under `--strict`, the specs matched state no rule in force, so no assertion was executed; for `prove`, a rule survived, or under `--strict` none was proved; for `cites`, a comment cites a document that does not exist |
+| `1` | An assertion failed, or a directive was malformed; under `--strict`, the specs matched state no rule in force, so no assertion was executed; for `prove`, a rule survived, or under `--strict` none was proved; for `cites`, a comment cites a document that does not exist, or under `--strict` a citation is stale, a file was read in part, or no source file was read |
 | `2` | spec-guard could not run: bad usage, a malformed configuration, no spec files matched, `--engine rg` with no ripgrep, a watch that could not start, a `cites` family whose files match no document |
 | `130` | A `--watch` session was stopped |
 
@@ -1447,6 +1448,7 @@ Every format places the same findings, and `prove` and `cites` write all three:
 | a ghost citation (`cites`), on its comment | `error` | `critical` |
 | a directive that could not be read | `error` | `major` |
 | a run or a proof under `--strict` that verified nothing (`nothing-verified`), on the first spec's first line | `error` | `major` |
+| a `cites` check under `--strict` that read no source file (`nothing-read`), on the first spec's first line | `error` | `major` |
 | a stale citation (`cites`) | `warning`; `error` under `--strict` | `minor`; `critical` under `--strict` |
 | a rule `prove` could make no violation for | `notice` | `minor` |
 | a document read differently from how it was written (`spec-warning`: a status that cannot be read, front matter or a block never closed), on its line | `warning` | `minor` |
