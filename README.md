@@ -14,6 +14,12 @@ The retired payment gateway is gone from the service layer.
 If someone reintroduces `LegacyPaymentGateway`, CI fails and points at the line
 of the ADR that promised it was gone.
 
+The words the spec-* tools share are defined in
+[concepts](https://github.com/DescentVTT/spec-core/blob/main/docs/concepts.md),
+and the [tutorial](https://github.com/DescentVTT/spec-core/blob/main/docs/tutorial.md)
+runs spec-guard beside its siblings through one round of work on a small
+repository.
+
 ---
 
 ## Why this exists
@@ -111,6 +117,47 @@ may use double or single quotes, and a bare attribute means `="true"`. Inside a
 value, `\"`, `\'` and `\\` are escapes and any other backslash is kept, so a
 regular expression is written as it reads: `symbol="\bTODO\b" regex="true"`.
 
+There are eight kinds, and each makes one claim about the tree:
+
+| Directive | Claim |
+| --- | --- |
+| `@assert-absence` | this text is gone, or occurs at most N times |
+| `@assert-count` | this text occurs exactly, at least or at most N times |
+| `@assert-import-absence` | no file in scope depends on this module |
+| `@assert-import-count` | exactly, at least or at most N files depend on it |
+| `@assert-layers` | dependencies point one way through these layers |
+| `@assert-import-cycle` | no file depends on itself |
+| `@assert-structure` | files are named by a pattern, directories hold their entries, files have their partners |
+| `@assert-present` | these paths exist |
+
+A directive is read only where a renderer shows Markdown. In code - fenced and
+indented blocks, code spans, `<script>`, `<pre>`, `<style>` and `<textarea>` -
+and in front matter it is text, so documentation that shows the syntax, like
+this README, never executes it.
+
+- **What is code is what CommonMark says it is**, decided by the Markdown
+  scanner every spec-* tool shares. Comments and code spans are resolved left
+  to right in one pass, so a backtick inside a comment is a character and
+  `<!--` inside a code span is code. A code span ends with its paragraph, so a
+  stray backtick cannot hide the directives after it, and a fence may be
+  indented with the list item it sits in.
+  [ADR-0002](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0002-directive-format.md)'s
+  amendment lists where this differs from 0.11.0.
+- **What is masked is still counted.** A comment shaped like a directive -
+  `<!-- @assert-...` - in code, raw HTML or front matter is not run, and the
+  report says how many there were and where, on one line (every one under
+  `--verbose`, and in `maskedDirectives` in JSON), so text read as code by
+  accident is not a rule gone quiet without a word.
+- **A block that never closes is a warning** on its opening line: a code fence
+  or raw-text block, which makes the rest of its document code, and front
+  matter that opens on the first line and never closes. None of that front
+  matter is read as front matter, its status is unrecognised and the document
+  stays in force, and the warning, on line 1, says so and says to close it
+  with `---`, or `+++` for TOML, on a line of its own. Neither fails a run,
+  under `--strict` either.
+- **Line numbers stay exact.** Masking preserves every offset and line
+  terminator.
+
 ### `@assert-absence` - this symbol is gone
 
 ```md
@@ -120,179 +167,9 @@ regular expression is written as it reads: `symbol="\bTODO\b" regex="true"`.
 ```
 
 Fails when the symbol occurs more than `expected` times (default `0`).
-`max="..."` is accepted as a synonym for `expected`.
-
-### `exclude` - everywhere except
-
-Most real rules are "nowhere except one place", not "not here":
-
-```md
-<!-- @assert-absence target="src" symbol="process.env" exclude="src/config/**" -->
-```
-
-That is the rule this README opens with - *no secret is ever read from
-`process.env` outside `src/config`* - written as one assertion instead of a
-hand-maintained list of every directory that is not `src/config`.
-
-`exclude` follows gitignore rules, which are **not** the same as `glob`'s:
-
-| Pattern | Excludes |
-| --- | --- |
-| `tests` | any directory or file named `tests`, at any depth, and everything under it |
-| `/tests` | only the `tests` at the root, and everything under it |
-| `src/config` | that directory and everything under it |
-| `src/config/**` | the same, written explicitly |
-| `*.test.ts` | any file with that name shape, at any depth |
-
-The difference is deliberate. `glob="*.ts"` filters files, so basename matching
-is what you want; `exclude="tests"` means the directory, because that is what
-people mean when they write it - and it is what `rg -g '!tests'` does. Both
-engines implement the same rule, and a parity matrix asserts they agree on it.
-
-A leading `./` and a trailing `/` are dropped, so `./tests` and `tests/` are
-`tests`, and a backslash is a separator. Four shapes are refused, because they
-can never exclude anything:
-- **`!`**, which in `.gitignore` re-includes a path. Pasted from one, it was
-  silently dropped and the exclusion left wider than it read.
-- **`..`**, since nothing outside the root is searched.
-- **a drive path** such as `C:/repo/dist`.
-- **`.` or `/`**, the root itself.
-
-So is any pattern the glob engine cannot read - an unclosed `[` or `{`, an
-extended glob such as `+(a|b)`, a range that runs backwards, `**` inside a
-name, one too large to compile - rather than being read as a literal that
-excludes nothing. The same goes for `glob`, `module`, `order` and the
-structure rules' patterns, and for a spec pattern.
-
-`**` means any number of directories only as a whole segment. `docs/**.md` is
-refused, with the two ways to say what was meant, written from the pattern:
-`docs/**/*.md` for any depth, `docs/*.md` for one level. For any depth the
-stars become a segment of their own, with a star kept on each side where the
-name went on; for one level they become one star: `src/a**` is told
-`src/a*/**` or `src/a*`. The tools it could have come from read it three ways,
-and a spec pattern read the narrow way drops every nested document without a
-word.
-
-In a directive a refused pattern is an invalid directive, whether or not its
-document is in force; in the configuration's `specs` or `exclude`, a spec
-pattern on the command line or `--spec`, or `--exclude`, it is exit 2.
-
-List attributes accept commas or whitespace, so both of these work:
-
-```md
-<!-- @assert-absence target="src" symbol="TODO" exclude="src/legacy/** tests" -->
-<!-- @assert-absence target="src" symbol="TODO" exclude="src/legacy/**,tests" -->
-```
-
-(A path containing a space therefore cannot be written; there is no quoting
-inside an attribute value. Nor can a brace group with a comma in it:
-`glob="*.{ts,tsx}"` is the two patterns `*.{ts` and `tsx}`, and is refused with a
-message that says so. Write `glob="*.ts, *.tsx"`. A configuration's `exclude` and
-`specs` are JSON arrays, where a brace group keeps its commas, and a trailing
-`/` on an alternative means what it means on a whole pattern: `{build/,dist}`
-in `exclude` is both directories and what they hold, and `{docs/,README.md}`
-in `specs` is everything under `docs`, and the README. A leading `/` on an
-alternative anchors it at the root, as it anchors a whole pattern:
-`{/build,dist}` in `exclude` is the `build` at the root, and every `dist`.
-An alternative that names no path is refused, as it is written alone:
-`{./,docs}` in `specs` is exit 2,
-`the braces expand to "./", which names no path`.)
-
-### `comments` - the note about a deletion is not the deletion
-
-You delete a symbol and leave the explanation where the next person will look:
-
-```ts
-// LegacyThing was removed in ADR-398; do not reintroduce it.
-```
-
-A plain text search reads that comment as an occurrence, so the assertion that
-keeps the symbol deleted fails on the sentence proving it was deleted. Both
-fixes are bad: delete the note and lose the reason, or delete the rule.
-
-So matches inside comments do not count:
-
-```md
-<!-- comments are ignored by default -->
-<!-- @assert-absence target="src" symbol="LegacyThing" -->
-
-<!-- ...unless you ask for them -->
-<!-- @assert-absence target="src" symbol="Copyright" comments="include" -->
-```
-
-`comments="include"` is right for assertions that really are about text — a
-licence header, or a name that must appear nowhere in the repository at all.
-
-Because this is the one thing that can turn a failing run green without anyone
-touching code, a run that passed this way says so:
-
-```
-⚠ 1 match inside comments was not counted; add comments="include" to count it
-
-1 passed · 7ms
-✔ every spec assertion holds
-```
-
-Comment syntax is known for around 68 extensions across 11 families (JS/TS, C,
-C#, Rust, Go, Python-style `#`, shell `#`, YAML, SQL-style `--`, markup -
-MSBuild project files included - and formats with no comments at all). Strings
-are tracked too, because `//` inside a URL is not a comment and reading it as
-one would hide real code. So are JavaScript's regular expressions, because the
-quote in `/["']/` is not a quote. And so is what only looks like either: a Rust
-lifetime (`&'static str`), a C++ digit separator (`100'000`), a `#` inside a
-shell word (`${#items[@]}`), an apostrophe in a YAML value (`name: it's fine`)
-and a `/*` in JSX text (`<div>/*</div>`) all open nothing. Where spec-guard is
-unsure —
-an unknown extension, an unterminated literal — the text counts as code, and the
-report says which files it could not classify. A match wrongly kept is a visible
-failure you can argue with; a match wrongly dropped is a lie.
-
-## What gets searched
-
-An assertion is worth exactly as much as the set of files behind it, so
-spec-guard is explicit about that set and never quietly narrows it.
-
-**Four directory names are skipped**, and nothing else:
-
-| Skipped | Why |
-| --- | --- |
-| `.git`, `.hg`, `.svn` | version-control stores hold compressed copies of code you deleted on purpose |
-| `node_modules` | code you did not write, which your architecture rules are not about |
-
-Everything else is searched. That includes **hidden directories** - `.github`,
-`.husky`, `.claude-rules`, `.agents` - because that is where CI, hooks and agent
-rules live, and a rule that cannot see your workflow files is not enforcing much.
-It also includes `dist`, `build`, `out` and `coverage`, because spec-guard
-cannot tell build output from a directory of build scripts, and guessing wrong
-means a rule silently stops covering anything.
-
-`.gitignore` is not consulted. It describes what git should carry, not what a
-rule covers - and ripgrep applies it only inside a git repository, so honouring
-it made the same tree answer differently depending on whether a `.git` directory
-happened to exist above it.
-
-To narrow scope, say so in the assertion:
-
-```md
-<!-- @assert-absence target="src" symbol="TODO" exclude="dist coverage" -->
-```
-
-`--no-default-skips` removes even those four, for a run that has to be certain.
-
-### Nothing is skipped quietly
-
-A file spec-guard could not read, or one whose bytes are not text but which
-contained the symbol anyway, is a gap in the answer rather than a detail of it.
-Those are reported, and `--strict` fails on them:
-
-```text
-✖ docs/adr.md:3  @assert-absence
-    "ApiKey" must not appear in .
-    expected no matches, found 0, and 1 file could not be inspected
-    ⚠ 1 match in 1 binary file not counted: build/app.bin
-```
-
-The counts are in `--json` too, as `skipped` on each result.
+`max="..."` is accepted as a synonym for `expected`. A bound turns the rule into
+a budget: "at most 5 TODOs" is an absence claim, and burning a budget down is a
+real workflow. A lower bound, `min`, is `@assert-count`'s.
 
 ### `@assert-count` - this symbol occurs exactly / at least / at most N times
 
@@ -388,12 +265,15 @@ are reported rather than counted as clean:
 ```
 
 The count is still true of everything that could be seen; the warning is what
-stops it being mistaken for a complete answer. A passing rule prints it without
-`--verbose` too, since a green run is when it would otherwise go unread.
-`--strict` turns those warnings into failures. Files in scope that are not JavaScript or TypeScript are counted
-and reported too, so a rule pointed at the wrong tree says "analysed 2 of 3
-files; 1 is in a language whose imports spec-guard cannot read (.razor)" rather than quietly passing - and if *none* of them can be read, the
-assertion fails rather than passing on an empty analysis.
+stops it being mistaken for a complete answer.
+- **A passing rule prints it** without `--verbose` too, since a green run is
+  when it would otherwise go unread.
+- **`--strict` turns those warnings into failures.**
+- **Files in scope in a language whose imports spec-guard cannot read are
+  counted and reported**, so a rule pointed at the wrong tree says "analysed 2
+  of 3 files; 1 is in a language whose imports spec-guard cannot read (.razor)"
+  rather than quietly passing - and if *none* of them can be read, the
+  assertion fails rather than passing on an empty analysis.
 
 [ADR-0005](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0005-import-assertions.md) has the measurements and the
 reasoning behind each boundary.
@@ -694,7 +574,138 @@ Passes when every listed path exists relative to `--root`. Directories count.
 | `reason` | all | Human-readable justification, printed on failure |
 
 Unknown attributes are an error, not a shrug: `expct="1"` fails the run instead
-of silently asserting nothing.
+of silently asserting nothing. A spec tool whose typos assert nothing is worse
+than no spec tool.
+
+### `exclude` - everywhere except
+
+Most real rules are "nowhere except one place", not "not here":
+
+```md
+<!-- @assert-absence target="src" symbol="process.env" exclude="src/config/**" -->
+```
+
+That is the rule this README opens with - *no secret is ever read from
+`process.env` outside `src/config`* - written as one assertion instead of a
+hand-maintained list of every directory that is not `src/config`.
+
+`exclude` follows gitignore rules, which are **not** the same as `glob`'s:
+
+| Pattern | Excludes |
+| --- | --- |
+| `tests` | any directory or file named `tests`, at any depth, and everything under it |
+| `/tests` | only the `tests` at the root, and everything under it |
+| `src/config` | that directory and everything under it |
+| `src/config/**` | the same, written explicitly |
+| `*.test.ts` | any file with that name shape, at any depth |
+
+The difference is deliberate. `glob="*.ts"` filters files, so basename matching
+is what you want; `exclude="tests"` means the directory, because that is what
+people mean when they write it - and it is what `rg -g '!tests'` does. Both
+engines implement the same rule, and a parity matrix asserts they agree on it.
+
+A leading `./` and a trailing `/` are dropped, so `./tests` and `tests/` are
+`tests`, and a backslash is a separator. Four shapes are refused, because they
+can never exclude anything:
+- **`!`**, which in `.gitignore` re-includes a path. Pasted from one, it was
+  silently dropped and the exclusion left wider than it read.
+- **`..`**, since nothing outside the root is searched.
+- **a drive path** such as `C:/repo/dist`.
+- **`.` or `/`**, the root itself.
+
+So is any pattern the glob engine cannot read - an unclosed `[` or `{`, an
+extended glob such as `+(a|b)`, a range that runs backwards, `**` inside a
+name, one too large to compile - rather than being read as a literal that
+excludes nothing. The same goes for `glob`, `module`, `order` and the
+structure rules' patterns, and for a spec pattern.
+
+`**` means any number of directories only as a whole segment. `docs/**.md` is
+refused, with the two ways to say what was meant, written from the pattern:
+`docs/**/*.md` for any depth, `docs/*.md` for one level. For any depth the
+stars become a segment of their own, with a star kept on each side where the
+name went on; for one level they become one star: `src/a**` is told
+`src/a*/**` or `src/a*`. The tools it could have come from read it three ways,
+and a spec pattern read the narrow way drops every nested document without a
+word.
+
+In a directive a refused pattern is an invalid directive, whether or not its
+document is in force; in the configuration's `specs` or `exclude`, a spec
+pattern on the command line or `--spec`, or `--exclude`, it is exit 2.
+
+List attributes accept commas or whitespace, so both of these work:
+
+```md
+<!-- @assert-absence target="src" symbol="TODO" exclude="src/legacy/** tests" -->
+<!-- @assert-absence target="src" symbol="TODO" exclude="src/legacy/**,tests" -->
+```
+
+Two things therefore cannot be written in an attribute:
+- **A path containing a space**: there is no quoting inside an attribute value.
+- **A brace group with a comma in it**: `glob="*.{ts,tsx}"` is the two patterns
+  `*.{ts` and `tsx}`, and is refused with a message that says so. Write
+  `glob="*.ts, *.tsx"`.
+
+A configuration's `exclude` and `specs` are JSON arrays, where a brace group
+keeps its commas. Inside one, an alternative reads as it would written alone:
+- **A trailing `/`** means what it means on a whole pattern: `{build/,dist}` in
+  `exclude` is both directories and what they hold, and `{docs/,README.md}` in
+  `specs` is everything under `docs`, and the README.
+- **A leading `/`** anchors it at the root, as it anchors a whole pattern:
+  `{/build,dist}` in `exclude` is the `build` at the root, and every `dist`.
+- **An alternative that names no path is refused**: `{./,docs}` in `specs` is
+  exit 2, `the braces expand to "./", which names no path`.
+
+### `comments` - the note about a deletion is not the deletion
+
+You delete a symbol and leave the explanation where the next person will look:
+
+```ts
+// LegacyThing was removed in ADR-398; do not reintroduce it.
+```
+
+A plain text search reads that comment as an occurrence, so the assertion that
+keeps the symbol deleted fails on the sentence proving it was deleted. Both
+fixes are bad: delete the note and lose the reason, or delete the rule.
+
+So matches inside comments do not count:
+
+```md
+<!-- comments are ignored by default -->
+<!-- @assert-absence target="src" symbol="LegacyThing" -->
+
+<!-- ...unless you ask for them -->
+<!-- @assert-absence target="src" symbol="Copyright" comments="include" -->
+```
+
+`comments="include"` is right for assertions that really are about text — a
+licence header, or a name that must appear nowhere in the repository at all.
+
+Because this is the one thing that can turn a failing run green without anyone
+touching code, a run that passed this way says so:
+
+```
+⚠ 1 match inside comments was not counted; add comments="include" to count it
+
+1 passed · 7ms
+✔ every spec assertion holds
+```
+
+Comment syntax is known for around 68 extensions across 11 families (JS/TS, C,
+C#, Rust, Go, Python-style `#`, shell `#`, YAML, SQL-style `--`, markup -
+MSBuild project files included - and formats with no comments at all). What
+would hide real code if misread is tracked too:
+- **Strings**, because `//` inside a URL is not a comment.
+- **JavaScript's regular expressions**, because the quote in `/["']/` is not a
+  quote.
+- **What only looks like either**: a Rust lifetime (`&'static str`), a C++ digit
+  separator (`100'000`), a `#` inside a shell word (`${#items[@]}`), an
+  apostrophe in a YAML value (`name: it's fine`) and a `/*` in JSX text
+  (`<div>/*</div>`) all open nothing.
+
+Where spec-guard is unsure — an unknown extension, an unterminated literal — the
+text counts as code, and the report says which files it could not classify. A
+match wrongly kept is a visible failure you can argue with; a match wrongly
+dropped is a lie.
 
 ### `allow-empty` - an assertion that covers nothing is a failure
 
@@ -718,6 +729,11 @@ that swallowed the target, or a directory somebody emptied. Where covering
 nothing yet is the honest state of the world - a rule written before the code
 it guards - `allow-empty="true"` says so, and `--allow-empty-scope` says it for
 a whole run.
+
+A `target` that does not exist fails the run too: an assertion pointed at a
+renamed directory would otherwise search nothing, find nothing and report
+success. `--allow-missing-targets` makes it a warning, for a repository where a
+path is legitimately optional.
 
 ### `baseline` - adopting a rule the codebase already breaks
 
@@ -759,6 +775,66 @@ paste in. It prints; it does not edit. [ADR-0009](https://github.com/DescentVTT/
 explains why that distinction is the whole design, and why there is no `--fix`
 for architecture rules.
 
+## What gets searched
+
+An assertion is worth exactly as much as the set of files behind it, so
+spec-guard is explicit about that set and never quietly narrows it.
+
+**Four directory names are skipped**, and nothing else:
+
+| Skipped | Why |
+| --- | --- |
+| `.git`, `.hg`, `.svn` | version-control stores hold compressed copies of code you deleted on purpose |
+| `node_modules` | code you did not write, which your architecture rules are not about |
+
+Everything else is searched. That includes **hidden directories** - `.github`,
+`.husky`, `.claude-rules`, `.agents` - because that is where CI, hooks and agent
+rules live, and a rule that cannot see your workflow files is not enforcing much.
+It also includes `dist`, `build`, `out` and `coverage`, because spec-guard
+cannot tell build output from a directory of build scripts, and guessing wrong
+means a rule silently stops covering anything.
+
+`.gitignore` is not consulted. It describes what git should carry, not what a
+rule covers - and ripgrep applies it only inside a git repository, so honouring
+it made the same tree answer differently depending on whether a `.git` directory
+happened to exist above it.
+
+To narrow scope, say so in the assertion:
+
+```md
+<!-- @assert-absence target="src" symbol="TODO" exclude="dist coverage" -->
+```
+
+`--no-default-skips` removes even those four, for a run that has to be certain.
+
+### Spec files are left out of their own searches
+
+An ADR that says "`LegacyGateway` must not appear" contains the string
+`LegacyGateway`, so without this every absence rule would fail on the document
+asserting it - the single most confusing possible first-run experience.
+- **`--include-specs`** restores the naive behaviour, and counts the prose of
+  your specs.
+- **The directives themselves stay uncounted** even then: a directive is an
+  HTML comment, and a rule whose own text trips it can never be satisfied.
+  `comments="include"` counts even those.
+- **`@assert-structure`**, which reads names rather than text, is the one rule
+  that counts the spec files.
+
+### Nothing is skipped quietly
+
+A file spec-guard could not read, or one whose bytes are not text but which
+contained the symbol anyway, is a gap in the answer rather than a detail of it.
+Those are reported, and `--strict` fails on them:
+
+```text
+✖ docs/adr.md:3  @assert-absence
+    "ApiKey" must not appear in .
+    expected no matches, found 0, and 1 file could not be inspected
+    ⚠ 1 match in 1 binary file not counted: build/app.bin
+```
+
+The counts are in `--json` too, as `skipped` on each result.
+
 ## Document status - drafts and superseded ADRs
 
 An ADR has a life. It is `Proposed` before anyone agrees to it, and `Superseded`
@@ -798,45 +874,49 @@ Accepted (0.3.0).
 ```
 
 Front-matter wins, then the `## Status` section, then a table, then the bold
-label. The table and the label are only read above the first section heading.
-A table is read when it has exactly two columns and one of its rows, the header
-row or another, names the status in its left cell - `Status` or `State`, in any
-case, bold or not - and gives it in the right; a table of more columns, or one
-further down, is a register or a legend of other documents and is never read
-for this one's status. Front matter is YAML between `---`
-lines or TOML between `+++` lines; of TOML, only the top-level `status` key is
-read, and only as a string on one line: `status = "accepted"` or
-`status = 'accepted'`. A front-matter `status` wins even when its value cannot
-be read - `status: "accepted" (2024-05-01)`, text after a closing quote, or in
-TOML a multi-line string, an array, a table or a value that is not a string -
-and then the document stays in force, the section and the label are not read
-in its place, and the report warns on the key's line with the reason. So does
-front matter that opens on the first line and never closes: none of it can be
-read, so the status is unrecognised, the document stays in force, the section
-and the label are not read in its place, and the report warns on line 1 and
-says how to close it. Front matter without a `status` key, YAML or TOML, hands
-over to the section, the table and the label. The first of those that is there
-decides in the same way: a section, a table or a label whose value cannot be
-read - an empty section, a line that begins with no word - keeps the document
-in force, the report warns on its line, and nothing ranked below it is read in
-its place. A section's value is its first line of prose before the next
-heading. Headings are read as
-CommonMark reads them, so an underlined `Status` is the section and a `## Status`
-kept in a comment is not. Anything else - `Provisional`, `In review`, a
-misspelled `Supersedded`, or no status at all - keeps enforcing. That asymmetry
-is deliberate: an unanticipated word that keeps enforcing is a visible failure
-with an obvious fix, while one that stops enforcing is a green build over a rule
-nobody is checking.
+label, and the first of them that is there decides:
+
+- **Front matter** is YAML between `---` lines or TOML between `+++` lines. Of
+  TOML, only the top-level `status` key is read, and only as a string on one
+  line: `status = "accepted"` or `status = 'accepted'`. Front matter without a
+  `status` key, YAML or TOML, hands over to the section, the table and the
+  label.
+- **A section's value** is its first line of prose before the next heading.
+  Headings are read as CommonMark reads them, so an underlined `Status` is the
+  section and a `## Status` kept in a comment is not.
+- **The table and the label** are only read above the first section heading.
+  A table is read when it has exactly two columns and one of its rows, the
+  header row or another, names the status in its left cell - `Status` or
+  `State`, in any case, bold or not - and gives it in the right. A table of
+  more columns, or one further down, is a register or a legend of other
+  documents and is never read for this one's status.
+- **A status that cannot be read still decides**: the document stays in force,
+  the report warns on its line with the reason, and nothing ranked below it is
+  read in its place. In front matter that is a value such as
+  `status: "accepted" (2024-05-01)`, text after a closing quote, or in TOML a
+  multi-line string, an array, a table or a value that is not a string; in a
+  section, a table or a label, an empty section or a line that begins with no
+  word.
+- **Front matter that opens on the first line and never closes** is read the
+  same way: none of it can be read, so the status is unrecognised, the document
+  stays in force, the section and the label are not read in its place, and the
+  report warns on line 1 and says how to close it.
+- **Anything else** - `Provisional`, `In review`, a misspelled `Supersedded`, or
+  no status at all - keeps enforcing.
+
+That asymmetry is deliberate: an unanticipated word that keeps enforcing is a
+visible failure with an obvious fix, while one that stops enforcing is a green
+build over a rule nobody is checking.
 
 A status may be written in Chinese, Traditional or Simplified, and the key as
 `狀態` or `状态` - a heading, a table's cell, a label with `:` or a full-width
 `：`, or a front-matter key with YAML's colon. YAML ends a key at an ASCII colon
 and at nothing else, so `状态：草稿` in front matter is a status that cannot be
 read: the document stays in force, and the warning says to write `状态:`. A
-Chinese word is read as the English word it
-translates, and the English then does what it does here: only a word for one of
-the six above withholds a document, and the report shows the line as written.
-These are translations of the list, not words added to it:
+Chinese word is read as the English word it translates, and the English then
+does what it does here: only a word for one of the six above withholds a
+document, and the report shows the line as written. These are translations of
+the list, not words added to it:
 
 | Read as | Traditional | Simplified |
 | --- | --- | --- |
@@ -1104,12 +1184,17 @@ in the file name:
   from the document's status line - `Superseded by ADR-0014` - and followed to
   the one in force.
 
-A ghost exits 1. A stale citation is a warning, and exits 1 under `--strict`,
-as does a file read in part or a check that looked for nothing or read no
-source file - which every format then places as a `nothing-read` finding, an
-error, with what to do. A family whose files match no document exits 2. `--json` (versioned by `formatVersion`),
-`--format sarif`, `--format github` and `--format gitlab` carry the same
-findings; `spec-guard cites src lib/a.ts` reads only those paths.
+| Found | Exit |
+| --- | --- |
+| a ghost citation | 1 |
+| a stale citation | 0, as a warning; 1 under `--strict` |
+| a file read in part | 0; 1 under `--strict` |
+| a check that looked for nothing or read no source file | 0; 1 under `--strict`, and every format then places it as a `nothing-read` finding, an error, with what to do |
+| a family whose files match no document | 2 |
+
+`--json` (versioned by `formatVersion`), `--format sarif`, `--format github`
+and `--format gitlab` carry the same findings; `spec-guard cites src lib/a.ts`
+reads only those paths.
 [ADR-0017](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0017-citations-in-comments.md) has the design, and what is
 out of scope: links to symbols, which need a parser the family does not ship.
 
@@ -1157,14 +1242,17 @@ src/db/client.ts
 - **Listed, never guessed**: an import naming no file, an alias such as `@/db`,
   a dynamic `import(name)`. Any of them may depend on the path.
 
-A directory asks about every file under it. `--depth <n>` stops `n` imports
-away; cycles are safe. `--ignore-status` lists rules from documents not in
-force, which are otherwise counted, as `query` does. `--json` is versioned by
-`formatVersion`. A path that does not exist exits 2, and so does a run of
-`impact` in which no spec matched, as `query` does: the dependents are still
-written, but "no rules" over no specs is nothing measured. `--allow-empty`
-asks for the dependents alone, and exits 0. The MCP server answers the same
-question as `get_dependents`, with the same document.
+- **A directory** asks about every file under it.
+- **`--depth <n>`** stops `n` imports away; cycles are safe.
+- **`--ignore-status`** lists rules from documents not in force, which are
+  otherwise counted, as `query` does.
+- **`--json`** is versioned by `formatVersion`.
+- **Exit 2** for a path that does not exist, and for a run of `impact` in which
+  no spec matched, as `query` does: the dependents are still written, but "no
+  rules" over no specs is nothing measured. `--allow-empty` asks for the
+  dependents alone, and exits 0.
+- **The MCP server** answers the same question as `get_dependents`, with the
+  same document.
 [ADR-0018](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0018-impact.md) has the table and what it leaves out.
 
 ## CLI
@@ -1295,17 +1383,20 @@ updates the status line and nothing else:
 watching 15 specs · 1 change · 21 of 60 rules re-executed · 21 ms · Enter re-runs everything, Ctrl+C stops
 ```
 
-A session re-executes only the rules whose directive or inputs changed. Every
-filesystem read goes through one module, so the session can record which rule
-read what. A watcher's event only evicts what it may have changed, and the
-evicted facts are read again and compared, so noise costs one directory read,
-and a renamed directory's contents need no events of their own. Work that is a
-pure function of a file's bytes - tokenizing, comment masking, scanning - is
-remembered by the bytes' hash. Each of those is a way to report a tree that no
-longer exists, so a test changes trees at random and requires every report a
-session gives to equal a fresh run's, with six deliberately broken sessions
-that it has to catch. [ADR-0014](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0014-configuration-and-watch.md) has
-the design, the measurements and the limits.
+A session re-executes only the rules whose directive or inputs changed:
+- **Every filesystem read goes through one module**, so the session can record
+  which rule read what.
+- **A watcher's event only evicts what it may have changed**, and the evicted
+  facts are read again and compared, so noise costs one directory read, and a
+  renamed directory's contents need no events of their own.
+- **Work that is a pure function of a file's bytes** - tokenizing, comment
+  masking, scanning - is remembered by the bytes' hash.
+
+Each of those is a way to report a tree that no longer exists, so a test
+changes trees at random and requires every report a session gives to equal a
+fresh run's, with six deliberately broken sessions that it has to catch.
+[ADR-0014](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0014-configuration-and-watch.md)
+has the design, the measurements and the limits.
 
 On this repository, from a change to the report, in the quietest of four runs
 (a plain warm run took 69 ms in it):
@@ -1330,10 +1421,15 @@ symbolic link, and anything outside the root. CI stays the authority.
 
 ### Exit codes
 
+"Your specs failed" and "spec-guard could not run" are different facts, and CI
+should be able to tell them apart, so they are 1 and 2:
+
 | Code | Meaning |
 | --- | --- |
 | `0` | Every assertion held |
-| `1` | An assertion failed, or a directive was malformed; under `--strict`, the specs matched state no rule in force, so no assertion was executed; for `prove`, a rule survived, or under `--strict` none was proved; for `cites`, a comment cites a document that does not exist, or under `--strict` a citation is stale, a file was read in part, or no source file was read |
+| `1` | An assertion failed, or a directive was malformed; under `--strict`, the specs matched state no rule in force, so no assertion was executed |
+| `1`, `prove` | A rule survived, or under `--strict` none was proved |
+| `1`, `cites` | A comment cites a document that does not exist, or under `--strict` a citation is stale, a file was read in part, or no source file was read |
 | `2` | spec-guard could not run: bad usage, a malformed configuration, no spec files matched, `--engine rg` with no ripgrep, a watch that could not start, a `cites` family whose files match no document |
 | `130` | A `--watch` session was stopped |
 
@@ -1456,14 +1552,15 @@ Every format places the same findings, and `prove` and `cites` write all three:
 | a document not in force, on its first line | `notice` | `info` |
 
 A finding's GitLab `description`, and its GitHub message, is its message and
-then its hint, the next action. A GitLab issue's `fingerprint` is the SHA-256
-of what the finding is about - its rule, its file and its subject, such as the
-assertion, the id a comment cites or the directive that cannot be read, as
-written - with a count for a second finding of the same, and never of its
-message, its hint or its line: GitLab compares it across
-pipelines to tell a new finding from an old one, and a message that holds a
-count, or a line moved down a page, would make every open issue look fixed
-and a new one appear.
+then its hint, the next action.
+
+A GitLab issue's `fingerprint` is the SHA-256 of what the finding is about -
+its rule, its file and its subject, such as the assertion, the id a comment
+cites or the directive that cannot be read, as written - with a count for a
+second finding of the same. It is never taken from the message, the hint or the
+line: GitLab compares it across pipelines to tell a new finding from an old
+one, and a message that holds a count, or a line moved down a page, would make
+every open issue look fixed and a new one appear.
 
 **There is no language server, and that is a decision rather than a gap.**
 spec-guard's claims are about a whole repository - "this symbol appears nowhere
@@ -1643,128 +1740,70 @@ documents of the spec set read last. A single run gains nothing from one.
 
 ## Design decisions
 
-This tool was specified loosely and built opinionatedly. Where the
-implementation departs from the obvious reading of the brief, here is why.
+This README says what spec-guard does. Why it does it that way, what was
+measured and what was left out are in its ADRs, one decision each:
 
-**Spec files are excluded from their own searches.** An ADR that says
-"`LegacyGateway` must not appear" contains the string `LegacyGateway`. Without
-this rule, absence assertions would fail on the document asserting them - the
-single most confusing possible first-run experience. `--include-specs` restores
-the naive behaviour, and counts the prose of your specs; the directives
-themselves stay uncounted, because a directive is an HTML comment and a rule
-whose own text trips it can never be satisfied. `comments="include"` counts even
-those.
-
-**Code is masked before parsing.** A README documenting the syntax must not
-execute it. What is code is what CommonMark says it is, decided by
-[spec-core](https://github.com/DescentVTT/spec-core)'s Markdown scanner, which
-every spec-* tool reads documents with and which is copied into
-`src/vendor/spec-core` and verified by hash: fenced and indented code, code
-spans, `<script>`, `<pre>`, `<style>` and `<textarea>` blocks, and front matter.
-Comments and code spans are resolved left to right in one pass, so a backtick
-inside a comment is a character and `<!--` inside a code span is code, and a
-code span ends with its paragraph, so a stray backtick cannot hide the
-directives after it. A fence may be indented with the list item it sits in.
-Masking preserves every offset and line terminator, so reported line numbers
-stay exact. [ADR-0002](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0002-directive-format.md)'s amendment lists
-where this differs from 0.11.0.
-
-What is masked is still counted. A comment shaped like a directive -
-`<!-- @assert-...` - in code, raw HTML or front matter is not run, and the
-report says how many there were and where, on one line (every one under
-`--verbose`, and in `maskedDirectives` in JSON), so text read as code by
-accident is not a rule gone quiet without a word. A code fence or raw-text
-block that is never closed, which makes the rest of its document code, is a
-warning on its opening line. So is front matter that opens on the first line
-and never closes: none of it is read as front matter, its status is
-unrecognised and the document stays in force, and the warning, on line 1,
-says so and says to close it with `---`, or `+++` for TOML, on a line of its
-own.
-Neither fails a run, under `--strict` either.
-
-**A document's lifecycle status is read; a directive's is not.** Status is
-document-level and visible in every rendered Markdown view. A per-directive
-`if-status` attribute would be a switch disabling one assertion inside an
-accepted ADR, invisible to anyone who does not read the raw source - and the
-one thing a mechanism for not running an assertion must never be is invisible.
-
-**Malformed directives fail the run.** A typo like `expct="1"` could be ignored
-as "not a directive". It is instead an error, because a spec tool whose typos
-silently assert nothing is worse than no spec tool.
-
-**Four attributes were added beyond the original brief** - `word`, `regex`,
-`glob` and `ignore-case` - because `symbol="Primary"` matching `PrimaryButton`
-is the first thing every user hits, and `reason` because a failure message
-should say *why* the rule exists.
-
-**`min`/`max` are accepted on `@assert-absence` too.** "At most 5 TODOs" is an
-absence claim with a budget, and burning a budget down is a real workflow.
-
-**The engine is detected lazily.** Probing with `rg --version` up front costs a
-process spawn (~27 ms on Windows) on the critical path of every run, including
-runs where ripgrep is missing. Discovering its absence from the first real
-search is free.
-
-**Assertions that share a target list share one pass over the tree.** This used
-to need a proof: merging literals into a ripgrep alternation can lose matches
-through containment (`Primary` / `PrimaryButton`) and dovetailing (`abc` / `cd`
-in `abcd`), so spec-guard checked for both and fell back to separate passes.
-Since 0.4.0 it does not need the proof, because ripgrep no longer counts
-anything - it answers only *which files contain this text*, and the scanner
-counts each pattern separately over the shared file contents. The batching
-checks were deleted along with the risk they guarded.
-
-**Globs are matched by an automaton, not a regular expression.** Every
-pattern - `glob`, `exclude`, `module`, a layer, a spec pattern - is read by the
-glob engine the spec-* tools share, copied from spec-core and checked by hash.
-A `RegExp` backtracks: `*-*-*-*-*-*x` took 55 seconds to fail one long file
-name. The automaton cannot, and ripgrep is handed each pattern spelled as the
-automaton reads it ([ADR-0015](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0015-globs-from-spec-core.md)).
-
-**Exit code 2 exists.** "Your specs failed" and "spec-guard could not run" are
-different facts, and CI should be able to tell them apart.
-
-**A missing `target` fails the run.** It used to warn and search what was left,
-which meant an assertion pointed at a renamed directory searched nothing, found
-nothing, and reported success — the exact shape of a green check that verified
-nothing. `--allow-missing-targets` restores the old behaviour for repositories
-where a path is legitimately optional.
-
-**Hidden directories are searched, and `.gitignore` is not consulted.** An
-audit of 0.3.0 found the tool reporting a clean pass on a repository whose
-forbidden symbol sat in `.github/workflows/ci.yml`; the scanner and ripgrep also
-disagreed with each other, finding two matches and four on the same tree. Scope
-is now one policy that both engines are driven by, the skip list is four names
-long, and anything spec-guard could not inspect is reported rather than assumed
-clean ([ADR-0007](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0007-search-scope.md)).
-
-**Comments are excluded by default, and the exclusion is reported.** Counting
-the note that records a deletion as an occurrence of the thing deleted punishes
-the documentation this tool exists to keep honest ([ADR-0006](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0006-comment-classification.md)).
-The reverse risk — a rule that quietly stops checking anything because every
-match now sits in a comment — is why every run says how many matches it dropped.
-
-**An assertion that inspected no files fails.** It is the same defect as a
-missing `target` seen from a different angle: a rule whose scope is empty passes
-forever and reads exactly like a rule that found nothing. Turning this on found
-a vacuous assertion inside this repository's own test suite on the first run.
-`allow-empty="true"` covers the honest case of a rule written before the code it
-guards.
-
-**Four more languages, and no parser.** Import assertions read Python, Go, Rust
-and C# as well as JavaScript. Not by adding four tokenizers - by reusing the
-comment and string lexer that already existed, masking the source with it, and
-reading statements off what is left. Tree-sitter would have been the modern
-answer and costs 94 MB unpacked against this package's 0.33 MB; the four things
-a real parser would genuinely see that this cannot are listed in
-[ADR-0008](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0008-polyglot-imports.md) rather than glossed over.
-
-**There is no `--fix`.** Every edit a machine can make to a failing boundary
-assertion is an edit that records the rule no longer holding: widen the bound,
-add an exclusion, append to the baseline, insert an ignore comment. A one-flag
-path from red to green is a bad button for a person and a much worse one for an
-agent whose loop terminates on a green build. `--print-baseline` prints what you
-could paste; it does not paste it ([ADR-0009](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0009-debt-baselines.md)).
+- [ADR-0001](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0001-invariants.md) -
+  spec-guard's own invariants are directives, executed against it on every CI
+  run: output through an injected `CliIO`, processes spawned by the engine
+  alone, a parser and a reporter that never touch the filesystem.
+- [ADR-0002](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0002-directive-format.md) -
+  directives are HTML comments, invisible when rendered; code is masked before
+  they are read, by spec-core's Markdown scanner, and spec files are left out
+  of their own searches.
+- [ADR-0003](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0003-mutation-testing.md) -
+  mutation testing in CI gates the build, every survivor is replayed rather
+  than excused, and vitest is pinned to 4.x until Stryker's runner reads 5.
+- [ADR-0004](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0004-adaptive-engine.md) -
+  `--engine auto` chooses per search group, by walking the target with a
+  budget: the scanner under it, ripgrep over it.
+- [ADR-0005](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0005-import-assertions.md) -
+  import assertions read the dependency rather than the text, and report what
+  they could not resolve rather than counting it clean.
+- [ADR-0006](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0006-comment-classification.md) -
+  matches inside comments do not count by default, every run says how many it
+  dropped, and where spec-guard is unsure, text is code.
+- [ADR-0007](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0007-search-scope.md) -
+  one scope policy drives both engines: four directory names are skipped,
+  `.gitignore` is not read, ripgrep only pre-filters, and every other skip is
+  reported.
+- [ADR-0008](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0008-polyglot-imports.md) -
+  Python, Go, Rust and C# imports are read by masking comments and strings and
+  reading statements off the rest, with no parser.
+- [ADR-0009](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0009-debt-baselines.md) -
+  a baseline names known violations and ratchets both ways; `--print-baseline`
+  prints one, and there is no `--fix`.
+- [ADR-0010](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0010-spec-status.md) -
+  a document's lifecycle status decides whether its directives run, withholding
+  is always reported, and there is no per-directive `if-status`.
+- [ADR-0011](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0011-layers-and-cycles.md) -
+  layers and cycles are read off one import graph; a cycle is counted as a
+  knot, and `tsconfig` paths are not resolved.
+- [ADR-0012](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0012-query-and-mcp.md) -
+  `query` and the MCP server answer which rules govern a path from the specs
+  alone, held to the walk a real run makes, with no MCP SDK.
+- [ADR-0013](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0013-structure-assertions.md) -
+  one structure directive, one claim each - names, required entries or
+  partners - with names compared exactly on every platform.
+- [ADR-0014](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0014-configuration-and-watch.md) -
+  a project's policy lives in `package.json` or `.spec-guard.json`, and a watch
+  session re-executes only what a change can affect.
+- [ADR-0015](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0015-globs-from-spec-core.md) -
+  globs are spec-core's automata, copied in and held by hash, so no pattern
+  backtracks.
+- [ADR-0016](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0016-rules-seen-to-fail.md) -
+  a rule is trusted when it has been seen to fail: `prove` shows each one a
+  violation of itself, in memory.
+- [ADR-0017](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0017-citations-in-comments.md) -
+  a comment that cites a decision is a claim, and `cites` holds it to a
+  document that exists and is in force.
+- [ADR-0018](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0018-impact.md) -
+  `impact` reads the import graph backwards, with the rules in play, and lists
+  what it could not follow.
+- [ADR-0019](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0019-releases-are-staged-by-ci.md) -
+  a release is a `v*` tag on main after its full mutation sweep, staged on npm
+  by CI with provenance and published only when the maintainer approves it with
+  a second factor.
 
 ## spec-guard checks itself
 
@@ -1777,161 +1816,17 @@ build fails if they stop being true. CI proves every one of those rules can
 fail, and `spec-guard cites` holds every ADR a comment in the code cites to
 existing and being in force.
 
+Line coverage is 100%, CI's full mutation sweep kills 99.15% of 12,050 mutants
+(0.16.0), and every survivor a release adds is replayed before it ships
+([ADR-0003](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0003-mutation-testing.md));
+[CONTRIBUTING.md](https://github.com/DescentVTT/spec-guard/blob/main/CONTRIBUTING.md)
+has how to build, test and release, and
+[SECURITY.md](https://github.com/DescentVTT/spec-guard/blob/main/SECURITY.md)
+how to report a vulnerability.
+
 This README is executable too:
 
 <!-- @assert-present file="src/parser.ts,src/engine.ts,src/reporter.ts,src/runner.ts,src/cli.ts,src/comments.ts" -->
-
-## Development
-
-```bash
-npm install
-npm run build      # tsc -> dist/
-npm test           # vitest
-npm run test:coverage
-npm run test:mutation  # stryker (four parallel jobs in CI; hours locally)
-npm run lint       # tsc --noEmit
-npm run selfcheck  # run spec-guard on its own docs
-```
-
-The test suite runs every assertion case against **both** engines and asserts
-they agree, so the fallback cannot quietly drift from ripgrep. `@vscode/ripgrep`
-is a devDependency purely so that the ripgrep path is exercised on every
-platform in CI, including machines that have no `rg` on PATH; it ships a
-prebuilt binary and is never a runtime dependency.
-
-### Mutation testing
-
-Coverage says a line ran. It does not say an assertion would notice if the line
-behaved differently. This repository measures the difference: line coverage is
-**100%**, and **99.20%** of 11,549 mutants are killed in CI, with 89 survivors and
-no file below 95%. The second number is the one worth reading, and what was done
-about the survivors matters more than the score. At 0.5.1 every surviving mutant
-was checked individually, and the 101 left then produced byte-identical output.
-Each release since has replayed the survivors its own code added before it
-shipped: they were killed, deleted as dead code, or shown equivalent and
-recorded in [ADR-0003](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0003-mutation-testing.md) with the evidence.
-
-That gap is the point. The first run scored 77.23%, and the weakest file was the
-reporter at 65.48% - not because it lacked tests, but because its tests were
-almost all `toContain` against colourless output. A mutant could prepend a junk
-line, drop a colour, or turn `remaining > 0` into `remaining >= 0` and every
-test still passed. Exact whole-output comparison took it to 87.30%. The engine
-and the walker were then rewritten for testability rather than papered over with
-more tests, which is what moved them from 75%/78% to 83%/93%.
-
-The most recent pass took every module to its ceiling, and its value was not the
-number. Writing down four contracts that had only ever been checked through
-their effect on a match count turned up four wrong answers: two assertions on
-one symbol answered each other's comment handling, an unreadable directory went
-unreported on any repository small enough to scan in process, snippets from CRLF
-files carried a carriage return into the terminal, and an invalid pattern was
-reported with its error message twice. Seventeen branches turned out to be
-unable to decide anything and were deleted rather than pinned; thirty-five
-negative controls - each defect reintroduced one at a time - confirm the suite
-goes red for every one, and the changes meant to be invisible were checked
-against 6,976 files of real code, reference for reference, against the published
-0.5.0 build.
-
-Then the survivors themselves were checked rather than excused. All 130 were
-applied one at a time and run through a fingerprint of 4,176 observations, and
-**29 of them turned out not to be equivalent at all** - a Rust brace counter
-that only matters when a second statement follows, a type-only test that marks
-`import A, { B } from 'x'` type-only when loosened, a comment check that opens a
-block comment on `2*3`. All 29 are now tested and all 29 die. All of it is in
-[ADR-0003](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0003-mutation-testing.md), including a Stryker limitation
-found on the way: a mutant that stops a test file *loading* is reported as
-survived even though the suite is in fact killing it.
-
-CI runs it in **two tiers**, both gated at 97%. Branches and pull requests run
-Stryker incrementally, reusing the verdict for any mutant whose source and
-covering tests are both unchanged. Pushes to `main`, the weekly schedule and
-manual runs do the full sweep, which is the authoritative number and the one
-quoted above; a full sweep is also what publishes the cache the branches start
-from, so an incremental verdict can never be built on another incremental
-verdict.
-
-The full sweep was 6m54s at 2,118 mutants, 15m51s at 3,493, and 42m39s at 7,763.
-That growth is why the tiers exist: a check that gets quietly more expensive
-every release is a check somebody eventually proposes lowering. It is also why
-both tiers now run in four parallel shards. One runner
-could no longer finish the full sweep reliably inside the job's limit, and the
-answer was to split the sweep rather than raise the limit or drop mutants.
-Each shard mutates its own files against every test, and a final job merges the
-reports. The merge refuses anything that is not exactly one sweep, and applies
-the 97% gate to the merged score with the same library Stryker's gate uses.
-
-Run it locally with `npm run test:mutation` if you like, but do not calibrate
-anything on the result: on the Windows machine this was developed on the same
-suite takes hours against 43 minutes of hosted time, and it scores *higher*,
-because far more mutants hang there and Stryker counts a hang as a kill. Linux
-CI is the measurement.
-
-Eight cautionary tales are in [ADR-0003](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0003-mutation-testing.md): a
-run whose score was pure fiction because the mutants were never activated, a
-tuning knob that lifted the score six points without adding a test, the platform
-gap above, the baseline being re-anchored when a tokenizer arrived, and a score
-that rose partly because code carrying hard-to-kill mutants was deleted rather
-than because tests improved, and the 0.5.0 sweep that failed the build at 83.77%
-because a suite can be thorough about the thing it was written to test and
-silent about the machinery underneath it, and the excuse that let the tokenizer
-sit at 73% for three releases because "that kind of code carries more equivalent
-mutants" sounded like judgement rather than an unchecked assumption - along with
-the real bugs that chasing the gate uncovered, and a class of mutant the runner
-reports as survived while the suite is in fact killing it.
-
-### Releasing
-
-A release is a tag push. Nothing is published from a laptop, and there is no
-npm token in this repository or in its secrets.
-
-```bash
-npm version minor   # or patch / major - writes package.json and makes the tag
-git push origin main --follow-tags
-```
-
-[`release.yml`](https://github.com/DescentVTT/spec-guard/blob/main/.github/workflows/release.yml) then:
-
-1. refuses the release unless the tag, `package.json` and a `## <version>`
-   heading in `CHANGELOG.md` all agree;
-2. type checks, builds, runs the suite and executes this repository's own ADRs.
-   A tag push does not run CI, so the release job runs those steps itself;
-3. `npm pack`s the tarball, prints its file list and its SHA-256, and hands that
-   exact file to the publishing job. Nothing is rebuilt in between, so what
-   reaches the registry is the artifact the tests ran against;
-4. stages it with `npm stage publish --provenance`. The job authenticates with a
-   short-lived OIDC token that GitHub mints for `release.yml` running in the
-   `npm` environment, and npmjs.com accepts it only for that combination - npm's
-   trusted publishing, so there is no credential to leak or to rotate.
-
-The publishing job installs no dependencies and checks nothing out. Everything
-that runs third-party code - `npm ci`, a postinstall that downloads a ripgrep
-binary, the test suite - happens in the earlier job, which has no token.
-
-Staging is not publishing. The version sits on npmjs.com visible to maintainers
-and installable by nobody until:
-
-```bash
-npm stage list @descent-vtt/spec-guard
-npm stage view <stage-id>
-npm stage approve <stage-id>   # asks for a second factor
-```
-
-`npm stage reject <stage-id>` discards it instead, and the tag can be deleted
-and remade. Approving needs 2FA and therefore a person: CI can build a release,
-but it cannot decide to publish one.
-
-Two repository settings hold the other end of this. The `npm` environment
-accepts deployments only from `main` and from `v*` tags, so no branch can reach
-the publishing job. A `Release tags` ruleset lets only repository admins create,
-move or delete a `v*` tag - under this workflow, pushing one is the release, and
-an accidental push should not be able to start it.
-
-`Actions -> Release -> Run workflow` with `dry_run` left on verifies, packs and
-hands the tarball to npm without spending a version number. It stops at the
-registry's version check - a dispatch runs from `main`, whose version is already
-published - and it does not exercise authentication, because the OIDC exchange
-happens only on a publish that intends to write. The first real tag is what
-proves that end.
 
 ## Requirements
 
