@@ -49,7 +49,6 @@ is deprecated before it goes, is spec-core's
   patterns, or pass `--no-strict` to that run.
   [ADR-0010](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0010-spec-status.md)'s
   amendment of 2026-09-30.
-
 - **GitLab's description and GitHub's message carry the finding's hint.**
   A Code Quality issue's `description` and a workflow command's message were
   the message alone; they are now the message and then the next action: fix
@@ -67,6 +66,14 @@ is deprecated before it goes, is spec-core's
 
 ### Fixed
 
+- **A `./` before a `!` is read as naming a file, not taken off to leave a
+  negation.** `glob="./!a"` was an invalid directive and is now the name
+  `!a` at any depth, under both engines; `exclude="./!build"`, a module, a
+  layer and `dirs=` read it so too, and a spec pattern `./!*.md` is the names
+  `!*.md` at any depth and `././!*.md` the root's, where both were exit 2.
+  `!a` alone is refused as it was.
+  [ADR-0015](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0015-globs-from-spec-core.md)'s
+  amendment of 2026-09-30.
 - **The README's account of GitLab Code Quality.** It said an issue's
   fingerprint is the SHA-256 of its rule, file and message; since 0.12.0 it
   is of what the finding is about and never of its message, as the code and
@@ -79,15 +86,6 @@ is deprecated before it goes, is spec-core's
 - **The README's SARIF example uploads with `github/codeql-action/upload-sarif@v4`**,
   the current major, where it used v3, deprecated in December 2026, and
   shows the permissions the job needs.
-
-- **A `./` before a `!` is read as naming a file, not taken off to leave a
-  negation.** `glob="./!a"` was an invalid directive and is now the name
-  `!a` at any depth, under both engines; `exclude="./!build"`, a module, a
-  layer and `dirs=` read it so too, and a spec pattern `./!*.md` is the names
-  `!*.md` at any depth and `././!*.md` the root's, where both were exit 2.
-  `!a` alone is refused as it was.
-  [ADR-0015](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0015-globs-from-spec-core.md)'s
-  amendment of 2026-09-30.
 
 ## 0.16.0
 
