@@ -1343,19 +1343,30 @@ npx spec-guard "docs/**/*.md" --fail-fast
 comment on the offending line:
 
 ```yaml
+    permissions:
+      security-events: write
+      # only in a private repository
+      actions: read
+      contents: read
+    steps:
+      # ...checkout and setup-node as above
       - run: npx @descent-vtt/spec-guard "docs/**/*.md" --format sarif > spec-guard.sarif || true
-      - uses: github/codeql-action/upload-sarif@v3
+      - uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: spec-guard.sarif
           category: spec-guard
 ```
 
-That job needs `permissions: security-events: write`. One alert per broken rule
-rather than per match - the thing that broke is the rule - anchored on the first
-offending line, with the directive as a related location because that is often
-where the fix goes. Alerts carry a fingerprint derived from what the assertion
-is about rather than where its matches landed, so inserting a line above a
-violation does not close the alert and open a new one.
+Version 4 of the upload action is the current one; version 3 is deprecated in
+December 2026. The job needs `security-events: write` to upload, and in a
+private repository `actions: read` and `contents: read` as well.
+
+One alert per broken rule rather than per match - the thing that broke is the
+rule - anchored on the first offending line, with the directive as a related
+location because that is often where the fix goes. Alerts carry a fingerprint
+derived from what the assertion is about rather than where its matches landed,
+so inserting a line above a violation does not close the alert and open a new
+one.
 
 Two formats need no upload step. `--format github` writes one GitHub Actions
 workflow command per finding, which the job's log turns into an annotation on
@@ -1396,8 +1407,9 @@ Every format places the same findings, and `prove` and `cites` write all three:
 A finding's GitLab `description`, and its GitHub message, is its message and
 then its hint, the next action. A GitLab issue's `fingerprint` is the SHA-256
 of what the finding is about - its rule, its file and its subject, such as the
-assertion or the id a comment cites - with a count for a second finding of the
-same, and never of its message, its hint or its line: GitLab compares it across
+assertion, the id a comment cites or the directive that cannot be read, as
+written - with a count for a second finding of the same, and never of its
+message, its hint or its line: GitLab compares it across
 pipelines to tell a new finding from an old one, and a message that holds a
 count, or a line moved down a page, would make every open issue look fixed
 and a new one appear.

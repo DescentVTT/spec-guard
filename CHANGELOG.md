@@ -30,6 +30,12 @@ with the flag that restores the previous behaviour.
   showed cannot fail. A `cites` finding reads as it did. Fingerprints do not
   change. Upgrading: nothing to do, unless a script compares a description
   whole; its message is still how it starts.
+- **A directive that cannot be read keeps its GitLab fingerprint while its
+  message changes.** It was the hash of the message, so a release that
+  worded one differently made GitLab show the issue fixed and a new one
+  found; it is now the hash of the directive as written, as every other
+  finding's is of what it is about. Upgrading: the first pipeline after
+  upgrading shows each such issue fixed and found again, once.
 
 ### Fixed
 
@@ -42,6 +48,9 @@ with the flag that restores the previous behaviour.
 - **The README says how to install ripgrep beyond GitHub's runners**: on a
   GitLab runner's Debian or Alpine image, and on Windows, and what
   `SPEC_GUARD_RG` does.
+- **The README's SARIF example uploads with `github/codeql-action/upload-sarif@v4`**,
+  the current major, where it used v3, deprecated in December 2026, and
+  shows the permissions the job needs.
 
 - **A `./` before a `!` is read as naming a file, not taken off to leave a
   negation.** `glob="./!a"` was an invalid directive and is now the name
