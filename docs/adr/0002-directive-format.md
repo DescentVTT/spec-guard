@@ -243,3 +243,18 @@ kind, the formats it reaches and what it fails, which is nothing, are as they
 were. What the scanner reads is as it was too: the opening line is a thematic
 break and the rest Markdown, so a directive under it runs and none of it is
 masked, and a first line with only blank lines after it is no warning.
+
+## Amended 2026-09-30: attributes beyond the first brief, and typos
+
+The README's design notes, an index of these records since, held two decisions
+about the directive format that no record did.
+
+**Four attributes were added beyond the original brief, and a fifth.** `word`,
+`regex`, `glob` and `ignore-case`, because `symbol="Primary"` matching
+`PrimaryButton` is the first thing every user hits; and `reason`, because a
+failure message should say *why* the rule exists.
+
+**A malformed directive fails the run.** A typo like `expct="1"` could be
+ignored as "not a directive". It is an error instead, because a spec tool whose
+typos silently assert nothing is worse than no spec tool. The count of
+`ALLOWED_ATTRIBUTES` above keeps the table that decides it wired in.

@@ -122,3 +122,16 @@ the one thing the two paths did agree on. The regression test drives the
 adaptive engine with its directory reader intercepted, which is the only
 portable way to produce a directory that cannot be read - Windows has no chmod,
 and a permission bit a failed test leaves behind is worse than no test at all.
+
+## Amended 2026-09-30: ripgrep is found by using it
+
+The README's design notes, an index of these records since, held one decision
+about the engine that this record did not.
+
+Under `auto`, whether ripgrep is installed is not asked up front. Probing with
+`rg --version` costs a process spawn - about 27 ms on Windows - on the critical
+path of every run, including the runs where ripgrep is missing. A group over
+the budget runs ripgrep, and a binary that cannot be started leaves that group
+and every later one to the scanner: its absence is discovered from the first
+real search, for free. `--engine rg` does probe, since a run that asked for
+ripgrep and has none stops with exit 2 before it searches anything.
