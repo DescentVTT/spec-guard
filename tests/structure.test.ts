@@ -445,12 +445,17 @@ describe('required', () => {
       expect(await held('}{a/,b}')).toEqual(missing('svc/}a', 'svc/}b'));
     });
 
-    it('keeps a leading / rooting the pattern, which no directory below a target is under', async () => {
+    it('keeps a leading / rooting the pattern, or the alternative it leads, which no directory below a target is under', async () => {
       // Nothing is chosen, so the rule fails with nothing listed, as it does
-      // for dirs="/a". Inside braces a leading / roots nothing.
+      // for dirs="/a". A leading / on an alternative roots that alternative
+      // alone, as spec-core reads it from its copy of 7e41240, so `{/a/,d}`
+      // chooses what dirs="d" does; it chose `a` too, the slash read as
+      // nothing.
       expect(await held('/{a/,d}')).toEqual([]);
       expect(await held('././/{a/,d}')).toEqual([]);
-      expect(await held('{/a/,d}')).toEqual(missing('svc/a', 'svc/d'));
+      expect(await held('{/a/,d}')).toEqual(missing('svc/d'));
+      expect(await held('{/a/,{//c,d}}')).toEqual(missing('svc/d'));
+      expect(await held('{/a/,/d/}')).toEqual([]);
     });
 
     it('changes nothing about a slash ending the whole of dirs=, braces without one, or one an alternative goes on after', async () => {
@@ -845,6 +850,9 @@ describe('resolving @assert-structure', () => {
     expect(dirsOf('/{a/,d}')).toBe('/{a,d}');
     expect(dirsOf('//{a/,d}')).toBe('//{a,d}');
     expect(dirsOf('././/{a/,d}')).toBe('.//{a,d}');
+    // An alternative's own leading / stays on it, where it roots that
+    // alternative alone.
+    expect(dirsOf('{/a/,d}')).toBe('{/a,d}');
     expect(dirsOf('x,{a/,b}')).toBe('{x[,]a,x[,]b}');
     // A \ is a separator, so the pattern is written with /.
     expect(dirsOf('a\\\\b')).toBe('a/b');

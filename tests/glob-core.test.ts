@@ -127,6 +127,15 @@ describe('a whole-path pattern', () => {
     expect(createPathMatcher('api\\*')('api/v1')).toBe(true);
   });
 
+  it('reads a leading / on an alternative as it reads one on the pattern: rooted where no path below a target is', () => {
+    // From spec-core's copy of 7e41240; the slash used to be read as nothing.
+    const paths = ['api', 'web', 'x/api'];
+    expect(paths.map(createPathMatcher('{/api,web}'))).toEqual([false, true, false]);
+    expect(paths.map(createPathMatcher('/api'))).toEqual([false, false, false]);
+    // A slash after a segment starts no alternative: `x/{/api,web}` is `x//api`, which is `x/api`.
+    expect(paths.map(createPathMatcher('x/{/api,web}'))).toEqual([false, false, true]);
+  });
+
   it('throws for a pattern it cannot read', () => {
     expect(() => createPathMatcher('[a')).toThrow('invalid glob pattern "[a": a "[" is never closed');
   });
