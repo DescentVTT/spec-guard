@@ -62,6 +62,7 @@ describe('a run\'s findings', () => {
         file: 'src/a.ts',
         line: 2,
         message: '"Legacy" must not appear in src: expected no matches, found 2 (docs/rules.md:3)',
+        hint: 'fix the code, or the rule if the decision it records has changed',
       },
       {
         rule: 'assert-present',
@@ -71,6 +72,7 @@ describe('a run\'s findings', () => {
         file: 'docs/rules.md',
         line: 4,
         message: 'docs/gone.md must exist: missing: docs/gone.md (docs/rules.md:4)',
+        hint: 'fix the code, or the rule if the decision it records has changed',
       },
       {
         rule: 'invalid-directive',
@@ -80,6 +82,7 @@ describe('a run\'s findings', () => {
         file: 'docs/rules.md',
         line: 5,
         message: '@assert-count requires expected="...", min="..." or max="...".',
+        hint: 'fix the directive: nothing it states is checked until it can be read',
       },
       {
         rule: 'not-in-force',
@@ -88,7 +91,8 @@ describe('a run\'s findings', () => {
         severity: 'info',
         file: 'docs/old.md',
         line: 1,
-        message: 'docs/old.md is Superseded by rules.md, so its 2 assertions were not executed.',
+        message: 'docs/old.md is Superseded by rules.md, so its 2 assertions were not executed',
+        hint: '--ignore-status executes the rules of a document not in force',
       },
       {
         rule: 'not-in-force',
@@ -97,8 +101,28 @@ describe('a run\'s findings', () => {
         severity: 'info',
         file: 'docs/older.md',
         line: 1,
-        message: 'docs/older.md is deprecated, so its 1 assertion was not executed.',
+        message: 'docs/older.md is deprecated, so its 1 assertion was not executed',
+        hint: '--ignore-status executes the rules of a document not in force',
       },
+    ]);
+  });
+
+  it('name the next action for a document read differently from how it was written, where its message does not', async () => {
+    const report = await runSpecGuard({
+      patterns: ['docs/*.md'],
+      root: ROOT,
+      io: memoryIo(ROOT, {
+        'docs/a.md': '---\nstatus: ""\n---\n\n<!-- @assert-absence target="src" symbol="Q" -->\n',
+        'docs/b.md': '<!-- @assert-absence target="src" symbol="Q" -->\n\n```sh\nnpm test\n',
+        'docs/c.md': '---\nstatus: draft\n\n<!-- @assert-absence target="src" symbol="Q" -->\n',
+        'src/a.ts': '',
+      }),
+    });
+    expect(runAnnotations(report).map(({ file, hint }) => [file, hint])).toEqual([
+      ['docs/a.md', 'write a status word spec-guard reads, such as accepted or superseded'],
+      ['docs/b.md', 'close it, and the directives after it run'],
+      // Its message ends with how to close it.
+      ['docs/c.md', undefined],
     ]);
   });
 
@@ -173,7 +197,15 @@ describe('a proof\'s findings', () => {
     expect(annotations[1]?.message).toBe(
       `"there" must not appear in src: ${report.results[1]?.unprovable as string}`,
     );
-    expect(annotations[3]?.message).toBe('docs/draft.md is draft, so its 1 rule was not proved.');
+    expect(annotations[3]?.message).toBe('docs/draft.md is draft, so its 1 rule was not proved');
+    // What to do next: narrow a rule that cannot fail, check where an
+    // unprovable one reaches, fix a directive, or ask for the proof anyway.
+    expect(annotations.map(({ hint }) => hint)).toEqual([
+      'narrow the rule until a violation fails it: a target that reaches the code, a glob that names its files, a bound that can be crossed',
+      "check that the rule's target and glob reach the files it is about",
+      'fix the directive: nothing it states is checked until it can be read',
+      '--ignore-status proves the rules of a document not in force',
+    ]);
     // Each identity is what the finding is about: the rule's document, kind
     // and statement, never the violation tried or the count it found.
     expect(annotations.map(({ identity }) => identity)).toEqual([
@@ -208,8 +240,17 @@ describe('GitLab Code Quality', () => {
     ]);
   });
 
-  it('fingerprints what a finding is about, never its message or its line', () => {
+  it('describes a finding by its message and then its hint, the next action, and by its message alone when it has none', () => {
+    const hinted = { ...annotation, hint: 'no document matching docs/adr/{n}-*.md has the number 99; the nearest is ADR-0098' };
+    expect(gitlab([hinted])[0]?.description).toBe(
+      'src/ledger.rs:12 cites ADR-0099, which no document defines. no document matching docs/adr/{n}-*.md has the number 99; the nearest is ADR-0098',
+    );
+    expect(gitlab([annotation])[0]?.description).toBe('src/ledger.rs:12 cites ADR-0099, which no document defines');
+  });
+
+  it('fingerprints what a finding is about, never its message, its hint or its line', () => {
     const fingerprint = (value: Annotation): string => (gitlab([value])[0] as GitlabIssue).fingerprint;
+    expect(fingerprint({ ...annotation, hint: 'something else to do' })).toBe(fingerprint(annotation));
     // A message holds the count and the directive's line: one more match, or
     // a line added above the directive, must not make an old issue new.
     expect(fingerprint({ ...annotation, message: 'src/ledger.rs:13 cites ADR-0099, which no document defines' })).toBe(fingerprint(annotation));
@@ -243,6 +284,9 @@ describe('GitLab Code Quality', () => {
     const io: CliIO = { stdout: (text) => out.push(text), stderr: () => {}, env: {}, cwd: DEMO_REPO, isTTY: false };
     expect(await main(['docs/adr/0002-failing.md', '--engine', 'js', '--format', 'gitlab'], io)).toBe(EXIT_FAILED);
     const issues = JSON.parse(out.join('\n')) as GitlabIssue[];
+    expect(issues[0]?.description).toBe(
+      '"LegacyPaymentGateway" must not appear in src: expected no matches, found 2 (docs/adr/0002-failing.md:6). fix the code, or the rule if the decision it records has changed',
+    );
     expect(issues.map((issue) => [issue.check_name, issue.severity, issue.location.path])).toEqual([
       ['assert-absence', 'critical', 'src/legacy/LegacyPaymentGateway.ts'],
       ['assert-count', 'critical', 'src/core/DeprecatedHelper.ts'],
@@ -287,7 +331,7 @@ describe('GitHub workflow commands', () => {
     expect(out).toHaveLength(1);
     expect(out[0]?.split('\n')).toHaveLength(4);
     expect(out[0]?.split('\n')[0]).toBe(
-      '::error file=src/legacy/LegacyPaymentGateway.ts,line=2,title=assert-absence::"LegacyPaymentGateway" must not appear in src: expected no matches, found 2 (docs/adr/0002-failing.md:6)',
+      '::error file=src/legacy/LegacyPaymentGateway.ts,line=2,title=assert-absence::"LegacyPaymentGateway" must not appear in src: expected no matches, found 2 (docs/adr/0002-failing.md:6). fix the code, or the rule if the decision it records has changed',
     );
 
     const clean: string[] = [];
