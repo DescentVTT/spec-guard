@@ -172,3 +172,30 @@ ones added for speed.
 <!-- @assert-present file="src/scope.ts, tests/blind-spots.test.ts" reason="the policy and the regression tests for the defect it fixes" -->
 <!-- @assert-count target="src/scope.ts" symbol="DEFAULT_SKIPPED_DIRECTORIES" min="1" reason="the policy list is named, not scattered" -->
 <!-- @assert-absence target="src/engine.ts" symbol="--no-messages" reason="it hid the per-file errors that prove a file was unreadable" -->
+
+## Amended 2026-09-30: what the batching guarded, and two more silent passes
+
+The README's design notes, an index of these records since, held three things
+this record did not.
+
+**What the batching apparatus guarded.** Merging literals into one ripgrep
+alternation can lose matches through containment (`Primary` and
+`PrimaryButton`) and through dovetailing (`abc` and `cd` in `abcd`), so
+spec-guard checked for both and fell back to separate passes. Since ripgrep
+answers only which files contain the text, the scanner counts each pattern
+separately over the shared file contents, and the checks went with the risk
+they guarded. Assertions that share a target list still share one pass over the
+tree.
+
+**A missing `target` fails the run.** It used to warn and search what was left,
+so an assertion pointed at a renamed directory searched nothing, found nothing
+and reported success - the exact shape of a green check that verified nothing.
+`--allow-missing-targets` restores the warning, for a repository where a path is
+legitimately optional.
+
+**An assertion that inspected no files fails.** It is the same defect as a
+missing `target`, seen from a different angle: a rule whose scope is empty
+passes forever and reads exactly like a rule that found nothing. Turning this
+on found a vacuous assertion inside this repository's own test suite on the
+first run. `allow-empty="true"` covers the honest case of a rule written before
+the code it guards.
