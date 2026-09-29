@@ -76,7 +76,7 @@ export const INSTRUCTIONS =
   'Before changing a file that other files import - renaming or removing an export, changing what a function takes or returns - ' +
   'call get_dependents with its path to learn every file the change can reach and the rules in force over them. ' +
   'After changing files, call check_architecture with their paths to find violations before CI does. ' +
-  'Rules in draft, proposed, rejected, deprecated, superseded or archived documents are not in force and are only counted.';
+  'Rules in draft, proposed, rejected, deprecated, superseded or archived documents - the status written in English or in Chinese, such as 草稿 or 已取代 - are not in force and are only counted.';
 
 const READ_ONLY = { readOnlyHint: true, idempotentHint: true, openWorldHint: false };
 
@@ -99,7 +99,7 @@ const GET_RULES = {
       },
       include_inactive: {
         type: 'boolean',
-        description: 'Also list rules from draft, proposed, rejected, deprecated, superseded and archived documents.',
+        description: 'Also list rules from draft, proposed, rejected, deprecated, superseded and archived documents, the status written in English or in Chinese.',
       },
     },
     required: ['path'],
@@ -157,7 +157,7 @@ const GET_DEPENDENTS = {
       },
       include_inactive: {
         type: 'boolean',
-        description: 'Also list rules from draft, proposed, rejected, deprecated, superseded and archived documents.',
+        description: 'Also list rules from draft, proposed, rejected, deprecated, superseded and archived documents, the status written in English or in Chinese.',
       },
     },
     required: ['paths'],

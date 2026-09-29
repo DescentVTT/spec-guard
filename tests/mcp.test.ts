@@ -414,13 +414,13 @@ describe('tools/list', () => {
         'Before changing a file that other files import - renaming or removing an export, changing what a function takes or returns - ' +
         'call get_dependents with its path to learn every file the change can reach and the rules in force over them. ' +
         'After changing files, call check_architecture with their paths to find violations before CI does. ' +
-        'Rules in draft, proposed, rejected, deprecated, superseded or archived documents are not in force and are only counted.',
+        'Rules in draft, proposed, rejected, deprecated, superseded or archived documents - the status written in English or in Chinese, such as 草稿 or 已取代 - are not in force and are only counted.',
     );
     expect(listed.tools[0]?.['inputSchema']).toEqual({
       type: 'object',
       properties: {
         path: { type: 'string', description: 'A file or directory, relative to the project root or absolute inside it.' },
-        include_inactive: { type: 'boolean', description: 'Also list rules from draft, proposed, rejected, deprecated, superseded and archived documents.' },
+        include_inactive: { type: 'boolean', description: 'Also list rules from draft, proposed, rejected, deprecated, superseded and archived documents, the status written in English or in Chinese.' },
       },
       required: ['path'],
       additionalProperties: false,
@@ -446,7 +446,7 @@ describe('tools/list', () => {
           description: 'Files or directories that exist, relative to the project root or absolute inside it.',
         },
         depth: { type: 'integer', minimum: 1, description: 'Follow dependents at most this many imports away. Omit to follow every one.' },
-        include_inactive: { type: 'boolean', description: 'Also list rules from draft, proposed, rejected, deprecated, superseded and archived documents.' },
+        include_inactive: { type: 'boolean', description: 'Also list rules from draft, proposed, rejected, deprecated, superseded and archived documents, the status written in English or in Chinese.' },
       },
       required: ['paths'],
       additionalProperties: false,

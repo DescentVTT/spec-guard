@@ -654,6 +654,29 @@ describe('a scan', () => {
     expect(report.findings[0]?.message).toBe('src/a.ts:1 cites ADR-1, which is superseded - cite ADR-3 instead');
   });
 
+  it('reads a status written in Chinese as the English it translates, so a citation of a document it retires is stale', async () => {
+    // 已被 ADR-3 取代 is superseded and 已棄用 deprecated, each stale; 延後 is
+    // deferred, which is in force here, as the English is (ADR-0010).
+    const report = await cites(
+      { 'src/a.ts': '// ADR-1, ADR-2 and ADR-4\n' },
+      {
+        io: memoryIo(ROOT, {
+          'd/1-a.md': '# ADR-1\n\n## 狀態\n\n已被 ADR-3 取代\n',
+          'd/2-b.md': '# ADR-2\n\n狀態：已棄用\n',
+          'd/3-c.md': '# ADR-3\n',
+          'd/4-d.md': '---\n状态: 延后\n---\n\n# ADR-4\n',
+          'src/a.ts': '// ADR-1, ADR-2 and ADR-4\n',
+        }),
+        families: [{ id: 'ADR-{n}', files: 'd/{n}-*.md' }],
+      },
+    );
+    expect(found(report)).toEqual(['src/a.ts:1:4 stale-citation ADR-1', 'src/a.ts:1:11 stale-citation ADR-2']);
+    expect(report.findings.map(({ status, message }) => [status, message])).toEqual([
+      ['superseded', 'src/a.ts:1 cites ADR-1, which is superseded - cite ADR-3 instead'],
+      ['deprecated', 'src/a.ts:1 cites ADR-2, which is deprecated'],
+    ]);
+  });
+
   it('makes one finding of one id on one line, however it is spelled, and one per line and per id', async () => {
     const report = await cites({ 'src/a.ts': '// ADR-7, ADR-007 and ADR-0007\n// ADR-7 again\n// ADR-8, ADR-7\n' });
     expect(found(report)).toEqual([

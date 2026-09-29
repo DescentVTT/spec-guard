@@ -26,6 +26,7 @@ import { lineStarts, locate } from './text.js';
 import {
   findEntry,
   keyName,
+  parseInline,
   readFrontMatter,
   scanMarkdown,
   titleOf,
@@ -182,6 +183,98 @@ export const INACTIVE_STATUSES: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * The status key, and the same key in Chinese, Traditional and Simplified, read
+ * wherever `status` is: in front matter, as a heading, as a label.
+ */
+const STATUS_KEYS: ReadonlySet<string> = new Set(['status', '狀態', '状态']);
+
+/**
+ * Chinese status words, each under the English word it translates: the
+ * family's table (spec-core's ADR-0005; ADR-0010's amendment of 2026-09-30).
+ *
+ * Not new words. A Chinese word is read as the English it translates, and the
+ * English then does here what it does, so only a word under one of the six
+ * above withholds a document: 延後 is `deferred`, which stays in force as the
+ * English does, where spec-graph retires both. The value is the English word,
+ * so JSON, `cites` and the family's table read it as they read the English; the
+ * line is kept as written. Keyed by the English rather than listing it, so no
+ * word of the closed list is written twice.
+ */
+const CHINESE_STATUS_WORDS: Readonly<Record<string, readonly string[]>> = {
+  superseded: ['已被取代', '被取代', '已取代'],
+  deprecated: ['已棄用', '棄用', '已廢棄', '廢棄', '已停用', '已過時', '已弃用', '弃用', '已废弃', '废弃', '已过时'],
+  rejected: ['已否決', '否決', '已拒絕', '不採納', '已否决', '否决', '已拒绝', '不采纳'],
+  withdrawn: ['已撤回', '撤回', '已作廢', '作廢', '已作废', '作废'],
+  deferred: ['延後', '暫緩', '擱置', '延后', '暂缓', '搁置'],
+  archived: ['封存', '已封存', '歸檔', '已歸檔', '归档', '已归档'],
+  final: ['已定案', '定案', '已凍結', '已冻结'],
+  // "Provisionally accepted", read by its first word, as the English is; so
+  // 暫定接受 is not accepted, and is no word listed.
+  provisionally: ['暫定', '暂定'],
+  accepted: ['已接受', '接受', '已採納', '採納', '已核准', '核准', '已批准', '批准', '已生效', '生效', '已采纳', '采纳'],
+  implemented: ['已實施', '已完成', '已实施'],
+  draft: ['草稿', '草案'],
+  proposed: ['提議', '提案', '審查中', '審核中', '討論中', '待審', '待審核', '提议', '审查中', '审核中', '讨论中', '待审', '待审核'],
+};
+
+/**
+ * Every Chinese status word with the English it is read as. In no order: a
+ * word that begins a longer one - 待審 in 待審核 - is followed there by a Han
+ * character, which no word read may be, so at most one word is ever read.
+ */
+const CHINESE_WORDS: ReadonlyArray<readonly [string, string]> = Object.entries(CHINESE_STATUS_WORDS).flatMap(([english, words]) =>
+  words.map((word) => [word, english] as const),
+);
+
+/** What may follow a status word: nothing, white space, punctuation or a symbol, never another character of a word. */
+const WORD_END = /^(?:$|[\s\p{P}\p{S}])/u;
+
+/**
+ * 被, then what superseded the document, in thirty characters at most, and the
+ * verb: 被 ADR-0003 取代. With nothing between them it is 被取代, a word listed.
+ */
+const SUPERSEDED_BY = /^已?被(.{1,30}?)(?:取代|替代|取而代之)/u;
+
+/**
+ * A negation directly before a verb, which says the opposite: 未取代, 不再取代,
+ * and 尚未取代, whose 尚未 ends in 未.
+ */
+const NEGATED = /(?:[不未非沒没無无勿]|不再)$/u;
+
+/** A document reference after 已取代, past spaces or a colon: `已取代 ADR-0002`. */
+const REFERENCE_AFTER = /^[ \t\u3000]*[:：]?[ \t\u3000]*[A-Za-z0-9]/;
+
+/**
+ * The English word a status written in Chinese is read as, or why none is,
+ * or undefined for a value that does not begin with a Han character.
+ *
+ * Chinese puts no space between words, so the word is not a first run of
+ * letters as the English is: it is the listed word the value begins with, and
+ * only when a space, punctuation or the end follows it, so that 草稿已核准 is no
+ * word listed and keeps its document in force. 被 and a verb of superseding
+ * within thirty characters is superseded, as "superseded by" is. Two readings
+ * are refused, each to keep a document in force rather than guess: 已取代
+ * before a document reference, which usually says which document this one
+ * supersedes; and a verb after a negation, which says the opposite. A value
+ * beginning with a negation, such as 未接受, begins with no word listed.
+ */
+function chineseStatus(text: string): { readonly value: string } | { readonly reason: string } | undefined {
+  if (!/^\p{Script=Han}/u.test(text)) return undefined;
+  const found = CHINESE_WORDS.find(([word]) => text.startsWith(word) && WORD_END.test(text.slice(word.length)));
+  if (found !== undefined) {
+    const [word, english] = found;
+    return word === '已取代' && REFERENCE_AFTER.test(text.slice(word.length))
+      ? { reason: '"已取代" before a document reference names the document this one supersedes, not this one\'s status' }
+      : { value: english };
+  }
+  const superseded = SUPERSEDED_BY.exec(text);
+  if (superseded !== null && !NEGATED.test(superseded[1] as string) && WORD_END.test(text.slice(superseded[0].length))) {
+    return { value: 'superseded' };
+  }
+  return { reason: `"${text}" does not begin with a status word spec-guard reads` };
+}
+
+/**
  * The three ways the key is spelled: `**Status**:`, `**Status:**`, `Status:`.
  *
  * Written as alternatives rather than as optional emphasis on either side of
@@ -191,9 +284,10 @@ export const INACTIVE_STATUSES: ReadonlySet<string> = new Set([
  * colon is only consumed when it closes emphasis that opened the key. The
  * colon itself is mandatory, which keeps "Status reports are..." from being
  * read as metadata. Leading whitespace in the value is left to `toStatus`,
- * which trims it anyway.
+ * which trims it anyway. The key may be written in Chinese, 狀態 or 状态, and
+ * the colon full-width, `：`, as Chinese text writes it.
  */
-const STATUS_LABEL_RE = /^[ \t]{0,3}(?:(\*\*|__)status(?:\1[ \t]*:|[ \t]*:\1)|status[ \t]*:)(.*)/i;
+const STATUS_LABEL_RE = /^[ \t]{0,3}(?:(\*\*|__)(?:status|狀態|状态)(?:\1[ \t]*[:：]|[ \t]*[:：]\1)|(?:status|狀態|状态)[ \t]*[:：])(.*)/i;
 
 /** A status line read: the status, or no status and why, where there is more to say than that no word begins it. */
 type StatusRead = { readonly status: SpecStatus } | { readonly reason?: string };
@@ -204,22 +298,25 @@ type StatusRead = { readonly status: SpecStatus } | { readonly reason?: string }
  * The value is the first run of letters, so "Accepted (0.3.0)." and
  * "Superseded by ADR-0007" normalise to one word while the line as written
  * survives for the report - a reader shown "superseded" learns much less than
- * one shown what it was superseded by.
+ * one shown what it was superseded by. A value that begins with a Han character
+ * is read as the English word its Chinese translates (`chineseStatus`), so
+ * `已取代（2024）` is superseded and keeps its line.
  */
 function toStatus(raw: string, source: SpecStatus['source']): StatusRead {
   const trimmed = raw.trim();
   // The word is read through any leading emphasis, so `**Superseded** by
   // ADR-0007` is superseded rather than nothing at all - which is what a rule
   // that required the markers to balance made of it.
-  const word = /^[*_]*([a-zA-Z]+)/.exec(trimmed);
-  if (!word) return {};
+  const text = trimmed.replace(/^[*_]*/, '');
+  const english = /^[a-zA-Z]+/.exec(text)?.[0].toLowerCase();
+  const read = english === undefined ? chineseStatus(text) : { value: english };
+  if (read === undefined || 'reason' in read) return read ?? {};
   // The label loses emphasis only when it wraps the whole line. `**Draft**` is
   // a status written in bold and reads better without the markers; "Superseded
   // by *ADR-0007*" is a sentence with emphasis inside it, and taking one marker
   // off each end would put a half-mangled line in the report.
   const label = trimmed.replace(/^(\*{1,2}|_{1,2})(.*)\1$/, '$2');
-  const value = (word[1] as string).toLowerCase();
-  return { status: { value, label, source, active: !INACTIVE_STATUSES.has(value) } };
+  return { status: { value: read.value, label, source, active: !INACTIVE_STATUSES.has(read.value) } };
 }
 
 /** Why a status written as `text` cannot be read: the reason it was given, or what the text holds. */
@@ -299,14 +396,49 @@ function fromFrontmatter(scan: MarkdownScan): StatusReading | undefined {
   };
 }
 
-/** The `status` of YAML front matter, as spec-core's reader reads it, or undefined when it has none. */
+/**
+ * The `status` of YAML front matter, as spec-core's reader reads it, or,
+ * without one, its `狀態` or `状态`; undefined when it has neither.
+ */
 function yamlStatus(scan: MarkdownScan, block: FrontMatterBlock): Declared | undefined {
   const entry = findEntry(readFrontMatter(scan.text.slice(0, block.bodyStart)), 'status');
-  if (entry === undefined) return undefined;
+  if (entry === undefined) return chineseYamlStatus(scan.text.slice(0, block.bodyStart));
   // The reader counts lines from 0 in the text the scan read, which is the
   // document's own lines after any byte-order mark.
   const line = entry.line + 1;
   const { value } = entry;
+  if (value.kind === 'scalar') return { line, text: value.scalar.text };
+  return { line, reason: value.kind === 'list' ? 'a list is not a status' : value.reason };
+}
+
+/**
+ * A top-level `狀態` or `状态` key in YAML front matter: the key, a colon - one
+ * of YAML's, with a space or nothing after it, or a full-width one - and the
+ * value on its line.
+ */
+const CHINESE_YAML_KEY = /^(?:狀態|状态)[ \t]*(?::(?=[ \t]|$)|：)(.*)$/;
+
+/**
+ * The status key in Chinese in YAML front matter, on the first line at the top
+ * level that holds it.
+ *
+ * spec-core's reader reads keys written in ASCII and passes over any other
+ * line, so this key is found here and its value read as the reader reads one,
+ * quoted or plain, to a comment. A value written on the lines under the key is
+ * one the reader refuses for `status` too, and is refused here in its words.
+ */
+function chineseYamlStatus(frontMatter: string): Declared | undefined {
+  const lines = frontMatter.split(/\r\n|\r|\n/);
+  const at = lines.findIndex((text) => CHINESE_YAML_KEY.test(text));
+  if (at === -1) return undefined;
+  const line = at + 1;
+  const inline = (CHINESE_YAML_KEY.exec(lines[at] as string)?.[1] as string).trim();
+  if (inline === '' || inline.startsWith('#')) {
+    // The closing line follows the key's, so there is always a line below it.
+    const below = lines[at + 1] as string;
+    return /^[ \t]+\S/.test(below) ? { line, reason: 'the value continues on the next line; keep it on one line, or quote it' } : { line, text: '' };
+  }
+  const value = parseInline(inline);
   if (value.kind === 'scalar') return { line, text: value.scalar.text };
   return { line, reason: value.kind === 'list' ? 'a list is not a status' : value.reason };
 }
@@ -478,7 +610,8 @@ function tomlStatus(raw: string, lineAt: (offset: number) => number): Declared |
     }
   };
 
-  const isStatus = (part: string): boolean => keyName(part) === 'status';
+  // A key written in Chinese is quoted, since TOML's bare keys are ASCII.
+  const isStatus = (part: string): boolean => STATUS_KEYS.has(keyName(part));
 
   /** The value of the top-level `status` key, from just past the key. */
   const status = (parts: readonly string[], at: number): Declared => {
@@ -543,7 +676,7 @@ const NOT_READ_BELOW = '; a status written elsewhere in the document is not read
  * and a status that cannot be read withheld a document by accident.
  */
 function fromHeading(scan: MarkdownScan): StatusReading | undefined {
-  const at = scan.headings.findIndex((candidate) => candidate.text.toLowerCase() === 'status');
+  const at = scan.headings.findIndex((candidate) => STATUS_KEYS.has(candidate.text.toLowerCase()));
   if (at === -1) return undefined;
   const heading = scan.headings[at] as Heading;
   const next = scan.headings[at + 1];
