@@ -421,8 +421,13 @@ reads it by spec-core's rules chooses what the run chooses.
   pattern is, and not as it is read.
 - **A leading `/` still roots the pattern** at the filesystem's root, which no
   directory below a target is under: `/{a/,d}` chooses nothing, as `/a` does,
-  and is described as `/{a,d}`. Inside braces spec-core reads a leading `/` as
-  nothing, so `{/a/,d}` chooses `a` and `d`.
+  and is described as `/{a,d}`. *Amended 2026-09-29*: one leading an
+  alternative roots that alternative alone. spec-core read it as nothing
+  until its copy of `7e41240`, so `{/a/,d}` chose `a` and `d`; it now reads
+  it as it reads a `/` leading the pattern
+  ([ADR-0015](0015-globs-from-spec-core.md)'s second amendment of that date),
+  and `{/a/,d}`, described as `{/a,d}`, chooses `d`, as `dirs="/a"` chooses
+  nothing and `dirs="d"` chooses `d`.
 - **Only `dirs` changes.** `glob=`, `exclude=`, a spec pattern, a required
   entry's name and a `cites` files template read a trailing `/` on an
   alternative as spec-core does. `tests/structure.test.ts` holds a run on a
