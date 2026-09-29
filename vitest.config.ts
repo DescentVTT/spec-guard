@@ -8,8 +8,13 @@ export default defineConfig({
     // found" - a broken run caused by leftovers from a previous one.
     exclude: ['tests/fixtures/**', '**/node_modules/**'],
     environment: 'node',
-    testTimeout: 30_000,
-    hookTimeout: 30_000,
+    // A timeout is for a test that hangs, and a busy machine is not one. With
+    // three suites running at once, the tests that spawn ripgrep or node took
+    // up to 23 s of the 30 they had, and one timed out; the tests that read
+    // the whole repository have two minutes of their own. The mutation config
+    // keeps 30 s, since Stryker's own timeout decides a hung mutant there.
+    testTimeout: 60_000,
+    hookTimeout: 60_000,
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts'],
