@@ -5,6 +5,36 @@ All notable changes to this project are documented here. Versions follow
 may change in a minor release — each such change is listed under **Changed**
 with the flag that restores the previous behaviour.
 
+## Unreleased
+
+### Changed
+
+- **A leading `/` on a brace alternative anchors that alternative at the
+  root, as one on the whole pattern does.** spec-core, copied again from
+  `7e41240`, reads the slash on an alternative as it reads one on the
+  pattern, where it read it as nothing, and every pattern here follows.
+  `glob="{/f.ts}"` found `f.ts` at any depth, and now finds it at the root
+  only, as `glob="/f.ts"` does; so does `{/f.ts,x}` given whole to
+  `createGlobMatcher`, beside `x` at any depth. `{/build,x}` in the
+  configuration's `exclude`, and `{/build}` in `exclude=`, `--exclude`,
+  `module=` or a layer, left out every `build`, and now the one at the root,
+  as `/build` does, under both engines. A spec pattern `{/a.md,README.md}` -
+  on the command line, `--spec` or in `specs` - found every `a.md`, and now
+  the root's. `dirs="{/a/,d}"` chose `a` and `d`, and now chooses `d`, as
+  `dirs="/a"` chooses nothing. `{/src/*.ts,*.md}` and `/{a,/src}/a.ts` as
+  globs, a spec pattern `docs/{/adr/*.md,a.md}`, whose slash follows the
+  base as spec-core reads the whole pattern, and `a/{/b,c}`, whose slash
+  follows a segment, find what they found. `glob="././/f.ts"`, which found
+  nothing, finds the root's `f.ts`, as `.//f.ts` does. A directive's list
+  attribute and `--exclude` split on commas, so a group written there has
+  one alternative. Nothing restores the old reading: the alternative without
+  its slash, `{f.ts,x}` or `{build,x}`, says what it said. A run, `prove`,
+  `cites`, `query` and `impact` of the five spec-* repositories answer as
+  they did.
+  [ADR-0015](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0015-globs-from-spec-core.md)'s
+  and [ADR-0013](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0013-structure-assertions.md)'s
+  amendments of 2026-09-29.
+
 ## 0.15.0
 
 Closed TOML front matter decides a document's status as YAML front matter
