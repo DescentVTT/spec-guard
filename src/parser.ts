@@ -23,7 +23,16 @@
  */
 
 import { lineStarts, locate } from './text.js';
-import { findEntry, readFrontMatter, scanMarkdown, titleOf, type Block, type MarkdownScan } from './vendor/spec-core/markdown/index.js';
+import {
+  findEntry,
+  keyName,
+  readFrontMatter,
+  scanMarkdown,
+  titleOf,
+  type Block,
+  type FrontMatterBlock,
+  type MarkdownScan,
+} from './vendor/spec-core/markdown/index.js';
 import type {
   Directive,
   DirectiveError,
@@ -216,22 +225,30 @@ interface StatusReading {
 }
 
 /**
- * The status front matter declares, read as YAML reads it, or undefined when
- * front matter names none.
+ * What front matter's `status` key holds before it is read as a status: the
+ * text of a string, or why there is none, on the key's 1-based line.
+ */
+type Declared = { readonly line: number } & ({ readonly text: string } | { readonly reason: string });
+
+/**
+ * The status front matter declares, or undefined when front matter names none.
  *
- * spec-core's reader, which the family's tools share: a quoted value is taken
- * up to its closing quote and a plain one up to a comment, as the one-line
- * reader this replaced did - MADR's own template quotes the status, and
- * `"proposed" # decided at review` is proposed. Quotes and `#` are syntax here
- * and nowhere else.
+ * YAML is read by spec-core's reader, which the family's tools share: a quoted
+ * value is taken up to its closing quote and a plain one up to a comment, as
+ * the one-line reader this replaced did - MADR's own template quotes the
+ * status, and `"proposed" # decided at review` is proposed. Quotes and `#` are
+ * syntax here and nowhere else. TOML, between `+++` lines, is read for this
+ * one key by `tomlStatus`: a string on one line, quoted as TOML quotes it.
  *
  * A `status` key decides, whether or not its value can be read. One the reader
  * refuses - continued onto the next line, text after a closing quote, `: ` in
- * a plain value - or one with no word in it declares no status, which leaves
- * the document in force, and says why. It used to be skipped, and then a
- * `## Status` section or a `Status:` line further down was read in its place:
- * `status: "accepted" (2024-05-01)` above a section still saying `Proposed`
- * took an accepted decision out of force.
+ * a plain value, a TOML array or table - or one with no word in it declares no
+ * status, which leaves the document in force, and says why. It used to be
+ * skipped, and then a `## Status` section or a `Status:` line further down was
+ * read in its place: `status: "accepted" (2024-05-01)` above a section still
+ * saying `Proposed` took an accepted decision out of force. TOML's key was
+ * once not read at all, and `status = "accepted"` above the same section was
+ * withheld by it.
  *
  * Front matter opened on the first line and never closed decides the same
  * way. Its author wrote front matter, and what it says cannot be read, so the
@@ -242,28 +259,245 @@ interface StatusReading {
  */
 function fromFrontmatter(scan: MarkdownScan): StatusReading | undefined {
   if (scan.unclosedFrontMatter !== null) return {};
-  if (scan.frontMatter === null) return undefined;
-  const entry = findEntry(readFrontMatter(scan.text.slice(0, scan.frontMatter.bodyStart)), 'status');
-  if (entry === undefined) return undefined;
-  const { value } = entry;
-  const status = value.kind === 'scalar' ? toStatus(value.scalar.text, 'frontmatter') : undefined;
+  const block = scan.frontMatter;
+  if (block === null) return undefined;
+  const declared =
+    block.kind === 'toml' ? tomlStatus(block.raw, (offset) => scan.index.positionAt(block.start + offset).line) : yamlStatus(scan, block);
+  if (declared === undefined) return undefined;
+  const status = 'text' in declared ? toStatus(declared.text, 'frontmatter') : undefined;
   if (status !== undefined) return { status };
   const reason =
-    value.kind === 'unsupported'
-      ? value.reason
-      : value.kind === 'list'
-        ? 'a list is not a status'
-        : value.scalar.text.trim() === ''
-          ? 'it is empty'
-          : `"${value.scalar.text}" does not begin with a word`;
+    'reason' in declared ? declared.reason : declared.text.trim() === '' ? 'it is empty' : `"${declared.text}" does not begin with a word`;
   return {
     problem: {
-      // The reader counts lines from 0 in the text the scan read, which is the
-      // document's own lines after any byte-order mark.
-      line: entry.line + 1,
+      line: declared.line,
       message: `the status in front matter cannot be read (${reason}), so its status is unrecognised and the document stays in force; a status written below the front matter is not read in its place`,
     },
   };
+}
+
+/** The `status` of YAML front matter, as spec-core's reader reads it, or undefined when it has none. */
+function yamlStatus(scan: MarkdownScan, block: FrontMatterBlock): Declared | undefined {
+  const entry = findEntry(readFrontMatter(scan.text.slice(0, block.bodyStart)), 'status');
+  if (entry === undefined) return undefined;
+  // The reader counts lines from 0 in the text the scan read, which is the
+  // document's own lines after any byte-order mark.
+  const line = entry.line + 1;
+  const { value } = entry;
+  if (value.kind === 'scalar') return { line, text: value.scalar.text };
+  return { line, reason: value.kind === 'list' ? 'a list is not a status' : value.reason };
+}
+
+/*
+ * What ends a line in TOML front matter, as the scanner ends its lines, and
+ * then what else ends what is being read. Past the end of the text `charAt`
+ * reads the empty string, which each of them includes, so every walk that
+ * stops at one of them stops at the end as well.
+ */
+const TOML_LINE_END = '\n\r';
+/** What may follow a value on its line: nothing, or a comment. */
+const TOML_VALUE_END = '\n\r#';
+/** What ends a number, a boolean or a date: its line, or the array or inline table it is in. */
+const TOML_BARE_END = '\n\r#,]}';
+const TOML_BARE_KEY = /[A-Za-z0-9_-]/;
+/** TOML 1.0's escapes. A later version's `\e` and `\x` are refused, which leaves the document in force. */
+const TOML_ESCAPES: Readonly<Record<string, string>> = { b: '\b', t: '\t', n: '\n', f: '\f', r: '\r', '"': '"', '\\': '\\' };
+const TOML_HEX_DIGITS: Readonly<Record<string, number>> = { u: 4, U: 8 };
+
+/**
+ * The top-level `status` of TOML front matter, as TOML reads it, or undefined
+ * when it has none. `raw` is the text between the `+++` lines, and `lineAt`
+ * turns an offset in it into a line of the document.
+ *
+ * Only that key is read, and only as a string on one line - `status =
+ * "accepted"` or `status = 'accepted'`, with the blanks and the comment TOML
+ * allows around it. spec-guard depends on nothing, and a TOML parser would be
+ * its first dependency, for one key. The rest of the block is walked rather
+ * than read: strings, arrays and inline tables are stepped over to their ends,
+ * whatever lines those are on, so that a `status = "draft"` line inside a
+ * multi-line string is not taken for the key, nor a `[1, 2]` line inside an
+ * array for a table header, which would end the top level early.
+ *
+ * The key is the document's when it comes before the first table header, or
+ * when a header names it; it is compared as the YAML reader compares keys, so
+ * `Status` is it. Any other form of it - a multi-line string, an array, a
+ * table, a value that is not a string - is why it cannot be read, as a YAML
+ * value the reader refuses is. A `status` in a table is the table's, one in an
+ * inline table is that table's, and one in a comment is not written. A line
+ * this walk cannot follow is passed over to its end, as the YAML reader passes
+ * over a line that is not `key: value`.
+ */
+function tomlStatus(raw: string, lineAt: (offset: number) => number): Declared | undefined {
+  let i = 0;
+  const peek = (): string => raw.charAt(i);
+  const opens = (delimiter: string): boolean => raw.startsWith(delimiter, i);
+  const blank = (): void => {
+    while (peek() === ' ' || peek() === '\t') i += 1;
+  };
+  const toLineEnd = (): void => {
+    while (!TOML_LINE_END.includes(peek())) i += 1;
+  };
+  /** Blanks, newlines and comments: what may come between the items of an array or an inline table. */
+  const space = (): void => {
+    for (;;) {
+      blank();
+      if (peek() === '#') toLineEnd();
+      if (peek() !== '\n' && peek() !== '\r') return;
+      i += 1;
+    }
+  };
+
+  /** A string on one line, basic or literal, from its opening quote: its text, or why it cannot be read. */
+  const string = (): { readonly text: string } | { readonly reason: string } => {
+    const quote = peek();
+    let text = '';
+    for (i += 1; ; i += 1) {
+      const ch = peek();
+      if (TOML_LINE_END.includes(ch)) return { reason: 'the string is never closed on its line' };
+      if (ch === quote) {
+        i += 1;
+        return { text };
+      }
+      if (ch !== '\\' || quote === "'") {
+        text += ch;
+        continue;
+      }
+      const code = raw.charAt(i + 1);
+      // A backslash ending the line escapes nothing, and the string runs off it.
+      if (TOML_LINE_END.includes(code)) continue;
+      i += 1;
+      const simple = TOML_ESCAPES[code];
+      if (simple !== undefined) {
+        text += simple;
+        continue;
+      }
+      const width = TOML_HEX_DIGITS[code] ?? 0;
+      const hex = raw.slice(i + 1, i + 1 + width);
+      // Every line of the block ends in a terminator, which is not a digit, so
+      // an escape cut short is never all digits.
+      if (!/^[0-9A-Fa-f]+$/.test(hex)) return { reason: `"\\${code}" is not an escape this reader knows` };
+      const point = Number.parseInt(hex, 16);
+      if (point > 0x10ffff) return { reason: `"\\${code}${hex}" is not a character` };
+      text += String.fromCodePoint(point);
+      i += width;
+    }
+  };
+
+  /** Steps over a multi-line string from its opening delimiter to its closing one, or to the end. */
+  const multiline = (delimiter: string): void => {
+    const quote = delimiter.charAt(0);
+    i += 3;
+    while (peek() !== '') {
+      if (opens(delimiter)) {
+        // Up to two quotes just inside the closing delimiter are the string's,
+        // so the string ends where the run of quotes does.
+        while (peek() === quote) i += 1;
+        return;
+      }
+      // In a basic string a backslash escapes what follows it, a quote included.
+      i += peek() === '\\' && quote === '"' ? 2 : 1;
+    }
+  };
+
+  /** A key, dotted or not, as its parts, and the blanks after it; undefined where none is written. */
+  const key = (): string[] | undefined => {
+    const parts: string[] = [];
+    for (;;) {
+      blank();
+      if (peek() === '"' || peek() === "'") {
+        const read = string();
+        if ('reason' in read) return undefined;
+        parts.push(read.text);
+      } else {
+        const from = i;
+        while (TOML_BARE_KEY.test(peek())) i += 1;
+        if (i === from) return undefined;
+        parts.push(raw.slice(from, i));
+      }
+      blank();
+      if (peek() !== '.') return parts;
+      i += 1;
+    }
+  };
+
+  /** The `=` after a key, and the blanks after it. */
+  const equals = (): boolean => {
+    if (peek() !== '=') return false;
+    i += 1;
+    blank();
+    return true;
+  };
+
+  /** Steps over a value to its end, or to what it cannot follow. */
+  const value = (): void => {
+    if (opens('"""') || opens("'''")) multiline(raw.slice(i, i + 3));
+    else if (peek() === '"' || peek() === "'") string();
+    else if (peek() === '[' || peek() === '{') brackets();
+    else while (!TOML_BARE_END.includes(peek())) i += 1;
+  };
+
+  /** Steps over an array or an inline table from its opening bracket to its closing one, or to what it cannot follow. */
+  const brackets = (): void => {
+    const table = peek() === '{';
+    const close = table ? '}' : ']';
+    i += 1;
+    for (;;) {
+      space();
+      if (peek() === close) {
+        i += 1;
+        return;
+      }
+      if (table && (key() === undefined || !equals())) return;
+      value();
+      space();
+      if (peek() === ',') i += 1;
+      else if (peek() !== close) return;
+    }
+  };
+
+  const isStatus = (part: string): boolean => keyName(part) === 'status';
+
+  /** The value of the top-level `status` key, from just past the key. */
+  const status = (parts: readonly string[], at: number): Declared => {
+    const line = lineAt(at);
+    const cannot = (reason: string): Declared => ({ line, reason });
+    if (parts.length > 1) return cannot('a table is not a status');
+    if (!equals()) return cannot('"=" does not follow the key');
+    if (opens('"""') || opens("'''")) return cannot('a multi-line string is not read; write it as "..." on one line');
+    const ch = peek();
+    if (ch === '[') return cannot('an array is not a status');
+    if (ch === '{') return cannot('a table is not a status');
+    if (TOML_VALUE_END.includes(ch)) return cannot('it is empty');
+    if (ch !== '"' && ch !== "'") return cannot('it is not a string; quote it');
+    const read = string();
+    if ('reason' in read) return cannot(read.reason);
+    blank();
+    return TOML_VALUE_END.includes(peek()) ? { line, text: read.text } : cannot('text follows a closing quote');
+  };
+
+  let root = true;
+  while (peek() !== '') {
+    blank();
+    const at = i;
+    if (peek() === '[') {
+      const array = opens('[[');
+      i += array ? 2 : 1;
+      const header = key();
+      if (header !== undefined && isStatus(header[0] as string)) {
+        return { line: lineAt(at), reason: array ? 'an array of tables is not a status' : 'a table is not a status' };
+      }
+      root = false;
+    } else {
+      // A blank line or a comment holds no key, so it is passed over as a
+      // line that cannot be followed is.
+      const parts = key();
+      if (parts !== undefined && root && isStatus(parts[0] as string)) return status(parts, at);
+      if (parts !== undefined && equals()) value();
+    }
+    toLineEnd();
+    i += 1;
+  }
+  return undefined;
 }
 
 /**
@@ -312,11 +546,12 @@ function fromLabel(scan: MarkdownScan): SpecStatus | undefined {
  * The lifecycle status a Markdown document declares about itself.
  *
  * Three spellings are recognised because three are in use, including two in
- * this repository's own ADRs: YAML front-matter (MADR), a `## Status` section
- * (Nygard), and a bold `**Status:**` label. Front-matter wins when it has a
- * `status` key, readable or not, and when it never closes - it is
- * machine-readable metadata rather than a convention read out of prose, and
- * front matter that cannot be read is no licence to read the prose instead.
+ * this repository's own ADRs: front-matter (MADR's YAML, or TOML between `+++`
+ * lines), a `## Status` section (Nygard), and a bold `**Status:**` label.
+ * Front-matter wins when it has a `status` key, readable or not, and when it
+ * never closes - it is machine-readable metadata rather than a convention read
+ * out of prose, and front matter that cannot be read is no licence to read the
+ * prose instead.
  *
  * The section and the label are read with code masked, so a document that
  * documents this syntax inside a fence - this project's README does - is not

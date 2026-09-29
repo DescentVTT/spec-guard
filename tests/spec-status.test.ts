@@ -455,8 +455,271 @@ describe('front matter, read by spec-core', () => {
     expect(parseStatus('---\nstatus: draft\n...\n')).toMatchObject({ value: 'draft', source: 'frontmatter' });
   });
 
-  it('does not read TOML, and hands over to the section', () => {
-    expect(parseStatus('+++\nstatus = "draft"\n+++\n\n## Status\n\nAccepted\n')).toMatchObject({ value: 'accepted', source: 'heading' });
+});
+
+describe('TOML front matter', () => {
+  // Front matter between `+++` lines decides the status as YAML front matter
+  // does (ADR-0010, amended 2026-09-29). It was not read for one before, so
+  // the section or the label decided, and `status = "accepted"` above a
+  // section still saying `Proposed` was withheld by it.
+  const context = { file: '/r/docs/a.md', relativeFile: 'docs/a.md' };
+  const warningOf = (source: string) => parseDocument(source, context).warnings?.map(({ location, kind, message }) => [location.line, kind, message]);
+  const said = (reason: string) =>
+    `the status in front matter cannot be read (${reason}), so its status is unrecognised and the document stays in force; a status written below the front matter is not read in its place`;
+  const toml = (body: string, below = '') => `+++\n${body}\n+++\n\n# ADR-1\n${below}`;
+  const PROPOSED = '\n## Status\n\nProposed\n';
+  const ACCEPTED = '\n## Status\n\nAccepted\n';
+
+  /**
+   * Every kind of value TOML has, each hiding a `status` line or a `[status]`
+   * header that is not one, above the key the document has. A walk that loses
+   * its place in any of them reads one of those instead, or takes a line of an
+   * array for a table header and ends the top level before the key.
+   */
+  const WALKED = [
+    'title = "ADR-1: \\"quoted\\" # not a comment"',
+    'description = """',
+    '\\""" is not the end',
+    'status = "draft"',
+    '"""',
+    "notes = '''",
+    "status = 'draft'",
+    '[status]',
+    "'''",
+    `path = '''C:\\'''`,
+    "more = '''",
+    'status = "draft"',
+    "'''",
+    'matrix = [',
+    '  [1, 2], # a nested array, and a comment holding """',
+    '  { name = "a", note = "}", list = [1, 2], nested = { x = 1 } },',
+    "  {}, 'a, ] b',",
+    '  1979-05-27 07:32:00Z # ] is in a comment',
+    `  , 'C:\\', """ends in quotes""""", """`,
+    'status = "draft"',
+    '[status]',
+    '""",',
+    ']',
+    'meta = { status = "draft" }',
+    'other.status = "draft"',
+    '# status = "draft"',
+    'status = "accepted"',
+    '[extra]',
+    'status = "draft"',
+  ].join('\n');
+
+  it('reads every status word from a TOML string as from YAML', () => {
+    for (const word of [
+      ...INACTIVE_STATUSES,
+      'accepted',
+      'Accepted (0.3.0).',
+      'superseded by ADR-0007',
+      'Superseded by [ADR-0007](0007.md)',
+      '**Draft**',
+      '_Draft_',
+      'implemented',
+      'done',
+    ]) {
+      const yaml = parseStatus(`---\nstatus: "${word}"\n---\n`);
+      expect(yaml?.source, word).toBe('frontmatter');
+      expect(parseStatus(`+++\nstatus = "${word}"\n+++\n`), word).toEqual(yaml);
+      expect(parseStatus(`+++\nstatus = '${word}'\n+++\n`), word).toEqual(yaml);
+    }
+  });
+
+  it('decides the status, so neither the section nor the label is read in its place', () => {
+    // The first two were withheld by the prose, and the third ran the rules
+    // its front matter took out of force.
+    expect(parseStatus(toml('status = "accepted"', PROPOSED))).toEqual({ value: 'accepted', label: 'accepted', source: 'frontmatter', active: true });
+    expect(parseStatus(toml("status = 'accepted'", '\n**Status:** draft\n'))).toMatchObject({ value: 'accepted', source: 'frontmatter', active: true });
+    expect(parseStatus(toml('status = "superseded by ADR-7"', ACCEPTED))).toEqual({
+      value: 'superseded',
+      label: 'superseded by ADR-7',
+      source: 'frontmatter',
+      active: false,
+    });
+  });
+
+  it('reads the key with the blanks and the comments TOML allows around it, quoted or not', () => {
+    for (const line of [
+      '  status   =   "accepted"   # decided on 2024-05-01',
+      '\tstatus\t=\t"accepted"\t',
+      'status="accepted"#no blank before the comment',
+      '"status" = "accepted"',
+      "'status' = 'accepted'",
+      // Compared as the YAML reader compares keys.
+      'Status = "accepted"',
+    ]) {
+      expect(parseStatus(toml(line, PROPOSED)), line).toMatchObject({ value: 'accepted', label: 'accepted', source: 'frontmatter' });
+    }
+    // Among other keys, blank lines and comments, and behind a byte-order mark with CRLF endings.
+    const among = toml('# ADR metadata\ntitle = "ADR-1"\n\nstatus = "accepted" # see the review\ndate = 2024-05-01\ntags = ["a", "b"]', PROPOSED);
+    expect(parseStatus(among)).toMatchObject({ value: 'accepted', source: 'frontmatter' });
+    expect(parseStatus(`${String.fromCharCode(0xfeff)}${among.replace(/\n/g, '\r\n')}`)).toMatchObject({ value: 'accepted', source: 'frontmatter' });
+  });
+
+  it('reads a string as TOML does: escapes in a basic string, none in a literal one', () => {
+    expect(parseStatus(toml('status = "superseded by \\"ADR-7\\" # not a comment"'))?.label).toBe('superseded by "ADR-7" # not a comment');
+    expect(parseStatus(toml('status = "draft \\b\\t\\n\\f\\r\\" \\\\ \\u0041 \\U0001F600 \\U0010FFFF end"'))).toMatchObject({
+      value: 'draft',
+      label: `draft \b\t\n\f\r" \\ A ${String.fromCodePoint(0x1f600)} ${String.fromCodePoint(0x10ffff)} end`,
+    });
+    expect(parseStatus(toml("status = 'superseded by C:\\adr\\7'"))?.label).toBe('superseded by C:\\adr\\7');
+    expect(parseStatus(toml("status = 'draft\\'"))?.label).toBe('draft\\');
+    expect(parseStatus(toml(`status = 'superseded by "ADR-7"'`))?.label).toBe('superseded by "ADR-7"');
+  });
+
+  it('walks over every other value to its end, whatever lines it is on', () => {
+    for (const source of [toml(WALKED, PROPOSED), toml(WALKED, PROPOSED).replace(/\n/g, '\r\n')]) {
+      expect(parseStatus(source)).toMatchObject({ value: 'accepted', source: 'frontmatter' });
+      expect(warningOf(source)).toBeUndefined();
+    }
+  });
+
+  it('reads only the top-level key, and none in a comment or a string', () => {
+    for (const body of [
+      '[meta]\nstatus = "draft"',
+      'title = "ADR-1"\n[meta]\nstatus = "draft"\n[[authors]]\nstatus = "draft"',
+      'meta.status = "draft"',
+      'meta = { status = "draft" }',
+      '# status = "draft"',
+      '  # status = "draft"',
+      'notes = "status = draft"',
+      'statusline = "draft"',
+      'status-page = "draft"',
+      '"status.value" = "draft"',
+      '  [meta]\n  status = "draft"',
+      'description = """\nstatus = "draft"\n"""',
+      "description = '''\nstatus = 'draft'\n'''",
+      // A multi-line string never closed runs to the end of the front matter.
+      'description = """\nstatus = "draft"',
+      "description = '''\nstatus = 'draft'",
+    ]) {
+      expect(parseStatus(toml(body, ACCEPTED)), body).toMatchObject({ value: 'accepted', source: 'heading' });
+      expect(warningOf(toml(body, ACCEPTED)), body).toBeUndefined();
+    }
+    // YAML is read as it was: a TOML line in it is not "key: value", and names no key.
+    expect(parseStatus(`---\nstatus = "draft"\n---\n\n# ADR-1\n${ACCEPTED}`)).toMatchObject({ value: 'accepted', source: 'heading' });
+  });
+
+  it('passes over a line it cannot follow to its end, as the YAML reader passes over one that is not "key: value"', () => {
+    // None of these is TOML. What follows each is read as the next line of
+    // the block, not as the rest of a string or an array that never began.
+    for (const body of ['"status\nstatus = "accepted"', '= """\nstatus = "accepted"\n"""', 'x = [1 }]\nstatus = "accepted"', 'x = [["a" b, """\nstatus = "accepted"\n"""]]']) {
+      expect(parseStatus(toml(body, PROPOSED)), body).toMatchObject({ value: 'accepted', source: 'frontmatter' });
+    }
+  });
+
+  it('hands over to the section and the label without the key, as YAML front matter does', () => {
+    expect(parseStatus(toml('title = "ADR-1"\ndate = 2024-05-01', PROPOSED))).toEqual(parseStatus(`---\ntitle: ADR-1\ndate: 2024-05-01\n---\n\n# ADR-1\n${PROPOSED}`));
+    expect(parseStatus(toml('title = "ADR-1"', PROPOSED))).toMatchObject({ value: 'proposed', source: 'heading' });
+    expect(parseStatus('+++\n+++\n\n# ADR-1\n\n**Status:** draft\n')).toMatchObject({ value: 'draft', source: 'label' });
+    expect(parseStatus(toml('title = "ADR-1"'))).toBeUndefined();
+    expect(warningOf(toml('title = "ADR-1"', PROPOSED))).toBeUndefined();
+  });
+
+  it('declares no status in any other form, which leaves the document in force, and says why on the line of the key', () => {
+    const multiline = 'a multi-line string is not read; write it as "..." on one line';
+    const cases: Array<[string, number, string]> = [
+      ['status = """accepted"""', 2, multiline],
+      ["title = 'ADR-1'\nstatus = '''\naccepted\n'''", 3, multiline],
+      ['status = ["accepted"]', 2, 'an array is not a status'],
+      ['status = { value = "accepted" }', 2, 'a table is not a status'],
+      ['status.value = "accepted"', 2, 'a table is not a status'],
+      ['title = "ADR-1"\n\n[status]\nvalue = "accepted"', 4, 'a table is not a status'],
+      ['title = "ADR-1"\n[meta]\n[ "status" . value ]', 4, 'a table is not a status'],
+      ['[[status]]\nvalue = "accepted"', 2, 'an array of tables is not a status'],
+      ['status = accepted', 2, 'it is not a string; quote it'],
+      ['status = true', 2, 'it is not a string; quote it'],
+      ['status = 2024-05-01', 2, 'it is not a string; quote it'],
+      ['status =', 2, 'it is empty'],
+      ['status = # to be decided', 2, 'it is empty'],
+      ['status = ""', 2, 'it is empty'],
+      ["status = '  '", 2, 'it is empty'],
+      ['status = "2024"', 2, '"2024" does not begin with a word'],
+      ['status = "accepted', 2, 'the string is never closed on its line'],
+      ["status = 'accepted", 2, 'the string is never closed on its line'],
+      ['status = "accepted\\', 2, 'the string is never closed on its line'],
+      ['status = "accepted" (2024-05-01)', 2, 'text follows a closing quote'],
+      ["status = 'it''s accepted'", 2, 'text follows a closing quote'],
+      ['status: accepted', 2, '"=" does not follow the key'],
+      ['status = "accepted \\e"', 2, '"\\e" is not an escape this reader knows'],
+      ['status = "accepted \\u00eX"', 2, '"\\u" is not an escape this reader knows'],
+      ['status = "accepted \\uX041"', 2, '"\\u" is not an escape this reader knows'],
+      ['status = "accepted \\U00110000"', 2, '"\\U00110000" is not a character'],
+    ];
+    for (const [body, line, reason] of cases) {
+      const source = toml(body, PROPOSED);
+      expect(parseStatus(source), body).toBeUndefined();
+      expect(warningOf(source), body).toEqual([[line, 'unreadable-status', said(reason)]]);
+    }
+    // Behind a byte-order mark and with CRLF endings the key's line is counted as a reader counts it.
+    expect(warningOf(`${String.fromCharCode(0xfeff)}+++\r\nid = 7\r\nstatus = [1]\r\n+++\r\n`)).toEqual([[3, 'unreadable-status', said('an array is not a status')]]);
+  });
+
+  it('runs the rules the prose alone would have withheld, withholds those the prose alone would have run, and says why in every format', async () => {
+    const root = await repo({
+      'docs/a.md': `${toml('status = "accepted"', PROPOSED)}\n${VIOLATION}`,
+      'docs/b.md': `${toml('status = ["accepted"]', PROPOSED)}\n${VIOLATION}`,
+      'docs/c.md': `${toml('status = "superseded by ADR-3"', ACCEPTED)}\n${VIOLATION}`,
+      ...CODE,
+    });
+
+    const report = await run(root);
+
+    expect(report.ok).toBe(false);
+    expect(report.summary).toMatchObject({ total: 2, failed: 2, inactive: 1 });
+    expect(report.results.map(({ location }) => location.relativeFile)).toEqual(['docs/a.md', 'docs/b.md']);
+    expect(report.inactiveSpecs).toEqual([{ file: 'docs/c.md', status: 'superseded', label: 'superseded by ADR-3', directives: 1 }]);
+    const unreadable = said('an array is not a status');
+    expect(report.specWarnings?.map(({ location, kind, message }) => [location.relativeFile, location.line, kind, message])).toEqual([
+      ['docs/b.md', 2, 'unreadable-status', unreadable],
+    ]);
+
+    const human = formatReport(report, { color: false, verbose: false });
+    expect(human).toContain(`⚠ docs/b.md:2  ${unreadable}`);
+    expect(human).toContain('○ docs/c.md is superseded by ADR-3 - 1 assertion not executed');
+    expect(human).not.toContain('is Proposed');
+    const json = JSON.parse(formatJson(report)) as { summary: { inactive: number }; inactiveSpecs: unknown; specWarnings: unknown };
+    expect(json.summary.inactive).toBe(1);
+    expect(json.inactiveSpecs).toEqual([{ file: 'docs/c.md', status: 'superseded', label: 'superseded by ADR-3', directives: 1 }]);
+    expect(json.specWarnings).toEqual([{ spec: { file: 'docs/b.md', line: 2, column: 1 }, kind: 'unreadable-status', message: unreadable }]);
+    const sarif = JSON.parse(formatSarif(report)) as { runs: Array<{ invocations?: Array<{ toolExecutionNotifications: unknown }> }> };
+    expect(sarif.runs[0]?.invocations?.[0]?.toolExecutionNotifications).toEqual([
+      { level: 'note', message: { text: 'docs/c.md is superseded by ADR-3, so its 1 assertion was not executed.' } },
+      { level: 'warning', message: { text: `docs/b.md:2 ${unreadable}` } },
+    ]);
+    expect(runAnnotations(report).filter(({ rule }) => rule === 'spec-warning' || rule === 'not-in-force')).toEqual([
+      { rule: 'spec-warning', identity: ['spec-warning', 'docs/b.md', 'unreadable-status'], level: 'warning', severity: 'minor', file: 'docs/b.md', line: 2, message: unreadable },
+      {
+        rule: 'not-in-force',
+        identity: ['not-in-force', 'docs/c.md'],
+        level: 'notice',
+        severity: 'info',
+        file: 'docs/c.md',
+        line: 1,
+        message: 'docs/c.md is superseded by ADR-3, so its 1 assertion was not executed.',
+      },
+    ]);
+  });
+
+  it('changes the exit code of a run from the command line, and a status that cannot be read fails nothing under --strict', async () => {
+    const root = await repo({
+      'docs/a.md': `${toml('status = "accepted"', PROPOSED)}\n${VIOLATION}`,
+      'docs/b.md': `${toml('status = accepted', PROPOSED)}\n<!-- @assert-absence target="src" symbol="Nowhere" -->\n`,
+      ...CODE,
+    });
+    const out: string[] = [];
+    const io: CliIO = { stdout: (text) => out.push(text), stderr: () => {}, env: { NO_COLOR: '1' }, cwd: root, isTTY: false };
+
+    expect(await main(['docs/a.md', '--engine', 'js'], io)).toBe(EXIT_FAILED);
+    expect(out.join('\n')).not.toContain('not in force');
+    out.length = 0;
+    expect(await main(['docs/b.md', '--engine', 'js', '--strict', '--json'], io)).toBe(EXIT_OK);
+    const json = JSON.parse(out.join('\n')) as { summary: unknown; inactiveSpecs: unknown; specWarnings: unknown };
+    expect(json.summary).toMatchObject({ total: 1, passed: 1, inactive: 0 });
+    expect(json.inactiveSpecs).toEqual([]);
+    expect(json.specWarnings).toEqual([{ spec: { file: 'docs/b.md', line: 2, column: 1 }, kind: 'unreadable-status', message: said('it is not a string; quote it') }]);
   });
 });
 

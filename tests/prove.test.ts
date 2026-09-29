@@ -730,6 +730,30 @@ describe('the report', () => {
     ]);
   });
 
+  it('reads the status of TOML front matter as a run does, whatever its section says', async () => {
+    // Front matter between `+++` lines decides, as YAML front matter does
+    // (ADR-0010): the section is not read in its place, whichever way it goes.
+    const rule = '<!-- @assert-absence target="src" symbol="Legacy" -->';
+    const accepted = await prove(`+++\nstatus = "accepted"\n+++\n\n## Status\n\nProposed\n\n${rule}`);
+    expect(accepted.summary).toMatchObject({ total: 1, killed: 1, inactive: 0 });
+    expect(accepted.inactiveSpecs).toEqual([]);
+
+    const superseded = await prove(`+++\nstatus = "superseded by ADR-3"\n+++\n\n## Status\n\nAccepted\n\n${rule}`);
+    expect(superseded.summary).toMatchObject({ total: 0, inactive: 1 });
+    expect(superseded.inactiveSpecs).toEqual([{ file: 'docs/rules.md', status: 'superseded', label: 'superseded by ADR-3', directives: 1 }]);
+
+    const unreadable = await prove(`+++\nstatus = { value = "accepted" }\n+++\n\n## Status\n\nProposed\n\n${rule}`);
+    expect(unreadable.summary).toMatchObject({ total: 1, killed: 1, inactive: 0 });
+    expect(unreadable.specWarnings).toEqual([
+      {
+        location: { file: path.join(ROOT, 'docs/rules.md'), relativeFile: 'docs/rules.md', line: 2, column: 1 },
+        kind: 'unreadable-status',
+        message:
+          'the status in front matter cannot be read (a table is not a status), so its status is unrecognised and the document stays in force; a status written below the front matter is not read in its place',
+      },
+    ]);
+  });
+
   it('proves nothing in a document that is not in force, unless told to', async () => {
     const draft = `---\nstatus: draft\n---\n${RULES}`;
     const withheld = await prove(draft);

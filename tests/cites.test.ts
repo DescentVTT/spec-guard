@@ -633,6 +633,26 @@ describe('a scan', () => {
     expect(report.summary).toMatchObject({ citations: 2, ghosts: 0, stale: 0 });
   });
 
+  it('reads the status of TOML front matter as a run does, so its section does not decide whether it is stale', async () => {
+    // Front matter between `+++` lines decides, as YAML front matter does
+    // (ADR-0010): the first is superseded whatever its section says, and the
+    // second is in force whatever its section says.
+    const report = await cites(
+      { 'src/a.ts': '// ADR-1 and ADR-2\n' },
+      {
+        io: memoryIo(ROOT, {
+          'd/1-a.md': '+++\nstatus = "superseded by ADR-3"\n+++\n\n# ADR-1\n\n## Status\n\nAccepted\n',
+          'd/2-b.md': "+++\nstatus = 'accepted'\n+++\n\n# ADR-2\n\n## Status\n\nSuperseded by ADR-3\n",
+          'd/3-c.md': '# ADR-3\n',
+          'src/a.ts': '// ADR-1 and ADR-2\n',
+        }),
+        families: [{ id: 'ADR-{n}', files: 'd/{n}-*.md' }],
+      },
+    );
+    expect(found(report)).toEqual(['src/a.ts:1:4 stale-citation ADR-1']);
+    expect(report.findings[0]?.message).toBe('src/a.ts:1 cites ADR-1, which is superseded - cite ADR-3 instead');
+  });
+
   it('makes one finding of one id on one line, however it is spelled, and one per line and per id', async () => {
     const report = await cites({ 'src/a.ts': '// ADR-7, ADR-007 and ADR-0007\n// ADR-7 again\n// ADR-8, ADR-7\n' });
     expect(found(report)).toEqual([
