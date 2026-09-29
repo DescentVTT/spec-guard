@@ -86,7 +86,7 @@ jobs:
         run: node ./bin/spec-guard.js --format sarif > spec-guard.sarif || true
 
       - name: Upload to code scanning
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         # A pull request from a fork gets a read-only token, so the upload would
         # fail for a reason that has nothing to do with the code.
         if: ${{ !github.event.pull_request.head.repo.fork }}
