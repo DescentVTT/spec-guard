@@ -1414,7 +1414,8 @@ rule - anchored on the first offending line, with the directive as a related
 location because that is often where the fix goes. Alerts carry a fingerprint
 derived from what the assertion is about rather than where its matches landed,
 so inserting a line above a violation does not close the alert and open a new
-one.
+one; a directive that cannot be read is known by the directive as written, not
+by the message, which a release may word differently.
 
 Two formats need no upload step. `--format github` writes one GitHub Actions
 workflow command per finding, which the job's log turns into an annotation on
