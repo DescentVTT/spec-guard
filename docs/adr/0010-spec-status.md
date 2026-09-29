@@ -501,11 +501,17 @@ keeps its document in force with the warning above, which says it begins with
 no status word spec-guard reads.
 
 **The key** is read in Chinese, `狀態` or `状态`, wherever `status` is: a
-heading, compared whole; a label, with an ASCII or a full-width colon; YAML
-front matter, where spec-core's reader, which reads ASCII keys, passes over the
-line, so it is found beside the reader and its value read as the reader reads
-one, after a `status` key when there is one; and TOML front matter, quoted,
-since TOML's bare keys are ASCII.
+heading, compared whole; a label, with an ASCII or a full-width colon, since a
+label is prose and Chinese prose writes `：`; YAML front matter, where
+spec-core's reader, which reads ASCII keys, passes over the line, so it is
+found beside the reader and its value read as the reader reads one, after a
+`status` key when there is one; and TOML front matter, quoted, since TOML's
+bare keys are ASCII. YAML ends a key at an ASCII colon and at nothing else, so
+`状态：草稿` in front matter is a line YAML would not read as the key: it is a
+status that cannot be read, which keeps the document in force, reads nothing
+below the front matter in its place, and warns with the hint to write `状态:`
+with an ASCII colon, where every other such warning's hint is to write a word
+spec-guard reads.
 
 **A table** is a fourth spelling: one of exactly two columns before the first
 section heading, one of whose rows, the header row among them, names the

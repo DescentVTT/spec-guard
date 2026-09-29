@@ -20,8 +20,9 @@ is deprecated before it goes, is spec-core's
   as the English word it translates - 已取代 `superseded`, 草稿 `draft`, 延後
   `deferred` - and does what that word does: only the six words withhold a
   document, and 延後 stays in force as `deferred` does. The key is read as
-  `狀態` or `状态` in front matter, a heading, a label with `:` or `：`, and a
-  table. Upgrading: a Chinese ADR that says it is superseded, deprecated,
+  `狀態` or `状态` in a heading, a label with `:` or `：`, a table, and front
+  matter with YAML's colon; `状态：草稿` there is a status that cannot be read,
+  and its warning says to write `状态:`. Upgrading: a Chinese ADR that says it is superseded, deprecated,
   rejected, archived, a draft or proposed stops running its rules; write its
   status in English, or run with `--ignore-status`, to keep them running.
   [ADR-0010](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0010-spec-status.md)'s
