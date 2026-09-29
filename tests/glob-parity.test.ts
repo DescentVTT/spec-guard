@@ -107,6 +107,10 @@ const cases: Case[] = [
   { name: 'a leading / on braces', globs: ['/{a,src/a}.ts'], files: ['a.ts', 'src/a.ts'] },
   // A ! after the leading / is part of a name at the root, not a negation.
   { name: 'a leading / before a !', globs: ['/!b', '/src/!a'], files: ['!b', 'src/!a'] },
+  // So is one after a leading ./, which names the directory the pattern is
+  // read from and makes the ! a name, at any depth, as ./a is a at any depth.
+  { name: 'a leading ./ before a !', globs: ['./!a', './!b'], files: ['!b', 'src/!a'] },
+  { name: 'a leading ./ before a !, excluded', exclude: ['./!a'], files: without('src/!a') },
   // An alternative that ends in `/` is the directory's contents, as a whole
   // pattern that ends in one is: never the file `lib/src`, which the scanner's
   // segment shortcut and ripgrep's `src` both took for it before.

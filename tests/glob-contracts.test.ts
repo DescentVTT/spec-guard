@@ -231,6 +231,9 @@ describe('the patterns both engines are given', () => {
     ['src/./a.ts', 'src/./a.ts'],
     ['././a.ts', './a.ts'],
     ['*.ts', '*.ts'],
+    // A ./ before a ! stays, since it is what makes the ! part of a name.
+    ['./!a', './!a'],
+    ['././!a', './!a'],
   ])('include glob %s is %s', (pattern, normalized) => {
     expect(normalizeGlob(pattern)).toBe(normalized);
   });
@@ -245,6 +248,7 @@ describe('the patterns both engines are given', () => {
     ['src/./a.ts', 'src/./a.ts'],
     ['./', ''],
     ['/', ''],
+    ['./!build/', './!build'],
   ])('exclude pattern %s is %s', (pattern, normalized) => {
     expect(normalizeExclude(pattern)).toBe(normalized);
   });
@@ -259,7 +263,6 @@ describe('an exclude pattern that could never exclude anything', () => {
   it.each([
     ['!build/generated/needed.ts', NEGATION],
     ['!build', NEGATION],
-    ['./!build', NEGATION],
     ['../shared', OUTSIDE],
     ['..', OUTSIDE],
     ['src/../lib', OUTSIDE],
@@ -279,6 +282,13 @@ describe('an exclude pattern that could never exclude anything', () => {
       expect(excludePatternError(pattern)).toBeNull();
     },
   );
+
+  it('accepts a ! after a leading ./, which names a file or directory that starts with it, as /!build names the root\'s', () => {
+    // The ./ was taken off first, and what was left refused as a negation;
+    // spec-core reads ./!build as a name, in .gitignore's dialect too.
+    expect(excludePatternError('./!build')).toBeNull();
+    expect(['src/!build/a.ts', '!build', 'src/build/a.ts'].map(createExcludeMatcher(['./!build']))).toEqual([true, true, false]);
+  });
 
   it('names the first of a list that cannot be used, or nothing', () => {
     expect(excludeListError(['target', '!target/keep', '../x'])).toBe(`invalid exclude pattern "!target/keep": ${NEGATION}`);
