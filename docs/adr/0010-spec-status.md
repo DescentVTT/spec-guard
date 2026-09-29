@@ -339,8 +339,65 @@ was.
 
 TOML front matter that closes is still not read for a status, and hands over to
 the section, as the second amendment says; only front matter that never closes
-is read this way.
+is read this way. The amendment below reads it.
 
 None of the 164 Markdown files of the five spec-* repositories has front matter
 that never closes, so every status there is read as it was, and a run,
 `prove`, `cites` and `query` of each answer as they did.
+
+## Amended 2026-09-29: TOML front matter decides the status
+
+Front matter between `+++` lines was not read for a status: spec-core's
+reader reads YAML, and handed TOML back with nothing in it, so the document
+was read as front matter with no `status` key and the section or the label
+decided. That is the fall-through the second amendment refused for a status
+that cannot be read, and it found what that amendment said it would:
+`status = "accepted"` above a section still saying `Proposed` withheld its
+rules, and `status = "superseded"` above one saying `Accepted` ran them. The
+amendment above closed the hole for front matter that never closes and left
+this one open.
+
+TOML front matter that closes now decides the status as YAML front matter
+does. Its top-level `status` key is read when it is a string on one line -
+`status = "accepted"` or `status = 'accepted'`, with the blanks and the
+comment TOML allows around it - and the string is read as a YAML value is:
+its first word, through the same closed list, with the line kept as written.
+A basic string's escapes are TOML 1.0's, and a literal string has none.
+spec-guard depends on nothing, so this is not a TOML parser. It reads that
+one key in that one form, and walks the rest of the block only as far as it
+must to know where each value ends, so that a `status = "draft"` line inside
+a multi-line string is not taken for the key, nor a `[1, 2]` line inside an
+array for a table header, which would end the top level before the key.
+
+<!-- @assert-count target="src/parser.ts" symbol="block.kind === 'toml'" min="1" reason="closed TOML front matter is read for its status, so the prose is not read in its place" -->
+
+The key is the document's when it comes before the first table header, and
+it is compared as the YAML reader compares keys, so `Status` is it. A
+`status` under a header such as `[meta]`, in an inline table, or after a dot,
+as in `meta.status`, is that table's, and one in a comment is not written.
+Any other form of the key is a status that cannot be read: a multi-line
+string, even one on one line; an array; a table, whether inline, dotted as in
+`status.value`, or named by a `[status]` or `[[status]]` header; a value that
+is not a string, such as a bare word, a date or `true`; a string never closed
+on its line; text after its closing quote; the key with no `=` after it. Then
+the document stays in force, neither the section nor the label is read in
+its place, and the report warns on the key's line, as it does for a YAML
+value the reader refuses, with the reason, in every format and failing
+nothing. TOML front matter without the key hands over to the section and the
+label, as YAML front matter without one does, and a line the walk cannot
+follow is passed over to its end, as the YAML reader passes over a line that
+is not `key: value`.
+
+`prove` proves the rules of such a document as a run executes them, and
+`cites` reads its status as a run does. Taking the key out of the front
+matter leaves the section or the label to decide, which is the old reading
+for that document. No flag restores it for every document: `--ignore-status`
+runs every document, which is not that reading. The documents that pay are
+those whose TOML `status` says what their prose does not. One whose key
+holds a word this tool does not know, above a section that withholds, is now
+in force; one whose key says `draft` above a section saying `Accepted` is now
+withheld, as the same YAML front matter is.
+
+None of the 164 Markdown files of the five spec-* repositories has TOML
+front matter, so every status there is read as it was, and a run, `prove`,
+`cites` and `query` of each answer as they did.

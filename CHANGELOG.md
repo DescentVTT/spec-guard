@@ -5,6 +5,42 @@ All notable changes to this project are documented here. Versions follow
 may change in a minor release — each such change is listed under **Changed**
 with the flag that restores the previous behaviour.
 
+## Unreleased
+
+### Changed
+
+- **TOML front matter decides the status, as YAML front matter does.** Front
+  matter between `+++` lines that closes was not read for a status, so the
+  `## Status` section or the `Status:` label decided: `status = "accepted"`
+  above a section still saying `Proposed` was withheld, and
+  `status = "superseded"` above one saying `Accepted` ran. Its top-level
+  `status` key is now read when it is a string on one line -
+  `status = "accepted"` or `status = 'accepted'`, with the blanks and the
+  comment TOML allows around it, a basic string's escapes read as TOML 1.0
+  reads them - and its word is read as a YAML value's is. Any other form of
+  the key - a multi-line string, an array, a table (inline, dotted as in
+  `status.value`, or a `[status]` header), a value that is not a string, a
+  string never closed on its line, text after the closing quote, or the key
+  with no `=` after it - is read as a YAML value the reader refuses is: the
+  document stays in force, neither the section nor the label is read in its
+  place, and the report warns on the key's line, kind `unreadable-status`, in
+  every format, failing nothing under `--strict` either, with the reason, as
+  in `the status in front matter cannot be read (an array is not a status),
+  so its status is unrecognised and the document stays in force; a status
+  written below the front matter is not read in its place`.
+  A `status` under a table header, in an inline table, after a dot as in
+  `meta.status`, in a comment, or inside a multi-line string or an array is
+  not the key, and TOML front matter without the key hands over to the
+  section and the label, as before and as YAML's does. A run, `prove`,
+  `cites`, the MCP server, `parseStatus` and `parseDocument` all read it so.
+  Taking the key out of the front matter restores the old reading for that
+  document; no flag restores it for every document, since `--ignore-status`
+  runs every document, which is not that reading. None of the 164 Markdown
+  files of the five spec-* repositories has TOML front matter, and a run,
+  `prove`, `cites` and `query` of each answer as they did.
+  [ADR-0010](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0010-spec-status.md)'s
+  amendment of 2026-09-29.
+
 ## 0.14.0
 
 Front matter that never closes keeps its document in force, as front matter
