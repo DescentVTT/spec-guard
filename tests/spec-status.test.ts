@@ -589,6 +589,10 @@ describe('TOML front matter', () => {
       'status-page = "draft"',
       '"status.value" = "draft"',
       '  [meta]\n  status = "draft"',
+      // A header that names no key still ends the top level.
+      '[]\nstatus = "draft"',
+      '[ ]\nstatus = "draft"',
+      '[[]]\nstatus = "draft"',
       'description = """\nstatus = "draft"\n"""',
       "description = '''\nstatus = 'draft'\n'''",
       // A multi-line string never closed runs to the end of the front matter.
