@@ -50,6 +50,14 @@ is deprecated before it goes, is spec-core's
   patterns, or pass `--no-strict` to that run.
   [ADR-0010](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0010-spec-status.md)'s
   amendment of 2026-09-30.
+- **A `cites` check under `--strict` that read no source file is a finding in
+  every format.** It exited 1 and said so in the human report alone; SARIF,
+  GitHub and GitLab now carry a `nothing-read` finding, an error and `major`,
+  with a hint, JSON adds `"nothingRead": true`, and the human report's last
+  line is a failure. Upgrading: the exit code does not change; a pipeline that
+  reads the GitLab report or code scanning sees one finding where it saw none.
+  [ADR-0017](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0017-citations-in-comments.md)'s
+  amendment of 2026-09-30.
 - **GitLab's description and GitHub's message carry the finding's hint.**
   A Code Quality issue's `description` and a workflow command's message were
   the message alone; they are now the message and then the next action: fix

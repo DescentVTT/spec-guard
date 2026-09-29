@@ -277,3 +277,25 @@ reports it is not read as a gap:
 The regular expressions that use `\p{L}` are not mutated at all: Stryker's
 regex parser does not read Unicode property escapes. The sweep that measures
 this file is CI's.
+
+## Amended 2026-09-30: a strict check that read nothing is a finding
+
+Under `--strict` a check that looked for nothing, or found no source file to
+read, exited 1 and said so in the human report alone: its JSON said
+`"ok": false` with nothing to say why, and SARIF, GitHub and GitLab carried
+no finding. ADR-0010's amendment of this date gave a run that verified nothing
+a finding in every format, and a check of citations that read nothing is the
+same fact.
+
+It is now a `nothing-read` finding in every format that places findings: an
+error, `major` in GitLab, on the first spec's first line - or, with no spec,
+on the first document a family names, or on the root - known by its rule
+alone, since there is one to a check and the file it is shown on is where it
+is shown, not what it is about. Its message is the sentence the human report
+ends with, which `--strict` refuses, and its hint says what to do: for a check
+that looked for nothing, name the documents in `cites` or title numbered specs
+with an id; for one that found nothing to read, point the paths at source
+files whose comments spec-guard reads, or check what the exclusions leave out.
+JSON carries `"nothingRead": true` beside `"ok": false`, and the human report's
+last line is a failure, `✖`, where it was a warning. The exit code does not
+change, and without `--strict` nothing does.
