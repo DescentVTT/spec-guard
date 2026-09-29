@@ -197,8 +197,10 @@ export function normalizeDirs(pattern: string): string {
   // accepts is sure to have.
   if (!readWhole(whole).parsed.ok) return whole;
   // What spec-core takes off the front before it reads braces stays in front
-  // of them, since a leading `/` there roots the pattern and one inside braces
-  // does not: `/{a/,d}` names paths under the filesystem's root, as `/a` does.
+  // of them, so the braces written again read as the writer put them:
+  // `/{a/,d}` is `/{a,d}`, every alternative under the filesystem's root, as
+  // `/a` is. A `/` leading one alternative stays on it and roots it alone, as
+  // spec-core reads it from its copy of `7e41240`: `{/a/,d}` is `{/a,d}`.
   const body = whole.replace(/^(?:\.?\/)+/, '');
   const written = expandBraces(lex(body)).map((tokens) => tokens.map(asCharacter).join(''));
   const read = written.map(bareDirectory);

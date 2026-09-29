@@ -29,8 +29,9 @@
  * - Braces expand first, and each alternative reads as it would written on
  *   its own: `{src/,lib}` is `src/` or `lib`, and a trailing `/` means the
  *   directory's contents - in an exclusion, the directory and its contents.
- *   One that names no path, `{./,lib}` or `{,lib}`, is refused, as `./` and
- *   the empty pattern are.
+ *   `{/docs,lib}` is `/docs` or `lib`, the leading `/` rooting or anchoring
+ *   that alternative as it would the pattern. One that names no path,
+ *   `{./,lib}` or `{,lib}`, is refused, as `./` and the empty pattern are.
  * - Case is the caller's decision, stated every time. A result must not
  *   depend on the host it ran on.
  * - A malformed pattern is an error, never a literal. An unclosed `[` or `{`,
@@ -118,6 +119,12 @@ interface Alternative {
   readonly segments: readonly Segment[];
   /** Written with a `/` somewhere other than at its end. */
   readonly slashed: boolean;
+  /**
+   * Written with a leading `/`, on the pattern or on the alternative: rooted
+   * at the filesystem's root in the `path` and `ripgrep` dialects, and only
+   * anchored at the repository root in `gitignore`.
+   */
+  readonly rooted: boolean;
 }
 
 /** Whether a string uses glob syntax at all. */
@@ -153,20 +160,14 @@ function build(source: string, options: GlobOptions): Glob | string {
   if (pattern.length === 0) return 'the pattern is empty';
   if (pattern.startsWith('!')) return 'a negated pattern is a list entry, not a glob; narrow the positive pattern';
   if (/(?:^|[^\\])[?*+@!]\([^)]*\|/.test(pattern)) return EXTGLOB;
-  while (pattern.startsWith('./')) pattern = pattern.slice(2);
 
-  // A leading slash roots a pattern at the filesystem's root in the path and
-  // ripgrep dialects, and only anchors it at the repository root in gitignore.
-  let rooted = false;
-  let anchored = false;
-  if (pattern.startsWith('/')) {
-    if (options.dialect === 'gitignore') anchored = true;
-    else rooted = true;
-    pattern = pattern.replace(/^\/+/, '');
-  }
-  if (pattern.length === 0) return 'the pattern names the root itself, not a path under it';
+  // The pattern's own leading slash is taken off before the braces expand, so
+  // that the root itself, and a text the braces give, are refused in the
+  // words they always were: `/{./,a}` is told `./`.
+  const whole = unrooted(pattern);
+  if (whole.text.length === 0) return 'the pattern names the root itself, not a path under it';
 
-  const expanded = expandBraces(pattern, escapes);
+  const expanded = expandBraces(whole.text, escapes);
   if (typeof expanded === 'string') return expanded;
 
   const alternatives: Alternative[] = [];
@@ -175,11 +176,17 @@ function build(source: string, options: GlobOptions): Glob | string {
     // contents of `.`, every path: `{./,a}` is refused as `./` alone is.
     // Each text the braces give is shorter than the pattern, so only a
     // pattern without braces is its own text.
-    if (namesNoPath(text)) return text === pattern ? 'the pattern names no path' : bracesNamingNoPath(text);
-    const parsed = parseAlternative(trailingSlash(text, options.dialect), escapes);
+    if (namesNoPath(text)) return text === whole.text ? 'the pattern names no path' : bracesNamingNoPath(text);
+    // Its leading slash is read as the pattern's is, since braces expand
+    // before anything else is decided: `{/docs,x}` is `/docs` or `x`. Left to
+    // `parseAlternative`, the slash would be an empty segment, dropped, and
+    // `/docs` would read as `docs`. A slash after a segment, as in
+    // `a/{/b,c}`, starts no text, and is the empty segment of `a//b`.
+    const alone = unrooted(text);
+    const parsed = parseAlternative(trailingSlash(alone.text, options.dialect), escapes);
     if (parsed === GLOBSTAR_IN_NAME) return `${GLOBSTAR_IN_NAME}: ${globstarAdvice(written)}`;
     if (typeof parsed === 'string') return parsed;
-    alternatives.push(parsed);
+    alternatives.push({ ...parsed, rooted: whole.rooted || alone.rooted });
   }
 
   const builder = new Builder();
@@ -188,7 +195,7 @@ function build(source: string, options: GlobOptions): Glob | string {
   let automaton: Automaton;
   try {
     for (const alternative of alternatives) {
-      const compiled = compileAlternative(builder, alternative, options, rooted, anchored);
+      const compiled = compileAlternative(builder, alternative, options);
       fragments.push(compiled.fragment);
       bases.push(compiled.base);
     }
@@ -312,6 +319,20 @@ function classEnd(pattern: string, open: number, escapes: boolean): number {
 
 /* ---------------------------------------------------------------- segments */
 
+/**
+ * A pattern, or a text its braces give, without the `./` and the slashes it
+ * starts with, and whether a slash led it once the `./` was gone. What a
+ * leading slash means is the dialect's: it roots a pattern at the
+ * filesystem's root in `path` and `ripgrep`, and only anchors it at the
+ * repository root in `gitignore`, as git reads one. `.//docs` is led by one,
+ * as `/docs` is.
+ */
+function unrooted(text: string): { readonly text: string; readonly rooted: boolean } {
+  let rest = text;
+  while (rest.startsWith('./')) rest = rest.slice(2);
+  return { text: rest.replace(/^\/+/, ''), rooted: rest.startsWith('/') };
+}
+
 /** Whether a pattern's text names no path: nothing in it but `/` and `.` segments. */
 function namesNoPath(text: string): boolean {
   return text.split('/').every((part) => part === '' || part === '.');
@@ -349,7 +370,7 @@ function trailingSlash(text: string, dialect: GlobDialect): string {
  * The segments of a text that names a path - `build` refuses one that does
  * not - so at least one segment is left.
  */
-function parseAlternative(text: string, escapes: boolean): Alternative | string {
+function parseAlternative(text: string, escapes: boolean): Omit<Alternative, 'rooted'> | string {
   const segments: Segment[] = [];
   const raw = text.split('/');
   for (const part of raw) {
@@ -553,21 +574,15 @@ function segmentsFragment(b: Builder, segments: readonly Segment[]): Fragment {
   return b.sequence(parts);
 }
 
-function compileAlternative(
-  b: Builder,
-  alternative: Alternative,
-  options: GlobOptions,
-  rooted: boolean,
-  anchored: boolean,
-): { fragment: Fragment; base: string } {
-  const { segments } = alternative;
+function compileAlternative(b: Builder, alternative: Alternative, options: GlobOptions): { fragment: Fragment; base: string } {
+  const { segments, rooted } = alternative;
   const body = segmentsFragment(b, segments);
   const root = rooted ? '/' : '';
   const literal = literalText(segments);
   const leading = leadingLiteral(segments);
 
   if (options.dialect === 'gitignore') {
-    const floating = !anchored && !alternative.slashed;
+    const floating = !rooted && !alternative.slashed;
     const parts = [body, b.optional(beneath(b))];
     if (floating) parts.unshift(anyDirectories(b));
     const base = literal !== null ? leading.slice(0, -1) : leading;
