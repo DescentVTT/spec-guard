@@ -5,7 +5,12 @@ All notable changes to this project are documented here. Versions follow
 may change in a minor release — each such change is listed under **Changed**
 with the flag that restores the previous behaviour.
 
-## Unreleased
+## 0.16.0
+
+spec-core is at 7e41240: a leading `/` on a brace alternative anchors it, at
+every door, as one on the whole pattern does, in both engines; a glob that
+starts with `/` is judged with its slash, so `glob="/!a"` reads the root's
+`!a` and the advice for a rooted glob keeps the root.
 
 ### Changed
 

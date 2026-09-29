@@ -1555,6 +1555,20 @@ ran high where they were least measured: `runner.ts` and `text.ts` took 7m35s
 against 15.2 minutes, and `cli.ts` alone 8m18s against 15.1, so the next
 split starts from this run's logs rather than 398fe94's.
 
+### 0.16.0: one survivor more, and it decides nothing
+
+CI's full sweep of 5c4cb28 (run 36592485044) came out at **99.15% over 12,050
+mutants with 100 survivors and 3 without coverage**; the shards took from
+6m20s to 17m53s. Every survivor of 0.15.0 is still one, and one is new:
+`readBelow` writing an unrooted alternative as it is, made `() => undefined`.
+Replayed on its own it passes the whole suite, and not by a cache: written as
+nothing, the alternative leaves an empty one, spec-core refuses the braces,
+and `readSpecGlob` reads the pattern again below a stand-in base, which gives
+the same reading. Every base that reaches `readBelow` has a segment, so the
+stand-in is always there; the release commit adds the comment that says so
+beside the code, and changes nothing else in `src/`. A leading `/` on a
+brace alternative and a glob judged with its slash added 24 mutants.
+
 ### 0.15.0: TOML's status, and the survivor it left
 
 CI's full sweep of 01d73e9 (run 36506217673), after the reading of a status in

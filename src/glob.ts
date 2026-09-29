@@ -929,6 +929,10 @@ function readSpecGlob(pattern: string): SpecGlob {
 function readBelow(rest: string): Reading {
   return belowReadings(rest, () => {
     const parsed = parseAsWritten(rest, WHOLE);
+    // Writing an unrooted alternative as it is decides no answer: written as
+    // nothing, it leaves an empty alternative spec-core refuses, and
+    // `readSpecGlob` then reads the pattern below a stand-in base, which gives
+    // the same reading - every base that reaches here has a segment.
     return { parsed: (parsed.ok ? fromWhereRead(rest, (alternative) => alternative) : null) ?? parsed, shape: 'whole' };
   });
 }
