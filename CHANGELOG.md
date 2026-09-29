@@ -9,6 +9,29 @@ with the flag that restores the previous behaviour.
 
 ### Changed
 
+- **A status written in Chinese is read.** `status: 已取代` was a status that
+  cannot be read, and `## 狀態` and `狀態：已取代` were not read at all. A
+  Chinese word from the family's table, Traditional or Simplified, is now read
+  as the English word it translates - 已取代 `superseded`, 草稿 `draft`, 延後
+  `deferred` - and does what that word does: only the six words withhold a
+  document, and 延後 stays in force as `deferred` does. The key is read as
+  `狀態` or `状态` in front matter, a heading, a label with `:` or `：`, and a
+  table. Upgrading: a Chinese ADR that says it is superseded, deprecated,
+  rejected, archived, a draft or proposed stops running its rules; write its
+  status in English, or run with `--ignore-status`, to keep them running.
+  [ADR-0010](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0010-spec-status.md)'s
+  amendments of 2026-09-30.
+- **A status given in a two-column table in the preamble is read.** A row
+  whose left cell is `Status`, `State`, `狀態` or `状态`, in a table of two
+  columns before the first section heading, gives the status; it ranks after
+  a `## Status` section and before a label. Upgrading: a document whose table
+  says it is out of force stops running its rules.
+- **A status section or label that cannot be read keeps its document in
+  force.** A `## Status` section with nothing under it, or a value that
+  begins with no word, handed over to the `Status:` label; it now decides as
+  front matter does, warning on its line, and the label is not read in its
+  place. Upgrading: a document withheld only by a label under such a section
+  runs its rules again; write its status in the section.
 - **Under `--strict`, a run that executed no assertion fails.** Specs that
   matched and state no rule in force - every document withheld, no directive
   in any - exited 0 and said so in the human report alone. Under `--strict`
