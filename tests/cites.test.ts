@@ -32,7 +32,7 @@ import {
   type CitesOptions,
 } from '../src/cites.js';
 import { EXIT_ERROR, EXIT_FAILED, EXIT_OK, main, parseArgs, UsageError, version, type CliIO } from '../src/cli.js';
-import { citesAnnotations, formatCites, formatCitesJson, formatCitesSarif, formatGitlab } from '../src/reporter.js';
+import { citesAnnotations, formatCites, formatCitesJson, formatCitesSarif, formatGithub, formatGitlab } from '../src/reporter.js';
 import type { CitesReport } from '../src/types.js';
 import { FIXTURES_DIR, makeTempRepo, memoryIo, removeTempRepo } from './helpers.js';
 import { fastestInTurnAsync, instrumented } from './timing.js';
@@ -1102,7 +1102,8 @@ describe('the report', () => {
         severity: 'critical',
         file: 'src/a.ts',
         line: 1,
-        message: 'src/a.ts:1 cites ADR-0007, which no document defines. no document matching docs/adr/{n}*.md has the number 7; the nearest are ADR-0006 and ADR-0009',
+        message: 'src/a.ts:1 cites ADR-0007, which no document defines',
+        hint: 'no document matching docs/adr/{n}*.md has the number 7; the nearest are ADR-0006 and ADR-0009',
       },
       {
         rule: 'stale-citation',
@@ -1111,7 +1112,8 @@ describe('the report', () => {
         severity: 'minor',
         file: 'src/a.ts',
         line: 1,
-        message: 'src/a.ts:1 cites ADR-0002, which is superseded - cite ADR-0003 instead. docs/adr/0002-old.md says "Superseded by ADR-0003."',
+        message: 'src/a.ts:1 cites ADR-0002, which is superseded - cite ADR-0003 instead',
+        hint: 'docs/adr/0002-old.md says "Superseded by ADR-0003."',
       },
       {
         rule: 'unread-comments',
@@ -1129,7 +1131,17 @@ describe('the report', () => {
       ['error', 'critical'],
       ['notice', 'info'],
     ]);
-    expect((JSON.parse(formatGitlab(citesAnnotations(report))) as unknown[]).length).toBe(3);
+    // The hint follows the message in GitLab's description and GitHub's
+    // message, as it did when it was written into the message; a finding
+    // with none is its message alone.
+    expect((JSON.parse(formatGitlab(citesAnnotations(report))) as Array<{ description: string }>).map(({ description }) => description)).toEqual([
+      'src/a.ts:1 cites ADR-0007, which no document defines. no document matching docs/adr/{n}*.md has the number 7; the nearest are ADR-0006 and ADR-0009',
+      'src/a.ts:1 cites ADR-0002, which is superseded - cite ADR-0003 instead. docs/adr/0002-old.md says "Superseded by ADR-0003."',
+      'src/lost.ts a string or comment was never closed, so what follows it may be misread, so a citation in it may have been missed',
+    ]);
+    expect(formatGithub(citesAnnotations(report)).split('\n')[1]).toBe(
+      '::warning file=src/a.ts,line=1,title=stale-citation::src/a.ts:1 cites ADR-0002, which is superseded - cite ADR-0003 instead. docs/adr/0002-old.md says "Superseded by ADR-0003."',
+    );
   });
 });
 

@@ -694,7 +694,7 @@ describe('TOML front matter', () => {
       { level: 'warning', message: { text: `docs/b.md:2 ${unreadable}` } },
     ]);
     expect(runAnnotations(report).filter(({ rule }) => rule === 'spec-warning' || rule === 'not-in-force')).toEqual([
-      { rule: 'spec-warning', identity: ['spec-warning', 'docs/b.md', 'unreadable-status'], level: 'warning', severity: 'minor', file: 'docs/b.md', line: 2, message: unreadable },
+      { rule: 'spec-warning', identity: ['spec-warning', 'docs/b.md', 'unreadable-status'], level: 'warning', severity: 'minor', file: 'docs/b.md', line: 2, message: unreadable, hint: 'write a status word spec-guard reads, such as accepted or superseded' },
       {
         rule: 'not-in-force',
         identity: ['not-in-force', 'docs/c.md'],
@@ -702,7 +702,8 @@ describe('TOML front matter', () => {
         severity: 'info',
         file: 'docs/c.md',
         line: 1,
-        message: 'docs/c.md is superseded by ADR-3, so its 1 assertion was not executed.',
+        message: 'docs/c.md is superseded by ADR-3, so its 1 assertion was not executed',
+        hint: '--ignore-status executes the rules of a document not in force',
       },
     ]);
   });
@@ -784,8 +785,8 @@ describe('a front-matter status that cannot be read', () => {
       { level: 'warning', message: { text: `docs/b.md:2 ${said('a plain value cannot contain ": "; quote it')}` } },
     ]);
     expect(runAnnotations(report).filter(({ rule }) => rule === 'spec-warning')).toEqual([
-      { rule: 'spec-warning', identity: ['spec-warning', 'docs/a.md', 'unreadable-status'], level: 'warning', severity: 'minor', file: 'docs/a.md', line: 2, message: said('text follows a closing quote') },
-      { rule: 'spec-warning', identity: ['spec-warning', 'docs/b.md', 'unreadable-status'], level: 'warning', severity: 'minor', file: 'docs/b.md', line: 2, message: said('a plain value cannot contain ": "; quote it') },
+      { rule: 'spec-warning', identity: ['spec-warning', 'docs/a.md', 'unreadable-status'], level: 'warning', severity: 'minor', file: 'docs/a.md', line: 2, message: said('text follows a closing quote'), hint: 'write a status word spec-guard reads, such as accepted or superseded' },
+      { rule: 'spec-warning', identity: ['spec-warning', 'docs/b.md', 'unreadable-status'], level: 'warning', severity: 'minor', file: 'docs/b.md', line: 2, message: said('a plain value cannot contain ": "; quote it'), hint: 'write a status word spec-guard reads, such as accepted or superseded' },
     ]);
     expect(json.specWarnings.map(({ kind }) => kind)).toEqual(['unreadable-status', 'unreadable-status']);
   });

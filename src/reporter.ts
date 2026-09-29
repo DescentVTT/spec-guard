@@ -972,17 +972,30 @@ export interface Annotation {
   /** 1-based; a finding about a whole file is placed on its first line. */
   line: number;
   message: string;
+  /**
+   * What to do next, where the message does not already say it. The family
+   * contract gives every finding one (spec-core's ADR-0005), and both formats
+   * write it after the message: GitLab's description, GitHub's message.
+   */
+  hint?: string;
+}
+
+/** A finding's message, and its hint after it when it has one. */
+function described(annotation: Annotation): string {
+  return annotation.hint === undefined ? annotation.message : `${annotation.message}. ${annotation.hint}`;
 }
 
 /**
- * A finding as GitLab Code Quality reads it.
+ * A finding as GitLab Code Quality reads it: its description is the message
+ * and the hint, the next action.
  *
  * The fingerprint is what GitLab compares between a merge request and its
  * target to tell a finding that is new from one that was already there. It is
  * the SHA-256 of the annotation's identity - the rule, the document or file,
- * the subject - and never of its message: a message holds the count of
- * matches and the directive's line, so one more match, or a line added above
- * the directive, made every open issue look fixed and a new one appear. Two
+ * the subject - and never of its message or its hint: a message holds the
+ * count of matches and the directive's line, so one more match, or a line
+ * added above the directive, made every open issue look fixed and a new one
+ * appear. Two
  * findings with one identity, one ghost cited on two lines, are told apart by
  * the order they come in, each a finding of its own.
  */
@@ -997,7 +1010,7 @@ export function formatGitlab(annotations: readonly Annotation[]): string {
       .update(repeat === 0 ? identity : `${identity}\u0000${repeat}`)
       .digest('hex');
     issues.push({
-      description: annotation.message,
+      description: described(annotation),
       check_name: annotation.rule,
       fingerprint,
       severity: annotation.severity,
@@ -1026,7 +1039,7 @@ export function formatGithub(annotations: readonly Annotation[]): string {
   return annotations
     .map(
       (annotation) =>
-        `::${annotation.level} file=${escapeProperty(annotation.file)},line=${Math.max(annotation.line, 1)},title=${escapeProperty(annotation.rule)}::${escapeData(annotation.message)}`,
+        `::${annotation.level} file=${escapeProperty(annotation.file)},line=${Math.max(annotation.line, 1)},title=${escapeProperty(annotation.rule)}::${escapeData(described(annotation))}`,
     )
     .join('\n');
 }
@@ -1040,9 +1053,19 @@ function inactiveAnnotations(inactive: readonly InactiveSpec[], what: 'assertion
     severity: 'info',
     file: spec.file,
     line: 1,
-    message: `${spec.file} is ${spec.label}, so ${spec.directives === 1 ? `its 1 ${what} was` : `its ${spec.directives} ${what}s were`} not ${done}.`,
+    message: `${spec.file} is ${spec.label}, so ${spec.directives === 1 ? `its 1 ${what} was` : `its ${spec.directives} ${what}s were`} not ${done}`,
+    hint: `--ignore-status ${done === 'executed' ? 'executes' : 'proves'} the rules of a document not in force`,
   }));
 }
+
+/**
+ * What to do about a warning, by its kind, where its message does not say:
+ * the one for front matter never closed ends with how to close it.
+ */
+const WARNING_HINTS: Readonly<Partial<Record<SpecWarning['kind'], string>>> = {
+  'unreadable-status': 'write a status word spec-guard reads, such as accepted or superseded',
+  'unclosed-block': 'close it, and the directives after it run',
+};
 
 /** What changed how a document was read, on the line it happened: a warning, which fails nothing. */
 function warningAnnotations(warnings: readonly SpecWarning[] | undefined): Annotation[] {
@@ -1054,6 +1077,7 @@ function warningAnnotations(warnings: readonly SpecWarning[] | undefined): Annot
     file: warning.location.relativeFile,
     line: warning.location.line,
     message: warning.message,
+    hint: WARNING_HINTS[warning.kind],
   }));
 }
 
@@ -1067,6 +1091,7 @@ function errorAnnotations(errors: readonly DirectiveError[]): Annotation[] {
     file: error.location.relativeFile,
     line: error.location.line,
     message: error.message,
+    hint: 'fix the directive: nothing it states is checked until it can be read',
   }));
 }
 
@@ -1094,6 +1119,7 @@ export function runAnnotations(report: RunResult): Annotation[] {
         file: match?.file ?? result.location.relativeFile,
         line: match?.line ?? result.location.line,
         message: `${result.description}: ${result.message} (${result.location.relativeFile}:${result.location.line})`,
+        hint: 'fix the code, or the rule if the decision it records has changed',
       };
     });
   return [
@@ -1130,6 +1156,9 @@ export function proveAnnotations(report: ProveReport): Annotation[] {
         file: result.location.relativeFile,
         line: result.location.line,
         message: `${result.description}: ${detail}`,
+        hint: survived
+          ? 'narrow the rule until a violation fails it: a target that reaches the code, a glob that names its files, a bound that can be crossed'
+          : "check that the rule's target and glob reach the files it is about",
       };
     });
   return [
@@ -1305,7 +1334,8 @@ export function citesAnnotations(report: CitesReport): Annotation[] {
         severity: finding.severity === 'error' ? 'critical' : 'minor',
         file: finding.file,
         line: finding.line,
-        message: `${finding.message}. ${finding.hint}`,
+        message: finding.message,
+        hint: finding.hint,
       }),
     ),
     ...report.gaps.map(
