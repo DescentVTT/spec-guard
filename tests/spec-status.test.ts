@@ -1099,7 +1099,7 @@ describe('a document that is not in force', () => {
       ['docs/a.md', 1],
       ['docs/b.md', 0],
     ]);
-    expect(formatReport(report, { color: false, verbose: false }).split('\n').at(-1)).toMatch(/^0 passed · 2 invalid · 1 not in force · \d+ms$/);
+    expect(formatReport(report, { color: false, verbose: false }).split('\n').at(-1)).toMatch(/^0 passed · 2 invalid · 1 not in force · (?:\d+ms|\d+\.\d{2}s)$/);
   });
 
   it('leaves every other document in the run alone', async () => {

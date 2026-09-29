@@ -627,7 +627,7 @@ describe('check_architecture', () => {
     ]);
     expect(structured['engine']).toBe('javascript');
     expect(called.content[0]?.text).toMatch(
-      /^Checked all 3 rules in force\.\n\nspec-guard 3 specs · 3 assertions · javascript\n\nx docs\/adr\/0001-layers\.md:9 {2}@assert-absence\n {4}"console\.log" must not appear in src\n {4}expected no matches, found 1\n {6}src\/infra\/db\.ts:2:1 {2}console\.log\(pg\);\n\no docs\/adr\/0002-clocks\.md is proposed - 1 assertion not executed\n\n2 passed · 1 failed · 1 not in force · \d+m?s$/,
+      /^Checked all 3 rules in force\.\n\nspec-guard 3 specs · 3 assertions · javascript\n\nx docs\/adr\/0001-layers\.md:9 {2}@assert-absence\n {4}"console\.log" must not appear in src\n {4}expected no matches, found 1\n {6}src\/infra\/db\.ts:2:1 {2}console\.log\(pg\);\n\no docs\/adr\/0002-clocks\.md is proposed - 1 assertion not executed\n\n2 passed · 1 failed · 1 not in force · (?:\d+ms|\d+\.\d{2}s)$/,
     );
   });
 

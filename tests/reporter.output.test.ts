@@ -355,11 +355,15 @@ describe('formatJson rounding', () => {
       root: DEMO_REPO,
       engine: 'javascript',
     });
-    const parsed = JSON.parse(formatJson({ ...result, durationMs: 12.3456789 }));
+    // Every duration is fixed, the run's and each result's: a real timing
+    // passed a second on a loaded machine, and a bound on one proves less than
+    // the exact rounding of a known value, which is what a scaling mutant breaks.
+    const timed = { ...result, durationMs: 12.3456789, results: result.results.map((entry) => ({ ...entry, durationMs: 0.1234567 })) };
+    const parsed = JSON.parse(formatJson(timed)) as { durationMs: number; results: Array<{ durationMs: number }> };
 
     expect(parsed.durationMs).toBe(12.346);
-    expect(parsed.results[0].durationMs).toBeLessThan(1000);
-    expect(parsed.results[0].durationMs).toBeGreaterThanOrEqual(0);
+    expect(parsed.results.length).toBeGreaterThan(0);
+    expect(parsed.results.map((entry) => entry.durationMs)).toEqual(parsed.results.map(() => 0.123));
   });
 });
 
