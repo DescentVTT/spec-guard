@@ -9,6 +9,19 @@ with the flag that restores the previous behaviour.
 
 ### Changed
 
+- **Under `--strict`, a run that executed no assertion fails.** Specs that
+  matched and state no rule in force - every document withheld, no directive
+  in any - exited 0 and said so in the human report alone. Under `--strict`
+  or `"strict": true` that run is now exit 1, and says so everywhere: JSON's
+  `ok` is `false` with `"nothingVerified": true`, and SARIF, GitHub and
+  GitLab carry a `nothing-verified` finding; `prove --strict` fails the same
+  way when it proved no rule. One rule in force passes, and the MCP server's
+  check of paths no rule governs passes. Upgrading: a strict run over specs
+  with nothing in force turns red; put a rule in force, fix the spec
+  patterns, or pass `--no-strict` to that run.
+  [ADR-0010](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0010-spec-status.md)'s
+  amendment of 2026-09-30.
+
 - **GitLab's description and GitHub's message carry the finding's hint.**
   A Code Quality issue's `description` and a workflow command's message were
   the message alone; they are now the message and then the next action: fix
