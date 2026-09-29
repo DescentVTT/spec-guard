@@ -5,6 +5,19 @@ All notable changes to this project are documented here. Versions follow
 may change in a minor release — each such change is listed under **Changed**
 with the flag that restores the previous behaviour.
 
+## Unreleased
+
+### Fixed
+
+- **A `./` before a `!` is read as naming a file, not taken off to leave a
+  negation.** `glob="./!a"` was an invalid directive and is now the name
+  `!a` at any depth, under both engines; `exclude="./!build"`, a module, a
+  layer and `dirs=` read it so too, and a spec pattern `./!*.md` is the names
+  `!*.md` at any depth and `././!*.md` the root's, where both were exit 2.
+  `!a` alone is refused as it was.
+  [ADR-0015](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0015-globs-from-spec-core.md)'s
+  amendment of 2026-09-30.
+
 ## 0.16.0
 
 spec-core is at 7e41240: a leading `/` on a brace alternative anchors it, at

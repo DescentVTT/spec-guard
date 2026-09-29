@@ -429,6 +429,35 @@ differences below, so the adoption changed exactly what this ADR says it did.
   each other for ten more patterns, the parity tests state the files seven
   more shapes find under each engine, a run of `dirs="{/a/,d}"` on a real
   tree chooses `d`, and each door is held to the root in its advice.
+- **Amended 2026-09-30: a `./` before a `!` stays.** A leading `./` names
+  the directory a pattern is read from, and every door took it off before
+  spec-core was asked, which changes nothing - but before a `!`, where it
+  left the negation `!a` to be refused. spec-core reads `./!a` in every
+  dialect as the name `!a`, and `{./!a,x}` was read so, as the amendment
+  above has `/!a` read as the root's `!a`. So the `./` now stays before a
+  `!`, at every door that took it off - `glob=`, `exclude=`, `--exclude`
+  and the configuration's `exclude`, `module=`, a layer, `dirs=` - and is
+  taken off before anything else as it was:
+
+  | Pattern | Until now | Now |
+  | --- | --- | --- |
+  | `glob="./!a"` | refused: `a negated pattern is a list entry, not a glob; ...` | the name `!a` at any depth, as `glob="./a"` is `a` at any depth and `glob="././!a"` was, under both engines |
+  | `exclude="./!build"`, a module or a layer | refused: `negation patterns are not supported in exclude` | every `!build`, with what it holds, as `build` is every `build` |
+  | spec pattern `./!*.md` | refused, as the negation `!*.md` | the names `!*.md` at any depth, as `./*.md` is `*.md` |
+  | spec pattern `././!*.md` | refused: its base `.` names no directory, and what is below it was judged alone | the root's names `!*.md`, as `././*.md` is the root's Markdown |
+  | `!a`, `!*.md` | refused | refused |
+
+  A spec pattern's base is found with its `./` taken off, whatever follows,
+  so `./!*.md` has none and is read as `glob=` reads it, from the root the
+  walk starts at. Below a base of `.` alone, what spec-core refuses alone
+  was refused, since the base stands for no directory to judge it below;
+  now spec-core is asked the whole pattern there, and one it reads is read
+  below the base as below a named one, while one it refuses, such as
+  `././{./,a}`, is refused in the words it was. ripgrep is handed `**/!a`
+  for `./!a`, as it is for the alternative `!a` of `{!a,x}`.
+  `tests/glob-core.test.ts` holds `./!a` and `././!*` to spec-core's reading
+  on every path of its universe, as an inclusion and as an exclusion, and
+  the parity tests state what `./!a` finds under each engine.
 
 ### Both engines, one reading
 
