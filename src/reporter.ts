@@ -1147,11 +1147,17 @@ function nothingVerifiedAnnotations(report: { nothingVerified?: boolean; specFil
   ];
 }
 
-/** A directive that could not be read: nothing it states was checked. */
+/**
+ * A directive that could not be read: nothing it states was checked. It is
+ * known by the directive as written, never by the message, which a release
+ * may word differently and which names attributes and values the directive
+ * already holds; a spec that could not be read has none written, and is one
+ * finding to its file.
+ */
 function errorAnnotations(errors: readonly DirectiveError[]): Annotation[] {
   return errors.map((error) => ({
     rule: 'invalid-directive',
-    identity: ['invalid-directive', error.location.relativeFile, error.message],
+    identity: ['invalid-directive', error.location.relativeFile, error.raw],
     level: 'error',
     severity: 'major',
     file: error.location.relativeFile,
