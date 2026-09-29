@@ -7,7 +7,28 @@ with the flag that restores the previous behaviour.
 
 ## Unreleased
 
+### Changed
+
+- **GitLab's description and GitHub's message carry the finding's hint.**
+  A Code Quality issue's `description` and a workflow command's message were
+  the message alone; they are now the message and then the next action: fix
+  the code or the rule, fix the directive, write a status word spec-guard
+  reads, close the block, run with `--ignore-status`, narrow a rule `prove`
+  showed cannot fail. A `cites` finding reads as it did. Fingerprints do not
+  change. Upgrading: nothing to do, unless a script compares a description
+  whole; its message is still how it starts.
+
 ### Fixed
+
+- **The README's account of GitLab Code Quality.** It said an issue's
+  fingerprint is the SHA-256 of its rule, file and message; since 0.12.0 it
+  is of what the finding is about and never of its message, as the code and
+  that release's entry say. Its table of severities now has the row for a
+  document read differently from how it was written, `spec-warning`,
+  `minor`.
+- **The README says how to install ripgrep beyond GitHub's runners**: on a
+  GitLab runner's Debian or Alpine image, and on Windows, and what
+  `SPEC_GUARD_RG` does.
 
 - **A `./` before a `!` is read as naming a file, not taken off to leave a
   negation.** `glob="./!a"` was an invalid directive and is now the name
