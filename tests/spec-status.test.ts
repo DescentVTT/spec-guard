@@ -793,6 +793,58 @@ describe('a front-matter status that cannot be read', () => {
   });
 });
 
+describe('a status in the body that cannot be read', () => {
+  // A `## Status` section decides as front matter's key does, readable or
+  // not: one that could not be read handed over to a `Status:` line in the
+  // preamble, and a status that cannot be read withheld a document by
+  // accident. ADR-0010's amendment of 2026-09-30.
+  const context = { file: '/r/docs/a.md', relativeFile: 'docs/a.md' };
+  const warningOf = (source: string) => parseDocument(source, context).warnings?.map(({ location, message }) => [location.line, message]);
+  const section = (reason: string, heading = 'Status') =>
+    `the status under the heading "${heading}" cannot be read (${reason}), so its status is unrecognised and the document stays in force; a status written elsewhere in the document is not read in its place`;
+  const label = (reason: string) => `the status label cannot be read (${reason}), so its status is unrecognised and the document stays in force`;
+
+  it('keeps its document in force, and the label is not read in its place', async () => {
+    const source = `# ADR-1\n\nStatus: draft\n\n## Status\n\n2024-05-01: accepted\n\n${VIOLATION}`;
+    expect(parseStatus(source)).toBeUndefined();
+    expect(warningOf(source)).toEqual([[7, section('"2024-05-01: accepted" does not begin with a word')]]);
+    // The rule runs, where the label alone would have withheld it.
+    const report = await run(await repo({ 'docs/a.md': source, ...CODE }));
+    expect(report.summary).toMatchObject({ total: 1, failed: 1, inactive: 0 });
+    expect(report.specWarnings?.map(({ kind }) => kind)).toEqual(['unreadable-status']);
+    // The control: the label alone is read, and withholds.
+    expect(parseStatus(`# ADR-1\n\nStatus: draft\n\n## Context\n\n${VIOLATION}`)?.value).toBe('draft');
+  });
+
+  it('reads the section to the next heading, and one with nothing under it is empty, on its heading', () => {
+    expect(warningOf('# ADR-1\n\nStatus: superseded\n\n## Status\n\n## Context\n\nProse.\n')).toEqual([[5, section('it is empty')]]);
+    expect(parseStatus('# ADR-1\n\nStatus: superseded\n\n## Status\n\n## Context\n\nProse.\n')).toBeUndefined();
+    // A heading under it ends it, whatever its level, as it ends any section's prose.
+    expect(warningOf('# ADR-1\n\n## Status\n\n### Decided\n\nAccepted\n')).toEqual([[3, section('it is empty')]]);
+    expect(warningOf('# ADR-1\n\nStatus\n======\n\n## Next\n\nAccepted\n')).toEqual([[3, section('it is empty')]]);
+    // The last section runs to the end of the document.
+    expect(warningOf('# ADR-1\n\n## Status\n')).toEqual([[3, section('it is empty')]]);
+    expect(parseStatus('# ADR-1\n\n## Status\n\nAccepted\n')?.value).toBe('accepted');
+  });
+
+  it('names the heading as it was written', () => {
+    expect(warningOf('# ADR-1\n\n## STATUS\n\n- [x] accepted\n')).toEqual([[5, section('"- [x] accepted" does not begin with a word', 'STATUS')]]);
+  });
+
+  it('says so of a label, which decides as the first one in the preamble', () => {
+    expect(warningOf('# ADR-1\n\n**Status:** 2024-05-01\n\nStatus: draft\n')).toEqual([[3, label('"2024-05-01" does not begin with a word')]]);
+    expect(parseStatus('# ADR-1\n\n**Status:** 2024-05-01\n\nStatus: draft\n')).toBeUndefined();
+    expect(warningOf('# ADR-1\n\nStatus:\n')).toEqual([[3, label('it is empty')]]);
+  });
+
+  it('says nothing of a status it can read, a word it does not know, or none at all', () => {
+    expect(warningOf('# ADR-1\n\n## Status\n\nAccepted\n')).toBeUndefined();
+    expect(warningOf('# ADR-1\n\n## Status\n\nIn review\n')).toBeUndefined();
+    expect(warningOf('# ADR-1\n\nStatus: provisional\n')).toBeUndefined();
+    expect(warningOf('# ADR-1\n\n## Context\n\nProse.\n')).toBeUndefined();
+  });
+});
+
 describe('front matter never closed', () => {
   // A first line of `---` or `+++` that nothing closes opens no front matter,
   // but its author wrote some, and what it says cannot be read: the status is
