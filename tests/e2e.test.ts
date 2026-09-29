@@ -148,12 +148,15 @@ describe.skipIf(!built)('spec-guard executable', () => {
     expect(withRipgrep.code).toBe(withFallback.code);
   });
 
+  // Reads the whole of this repository: a test of what it finds there, not of
+  // how fast, with a time of its own, since a machine busy with other work can
+  // take longer than the default for one test.
   it('runs spec-guard against its own documentation', async () => {
     const result = await run(['docs/**/*.md', 'README.md', '--verbose']);
 
     expect(result.stdout).toContain('spec-guard');
     expect(result.code).toBe(0);
-  });
+  }, 120_000);
 });
 
 describe('launcher', () => {
@@ -190,6 +193,9 @@ describe.skipIf(!built)('spec-guard mcp, as a client launches it', () => {
 
   const SPECS = ['--spec', 'docs/**/*.md', '--spec', 'README.md'];
 
+  // Reads the whole of this repository: a test of what it finds there, not of
+  // how fast, with a time of its own, since a machine busy with other work can
+  // take longer than the default for one test.
   it('answers a legacy session over real pipes, writes only protocol to stdout, and exits 0 on EOF', async () => {
     const outcome = await converse(
       [
@@ -215,7 +221,7 @@ describe.skipIf(!built)('spec-guard mcp, as a client launches it', () => {
     const dependents = byId.get(4)?.['structuredContent'] as { results: Array<{ dependents: Array<{ file: string }> }> };
     expect(dependents.results[0]?.dependents.map((dependent) => dependent.file)).toEqual(expect.arrayContaining(['src/cli.ts', 'src/mcp.ts']));
     expect(outcome.stderr).toContain('MCP server on stdio');
-  });
+  }, 120_000);
 
   it('answers a modern client that probes with server/discover first', async () => {
     const meta = '"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}';

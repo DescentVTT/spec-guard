@@ -24,7 +24,7 @@
 
 import { promises as fsp } from 'node:fs';
 import path from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import {
   buildJsRegExp,
@@ -498,6 +498,16 @@ describe('ANY_FILE_PROBE', () => {
   // to the end. 24 and 8 are arbitrary; that 24 is much larger than 2 is not.
   const DIRECTORIES = 24;
   const FILES_PER_DIRECTORY = 8;
+  // Built once for both tests, which only read it.
+  let root: string;
+
+  beforeAll(async () => {
+    root = await makeTempRepo(wideTree(DIRECTORIES, FILES_PER_DIRECTORY));
+  });
+
+  afterAll(async () => {
+    await removeTempRepo(root);
+  });
 
   function counting(): { reader: DirectoryReader; calls: string[] } {
     const calls: string[] = [];
@@ -517,7 +527,6 @@ describe('ANY_FILE_PROBE', () => {
     // cost *is* the contract, and the cost is what is asserted here - there is
     // nothing else about this constant that an output can disagree with, which
     // is exactly why an emptied `{}` sat in the mutation report as a survivor.
-    const root = await repo(wideTree(DIRECTORIES, FILES_PER_DIRECTORY));
     const request: SearchRequest = { root, symbol: 'Widget', targets: ['src'], options: searchOptions() };
 
     const probe = counting();
@@ -543,7 +552,6 @@ describe('ANY_FILE_PROBE', () => {
     // capped files but not bytes would still abandon at the first file, and a
     // test reading `maxFiles === 0` could not tell the two apart. Each field is
     // shown to be sufficient on its own by neutralising the other.
-    const root = await repo(wideTree(DIRECTORIES, FILES_PER_DIRECTORY));
     const request: SearchRequest = { root, symbol: 'Widget', targets: ['src'], options: searchOptions() };
 
     const byFiles = counting();
