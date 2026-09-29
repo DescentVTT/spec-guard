@@ -356,6 +356,8 @@ differences below, so the adoption changed exactly what this ADR says it did.
   | spec pattern `{/a.md,README.md}` | `a.md` and `README.md` at any depth | `README.md` only | `a.md` at the root, and `README.md` at any depth |
   | spec pattern `docs/{/adr/*.md,a.md}` | `docs/adr/*.md` and `docs/a.md` | `docs/a.md` only | as until `7e41240` |
   | `dirs="{/a/,d}"` | `a` and `d` | `d` alone, as `dirs="/a"` chooses nothing | the same |
+  | `glob="/!a"`, spec pattern `/!*.md` | refused: `a negated pattern is a list entry, not a glob; ...` | the same | the name `!a` at the root; the names `!*.md` at the root |
+  | `glob="/**.md"`, spec pattern `/**.md` or `/{a,b}/**.md` | told to write `**/*.md` or `*.md`, the root dropped | the same | told to write `/**/*.md` or `/*.md`, and `/{a,b}/**/*.md` or `/{a,b}/*.md` |
 
   A directive's list attribute splits on the comma, and `--exclude` as one
   does, so those hold such a group only with one alternative, `{/f.ts}`; a
@@ -393,14 +395,34 @@ differences below, so the adoption changed exactly what this ADR says it did.
   where a spec pattern `/a.md`, with no braces, names a file at the root of
   the filesystem.
 
+  A glob that starts with `/` is now asked of spec-core as written, its
+  leading slashes kept, as the same text inside braces is asked.
+  `readInclude` took the slashes off before it asked, so what spec-core said
+  was about the rest: `glob="/!a"` was refused as the negation `!a` is,
+  where spec-core reads the name `!a` at the root and `{/!a,x}` was read so;
+  and `glob="/**.md"` was told to write `**/*.md` or `*.md`, the second a
+  name at any depth, where spec-core tells `/**.md` to write `/**/*.md` or
+  `/*.md`. A spec pattern whose base is the root - `/**.md`,
+  `/{a,b}/**.md`, `/!*.md` - was judged and read by what is below the root
+  alone, in the same way; spec-core is now asked the whole of it, as
+  `glob=` asks it, and it is read from the root its walk starts at.
+  `exclude=`, `module=`, a layer, `dirs=` and a spec pattern below a named
+  directory gave spec-core the root already. A rooted glob is judged with
+  its slash, one state more than the rest, so one of 65,535 characters
+  after the slash is refused, as spec-core refuses it; and `/./{./,docs}`,
+  as a glob or a spec pattern, is told what spec-core's braces give there,
+  `"././"`, where it was told `"./"`. `!a`, `**.md` and `docs/**.md` read
+  and are refused as they were, and so is `./!a`, whose `./` is taken off
+  before spec-core is asked.
+
   `a/{/b,c}`, whose slash follows a segment and starts no alternative, is
   `a/b` or `a/c` as it was, `{./a,b}` is `a` at any depth as it was, and
   nothing that was read is refused. `tests/glob-core.test.ts` holds the
   segment shortcut, the globs ripgrep is handed and spec-core's answer - a
   rooted alternative asked about the path from the filesystem's root - to
-  each other for ten more patterns, the parity tests state the files six
-  more shapes find under each engine, and a run of `dirs="{/a/,d}"` on a
-  real tree chooses `d`.
+  each other for ten more patterns, the parity tests state the files seven
+  more shapes find under each engine, a run of `dirs="{/a/,d}"` on a real
+  tree chooses `d`, and each door is held to the root in its advice.
 
 ### Both engines, one reading
 
