@@ -1306,7 +1306,21 @@ repository is large enough that you want ripgrep's speed, install it first:
       - run: sudo apt-get update && sudo apt-get install -y ripgrep
 ```
 
-Or point spec-guard at a binary you already have with `SPEC_GUARD_RG=/path/to/rg`.
+Elsewhere, install the package your image or machine has, before spec-guard
+runs:
+
+| Where | Install |
+| --- | --- |
+| GitHub-hosted Ubuntu runner | `sudo apt-get update && sudo apt-get install -y ripgrep` |
+| GitLab runner, Debian or Ubuntu image (`node:22`) | `apt-get update && apt-get install -y ripgrep` in `before_script` |
+| GitLab runner, Alpine image (`node:22-alpine`) | `apk add --no-cache ripgrep` in `before_script` |
+| Windows | `winget install BurntSushi.ripgrep.MSVC` |
+
+spec-guard looks for `rg` on `PATH`. `SPEC_GUARD_RG=/path/to/rg` names the
+binary instead, for one that is not on `PATH` or not called `rg`. Under the
+default `--engine auto`, a binary that cannot be run leaves the built-in
+scanner to do the work, and the report's engine says `javascript`; under
+`--engine rg` it is exit 2.
 
 As a pre-commit hook (assuming a local install, so the bare command resolves):
 
@@ -1339,7 +1353,7 @@ workflow command per finding, which the job's log turns into an annotation on
 the diff:
 
 ```text
-::error file=src/a.ts,line=2,title=assert-absence::"Legacy" must not appear in src: expected no matches, found 2 (docs/adr/0004-legacy.md:12)
+::error file=src/a.ts,line=2,title=assert-absence::"Legacy" must not appear in src: expected no matches, found 2 (docs/adr/0004-legacy.md:12). fix the code, or the rule if the decision it records has changed
 ```
 
 `--format gitlab` writes a
@@ -1365,11 +1379,18 @@ Every format places the same findings, and `prove` and `cites` write all three:
 | a directive that could not be read | `error` | `major` |
 | a stale citation (`cites`) | `warning`; `error` under `--strict` | `minor`; `critical` under `--strict` |
 | a rule `prove` could make no violation for | `notice` | `minor` |
+| a document read differently from how it was written (`spec-warning`: a status that cannot be read, front matter or a block never closed), on its line | `warning` | `minor` |
 | a file `cites` could read only in part | `notice` | `info` |
 | a document not in force, on its first line | `notice` | `info` |
 
-A GitLab issue's `fingerprint` is the SHA-256 of its rule, file and message,
-which GitLab compares across pipelines to tell a new finding from an old one.
+A finding's GitLab `description`, and its GitHub message, is its message and
+then its hint, the next action. A GitLab issue's `fingerprint` is the SHA-256
+of what the finding is about - its rule, its file and its subject, such as the
+assertion or the id a comment cites - with a count for a second finding of the
+same, and never of its message, its hint or its line: GitLab compares it across
+pipelines to tell a new finding from an old one, and a message that holds a
+count, or a line moved down a page, would make every open issue look fixed
+and a new one appear.
 
 **There is no language server, and that is a decision rather than a gap.**
 spec-guard's claims are about a whole repository - "this symbol appears nowhere
