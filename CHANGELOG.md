@@ -1,9 +1,14 @@
 # Changelog
 
-All notable changes to this project are documented here. Versions follow
-[semantic versioning](https://semver.org), with the 0.x caveat that behaviour
-may change in a minor release — each such change is listed under **Changed**
-with the flag that restores the previous behaviour.
+All notable changes to this project are documented here. Before 1.0 a minor
+release (0.16.x to 0.17.0) carries anything that can turn a passing run red or
+change what a script reads - a finding or a failure that was not there, a
+changed exit code or JSON field, input refused that was accepted - and a patch
+only what reports less, crashes, performance and documentation, so `^0.17.0`
+takes no release that can turn a run red. Each entry under **Changed** says
+what to do when upgrading; the family's policy, including how a flag or field
+is deprecated before it goes, is spec-core's
+[ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
 ## Unreleased
 
