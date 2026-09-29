@@ -828,6 +828,15 @@ found on the day it is written rather than on the day it is accepted.
 `--ignore-status` runs everything, which is how you ask whether a draft would
 pass if you accepted it today.
 
+A run in which nothing is in force executes no assertion, and says so rather
+than that every assertion holds: `no assertion was executed, so nothing was
+verified`. Under `--strict`, or `"strict": true`, that run fails, exit 1, as
+the family contract has a check that measured nothing do: JSON says
+`"ok": false` and `"nothingVerified": true`, and SARIF, GitHub and GitLab carry
+a `nothing-verified` finding. One rule in force is enough to pass, whatever else
+is withheld; and the MCP server's check of paths that no rule governs verified
+what it was asked to, and passes.
+
 [ADR-0010](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0010-spec-status.md) has the full reasoning, including why
 there is no per-directive `if-status` attribute.
 
@@ -1131,7 +1140,7 @@ spec-guard impact <paths...>           # the files that depend on each path, and
 | `--json` | Machine-readable report on stdout (same as `--format json`), versioned by `formatVersion` |
 | `--format <human\|json\|sarif\|github\|gitlab>` | Output format. `sarif` uploads to GitHub code scanning, `github` annotates a pull request from the job's log, `gitlab` is a GitLab Code Quality report |
 | `--engine <auto\|rg\|js>` | Search engine (default `auto`: scanner for small trees, ripgrep for big ones) |
-| `--strict` / `--no-strict` | Treat analysis that could not be completed as a failure |
+| `--strict` / `--no-strict` | Treat analysis that could not be completed as a failure, and a run that executed no assertion: its specs matched and state no rule in force |
 | `--allow-missing-targets` / `--no-allow-missing-targets` | Warn instead of failing when a `target` path does not exist |
 | `--allow-empty-scope` / `--no-allow-empty-scope` | Warn instead of failing when an assertion inspects no files |
 | `--print-baseline` | Print the `baseline="..."` that would exempt today's violations, and exit |
@@ -1275,7 +1284,7 @@ symbolic link, and anything outside the root. CI stays the authority.
 | Code | Meaning |
 | --- | --- |
 | `0` | Every assertion held |
-| `1` | An assertion failed, or a directive was malformed; for `prove`, a rule survived; for `cites`, a comment cites a document that does not exist |
+| `1` | An assertion failed, or a directive was malformed; under `--strict`, the specs matched state no rule in force, so no assertion was executed; for `prove`, a rule survived, or under `--strict` none was proved; for `cites`, a comment cites a document that does not exist |
 | `2` | spec-guard could not run: bad usage, a malformed configuration, no spec files matched, `--engine rg` with no ripgrep, a watch that could not start, a `cites` family whose files match no document |
 | `130` | A `--watch` session was stopped |
 
@@ -1377,6 +1386,7 @@ Every format places the same findings, and `prove` and `cites` write all three:
 | a rule that survived `prove`, on its directive | `error` | `critical` |
 | a ghost citation (`cites`), on its comment | `error` | `critical` |
 | a directive that could not be read | `error` | `major` |
+| a run or a proof under `--strict` that verified nothing (`nothing-verified`), on the first spec's first line | `error` | `major` |
 | a stale citation (`cites`) | `warning`; `error` under `--strict` | `minor`; `critical` under `--strict` |
 | a rule `prove` could make no violation for | `notice` | `minor` |
 | a document read differently from how it was written (`spec-warning`: a status that cannot be read, front matter or a block never closed), on its line | `warning` | `minor` |

@@ -401,3 +401,39 @@ withheld, as the same YAML front matter is.
 None of the 164 Markdown files of the five spec-* repositories has TOML
 front matter, so every status there is read as it was, and a run, `prove`,
 `cites` and `query` of each answer as they did.
+
+## Amended 2026-09-30: a strict run that verified nothing fails
+
+[A hole this opened](#a-hole-this-opened-and-closing-it) made a run that
+executed nothing say so, in the human report alone, and exit 0 whatever the
+options. That left the family contract half kept: spec-core's ADR-0005 says a
+check that measured nothing is not clean, says so, and under `--strict`
+refuses. `cites` refused already, when it read no file; a run and `prove` did
+not, and their JSON said `"ok": true`, their SARIF a successful run with no
+result, and GitLab an empty report.
+
+Under `--strict`, or `"strict": true` in the configuration, a run whose specs
+matched and state no rule in force - every document withheld, no directive in
+any, or none that can be read - now fails, exit 1, and says so in every format:
+the human report's last line is `✖` and the same sentence, which `--strict`
+refuses; JSON has `"ok": false` and `"nothingVerified": true`; SARIF, GitHub and
+GitLab carry a `nothing-verified` finding, an error and `major`, on the first
+spec's first line, with a hint that says to put a rule in force or point the
+patterns at the documents that state them. `prove --strict` fails the same way
+when no rule was proved. The sentence is written once in the reporter, and the
+assertion above still finds it once.
+
+Two things are not this, and pass. A selection that leaves out every rule
+there is - the MCP server's `check_architecture` given paths no rule governs -
+verified what it was asked to; the rules exist, and the server says how many.
+And a run that matched no spec is the command line's to refuse, as exit 2, or
+to allow with `--allow-empty`. The alternative this ADR rejected stays
+rejected: a withheld document is not a strict failure, and one rule in force
+anywhere passes whatever else is withheld. What fails is a strict run that
+verified nothing at all, which no reading of `--strict` can call complete.
+
+Without `--strict` nothing changes: the report says the run verified nothing,
+and it exits 0. The repositories that pay are those that run `--strict` over
+specs with no rule in force, whose green said nothing; the remedy is a rule in
+force, the right spec patterns, or `--no-strict` for a run meant to check
+nothing.
