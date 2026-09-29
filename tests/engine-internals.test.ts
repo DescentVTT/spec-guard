@@ -91,6 +91,14 @@ describe('buildRipgrepArgs', () => {
     expect(globs.slice(0, 4)).toEqual(['src/**', '*.md', '!build', '!dist']);
   });
 
+  it('hands ripgrep a brace alternative that starts with / anchored, as the scanner reads it', () => {
+    // A glob ripgrep takes too wide is narrowed by the scanner's filter, but
+    // an exclusion it takes too wide prunes what the scanner would have kept.
+    const options = searchOptions({ globs: ['{/f.ts,*.md}'], excludeGlobs: ['{/build,dist}'] });
+    const globs = buildRipgrepArgs(request({ options })).filter((_, index, args) => args[index - 1] === '--glob');
+    expect(globs.slice(0, 4)).toEqual(['/f.ts', '*.md', '!/build', '!dist']);
+  });
+
   it('passes the search flags an assertion asked for', () => {
     const options = searchOptions({ regex: true, word: true, ignoreCase: true });
     const args = buildRipgrepArgs(request({ options }));
