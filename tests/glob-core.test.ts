@@ -40,6 +40,7 @@ import { parseDirectives } from '../src/parser.js';
 import { resolveDirective, runSpecGuard } from '../src/runner.js';
 import { compileGlob } from '../src/vendor/spec-core/pattern/index.js';
 import { makeTempRepo, memoryIo, removeTempRepo } from './helpers.js';
+import { fastestInTurnAsync, perRunInTurn } from './timing.js';
 
 /* ------------------------------------------------------------ what is refused */
 
@@ -749,31 +750,50 @@ describe('a pattern that made the RegExp backtrack', () => {
   // `*-*-*-*-*-*x` compiled to six [^/]* groups, and against a 121-character
   // name of dashes V8 tries every way of dividing the name between them: 55
   // seconds, measured for ADR-0015. The automaton keeps a set of live
-  // states, so its cost is the pattern's size times the name's length. The
-  // bound is a thousand times what it takes, so that a loaded runner does not
-  // fail it; the RegExp would take fifty-five of them.
+  // states, so its cost is the pattern's size times the name's length: a
+  // name four times as long takes about four times as long, where the
+  // RegExp took about a thousand times as long. Held to a ratio, twice
+  // linear and a tenth of a millisecond for noise, as spec-core's ADR-0007
+  // holds cost, since a loaded machine slows both names alike and can push
+  // either past any number of milliseconds.
+  const PATTERN = '*-*-*-*-*-*x';
   const NAME = '-'.repeat(121);
+  const SHORT = '-'.repeat(30);
+  const LONG = '-'.repeat(120);
 
-  it('fails a 121-character name in milliseconds, as an inclusion and as an exclusion', () => {
+  it('fails a 121-character name, in time linear in the name, as an inclusion and as an exclusion', () => {
     expect(NAME).toHaveLength(121);
-    const started = performance.now();
-    expect(createGlobMatcher(['*-*-*-*-*-*x'])(`src/${NAME}`)).toBe(false);
-    expect(createExcludeMatcher(['*-*-*-*-*-*x'])(`src/${NAME}`)).toBe(false);
-    expect(performance.now() - started).toBeLessThan(1000);
+    expect(createGlobMatcher([PATTERN])(`src/${NAME}`)).toBe(false);
+    expect(createExcludeMatcher([PATTERN])(`src/${NAME}`)).toBe(false);
+    // A matcher remembers what it answered for each name, so each run builds
+    // one: the reading is kept, and the name is asked of the automaton.
+    for (const matcher of [createGlobMatcher, createExcludeMatcher]) {
+      const [short, long] = perRunInTurn(
+        3,
+        5,
+        () => matcher([PATTERN])(`src/${SHORT}`),
+        () => matcher([PATTERN])(`src/${LONG}`),
+      ) as [number, number];
+      expect(long).toBeLessThan(8 * short + 0.1);
+    }
   });
 
-  it('fails it in milliseconds inside a run, too', async () => {
+  it('fails it inside a run too, in about the time a run over a short name takes', async () => {
     const root = path.resolve('/virtual/pathological');
-    const io = memoryIo(root, {
-      'docs/rules.md': '<!-- @assert-absence target="src" symbol="Legacy" glob="*-*-*-*-*-*x" allow-empty="true" -->\n',
-      [`src/${NAME}`]: 'Legacy\n',
-      'src/a-b-c-d-e-fx': 'Legacy\n',
-    });
-    const started = performance.now();
-    const report = await runSpecGuard({ patterns: ['docs/rules.md'], root, io });
-    expect(performance.now() - started).toBeLessThan(2000);
+    const tree = (name: string) =>
+      memoryIo(root, {
+        'docs/rules.md': `<!-- @assert-absence target="src" symbol="Legacy" glob="${PATTERN}" allow-empty="true" -->\n`,
+        [`src/${name}`]: 'Legacy\n',
+        'src/a-b-c-d-e-fx': 'Legacy\n',
+      });
+    const run = (io: ReturnType<typeof memoryIo>) => () => runSpecGuard({ patterns: ['docs/rules.md'], root, io });
+    const [short, long] = [tree(SHORT), tree(NAME)];
     // The name that ends in x is the one the glob reaches.
-    expect(report.results[0]?.matches.map((match) => match.file)).toEqual(['src/a-b-c-d-e-fx']);
+    expect((await run(long)())?.results[0]?.matches.map((match) => match.file)).toEqual(['src/a-b-c-d-e-fx']);
+    // A run reads and plans far more than it matches, so the two take about
+    // as long; the RegExp would have taken the longer 55 seconds.
+    const [shortRun, longRun] = (await fastestInTurnAsync(3, run(short), run(long))) as [number, number];
+    expect(longRun).toBeLessThan(4 * shortRun + 50);
   });
 });
 

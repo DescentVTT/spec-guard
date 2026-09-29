@@ -7,7 +7,7 @@
  * project's specs imply, and the scan itself - over every comment syntax the
  * classifier knows, with the same ids in strings beside them to show a string
  * is never read. Then a corpus shaped like a Rust workspace citing its ADRs,
- * the command line, and a tree of thousands of files against a budget.
+ * the command line, and a tree of thousands of files held to time linear in it.
  */
 
 import { promises as fs } from 'node:fs';
@@ -35,6 +35,7 @@ import { EXIT_ERROR, EXIT_FAILED, EXIT_OK, main, parseArgs, UsageError, version,
 import { citesAnnotations, formatCites, formatCitesJson, formatCitesSarif, formatGitlab } from '../src/reporter.js';
 import type { CitesReport } from '../src/types.js';
 import { FIXTURES_DIR, makeTempRepo, memoryIo, removeTempRepo } from './helpers.js';
+import { fastestInTurnAsync, instrumented } from './timing.js';
 
 const ROOT = path.resolve('/virtual/cites');
 const ADR = parseIdTemplate('ADR-{n}');
@@ -1290,36 +1291,26 @@ describe('spec-guard cites', () => {
   });
 });
 
-/* --------------------------------------------------------------- budget */
-
-/**
- * Whether the code under test is instrumented, by coverage or by Stryker.
- * Instrumented, every statement costs several times more, so a wall-clock
- * budget is a claim about the code as shipped and is checked only there -
- * CI's sweep measured this tree at 10.009 s in Stryker's initial run, and
- * under a second on its own. What a run finds is checked in both.
- */
-function instrumented(): boolean {
-  const worker = (globalThis as Record<string, unknown>)['__vitest_worker__'] as { config?: { coverage?: { enabled?: boolean } } } | undefined;
-  return '__stryker__' in globalThis || worker?.config?.coverage?.enabled === true;
-}
+/* ----------------------------------------------------------------- cost */
 
 describe('a tree of thousands of files', () => {
   let root: string;
-  const FILES = 3000;
+  // Sixteen directories of 192 files, so one of them is a sixteenth of the tree.
+  const FILES = 3072;
+  const whole = () => findCitations({ root, patterns: ['docs/**/*.md'] });
+  const sixteenth = () => findCitations({ root, patterns: ['docs/**/*.md'], paths: ['src/p0'] });
 
   beforeAll(async () => {
     root = await makeTempRepo({ 'docs/adr/0001-a.md': '# ADR-0001: A\n', 'docs/adr/0002-b.md': '# ADR-0002: B\n\n**Status:** deprecated\n' });
     // Written here rather than through makeTempRepo's object, so the tree is
-    // built in parallel: 3,000 files of about 2 KB, one citation in three,
-    // strings and comments that hold none in the rest.
+    // built in parallel: files of about 2 KB, one citation in three, strings
+    // and comments that hold none in the rest.
     const body = Array.from({ length: 40 }, (_, line) => `const v${line} = "a string, not ADR-0009"; // a comment, but no id here\n`).join('');
+    await Promise.all(Array.from({ length: 16 }, (_, part) => fs.mkdir(path.join(root, 'src', `p${part}`), { recursive: true })));
     await Promise.all(
       Array.from({ length: FILES }, async (_, index) => {
-        const directory = path.join(root, 'src', `m${index % 50}`);
-        await fs.mkdir(directory, { recursive: true });
         const cite = index % 3 === 0 ? `// ADR-000${(index % 2) + 1} governs this\n` : '';
-        await fs.writeFile(path.join(directory, `f${index}.ts`), `${cite}${body}`);
+        await fs.writeFile(path.join(root, 'src', `p${index % 16}`, `f${index}.ts`), `${cite}${body}`);
       }),
     );
   }, 120_000);
@@ -1328,24 +1319,48 @@ describe('a tree of thousands of files', () => {
     await removeTempRepo(root);
   });
 
-  it('is read within its budget of 10 seconds, finding every citation', async () => {
-    const started = performance.now();
-    const report = await findCitations({ root, patterns: ['docs/**/*.md'] });
-    const took = performance.now() - started;
-    expect(report.summary).toMatchObject({ files: FILES, citations: FILES / 3, ghosts: 0, stale: FILES / 6 });
-    // Measured at under a second on the development machine; the budget
-    // leaves room for a loaded one.
-    if (!instrumented()) expect(took).toBeLessThan(10_000);
-  }, 60_000);
+  it('finds every citation, in time linear in the tree', async () => {
+    // The first read of a tree pays for the disk cache and for compiling
+    // what reads it, so it is the one whose answer is checked, and not timed.
+    expect((await whole()).summary).toMatchObject({ files: FILES, citations: FILES / 3, ghosts: 0, stale: FILES / 6 });
+    // The sixteenth holds even files alone, which cite only the document in force.
+    expect((await sixteenth()).summary).toMatchObject({ files: FILES / 16, citations: FILES / 48, ghosts: 0, stale: 0 });
+    // Reading the tree several times over for each mutant costs a sweep more
+    // than it tells it; the answers above are held there all the same.
+    if (instrumented()) return;
+    // Sixteen reads of a sixteenth against one of the whole: a read that
+    // grows with the square of the tree takes sixteen times as long. Twice
+    // linear is allowed, and 200 ms for noise: the whole took under a second
+    // here, and 24.7 seconds against a budget of ten on a machine running
+    // five suites, where the sixteenth slows as much.
+    const [sixteenParts, oneWhole] = (await fastestInTurnAsync(
+      2,
+      async () => {
+        for (let part = 0; part < 16; part += 1) await sixteenth();
+      },
+      whole,
+    )) as [number, number];
+    expect(oneWhole).toBeLessThan(2 * sixteenParts + 200);
+  }, 120_000);
 
   it('reads a file of many comments in one pass, not one pass per comment', async () => {
-    // 40,000 comments and no citation until the last line. Searched once per
-    // comment to the end of the file, as the first version of the scan did,
-    // this is 40,000 searches of 1.6 MB; read once, it is one.
-    const source = `${'// a comment with no id in it at all, padding\n'.repeat(40_000)}// ADR-0001\n`;
-    const started = performance.now();
-    const report = await cites({ 'src/big.ts': source }, { paths: ['src/big.ts'] });
-    expect(report.summary).toMatchObject({ files: 1, citations: 1, ghosts: 0 });
-    if (!instrumented()) expect(performance.now() - started).toBeLessThan(2_000);
-  }, 60_000);
+    // No citation until the last line. Searched once per comment to the end
+    // of the file, as the first version of the scan did, a file of 40,000
+    // comments is 40,000 searches of 1.6 MB; read once, it is one. So a file
+    // a sixteenth as long, read sixteen times, takes about as long as it.
+    const file = (comments: number): CitesOptions['io'] =>
+      memoryIo(ROOT, { ...DOCS, 'src/big.ts': `${'// a comment with no id in it at all, padding\n'.repeat(comments)}// ADR-0001\n` });
+    const [small, large] = [file(2_500), file(40_000)];
+    const read = (io: CitesOptions['io']) => () => findCitations({ root: ROOT, patterns: ['docs/**/*.md'], io, paths: ['src/big.ts'] });
+    for (const io of [small, large]) expect((await read(io)()).summary).toMatchObject({ files: 1, citations: 1, ghosts: 0 });
+    if (instrumented()) return;
+    const [sixteenSmall, oneLarge] = (await fastestInTurnAsync(
+      3,
+      async () => {
+        for (let time = 0; time < 16; time += 1) await read(small)();
+      },
+      read(large),
+    )) as [number, number];
+    expect(oneLarge).toBeLessThan(2 * sixteenSmall + 100);
+  }, 120_000);
 });

@@ -206,7 +206,13 @@ differences below, so the adoption changed exactly what this ADR says it did.
   against a name of 121 dashes took **55 seconds** under the RegExp, measured on
   this repository's Windows machine with Node 24.18.1 (28 seconds in spec-core's
   measurement). It now takes under a millisecond, and a test bounds it at a
-  second, in the matcher and in a run.
+  second, in the matcher and in a run. *Amended 2026-09-30:* the bound is a
+  ratio now, as spec-core's ADR-0007 states cost: a name of 120 dashes must
+  match in less than eight times a name of 30 and a tenth of a millisecond,
+  and a run over the 121-character name in less than four times a run over
+  the short one and 50 ms. A second is a number a loaded machine can pass,
+  and a match that backtracks takes about a thousand times as long on a name
+  four times as long.
 - **A list attribute splits on commas**, as it always did, so a brace group with
   a comma in it cannot be written in a directive: `glob="*.{ts,tsx}"` was
   always `*.{ts` and `tsx}`, two literals to the scanner and an error to

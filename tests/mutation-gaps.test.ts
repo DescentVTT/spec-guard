@@ -128,16 +128,21 @@ describe('failure messages', () => {
   });
 
   it('reports a plausible duration rather than a sum of timestamps', async () => {
+    // Held to the time the call took, measured around it, rather than to a
+    // number of seconds a loaded machine can pass: a sum of timestamps is
+    // larger than any time a call can take.
+    const before = performance.now();
     const report = await runSpecGuard({
       patterns: ['docs/adr/0001-passing.md'],
       root: DEMO_REPO,
       engine: 'javascript',
     });
+    const took = performance.now() - before;
 
     expect(report.durationMs).toBeGreaterThan(0);
-    expect(report.durationMs).toBeLessThan(60_000);
+    expect(report.durationMs).toBeLessThanOrEqual(took);
     for (const result of report.results) {
-      expect(result.durationMs).toBeLessThan(60_000);
+      expect(result.durationMs).toBeLessThanOrEqual(took);
     }
   });
 });
