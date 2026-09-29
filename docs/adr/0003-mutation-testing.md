@@ -1555,6 +1555,19 @@ ran high where they were least measured: `runner.ts` and `text.ts` took 7m35s
 against 15.2 minutes, and `cli.ts` alone 8m18s against 15.1, so the next
 split starts from this run's logs rather than 398fe94's.
 
+### 0.15.0: TOML's status, and the survivor it left
+
+CI's full sweep of 01d73e9 (run 36506217673), after the reading of a status in
+TOML front matter, came out at 99.14% over 12,026 mutants with one survivor
+that decides something: `header !== undefined` made `true` in the walk over
+a TOML block, where no test held a table header that names no key and the
+guard is what keeps `header[0]` from being read. A test of `[]`, `[ ]` and
+`[[]]` above a status now holds it. The sweep of 88bf98f (run 36508138228)
+then came out at **99.15% over 12,026 mutants with 99 survivors and 3 without
+coverage** - the survivors of 0.14.0, the recorded slice of YAML front matter
+among them, moved by a rename to `block.bodyStart`. The reading added 340
+mutants and left none alive; the shards took from 3m57s to 18m27s.
+
 ### 0.14.0: one survivor more, and it decides nothing
 
 CI's full sweep of 01fc988 (run 36490302166) came out at **99.13% over 11,686

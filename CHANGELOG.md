@@ -5,7 +5,12 @@ All notable changes to this project are documented here. Versions follow
 may change in a minor release — each such change is listed under **Changed**
 with the flag that restores the previous behaviour.
 
-## Unreleased
+## 0.15.0
+
+Closed TOML front matter decides a document's status as YAML front matter
+does: a one-line `status` string is read, and any other form of the key is an
+unreadable status that keeps the document in force, where the status fell
+through to the prose.
 
 ### Changed
 
