@@ -241,6 +241,21 @@ under a second on the development machine, against a test budget of ten.
 `node_modules` and this repository together, 4,573 source files read with the
 default skips off, took 1.8 to 2.4 s.
 
+*Amended 2026-09-30.* The budget of ten seconds went, and the two seconds
+for a file of 40,000 comments with it: a machine running five suites at once
+took 24.7 seconds over the tree, which says nothing about the code. The
+tests now hold cost to a ratio, as spec-core's ADR-0007 holds its own: a tree
+of 3,072 files in sixteen directories is read once whole and sixteen times a
+directory at a time, taken in turn, the fastest of two rounds, and the whole
+must take less than twice the sixteen reads and 200 ms; a file of 40,000
+comments is read once against one of 2,500 read sixteen times, within twice
+and 100 ms. A read that grows with the square of what it reads takes sixteen
+times as long, and a busy machine slows both sides alike. The first read of
+the tree is not timed - it pays for the disk cache and for compiling what
+reads it - and is the one whose findings are checked; instrumented, only the
+findings are, since reading the tree five times over for every mutant
+costs a sweep more than it tells it.
+
 ### Held to the mutation bar
 
 One local sweep of `cites.ts`, before its last round of tests, scored 95.4%:
