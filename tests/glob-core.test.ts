@@ -793,11 +793,14 @@ describe('a pattern that made the RegExp backtrack', () => {
     expect(createGlobMatcher([PATTERN])(`src/${NAME}`)).toBe(false);
     expect(createExcludeMatcher([PATTERN])(`src/${NAME}`)).toBe(false);
     // A matcher remembers what it answered for each name, so each run builds
-    // one: the reading is kept, and the name is asked of the automaton.
+    // one: the reading is kept, and the name is asked of the automaton. Each
+    // run takes microseconds, so a few stretches that a busy runner slows
+    // (a macOS one once held all three of the long name's) decide nothing:
+    // the fastest of seven decides.
     for (const matcher of [createGlobMatcher, createExcludeMatcher]) {
       const [short, long] = perRunInTurn(
-        3,
-        5,
+        7,
+        10,
         () => matcher([PATTERN])(`src/${SHORT}`),
         () => matcher([PATTERN])(`src/${LONG}`),
       ) as [number, number];
