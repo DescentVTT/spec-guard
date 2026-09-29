@@ -763,6 +763,18 @@ describe('spec patterns', () => {
     expect(await expand(['docs/{adr/,a.md}'])).toEqual(inRepo('docs/a.md', 'docs/adr/b.md'));
   });
 
+  it('reads an alternative that starts with / below a base from the base, as spec-core reads the whole pattern', async () => {
+    // spec-core, from its copy of 7e41240, reads `{/adr/*.md,a.md}` alone as
+    // `/adr/*.md`, under the filesystem's root, and the whole pattern as
+    // `docs//adr/*.md`, which is `docs/adr/*.md`.
+    expect(await expand(['docs/{/adr/*.md,a.md}'])).toEqual(inRepo('docs/a.md', 'docs/adr/b.md'));
+    expect(await expand(['docs/{a,/adr}/*.md'])).toEqual(inRepo('docs/adr/b.md'));
+    expect(await expand(['../shared/{/docs/deep,x}/*.md'])).toEqual([path.join(root, 'shared/docs/deep/d.md')]);
+    expect(await expand([`${root}/{/shared/docs,x}/*.md`.split(path.sep).join('/')])).toEqual([path.join(root, 'shared/docs/c.md')]);
+    // Refused where spec-core refuses the whole, as it was.
+    expect(specPatternError('docs/{/adr,[x}')).toBe('invalid spec pattern "docs/{/adr,[x}": a "[" is never closed');
+  });
+
   it('reads an alternative that starts with / without a base from the root, as glob= does', async () => {
     expect(await expand(['{/docs/*.md,README.md}'])).toEqual(inRepo('README.md', 'docs/a.md'));
     // A name at the root only, as glob="/a.md" is, where `README.md` is one at any depth.
@@ -1416,6 +1428,9 @@ describe('a glob that ends in /, asked of spec-core as it was written', () => {
     const expand = async (pattern: string) => (await expandSpecPatterns([pattern], path.join(top, 'repo'), undefined, io)).map((file) => path.resolve(file));
     expect(await expand('/*.md')).toEqual([path.resolve(top, 'top.md')]);
     expect(await expand('/*/')).toEqual([path.resolve(top, 'x/deep.md')]);
+    // An alternative's own leading / roots it where the whole pattern's does,
+    // at the root the walk starts from, as spec-core reads `/{/x,y}` whole.
+    expect(await expand('/{/x,y}/*.md')).toEqual([path.resolve(top, 'x/deep.md')]);
   });
 
   it('keeps the words a glob refused as it is read was refused in', () => {
