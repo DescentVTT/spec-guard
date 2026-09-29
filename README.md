@@ -829,8 +829,11 @@ with an obvious fix, while one that stops enforcing is a green build over a rule
 nobody is checking.
 
 A status may be written in Chinese, Traditional or Simplified, and the key as
-`狀態` or `状态` - a front-matter key, a heading, a table's cell, or a label with
-`:` or a full-width `：`. A Chinese word is read as the English word it
+`狀態` or `状态` - a heading, a table's cell, a label with `:` or a full-width
+`：`, or a front-matter key with YAML's colon. YAML ends a key at an ASCII colon
+and at nothing else, so `状态：草稿` in front matter is a status that cannot be
+read: the document stays in force, and the warning says to write `状态:`. A
+Chinese word is read as the English word it
 translates, and the English then does what it does here: only a word for one of
 the six above withholds a document, and the report shows the line as written.
 These are translations of the list, not words added to it:
