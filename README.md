@@ -772,7 +772,7 @@ status is `draft`, `proposed`, `rejected`, `deprecated`, `superseded` or
 the record, and its directives, which stated the round's premises and goals,
 are history.
 
-Three spellings are recognised, because three are in use:
+Four spellings are recognised, because four are in use:
 
 <!-- Shown fenced on purpose: spec-guard masks code before reading a status. -->
 
@@ -789,11 +789,21 @@ Accepted (0.3.0).
 ```
 
 ```md
+| Status | Accepted |
+| ------ | -------- |
+```
+
+```md
 **Status:** accepted
 ```
 
-Front-matter wins, then the `## Status` section, then the bold label (which is
-only read above the first section heading). Front matter is YAML between `---`
+Front-matter wins, then the `## Status` section, then a table, then the bold
+label. The table and the label are only read above the first section heading.
+A table is read when it has exactly two columns and one of its rows, the header
+row or another, names the status in its left cell - `Status` or `State`, in any
+case, bold or not - and gives it in the right; a table of more columns, or one
+further down, is a register or a legend of other documents and is never read
+for this one's status. Front matter is YAML between `---`
 lines or TOML between `+++` lines; of TOML, only the top-level `status` key is
 read, and only as a string on one line: `status = "accepted"` or
 `status = 'accepted'`. A front-matter `status` wins even when its value cannot
@@ -805,13 +815,48 @@ front matter that opens on the first line and never closes: none of it can be
 read, so the status is unrecognised, the document stays in force, the section
 and the label are not read in its place, and the report warns on line 1 and
 says how to close it. Front matter without a `status` key, YAML or TOML, hands
-over to the section and the label. Headings are read as
+over to the section, the table and the label. The first of those that is there
+decides in the same way: a section, a table or a label whose value cannot be
+read - an empty section, a line that begins with no word - keeps the document
+in force, the report warns on its line, and nothing ranked below it is read in
+its place. A section's value is its first line of prose before the next
+heading. Headings are read as
 CommonMark reads them, so an underlined `Status` is the section and a `## Status`
 kept in a comment is not. Anything else - `Provisional`, `In review`, a
 misspelled `Supersedded`, or no status at all - keeps enforcing. That asymmetry
 is deliberate: an unanticipated word that keeps enforcing is a visible failure
 with an obvious fix, while one that stops enforcing is a green build over a rule
 nobody is checking.
+
+A status may be written in Chinese, Traditional or Simplified, and the key as
+`狀態` or `状态` - a front-matter key, a heading, a table's cell, or a label with
+`:` or a full-width `：`. A Chinese word is read as the English word it
+translates, and the English then does what it does here: only a word for one of
+the six above withholds a document, and the report shows the line as written.
+These are translations of the list, not words added to it:
+
+| Read as | Traditional | Simplified |
+| --- | --- | --- |
+| superseded | 已被取代, 被取代, 已取代, and 被 ... 取代, 替代 or 取而代之 within 30 characters | the same |
+| deprecated | 已棄用, 棄用, 已廢棄, 廢棄, 已停用, 已過時 | 已弃用, 弃用, 已废弃, 废弃, 已停用, 已过时 |
+| rejected | 已否決, 否決, 已拒絕, 不採納 | 已否决, 否决, 已拒绝, 不采纳 |
+| archived | 封存, 已封存, 歸檔, 已歸檔 | 封存, 已封存, 归档, 已归档 |
+| draft | 草稿, 草案 | 草稿, 草案 |
+| proposed | 提議, 提案, 審查中, 審核中, 討論中, 待審, 待審核 | 提议, 提案, 审查中, 审核中, 讨论中, 待审, 待审核 |
+| withdrawn, in force | 已撤回, 撤回, 已作廢, 作廢 | 已撤回, 撤回, 已作废, 作废 |
+| deferred, in force | 延後, 暫緩, 擱置 | 延后, 暂缓, 搁置 |
+| final, in force | 已定案, 定案, 已凍結 | 已定案, 定案, 已冻结 |
+| provisionally (accepted), in force | 暫定 | 暂定 |
+| accepted, in force | 已接受, 接受, 已採納, 採納, 已核准, 核准, 已批准, 批准, 已生效, 生效 | 已接受, 接受, 已采纳, 采纳, 已核准, 核准, 已批准, 批准, 已生效, 生效 |
+| implemented, in force | 已實施, 已完成 | 已实施, 已完成 |
+
+A word is read at the start of the value, and only when a space, punctuation or
+the end follows it: `草稿已核准` and `暫定接受` are no word listed. Nor is a word
+after a negation - `未接受`, `尚未核准`, `不再生效` - or `已取代` before a
+document reference, `已取代 ADR-0002`, which usually names the document this
+one supersedes; `已接受（取代 ADR-0002）` is accepted. A Chinese value that is
+no word listed keeps its document in force, with a warning, as any value that
+cannot be read does.
 
 Withholding is never quiet:
 

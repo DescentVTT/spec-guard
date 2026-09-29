@@ -437,3 +437,84 @@ and it exits 0. The repositories that pay are those that run `--strict` over
 specs with no rule in force, whose green said nothing; the remedy is a rule in
 force, the right spec patterns, or `--no-strict` for a run meant to check
 nothing.
+
+## Amended 2026-09-30: a section or a label that cannot be read decides
+
+The second amendment made front matter's `status` decide, readable or not,
+because falling through to the prose can only find a word the field did not
+say, and the word that must never be found by accident is one that withholds.
+The section and the label were left to fall through: a `## Status` section
+whose value could not be read declared nothing, and the `Status:` label in the
+preamble was read in its place, so `2024-05-01: accepted` under the section
+and `Status: draft` above it withheld the document.
+
+A section that is there now decides as front matter does. Its value is its
+first line of prose before the next heading; when that line begins with no
+word, or there is none, the status is unrecognised, the document stays in
+force, the report warns on that line or on the heading's, kind
+`unreadable-status`, in every format and failing nothing, and neither the
+table below nor the label is read in its place. The first label in the
+preamble decides the same way, and warns on its line. Each warning names the
+spelling it could not read and why, in the words front matter's use.
+
+<!-- @assert-count target="src/parser.ts" symbol="fromFrontmatter(scan) ?? fromHeading(scan) ?? fromTable(scan) ?? fromLabel(scan) ?? {}" expected="1" reason="the first spelling that is there decides, readable or not, and nothing falls through" -->
+
+On the 146 Markdown files of the five spec-* repositories every status and
+every warning is read as it was. `prove`, `cites` and `query` read the status
+as a run does.
+
+## Amended 2026-09-30: a status in Chinese, and a status in a table
+
+**The list stays closed.** A status written in Chinese is read as the English
+word it translates, by the family's table (spec-core's ADR-0005), Traditional
+and Simplified, and the English then does here what it already does. These
+are translations of the words this ADR lists, and of words it leaves in
+force; none is a word added to either. `INACTIVE_STATUSES` keeps its six
+words, and a Chinese word withholds a document only when the English it
+translates is one of them: 已取代 is `superseded` and withholds, 延後 is
+`deferred` and stays in force, as `deferred` does here and not in spec-graph,
+which retires both. The value a report and `cites` read is the English word;
+the line is kept as written. The translations are keyed by the English, so
+the assertion that `'archived'` is written once still holds.
+
+The English word is the first run of letters; Chinese puts no space between
+words, so the word is the listed one the value begins with, and only when a
+space, punctuation or the end follows it. Each rule below reads less, since a
+Chinese word read by accident is a document gone dark:
+
+- `草稿已核准` and `暫定接受` begin with no word listed - 暫定 is
+  `provisionally`, which is not `accepted` - and keep their document in force.
+- 被, then within thirty characters 取代, 替代 or 取而代之, is `superseded`, as
+  "superseded by" is: `被 ADR-0003 取代`. 取代 without 被 is what this
+  document supersedes, and `已接受（取代 ADR-0002）` is accepted.
+- A negation - 不, 未, 非, 沒, 没, 無, 无, 勿, 不再 - before the verb is not read,
+  and neither is a value that begins with one, such as `未接受`; 不採納 is a
+  word the table lists, and is read.
+- `已取代` before a document reference, past spaces or a colon, usually names
+  the document this one supersedes, and is not read: `已取代 ADR-0002` is a
+  status that cannot be read. Around anything else, `已取代` is superseded.
+- `已接受，後被ADR-0003取代` is accepted: the first word decides, as
+  "Accepted, later superseded by ADR-0003" does here.
+
+A Chinese value that is no word listed is a status that cannot be read, and
+keeps its document in force with the warning above, which says it begins with
+no status word spec-guard reads.
+
+**The key** is read in Chinese, `狀態` or `状态`, wherever `status` is: a
+heading, compared whole; a label, with an ASCII or a full-width colon; YAML
+front matter, where spec-core's reader, which reads ASCII keys, passes over the
+line, so it is found beside the reader and its value read as the reader reads
+one, after a `status` key when there is one; and TOML front matter, quoted,
+since TOML's bare keys are ASCII.
+
+**A table** is a fourth spelling: one of exactly two columns before the first
+section heading, one of whose rows, the header row among them, names the
+status in its left cell - `Status`, `State`, `狀態` or `状态`, compared whole,
+without the emphasis that wraps it and in any case - and gives it in its right,
+read with code masked as a section's line is. It ranks where the section
+ranks, after it and before the label, and decides as the section does. A table
+of more columns, or one past the first section, is a register or a legend of
+other documents, whose status column is theirs, and is never read.
+
+On the 146 Markdown files of the five spec-* repositories every status is read
+as it was: none is written in Chinese or in a table.
