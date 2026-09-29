@@ -192,6 +192,9 @@ describe('what a caller given the memo answers', () => {
     expect(await answers(documents)).toEqual(freshEdited);
   });
 
+  // Reads the whole of this repository: a test of what it finds there, not of
+  // how fast, with a time of its own, since a machine busy with other work can
+  // take longer than the default for one test.
   it('is what it answers without one over this repository\'s own specs', async () => {
     const config = (JSON.parse(readFileSync(path.join(PROJECT_ROOT, 'package.json'), 'utf8')) as { specGuard: { specs: string[]; exclude: string[] } }).specGuard;
     const options = { patterns: config.specs, root: PROJECT_ROOT, exclude: config.exclude, paths: ['src/parser.ts', 'src'] };
@@ -200,7 +203,7 @@ describe('what a caller given the memo answers', () => {
     expect(comparable(await queryRules({ ...options, documents }))).toBe(fresh);
     expect(comparable(await queryRules({ ...options, documents }))).toBe(fresh);
     expect(documents.size).toBe(JSON.parse(fresh).specFiles.length);
-  });
+  }, 120_000);
 });
 
 describe('the MCP server', () => {

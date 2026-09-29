@@ -624,6 +624,9 @@ describe('spec-guard impact', () => {
     return { code: await main(argv, io), out, err };
   }
 
+  // Reads the whole of this repository: a test of what it finds there, not of
+  // how fast, with a time of its own, since a machine busy with other work can
+  // take longer than the default for one test.
   it('answers for this repository, in both formats', async () => {
     const human = await run(['impact', 'src/graph.ts', '--depth', '1']);
     expect([human.code, human.err]).toEqual([EXIT_OK, []]);
@@ -633,7 +636,7 @@ describe('spec-guard impact', () => {
     const parsed = JSON.parse(json.out[0] as string) as { formatVersion: number; depth: number; config?: unknown };
     expect([parsed.formatVersion, parsed.depth]).toEqual([1, 1]);
     expect(parsed.config).toMatchObject({ file: 'package.json', applied: ['specs', 'exclude'] });
-  });
+  }, 120_000);
 
   it('passes the options it takes on: the specs, the exclusions, the default skips and --ignore-status', async () => {
     const root = await makeTempRepo({

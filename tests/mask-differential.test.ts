@@ -133,6 +133,9 @@ const SHARED_LINES = [
 ];
 
 describe('the masking of 0.11.0, against the scanner that replaced it', () => {
+  // Reads the whole of this repository: a test of what it finds there, not of
+  // how fast, with a time of its own, since a machine busy with other work can
+  // take longer than the default for one test.
   it('masks every Markdown document in this repository as 0.11.0 did, but for what 0.11.0 did not know', async () => {
     const files = await corpus();
     // The corpus has to be the one described: the README, the changelog, the
@@ -161,7 +164,7 @@ describe('the masking of 0.11.0, against the scanner that replaced it', () => {
     // The control: the corpus holds such lines, so the loop above was asked
     // something. ADR-0003 quotes a terminal session as indented code.
     expect(unknown).toContain(path.join('docs', 'adr', '0003-mutation-testing.md:483'));
-  });
+  }, 120_000);
 
   it('masks random documents built from lines both read alike exactly as 0.11.0 did', () => {
     const next = random(20260926);

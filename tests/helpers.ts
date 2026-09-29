@@ -33,19 +33,19 @@ export function findTestRipgrep(): string | null {
 
 let counter = 0;
 
-/** Creates a throwaway repo under tests/fixtures/.tmp and returns its path. */
+/**
+ * Creates a throwaway repo under tests/fixtures/.tmp and returns its path.
+ *
+ * Every directory is made once and every file written at once: one after
+ * another, a tree of a few hundred files took long enough to fail a suite
+ * running beside other work.
+ */
 export async function makeTempRepo(files: Record<string, string | Buffer>): Promise<string> {
   const root = path.join(TEMP_ROOT, `t${process.pid}-${Date.now().toString(36)}-${counter++}`);
-  for (const [relative, content] of Object.entries(files)) {
-    const target = path.join(root, relative);
-    await fs.mkdir(path.dirname(target), { recursive: true });
-    if (typeof content === 'string') {
-      await fs.writeFile(target, content, 'utf8');
-    } else {
-      await fs.writeFile(target, content);
-    }
-  }
-  await fs.mkdir(root, { recursive: true });
+  const entries = Object.entries(files).map(([relative, content]) => ({ target: path.join(root, relative), content }));
+  const directories = new Set([root, ...entries.map(({ target }) => path.dirname(target))]);
+  await Promise.all([...directories].map((directory) => fs.mkdir(directory, { recursive: true })));
+  await Promise.all(entries.map(({ target, content }) => (typeof content === 'string' ? fs.writeFile(target, content, 'utf8') : fs.writeFile(target, content))));
   return root;
 }
 
