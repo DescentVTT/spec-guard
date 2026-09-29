@@ -683,6 +683,45 @@ describe('check_architecture', () => {
     }
   });
 
+  it('reads the status of TOML front matter, so its section is not read in its place, and says why when it cannot be read', async () => {
+    // Front matter between `+++` lines decides, as YAML front matter does
+    // (ADR-0010): a model is told a document whose section says Proposed
+    // governs the path, and one whose section says Accepted does not.
+    const rule = '<!-- @assert-absence target="src" symbol="Legacy" -->';
+    const other = await makeTempRepo({
+      'docs/a.md': `+++\nstatus = "accepted"\n+++\n\n# A\n\n## Status\n\nProposed\n\n${rule}\n`,
+      'docs/b.md': `+++\nstatus = "superseded by ADR-3"\n+++\n\n# B\n\n## Status\n\nAccepted\n\n${rule}\n`,
+      'docs/c.md': `+++\nstatus = ["accepted"]\n+++\n\n# C\n\n## Status\n\nProposed\n\n${rule}\n`,
+      'src/a.ts': 'export {};\n',
+    });
+    try {
+      const rules = (await tool('get_architectural_rules', { path: 'src/a.ts' }, { root: other })).structuredContent as {
+        results: Array<{ rules: Array<Record<string, unknown>>; withheld: unknown }>;
+      };
+      expect(rules.results[0]?.rules.map((found) => [found['document'], found['inForce']])).toEqual([
+        ['docs/a.md', true],
+        ['docs/c.md', true],
+      ]);
+      expect(rules.results[0]?.withheld).toEqual({ rules: 1, documents: ['docs/b.md'] });
+      const called = await tool('check_architecture', {}, { root: other });
+      expect(called.structuredContent).toMatchObject({
+        ok: true,
+        rules: { inForce: 2, checked: 2, passed: 2, failed: 0 },
+        inactiveSpecs: [{ file: 'docs/b.md', status: 'superseded', label: 'superseded by ADR-3', directives: 1 }],
+      });
+      expect((called.structuredContent as { specWarnings: unknown }).specWarnings).toEqual([
+        {
+          file: 'docs/c.md',
+          line: 2,
+          message:
+            'the status in front matter cannot be read (an array is not a status), so its status is unrecognised and the document stays in force; a status written below the front matter is not read in its place',
+        },
+      ]);
+    } finally {
+      await removeTempRepo(other);
+    }
+  });
+
   it('writes its text the way a model can read it: no colour, no passing rules, ASCII marks', async () => {
     const text = (await tool('check_architecture')).content[0]?.text as string;
     expect(text).not.toContain(String.fromCharCode(27));
