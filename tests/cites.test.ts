@@ -10,6 +10,7 @@
  * the command line, and a tree of thousands of files held to time linear in it.
  */
 
+import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
@@ -1076,7 +1077,7 @@ describe('the report', () => {
     const [runOf] = sarif.runs;
     expect(runOf?.tool.driver.name).toBe('spec-guard cites');
     expect(runOf?.tool.driver.version).toBe('9.9.9');
-    expect(runOf?.tool.driver.rules.map((rule) => rule.id)).toEqual(['ghost-citation', 'stale-citation']);
+    expect(runOf?.tool.driver.rules.map((rule) => rule.id)).toEqual(['ghost-citation', 'stale-citation', 'nothing-read']);
     expect(runOf?.results.map(({ ruleId, level, message }) => [ruleId, level, message.text])).toEqual([
       ['ghost-citation', 'error', 'src/a.ts:1 cites ADR-0007, which no document defines\nno document matching docs/adr/{n}*.md has the number 7; the nearest are ADR-0006 and ADR-0009'],
       ['stale-citation', 'warning', 'src/a.ts:1 cites ADR-0002, which is superseded - cite ADR-0003 instead\ndocs/adr/0002-old.md says "Superseded by ADR-0003."'],
@@ -1099,7 +1100,7 @@ describe('the report', () => {
     expect(noted.runs[0]?.invocations?.[0]?.toolExecutionNotifications).toEqual([{ level: 'note', message: { text: 'a note' } }]);
   });
 
-  it('is SARIF that declares its schema, its tool and both of its rules, whole', () => {
+  it('is SARIF that declares its schema, its tool and each of its rules, whole', () => {
     // A serialisation format is a contract with a machine that is not in the
     // room: a rule's description or the tool's address left empty is a page
     // that renders with a hole in it, and nothing here would notice.
@@ -1112,8 +1113,64 @@ describe('the report', () => {
       rules: [
         { id: 'ghost-citation', name: 'ghost-citation', shortDescription: { text: 'A comment cites a document that does not exist.' } },
         { id: 'stale-citation', name: 'stale-citation', shortDescription: { text: 'A comment cites a document that is no longer in force.' } },
+        { id: 'nothing-read', name: 'nothing-read', shortDescription: { text: 'A check under --strict that read no source file for citations.' } },
       ],
     });
+  });
+
+  it('fails a check under --strict that read no source file, and says so in every format that places findings', async () => {
+    // The family contract: a check that measured nothing is not clean, and a
+    // strict one refuses - with a finding, as a run that verified nothing has.
+    const read = 'no source file was read, so nothing was checked, which --strict refuses';
+    const lookedFor = 'no citation was looked for, so nothing was checked, which --strict refuses';
+    const nothing = await cites({}, { strict: true });
+    expect([nothing.ok, nothing.nothingRead]).toEqual([false, { file: 'docs/adr/0001-kept.md' }]);
+    expect(formatCites(nothing, { color: false, verbose: false }).split('\n').at(-1)).toBe(`✖ ${read}`);
+    expect(JSON.parse(formatCitesJson(nothing))).toMatchObject({ ok: false, nothingRead: true });
+    const [issue] = JSON.parse(formatGitlab(citesAnnotations(nothing))) as Array<{ check_name: string; severity: string; description: string; fingerprint: string; location: unknown }>;
+    expect(issue).toEqual({
+      check_name: 'nothing-read',
+      severity: 'major',
+      description: `${read}. point the paths at source files whose comments spec-guard reads, or check what the exclusions leave out`,
+      fingerprint: createHash('sha256').update('nothing-read').digest('hex'),
+      location: { path: 'docs/adr/0001-kept.md', lines: { begin: 1 } },
+    });
+    expect(formatGithub(citesAnnotations(nothing))).toBe(
+      `::error file=docs/adr/0001-kept.md,line=1,title=nothing-read::${read}. point the paths at source files whose comments spec-guard reads, or check what the exclusions leave out`,
+    );
+    const sarif = JSON.parse(formatCitesSarif(nothing)) as { runs: Array<{ results: unknown[] }> };
+    expect(sarif.runs[0]?.results).toEqual([
+      {
+        ruleId: 'nothing-read',
+        level: 'error',
+        message: { text: `${read}\npoint the paths at source files whose comments spec-guard reads, or check what the exclusions leave out` },
+        locations: [{ physicalLocation: { artifactLocation: { uri: 'docs/adr/0001-kept.md' }, region: { startLine: 1, startColumn: 1 } } }],
+        partialFingerprints: { specGuardCitation: createHash('sha256').update('nothing-read').digest('hex').slice(0, 32) },
+      },
+    ]);
+
+    // Looking for nothing is the other way to read nothing, with its own words and hint.
+    const blind = await findCitations({ root: ROOT, patterns: ['docs/**/*.md'], io: memoryIo(ROOT, { 'docs/a.md': '' }), strict: true });
+    expect([blind.ok, blind.nothingRead]).toEqual([false, { file: 'docs/a.md' }]);
+    expect(formatCites(blind, { color: false, verbose: false }).split('\n').at(-1)).toBe(`✖ ${lookedFor}`);
+    expect(citesAnnotations(blind).map(({ message, hint }) => [message, hint])).toEqual([
+      [lookedFor, 'name the documents comments cite in "cites", or title numbered specs with an id such as ADR-0001'],
+    ]);
+    // With no spec, it is shown on a document it would have cited, else the root.
+    const unspecified = await findCitations({ root: ROOT, patterns: [], io: memoryIo(ROOT, DOCS), families: [{ id: 'ADR-{n}', files: 'docs/adr/{n}-*.md' }], strict: true });
+    expect(unspecified.nothingRead?.file).toMatch(/^docs\/adr\/000\d-[a-z]+\.md$/);
+    expect((await findCitations({ root: ROOT, patterns: [], io: memoryIo(ROOT, {}), families: [], strict: true })).nothingRead).toEqual({ file: '.' });
+
+    // Without --strict it is said, passes, and places nothing.
+    const relaxed = await cites({});
+    expect(relaxed.ok).toBe(true);
+    expect(relaxed).not.toHaveProperty('nothingRead');
+    expect(JSON.parse(formatCitesJson(relaxed))).not.toHaveProperty('nothingRead');
+    expect(citesAnnotations(relaxed)).toEqual([]);
+    expect(formatCites(relaxed, { color: false, verbose: false }).split('\n').at(-1)).toBe('⚠ no source file was read, so nothing was checked');
+    // A check that read a file passes under --strict with nothing of this.
+    expect(await cites({ 'src/a.ts': '// ADR-0001\n' }, { strict: true })).toMatchObject({ ok: true });
+    expect(await cites({ 'src/a.ts': '// ADR-0001\n' }, { strict: true })).not.toHaveProperty('nothingRead');
   });
 
   it('places each finding, and each file read in part, for GitLab and GitHub', () => {

@@ -90,6 +90,8 @@ function symbols(ascii: boolean): { pass: string; fail: string; warn: string; sk
  */
 const NOTHING_VERIFIED = 'no assertion was executed, so nothing was verified';
 const NOTHING_PROVED = 'no rule was proved, so nothing was shown';
+const NOTHING_LOOKED_FOR = 'no citation was looked for, so nothing was checked';
+const NOTHING_READ = 'no source file was read, so nothing was checked';
 
 /**
  * What `--strict` adds, where it fails a run or a proof that verified nothing
@@ -1324,10 +1326,14 @@ export function formatCites(report: CitesReport, options: ReporterOptions): stri
   const names = (count: number): string => `${countLabel(count, 'citation')} ${count === 1 ? 'names' : 'name'}`;
   if (summary.ghosts > 0) {
     lines.push(paint(`${glyphs.fail} ${names(summary.ghosts)} a document that does not exist`, 'red', 'bold'));
-  } else if (report.families.length === 0) {
-    lines.push(paint(`${glyphs.warn} no citation was looked for, so nothing was checked`, 'yellow'));
-  } else if (summary.files === 0) {
-    lines.push(paint(`${glyphs.warn} no source file was read, so nothing was checked`, 'yellow'));
+  } else if (report.families.length === 0 || summary.files === 0) {
+    const said = report.families.length === 0 ? NOTHING_LOOKED_FOR : NOTHING_READ;
+    // Under --strict the same sentence is why the check failed.
+    lines.push(
+      report.nothingRead === undefined
+        ? paint(`${glyphs.warn} ${said}`, 'yellow')
+        : paint(`${glyphs.fail} ${said}, ${STRICT_REFUSES}`, 'red', 'bold'),
+    );
   } else if (summary.stale > 0) {
     lines.push(paint(`${report.ok ? glyphs.warn : glyphs.fail} ${names(summary.stale)} a document no longer in force`, 'yellow', 'bold'));
   } else {
@@ -1348,6 +1354,7 @@ export function formatCitesJson(report: CitesReport): string {
     {
       formatVersion: CITES_FORMAT_VERSION,
       ok: report.ok,
+      ...(report.nothingRead === undefined ? {} : { nothingRead: true }),
       root: report.root,
       durationMs: Math.round(report.durationMs * 1000) / 1000,
       families: report.families,
@@ -1367,6 +1374,7 @@ export function formatCitesJson(report: CitesReport): string {
 const CITE_SARIF_RULES: ReadonlyArray<{ id: string; text: string }> = [
   { id: 'ghost-citation', text: 'A comment cites a document that does not exist.' },
   { id: 'stale-citation', text: 'A comment cites a document that is no longer in force.' },
+  { id: 'nothing-read', text: 'A check under --strict that read no source file for citations.' },
 ];
 
 /**
@@ -1395,13 +1403,22 @@ export function formatCitesSarif(report: CitesReport, options: { version?: strin
               rules: CITE_SARIF_RULES.map((rule) => ({ id: rule.id, name: rule.id, shortDescription: { text: rule.text } })),
             },
           },
-          results: report.findings.map((finding) => ({
-            ruleId: finding.rule,
-            level: finding.severity,
-            message: { text: `${finding.message}\n${finding.hint}` },
-            locations: [sarifLocation(finding.file, finding.line, finding.column)],
-            partialFingerprints: { specGuardCitation: fingerprint([finding.file, finding.rule, finding.cited]) },
-          })),
+          results: [
+            ...report.findings.map((finding) => ({
+              ruleId: finding.rule,
+              level: finding.severity,
+              message: { text: `${finding.message}\n${finding.hint}` },
+              locations: [sarifLocation(finding.file, finding.line, finding.column)],
+              partialFingerprints: { specGuardCitation: fingerprint([finding.file, finding.rule, finding.cited]) },
+            })),
+            ...nothingReadAnnotations(report).map((annotation) => ({
+              ruleId: annotation.rule,
+              level: SARIF_LEVEL,
+              message: { text: `${annotation.message}\n${annotation.hint as string}` },
+              locations: [sarifLocation(annotation.file, annotation.line, 1)],
+              partialFingerprints: { specGuardCitation: fingerprint(annotation.identity) },
+            })),
+          ],
         },
       ],
     },
@@ -1442,5 +1459,31 @@ export function citesAnnotations(report: CitesReport): Annotation[] {
         message: `${gap.file} ${gap.detail}, so a citation in it may have been missed`,
       }),
     ),
+    ...nothingReadAnnotations(report),
+  ];
+}
+
+/**
+ * A `cites` check under `--strict` that read no source file, which fails it:
+ * one finding, as a run that verified nothing has - an error and `major`, on
+ * the file `nothingRead` names, known by its rule alone - with what to do,
+ * whether it looked for nothing or found nothing to read.
+ */
+function nothingReadAnnotations(report: CitesReport): Annotation[] {
+  if (report.nothingRead === undefined) return [];
+  const lookedFor = report.families.length > 0;
+  return [
+    {
+      rule: 'nothing-read',
+      identity: ['nothing-read'],
+      level: 'error',
+      severity: 'major',
+      file: report.nothingRead.file,
+      line: 1,
+      message: `${lookedFor ? NOTHING_READ : NOTHING_LOOKED_FOR}, ${STRICT_REFUSES}`,
+      hint: lookedFor
+        ? 'point the paths at source files whose comments spec-guard reads, or check what the exclusions leave out'
+        : 'name the documents comments cite in "cites", or title numbered specs with an id such as ADR-0001',
+    },
   ];
 }
