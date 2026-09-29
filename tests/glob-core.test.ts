@@ -258,6 +258,30 @@ describe('a glob that starts with /, asked of spec-core as written', () => {
     expect(excludePatternError('!a')).toBe('invalid exclude pattern "!a": negation patterns are not supported in exclude');
   });
 
+  it('reads a ! after a leading ./ as part of a name at any depth, at every door, as ./a is a name at any depth', () => {
+    // The ./ was taken off before spec-core was asked, so what it was asked
+    // was the negation !a, which it refuses; asked ./!a, it reads a name.
+    const paths = ['!a', 'x/!a', '!a/y', 'a', 'x'];
+    for (const pattern of ['./!a', '././!a', ' ./!a ', '.\\!a']) {
+      expect(globPatternError(pattern), pattern).toBeNull();
+      expect(excludePatternError(pattern), pattern).toBeNull();
+      expect(paths.map(createGlobMatcher([pattern])), pattern).toEqual([true, true, false, false, false]);
+      expect(paths.map(createExcludeMatcher([pattern])), pattern).toEqual([true, true, true, false, false]);
+    }
+    expect(modulePatternError('./!a')).toBeNull();
+    expect(ripgrepGlobs(normalizeGlob('./!a'), 'include')).toEqual(['**/!a']);
+    expect(ripgrepGlobs(normalizeExclude('./!a'), 'exclude')).toEqual(['**/!a']);
+    expect(normalizeDirs('./!a/')).toBe('./!a');
+    expect(createPathMatcher(normalizeDirs('./!a/'))('!a')).toBe(true);
+    // Without the ./ it is a negation still, at every door.
+    expect(globPatternError('!a')).toBe('invalid glob pattern "!a": a negated pattern is a list entry, not a glob; narrow the positive pattern');
+    expect(excludePatternError('!a')).toBe('invalid exclude pattern "!a": negation patterns are not supported in exclude');
+    // A ./ before anything else is taken off as it was.
+    expect(normalizeGlob('./src/*.ts')).toBe('src/*.ts');
+    expect(normalizeExclude('./src/config/')).toBe('src/config');
+    expect(normalizeDirs('./a/')).toBe('a');
+  });
+
   it('is told to write what it meant from the root, at every door that reads such a pattern', () => {
     const advice = (deep: string, flat: string): string => `"**" means any number of directories only as a whole segment: write "${deep}" for any depth, or "${flat}" for one level`;
     expect(globPatternError('/**.md')).toBe(`invalid glob pattern "/**.md": ${advice('/**/*.md', '/*.md')}`);
@@ -609,6 +633,9 @@ describe('the globs ripgrep is handed', () => {
     '{src/a,/a}.ts',
     'src/{/a.ts,b}',
     '{/a.ts,src/}',
+    // A leading `./` before a `!` makes it a name, as spec-core reads it.
+    './!a',
+    '././!*',
   ];
 
   /**
@@ -1343,6 +1370,25 @@ describe('a brace alternative that names no path, wherever a pattern is given', 
     it('reads a name that starts with ! below the base, where the part below alone is a negation', async () => {
       expect(specPatternError('docs/!*.md')).toBeNull();
       expect(await expand('docs/!*.md')).toEqual(found('repo/docs/!b.md'));
+    });
+
+    it('reads a name that starts with ! after a leading ./, as a name that does not is read there', async () => {
+      // The ./ was taken off before spec-core was asked, which left the
+      // negation !*.md to be refused; spec-core reads the whole as names.
+      expect(specPatternError('./!*.md')).toBeNull();
+      expect(specPatternError('././!*.md')).toBeNull();
+      const tree = memoryIo(root, { 'repo/!r.md': '', 'repo/a.md': '', 'repo/docs/!b.md': '' });
+      const read = (pattern: string) => expandSpecPatterns([pattern], repo, undefined, tree);
+      // At any depth after one ./, and at the root after two, as `*.md` is.
+      expect(await read('./!*.md')).toEqual(found('repo/!r.md', 'repo/docs/!b.md'));
+      expect(await read('./*.md')).toEqual(found('repo/!r.md', 'repo/a.md', 'repo/docs/!b.md'));
+      expect(await read('././!*.md')).toEqual(found('repo/!r.md'));
+      expect(await read('././*.md')).toEqual(found('repo/!r.md', 'repo/a.md'));
+      // Space around it is trimmed first, as it is for any other.
+      expect(await read(' ./!*.md ')).toEqual(found('repo/!r.md', 'repo/docs/!b.md'));
+      expect(await read(' ././!*.md ')).toEqual(found('repo/!r.md'));
+      // Without the ./ it is a negation, as it was.
+      expect(specPatternError('!*.md')).toBe('invalid spec pattern "!*.md": a negated pattern is a list entry, not a glob; narrow the positive pattern');
     });
 
     it('reads a base outside the root as the directory it is, which spec-core is never given', async () => {

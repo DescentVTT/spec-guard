@@ -118,8 +118,8 @@ export function globToRegExp(pattern: string, options: { ignoreCase?: boolean } 
 
 /**
  * An include glob in the one form both engines are given: forward slashes, no
- * surrounding space, no leading `./`, and a trailing slash read as everything
- * under the directory.
+ * surrounding space, no leading `./` but before a `!`, and a trailing slash
+ * read as everything under the directory.
  *
  * ripgrep used to be handed the glob as written, and matched nothing for
  * `./src/*.ts` or `src/` while the scanner matched the files. ADR-0014. The
@@ -132,7 +132,18 @@ export function normalizeGlob(pattern: string): string {
 
 /** A glob in the form `normalizeGlob` gives it, but for its trailing slash. */
 function writtenGlob(pattern: string): string {
-  return toPosix(pattern.trim()).replace(/^\.\//, '');
+  return withoutDotSlash(toPosix(pattern.trim()));
+}
+
+/**
+ * A pattern without the `./` it starts with, which names the directory the
+ * pattern is read from and so changes nothing - but before a `!`, which it
+ * keeps. There it is what makes `!a` a name and not a negation, as spec-core
+ * reads `./!a` in every dialect, and taken off it left the negation `!a` to be
+ * refused, where `/!a` names the root's `!a` and `{./!a,x}` was read so.
+ */
+function withoutDotSlash(pattern: string): string {
+  return pattern.replace(/^\.\/(?!!)/, '');
 }
 
 /** A glob with a trailing slash written as everything under the directory. */
@@ -164,15 +175,16 @@ function parseAsWritten(written: string, options: GlobOptions): GlobParse {
 
 /**
  * An `exclude` pattern in the one form both engines are given: forward slashes,
- * no surrounding space, no leading `./` and no trailing slash. A leading `/`
- * stays, because it means something: see `createExcludeMatcher`.
+ * no surrounding space, no leading `./` but before a `!`, and no trailing
+ * slash. A leading `/` stays, because it means something: see
+ * `createExcludeMatcher`.
  *
  * ripgrep used to be handed the pattern as written, and read three shapes
  * differently from the scanner. `./build` and `src\build` excluded nothing, and
  * `build/` did not exclude a file named `build`. ADR-0014.
  */
 export function normalizeExclude(pattern: string): string {
-  return toPosix(pattern.trim()).replace(/^\.\//, '').replace(/\/+$/, '');
+  return withoutDotSlash(toPosix(pattern.trim())).replace(/\/+$/, '');
 }
 
 /**
@@ -210,7 +222,7 @@ export function normalizeDirs(pattern: string): string {
 
 /** A pattern, or one alternative of one, without the `./` it starts with or the slashes it ends with. */
 function bareDirectory(pattern: string): string {
-  return pattern.replace(/^\.\//, '').replace(/\/+$/, '');
+  return withoutDotSlash(pattern).replace(/\/+$/, '');
 }
 
 /**
@@ -898,20 +910,29 @@ const BASE = 'base';
  * the root alone, spec-core refused `/!*.md` as the negation `!*.md` is, and
  * told `/**.md` to write `**\/*.md` or `*.md`, where it reads the whole as
  * the names `!*.md` at the root and tells it to write `/**\/*.md` or `/*.md`.
+ *
+ * A `./` before a `!` is kept, as `glob=` keeps it, so `./!*.md` is the names
+ * `!*.md` at any depth, as `./*.md` is `*.md`; the base is found without it.
+ * Where the base is only `.`, as in `././!*.md`, and what is below it is
+ * refused alone, spec-core is asked the whole pattern: one it reads, such as
+ * that negation, which there is a name, is read below the base as below a
+ * named one, and one it refuses, such as `././{./,a}`, is refused as below
+ * the base.
  */
 function readSpecGlob(pattern: string): SpecGlob {
   const written = writtenGlob(pattern);
   const absolute = path.isAbsolute(written);
   // The base ends at the first segment holding glob syntax, which comes before
   // the empty one a trailing `/` leaves, so the glob as written has the base
-  // the glob as read has.
-  const { base, rest } = globBase(written);
+  // the glob as read has. It is found with the `./` taken off, whatever
+  // follows it, so `./!*.md` has none, as `./*.md` has none.
+  const { base, rest } = globBase(toPosix(pattern.trim()).replace(/^\.\//, ''));
   const spec = { base, absolute, written, whole: false };
   // With no base, or the root for one, the pattern is read as glob= reads it,
   // from where the walk starts.
   if (base === '' || (absolute && segmentsOf(base).length === 0)) return { ...spec, whole: true, reading: readInclude(written), under: '' };
   const alone = readBelow(rest);
-  return alone.parsed.ok || segmentsOf(base).length === 0
+  return alone.parsed.ok || (segmentsOf(base).length === 0 && !readWhole(written).parsed.ok)
     ? { ...spec, reading: alone, under: '' }
     : { ...spec, reading: readBelow(`${BASE}/${rest}`), under: `${BASE}/` };
 }
