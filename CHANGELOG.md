@@ -64,6 +64,12 @@ is deprecated before it goes, is spec-core's
   found; it is now the hash of the directive as written, as every other
   finding's is of what it is about. Upgrading: the first pipeline after
   upgrading shows each such issue fixed and found again, once.
+- **So does its SARIF fingerprint.** A code-scanning alert for a directive
+  that cannot be read was fingerprinted by its message too; it is now of the
+  directive as written, with a count for a second copy, and is the first half
+  of the GitLab fingerprint of the same finding. `prove`'s SARIF follows.
+  Upgrading: each open code-scanning alert for such a directive closes and
+  reopens once, on the first upload after upgrading.
 
 ### Fixed
 
