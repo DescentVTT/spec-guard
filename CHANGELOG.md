@@ -35,6 +35,29 @@ with the flag that restores the previous behaviour.
   and [ADR-0013](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0013-structure-assertions.md)'s
   amendments of 2026-09-29.
 
+### Fixed
+
+- **A glob that starts with `/` is judged with its slash, as spec-core
+  reads it.** The slash was taken off before spec-core was asked whether the
+  glob could be read, so what it said was about the rest. `glob="/!a"` was
+  an invalid directive, `a negated pattern is a list entry, not a glob`,
+  where `{/!a,x}` read the name `!a` at the root; it now reads that name, as
+  spec-core does. `glob="/**.md"` was told to write `**/*.md` or `*.md`,
+  the second a name at any depth; it is now told `/**/*.md` or `/*.md`. A
+  spec pattern whose base is the root - `/**.md`, `/{a,b}/**.md`, `/!*.md`,
+  on the command line, `--spec` or in `specs` - was judged by what is below
+  the root alone, and is now judged whole and read from the root: `/!*.md`
+  finds the names `!*.md` at the root, where it was exit 2, and `/**.md` is
+  told `/**/*.md` or `/*.md`. `exclude`, `module`, a layer, `dirs` and a
+  spec pattern below a named directory kept the root already. A glob
+  beginning `/./` before braces that name no path, `/./{./,docs}`, is told
+  `the braces expand to "././"`, spec-core's words for it, where it was told
+  `"./"`, and a rooted glob of 65,535 characters after the slash is refused
+  for its size, as spec-core refuses it. `!a`, `**.md` and `docs/**.md` read
+  and are refused as they were.
+  [ADR-0015](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0015-globs-from-spec-core.md)'s
+  amendment of 2026-09-29.
+
 ## 0.15.0
 
 Closed TOML front matter decides a document's status as YAML front matter
