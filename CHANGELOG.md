@@ -102,6 +102,16 @@ is deprecated before it goes, is spec-core's
   the current major, where it used v3, deprecated in December 2026, and
   shows the permissions the job needs.
 
+### Documentation
+
+- **README reorganised**: the reference for all eight directives sits under
+  Directives, dense paragraphs are lists and tables, Design decisions is an
+  index of the ADRs, and development, mutation testing and releasing moved to a
+  new `CONTRIBUTING.md`, with the release flow recorded in
+  [ADR-0019](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0019-releases-are-staged-by-ci.md)
+  and how to report a vulnerability in `SECURITY.md`. It no longer says
+  `@assert-absence` accepts `min`, which it never did.
+
 ## 0.16.0
 
 spec-core is at 7e41240: a leading `/` on a brace alternative anchors it, at
