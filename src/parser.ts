@@ -336,7 +336,7 @@ function unreadable(text: string, reason: string | undefined): string {
 /** A document's status as read, or why the status it declares could not be, and on which line. */
 interface StatusReading {
   status?: SpecStatus;
-  problem?: { line: number; message: string };
+  problem?: { line: number; message: string; hint?: string };
 }
 
 /**
@@ -358,7 +358,7 @@ function decided(read: StatusRead, line: number, text: string, subject: string, 
  * What front matter's `status` key holds before it is read as a status: the
  * text of a string, or why there is none, on the key's 1-based line.
  */
-type Declared = { readonly line: number } & ({ readonly text: string } | { readonly reason: string });
+type Declared = { readonly line: number } & ({ readonly text: string } | { readonly reason: string; readonly hint?: string });
 
 /**
  * The status front matter declares, or undefined when front matter names none.
@@ -401,6 +401,7 @@ function fromFrontmatter(scan: MarkdownScan): StatusReading | undefined {
     problem: {
       line: declared.line,
       message: `the status in front matter cannot be read (${reason}), so its status is unrecognised and the document stays in force; a status written below the front matter is not read in its place`,
+      ...('hint' in declared ? { hint: declared.hint } : {}),
     },
   };
 }
@@ -421,11 +422,11 @@ function yamlStatus(scan: MarkdownScan, block: FrontMatterBlock): Declared | und
 }
 
 /**
- * A top-level `狀態` or `状态` key in YAML front matter: the key, a colon - one
- * of YAML's, with a space or nothing after it, or a full-width one - and the
- * value on its line.
+ * A top-level `狀態` or `状态` key in YAML front matter: the key, a colon -
+ * YAML's, with a space or nothing after it, or a full-width one, which YAML
+ * does not read as one - and the value on its line.
  */
-const CHINESE_YAML_KEY = /^(?:狀態|状态)[ \t]*(?::(?=[ \t]|$)|：)(.*)$/;
+const CHINESE_YAML_KEY = /^(狀態|状态)[ \t]*(?:(:)(?=[ \t]|$)|：)(.*)$/;
 
 /**
  * The status key in Chinese in YAML front matter, on the first line at the top
@@ -435,13 +436,24 @@ const CHINESE_YAML_KEY = /^(?:狀態|状态)[ \t]*(?::(?=[ \t]|$)|：)(.*)$/;
  * line, so this key is found here and its value read as the reader reads one,
  * quoted or plain, to a comment. A value written on the lines under the key is
  * one the reader refuses for `status` too, and is refused here in its words.
+ *
+ * YAML ends a key at an ASCII colon and at nothing else, so `状态：草稿`, with a
+ * full-width one as Chinese text writes it, is a line YAML would not read as
+ * the key. It is a status that cannot be read: its document stays in force,
+ * nothing below the front matter is read in its place, and the warning says to
+ * write the colon in ASCII. A label or a heading in the body is prose, where
+ * the full-width colon is read.
  */
 function chineseYamlStatus(frontMatter: string): Declared | undefined {
   const lines = frontMatter.split(/\r\n|\r|\n/);
   const at = lines.findIndex((text) => CHINESE_YAML_KEY.test(text));
   if (at === -1) return undefined;
   const line = at + 1;
-  const inline = (CHINESE_YAML_KEY.exec(lines[at] as string)?.[1] as string).trim();
+  const [, key, ascii, written] = CHINESE_YAML_KEY.exec(lines[at] as string) as RegExpExecArray;
+  if (ascii === undefined) {
+    return { line, reason: 'YAML ends a key at an ASCII colon, and this one is full-width', hint: `write "${key as string}:" with an ASCII colon` };
+  }
+  const inline = (written as string).trim();
   if (inline === '' || inline.startsWith('#')) {
     // The closing line follows the key's, so there is always a line below it.
     const below = lines[at + 1] as string;
@@ -1000,7 +1012,7 @@ function directivesOf(source: string, scan: MarkdownScan, context: ParseContext)
   const at = (line: number): SourceLocation => ({ file: context.file, relativeFile: context.relativeFile, line, column: 1 });
   const warnings: SpecWarning[] = [
     ...unclosedFrontMatter(scan).map(({ line, message }) => ({ location: at(line), kind: 'unclosed-front-matter' as const, message })),
-    ...(problem === undefined ? [] : [{ location: at(problem.line), kind: 'unreadable-status' as const, message: problem.message }]),
+    ...(problem === undefined ? [] : [{ location: at(problem.line), kind: 'unreadable-status' as const, message: problem.message, ...(problem.hint === undefined ? {} : { hint: problem.hint }) }]),
     ...unclosedBlocks(scan).map(({ line, message }) => ({ location: at(line), kind: 'unclosed-block' as const, message })),
   ];
   const hidden = maskedDirectives(source, masked, scan, starts, context);

@@ -124,6 +124,9 @@ describe('a run\'s findings', () => {
       // Its message ends with how to close it.
       ['docs/c.md', undefined],
     ]);
+    // A warning that knows what to write says it, in place of its kind's hint.
+    const colon = await runSpecGuard({ patterns: ['docs/*.md'], root: ROOT, io: memoryIo(ROOT, { 'docs/a.md': '---\n状态：草稿\n---\n', 'src/a.ts': '' }) });
+    expect(gitlab(runAnnotations(colon)).map(({ description }) => description.split('. ').at(-1))).toEqual(['write "状态:" with an ASCII colon']);
   });
 
   it('put a directory missing an entry on the directive, since the directory has no line', async () => {
