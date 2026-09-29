@@ -877,7 +877,8 @@ const BASE = 'base';
  *
  * What is below a base is asked of spec-core alone first, and a pattern it
  * reads so reads as it always has, a few characters short of the state
- * ceiling too, where the directory standing for the base would take it past.
+ * ceiling too, where the directory standing for the base would take it past;
+ * an alternative that starts with `/` is read from the base (`readBelow`).
  * One it refuses alone is judged as spec-core judges the whole pattern, with
  * the base in front: below a directory standing for the base, read there when
  * spec-core reads it there and refused for the reason spec-core gives there.
@@ -907,9 +908,20 @@ function readSpecGlob(pattern: string): SpecGlob {
 /**
  * What a spec pattern holds below its base, matched against the whole path
  * from there, since each alternative holds the base's `/` and so is anchored.
+ *
+ * An alternative's own leading `/` follows the base's, and so roots nothing:
+ * spec-core reads `docs/{/adr,x}` whole as `docs//adr` or `docs/x`, and
+ * `docs//adr` is `docs/adr`. Given what is below the base alone, it reads
+ * `{/adr,x}` from its copy of `7e41240` as `/adr`, under the filesystem's
+ * root, which nothing below a base is. Where the base is the root itself,
+ * as in `/{/a,b}`, the walk starts there, and spec-core reads the whole as
+ * `/a` or `/b`: `a` or `b` below it.
  */
 function readBelow(rest: string): Reading {
-  return belowReadings(rest, () => ({ parsed: parseAsWritten(rest, WHOLE), shape: 'whole' }));
+  return belowReadings(rest, () => {
+    const parsed = parseAsWritten(rest, WHOLE);
+    return { parsed: (parsed.ok ? fromWhereRead(rest, (alternative) => alternative) : null) ?? parsed, shape: 'whole' };
+  });
 }
 
 /**
