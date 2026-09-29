@@ -928,7 +928,7 @@ describe('a status written in Chinese', () => {
       expect(parseStatus(`# ADR-1\n\n${line}\n\n## Context\n`), line).toMatchObject({ value: 'superseded', source: 'label' });
     }
     expect(parseStatus('---\n狀態: 已取代\n---\n\n## Status\n\nAccepted\n')).toEqual({ value: 'superseded', label: '已取代', source: 'frontmatter', active: false });
-    expect(parseStatus('---\ntitle: x\n状态：草稿 # 審查後改\n---\n')).toMatchObject({ value: 'draft', source: 'frontmatter' });
+    expect(parseStatus('---\ntitle: x\n状态: 草稿 # 審查後改\n---\n')).toMatchObject({ value: 'draft', source: 'frontmatter' });
     expect(parseStatus('---\n狀態: "已棄用"\n---\n')).toMatchObject({ value: 'deprecated' });
     expect(parseStatus('---\n狀態 : 已棄用\n---\n')).toMatchObject({ value: 'deprecated' });
     expect(parseStatus('+++\n"狀態" = "已棄用"\n+++\n')).toMatchObject({ value: 'deprecated', source: 'frontmatter' });
@@ -947,6 +947,16 @@ describe('a status written in Chinese', () => {
     expect(warningOf('---\n狀態:\n  草稿\n---\n')).toEqual([[2, said('the value continues on the next line; keep it on one line, or quote it')]]);
     expect(warningOf('---\n狀態: "已取代" 2024\n---\n')).toEqual([[2, said('text follows a closing quote')]]);
     expect(warningOf('---\n狀態: 進行中\n---\n')).toEqual([[2, said('"進行中" does not begin with a status word spec-guard reads')]]);
+    // YAML ends a key at an ASCII colon and at nothing else: a full-width one
+    // is a key YAML would not read, so the status cannot be read, the document
+    // stays in force, and nothing below is read in its place.
+    const fullWidth = '---\ntitle: x\n状态：草稿\n---\n\n## Status\n\nDraft\n';
+    expect(parseStatus(fullWidth)).toBeUndefined();
+    expect(warningOf(fullWidth)).toEqual([[3, said('YAML ends a key at an ASCII colon, and this one is full-width')]]);
+    expect(parseDocument(fullWidth, context).warnings?.[0]?.hint).toBe('write "状态:" with an ASCII colon');
+    expect(parseDocument('---\n狀態：已取代\n---\n', context).warnings?.[0]?.hint).toBe('write "狀態:" with an ASCII colon');
+    // Every other status that cannot be read leaves the hint to its kind.
+    expect(parseDocument('---\n狀態: 進行中\n---\n', context).warnings?.[0]).not.toHaveProperty('hint');
     // Not the key: under another key, or with no space after YAML's colon.
     expect(parseStatus('---\nmeta:\n  狀態: 草稿\n---\n')).toBeUndefined();
     expect(parseStatus('---\n狀態:草稿\n---\n')).toBeUndefined();
