@@ -57,8 +57,8 @@ spec-core, then copy it again with spec-core's `scripts/vendor.mjs --into`
 
 Coverage says a line ran. It does not say an assertion would notice if the line
 behaved differently. This repository measures the difference: line coverage is
-**100%**, and CI's full sweep for 0.18.0 killed **99.15%** of 12,228 mutants,
-with 101 survivors and 3 without coverage. Each release brings that figure up
+**100%**, and CI's full sweep for 0.18.1 killed **99.13%** of 12,294 mutants,
+with 104 survivors and 3 without coverage. Each release brings that figure up
 to date in the README and in a section of its own in
 [ADR-0003](docs/adr/0003-mutation-testing.md). The second number is the one
 worth reading, and what was done about the survivors matters more than the

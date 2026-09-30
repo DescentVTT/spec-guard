@@ -1555,6 +1555,20 @@ ran high where they were least measured: `runner.ts` and `text.ts` took 7m35s
 against 15.2 minutes, and `cli.ts` alone 8m18s against 15.1, so the next
 split starts from this run's logs rather than 398fe94's.
 
+### 0.18.1: three survivors that only cost time
+
+CI's full sweep of 15b8ccf (run 36732743375), after a run's search keys and
+`impact`'s candidates stopped growing with a product, came out at **99.13%
+over 12,294 mutants with 104 survivors and 3 without coverage**; the shards
+took from 5m20s to 17m32s. Every survivor of 0.18.0 is still one, and three
+are new, all equivalent in what a run answers: `sealedCount++` made
+`sealedCount--`, which numbers every sealed set apart as well; and in
+`impact`, `target === '.'` made `true` or `${target}/` made `''`, which hand
+`governs` every dependent, or every one from the first, as candidates it
+then filters as it always did. They change only how long a run takes, which
+the ratio tests hold and which Stryker does not run; the comments beside the
+code say so. The two changes added 66 mutants.
+
 ### 0.18.0: the Chinese reading removed, and one equivalent back
 
 CI's full sweep of 858782d (run 36681719802), after the Chinese status

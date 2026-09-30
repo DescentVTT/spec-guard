@@ -1805,8 +1805,8 @@ build fails if they stop being true. CI proves every one of those rules can
 fail, and `spec-guard cites` holds every ADR a comment in the code cites to
 existing and being in force.
 
-Line coverage is 100%, CI's full mutation sweep kills 99.15% of 12,228 mutants
-(0.18.0), and every survivor a release adds is replayed before it ships
+Line coverage is 100%, CI's full mutation sweep kills 99.13% of 12,294 mutants
+(0.18.1), and every survivor a release adds is replayed before it ships
 ([ADR-0003](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0003-mutation-testing.md));
 [CONTRIBUTING.md](https://github.com/DescentVTT/spec-guard/blob/main/CONTRIBUTING.md)
 has how to build, test and release, and

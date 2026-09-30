@@ -310,6 +310,11 @@ function governable(governed: readonly QueryPath[], asked: number): (assertion: 
       for (const file of assertion.files) exactly(file);
     } else {
       for (const target of assertion.targets) {
+        // Taking every dependent for every target, `target === '.'` made
+        // `true`, or from the first dependent on, `${target}/` made `''`,
+        // answers the same: `governs` filters the candidates below. Both are
+        // equivalent mutants a ratio test would catch, and ratio tests do not
+        // run under Stryker.
         if (target === '.') {
           take(0, dependents.length);
           continue;
