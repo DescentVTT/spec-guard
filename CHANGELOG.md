@@ -78,6 +78,20 @@ is deprecated before it goes, is spec-core's
   of the GitLab fingerprint of the same finding. `prove`'s SARIF follows.
   Upgrading: each open code-scanning alert for such a directive closes and
   reopens once, on the first upload after upgrading.
+- **A leading `./` goes with the slashes after it, so `.//f.ts` is `f.ts`
+  at any depth.** spec-core, copied again from `5666c96`, reads `.//docs` as
+  POSIX does, where it read `/docs`, rooted, and a slash the braces give
+  after a `./` roots nothing either. `glob=".//f.ts"` and
+  `glob="./{/f.ts,x}"` found `f.ts` at the root only and now find it at any
+  depth, as `glob="./f.ts"` does, under both engines; `exclude=".//build"`,
+  a module and a layer leave out every `build`; a spec pattern
+  `.//docs/*.md` is walked from the repository's `docs`, where it was the
+  filesystem's `/docs`; and `dirs=".//a"` chooses `a`, where it chose
+  nothing. Upgrading: a pattern that meant the root with `.//` says so with
+  `/`: write `/f.ts`, or `{/f.ts,x}`.
+  [ADR-0015](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0015-globs-from-spec-core.md)'s
+  and [ADR-0013](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0013-structure-assertions.md)'s
+  amendments of 2026-09-30.
 
 ### Fixed
 

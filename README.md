@@ -604,8 +604,8 @@ is what you want; `exclude="tests"` means the directory, because that is what
 people mean when they write it - and it is what `rg -g '!tests'` does. Both
 engines implement the same rule, and a parity matrix asserts they agree on it.
 
-A leading `./` and a trailing `/` are dropped, so `./tests` and `tests/` are
-`tests`, and a backslash is a separator. Four shapes are refused, because they
+A leading `./`, with the slashes after it, and a trailing `/` are dropped, so
+`./tests`, `.//tests` and `tests/` are `tests`, and a backslash is a separator. Four shapes are refused, because they
 can never exclude anything:
 - **`!`**, which in `.gitignore` re-includes a path. Pasted from one, it was
   silently dropped and the exclusion left wider than it read.
@@ -652,6 +652,8 @@ keeps its commas. Inside one, an alternative reads as it would written alone:
   `specs` is everything under `docs`, and the README.
 - **A leading `/`** anchors it at the root, as it anchors a whole pattern:
   `{/build,dist}` in `exclude` is the `build` at the root, and every `dist`.
+  After a `./` it anchors nothing, as in `.//build`: `./{/build,dist}` is
+  every `build`.
 - **An alternative that names no path is refused**: `{./,docs}` in `specs` is
   exit 2, `the braces expand to "./", which names no path`.
 
