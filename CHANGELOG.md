@@ -21,7 +21,8 @@ is deprecated before it goes, is spec-core's
   `deferred` - and does what that word does: only the six words withhold a
   document, and 延後 stays in force as `deferred` does. The key is read as
   `狀態` or `状态` in a heading, a label with `:` or `：`, a table, and front
-  matter with YAML's colon; `状态：草稿` there is a status that cannot be read,
+  matter with YAML's colon, `status` first, then `狀態`, then `状态`;
+  `状态：草稿` there is a status that cannot be read when no key names one,
   and its warning says to write `状态:`. Upgrading: a Chinese ADR that says it is superseded, deprecated,
   rejected, archived, a draft or proposed stops running its rules; write its
   status in English, or run with `--ignore-status`, to keep them running.

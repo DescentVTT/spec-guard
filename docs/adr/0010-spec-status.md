@@ -503,15 +503,18 @@ no status word spec-guard reads.
 **The key** is read in Chinese, `狀態` or `状态`, wherever `status` is: a
 heading, compared whole; a label, with an ASCII or a full-width colon, since a
 label is prose and Chinese prose writes `：`; YAML front matter, where
-spec-core's reader, which reads ASCII keys, passes over the line, so it is
-found beside the reader and its value read as the reader reads one, after a
-`status` key when there is one; and TOML front matter, quoted, since TOML's
-bare keys are ASCII. YAML ends a key at an ASCII colon and at nothing else, so
-`状态：草稿` in front matter is a line YAML would not read as the key: it is a
-status that cannot be read, which keeps the document in force, reads nothing
-below the front matter in its place, and warns with the hint to write `状态:`
-with an ASCII colon, where every other such warning's hint is to write a word
-spec-guard reads.
+spec-core's reader, from its copy of `5666c96`, reads a key of any script, so
+`狀態` is an entry as `status` is and its value is read as that key's is,
+`status` deciding first, then `狀態`, then `状态`; and TOML front matter,
+quoted, since TOML's bare keys are ASCII. YAML ends a key at an ASCII colon
+and at nothing else, so `状态：草稿` in front matter is a line YAML would not
+read as the key, and the reader passes over it: where no key names the status,
+it is a status that cannot be read, which keeps the document in force, reads
+nothing below the front matter in its place, and warns with the hint to write
+`状态:` with an ASCII colon, where every other such warning's hint is to write
+a word spec-guard reads. Until that copy the reader read ASCII keys alone, and
+the key in Chinese was found beside it, on the first line that held either
+spelling.
 
 **A table** is a fourth spelling: one of exactly two columns before the first
 section heading, one of whose rows, the header row among them, names the
