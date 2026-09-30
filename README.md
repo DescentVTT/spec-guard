@@ -1415,18 +1415,29 @@ should be able to tell them apart, so they are 1 and 2:
 ```yaml
 # .github/workflows/specs.yml
 name: Specs
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]
+  pull_request:
 
 jobs:
   spec-guard:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22'
       - run: npx @descent-vtt/spec-guard "docs/**/*.md" "README.md" --verbose
 ```
+
+The actions are pinned to commits, with the version beside each, because a tag
+can be moved and a commit cannot; Dependabot's `github-actions` updates keep
+pins like these current.
 
 That job needs nothing else installed. GitHub-hosted runners do **not** ship
 ripgrep on `PATH` - spec-guard's own CI reports `engine: javascript` there - so
@@ -1466,22 +1477,23 @@ comment on the offending line:
 
 ```yaml
     permissions:
-      security-events: write
-      # only in a private repository
-      actions: read
       contents: read
+      security-events: write
+      actions: read # only in a private repository
     steps:
       # ...checkout and setup-node as above
       - run: npx @descent-vtt/spec-guard "docs/**/*.md" --format sarif > spec-guard.sarif || true
-      - uses: github/codeql-action/upload-sarif@v4
+      - uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
         with:
           sarif_file: spec-guard.sarif
           category: spec-guard
 ```
 
 Version 4 of the upload action is the current one; version 3 is deprecated in
-December 2026. The job needs `security-events: write` to upload, and in a
-private repository `actions: read` and `contents: read` as well.
+December 2026. The job needs `contents: read` for its checkout and
+`security-events: write` to upload, and in a private repository
+`actions: read` as well. Only the job that uploads needs
+`security-events: write`.
 
 One alert per broken rule rather than per match - the thing that broke is the
 rule - anchored on the first offending line, with the directive as a related
