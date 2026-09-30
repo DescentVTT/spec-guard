@@ -106,6 +106,18 @@ registry's version check, since main's version is already published, and it
 cannot try the OIDC exchange, which happens only on a publish that intends to
 write.
 
+*Amended 2026-10-01.* Every action in the release, in CI and in the mutation
+sweep is pinned to a commit with its tag beside it, as in the siblings: a tag
+can be moved and a commit cannot, and a moved `setup-node` tag would have run
+in the job that holds the OIDC token. No checkout keeps its token in
+`.git/config`, so `npm ci` and the suite in `verify` have none to read, and
+`verify` restores no dependency cache, because other runs write it and the
+tarball comes from the lockfile and the registry alone. `publish` installs npm
+at an exact version, 11.20.0, the one every staged release so far has used,
+rather than the newest 11.x: a range would bring a version published an hour
+earlier into the one job that can stage, past the cooldown Dependabot holds
+every other dependency to. Moving it is an edit made on purpose.
+
 ## Consequences
 
 - The README says what spec-guard does and ships in the package; how it is
