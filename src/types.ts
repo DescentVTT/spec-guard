@@ -109,6 +109,8 @@ export interface SpecWarning {
   /** Which of them, in words that stay the same while the document changes around it. */
   kind: 'unreadable-status' | 'unclosed-front-matter' | 'unclosed-block';
   message: string;
+  /** What to do, where the warning says it itself rather than leave it to its kind: write a status that cannot be read as an English word. */
+  hint?: string;
 }
 
 /** What hides a directive-shaped comment from being read as a directive. */

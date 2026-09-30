@@ -750,6 +750,7 @@ describe('the report', () => {
         kind: 'unreadable-status',
         message:
           'the status in front matter cannot be read (a table is not a status), so its status is unrecognised and the document stays in force; a status written below the front matter is not read in its place',
+        hint: 'write the status as an English word spec-guard reads, such as accepted or superseded',
       },
     ]);
   });

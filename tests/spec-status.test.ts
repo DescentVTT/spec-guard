@@ -858,6 +858,7 @@ describe('a status not written in English', () => {
   const below = '; a status written elsewhere in the document is not read in its place';
   const unread = (subject: string, text: string, rest = below) =>
     `${subject} cannot be read ("${text}" does not begin with a word), so its status is unrecognised and the document stays in force${rest}`;
+  const ENGLISH = 'write the status as an English word spec-guard reads, such as accepted or superseded';
 
   it('reads a Chinese word under an English key as a status that cannot be read, which keeps its document in force', () => {
     expect(parseStatus('---\nstatus: 已取代\n---\n')).toBeUndefined();
@@ -872,6 +873,11 @@ describe('a status not written in English', () => {
     // It decides as any status that cannot be read does: nothing below is read in its place.
     expect(parseStatus('---\nstatus: 已取代\n---\n\n## Status\n\nDraft\n')).toBeUndefined();
     expect(parseStatus('# ADR-1\n\nStatus: draft\n\n## Status\n\n已取代\n')).toBeUndefined();
+    // Each warning says in its own hint to write the status in English, where
+    // 0.17.0's for a full-width colon said to write the colon in ASCII.
+    for (const source of ['---\nstatus: 已取代\n---\n', '+++\nstatus = []\n+++\n', '# ADR-1\n\n## Status\n\n已取代\n', '# ADR-1\n\n| Status | 已取代 |\n| --- | --- |\n', '# ADR-1\n\nStatus:\n']) {
+      expect(parseDocument(source, context).warnings?.map(({ kind, hint }) => [kind, hint]), source).toEqual([['unreadable-status', ENGLISH]]);
+    }
   });
 
   it('reads no key in Chinese: 狀態 names no section, label, table row or front-matter key', () => {
@@ -912,7 +918,7 @@ describe('a status not written in English', () => {
       ['docs/b.md', 2, 'unreadable-status', inFrontMatter('"已取代" does not begin with a word')],
     ]);
     expect(runAnnotations(report).filter(({ rule }) => rule === 'spec-warning').map(({ file, hint }) => [file, hint])).toEqual([
-      ['docs/b.md', 'write the status as an English word spec-guard reads, such as accepted or superseded'],
+      ['docs/b.md', ENGLISH],
     ]);
     // The control: the same documents with the status in English withhold their rules.
     const english = await repo({
