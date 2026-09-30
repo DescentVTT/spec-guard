@@ -27,7 +27,7 @@ import { loadRuleSet, resolveQueryPath, type RuleSetOptions } from './query.js';
 import { governs, viewRule, within, type DocumentView, type QueryPath, type RuleView } from './rules.js';
 import { formatOptionLines } from './reporter.js';
 import { createScope } from './scope.js';
-import type { ConfigUse } from './types.js';
+import type { Assertion, ConfigUse } from './types.js';
 import { displayWidth } from './vendor/spec-core/text/index.js';
 
 /* -------------------------------------------------------------------- graph */
@@ -270,6 +270,60 @@ function unreachable(query: QueryPath, files: readonly string[]): string | undef
     : `a ${LANGUAGE_NAMES[language as Exclude<ModuleLanguage, 'python'>]} file is imported by the name of a module, not by its path, so what depends on it is not computed (ADR-0018)`;
 }
 
+/**
+ * The queries a rule can govern, in their order: every path asked about, and
+ * of the dependents, those under one of the rule's targets, or those an
+ * `@assert-present` names.
+ *
+ * `governs` holds a file to lie under a target, or to be a file the rule
+ * names, before it asks anything else, so no other dependent can be governed.
+ * Asking every rule about every dependent asked 737 rules about 18,700
+ * dependents, 14 million questions almost all answered no, and grew with the
+ * product of the two.
+ */
+function governable(governed: readonly QueryPath[], asked: number): (assertion: Assertion) => QueryPath[] {
+  const dependents = governed
+    .slice(asked)
+    .map((query, index) => ({ path: query.path, position: asked + index }))
+    .sort((a, b) => comparePaths(a.path, b.path));
+  /** The first dependent whose path sorts at or after `key`. */
+  const from = (key: string): number => {
+    let low = 0;
+    let high = dependents.length;
+    while (low < high) {
+      const middle = (low + high) >>> 1;
+      if ((dependents[middle] as { path: string }).path < key) low = middle + 1;
+      else high = middle;
+    }
+    return low;
+  };
+  return (assertion) => {
+    const positions = new Set(Array.from({ length: asked }, (_, position) => position));
+    const take = (start: number, end: number): void => {
+      for (let index = start; index < end; index++) positions.add((dependents[index] as { position: number }).position);
+    };
+    const exactly = (path: string): void => {
+      const index = from(path);
+      if (dependents[index]?.path === path) take(index, index + 1);
+    };
+    if (assertion.kind === 'assert-present') {
+      for (const file of assertion.files) exactly(file);
+    } else {
+      for (const target of assertion.targets) {
+        if (target === '.') {
+          take(0, dependents.length);
+          continue;
+        }
+        exactly(target);
+        // Every path under `target` sorts from `target/` to just before
+        // `target0`, `0` being the character after `/`.
+        take(from(`${target}/`), from(`${target}0`));
+      }
+    }
+    return [...positions].sort((a, b) => a - b).map((position) => governed[position] as QueryPath);
+  };
+}
+
 /** Answers the question for every path, from one read of the tree and the specs. */
 export async function impactOf(options: ImpactOptions): Promise<ImpactReport> {
   const startedAt = performance.now();
@@ -309,8 +363,9 @@ export async function impactOf(options: ImpactOptions): Promise<ImpactReport> {
   const withheld = new Set<string>();
   let withheldRules = 0;
   const cited = new Map<string, DocumentView>();
+  const candidates = governable(governed, queries.length);
   for (const { assertion, document } of ruleSet.rules) {
-    const covered = governed.filter((query) => governs(assertion, query)).map((query) => query.path);
+    const covered = candidates(assertion).filter((query) => governs(assertion, query)).map((query) => query.path);
     if (covered.length === 0) continue;
     if (!document.inForce) {
       withheldRules += 1;

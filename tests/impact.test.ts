@@ -25,6 +25,7 @@ import {
   type ImpactReport,
 } from '../src/impact.js';
 import { DEMO_REPO, FIXTURES_DIR, makeTempRepo, memoryIo, removeTempRepo } from './helpers.js';
+import { fastestInTurnAsync, instrumented } from './timing.js';
 
 const ROOT = path.resolve('/virtual/impact');
 
@@ -408,6 +409,61 @@ describe('the rules in play', () => {
   it('reports the directives that could not be read', async () => {
     const report = await impact(['src/db'], {}, { ...TREE, 'docs/bad.md': '<!-- @assert-count symbol="X" -->\n' });
     expect(report.errors).toEqual([{ file: 'docs/bad.md', line: 1, message: '@assert-count requires expected="...", min="..." or max="...".' }]);
+  });
+
+  it('govern the dependents a file target, the root, a present file or several targets name, in the order the dependents come', async () => {
+    const rules = [
+      '<!-- @assert-absence target="src/ui/view.tsx" symbol="x" -->',
+      '<!-- @assert-absence target="." symbol="x" -->',
+      '<!-- @assert-present file="src/app/cache.ts, src/db/client.ts" -->',
+      '<!-- @assert-absence target="src/ui, src/app" symbol="x" -->',
+      '<!-- @assert-absence target="src/app/service.ts, src/db" symbol="x" -->',
+      // Named after every dependent by path, and governing none of them.
+      '<!-- @assert-present file="src/zz.ts" -->',
+    ];
+    const report = await impact(['src/db/client.ts'], {}, { ...TREE, 'docs/adr/0004-more.md': `# ADR-0004: More\n\n${rules.join('\n')}\n` });
+    expect(report.rules.filter((rule) => rule.document === 'docs/adr/0004-more.md').map((rule) => [rule.line, rule.governs])).toEqual([
+      [3, ['src/ui/view.tsx']],
+      [4, ['src/db/client.ts', 'src/app/service.ts', 'src/db/index.ts', 'src/app/cache.ts', 'src/ui/view.tsx', 'src/ui/button.js']],
+      [5, ['src/db/client.ts', 'src/app/cache.ts']],
+      [6, ['src/app/service.ts', 'src/app/cache.ts', 'src/ui/view.tsx', 'src/ui/button.js']],
+      [7, ['src/db/client.ts', 'src/app/service.ts', 'src/db/index.ts']],
+    ]);
+  });
+
+  it('are found in time linear in the rules and the dependents', async () => {
+    // A file every other file imports, and a rule over each of those, every
+    // one of which was asked about every dependent.
+    const tree = (count: number) => {
+      const files: Record<string, string> = { 'src/hub.ts': 'export const hub = 1;\n' };
+      const rules: string[] = [];
+      for (let n = 0; n < count; n += 1) {
+        files[`src/f${n}.ts`] = "import { hub } from './hub.js';\n";
+        rules.push(`<!-- @assert-absence target="src/f${n}.ts" symbol="Gone" -->`);
+      }
+      files['docs/rules.md'] = `# Rules\n\n${rules.join('\n')}\n`;
+      return memoryIo(ROOT, files);
+    };
+    const run = (io: ReturnType<typeof memoryIo>) => impactOf({ patterns: ['docs/**/*.md'], root: ROOT, paths: ['src/hub.ts'], io });
+    const small = tree(250);
+    const large = tree(4000);
+    const answer = await run(large);
+    expect(answer.results[0]?.dependents).toHaveLength(4000);
+    expect(answer.rules.map((rule) => rule.governs)).toEqual(Array.from({ length: 4000 }, (_, n) => [`src/f${n}.ts`]));
+    if (instrumented()) return;
+    // Sixteen answers over 250 files and rules against one over 4,000: work
+    // that grows with rules times dependents takes sixteen times as long on
+    // the larger. Twice linear is allowed, and 200 ms for noise. On the
+    // machine this was written on, the larger took 940 ms against 480 ms
+    // allowed before, and after, 86 ms, as long as the sixteen smaller.
+    const [sixteenSmall, oneLarge] = (await fastestInTurnAsync(
+      3,
+      async () => {
+        for (let n = 0; n < 16; n += 1) await run(small);
+      },
+      () => run(large),
+    )) as [number, number];
+    expect(oneLarge).toBeLessThan(2 * sixteenSmall + 200);
   });
 });
 
