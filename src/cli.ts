@@ -231,8 +231,8 @@ Directives
   An assertion whose scope holds no files fails; add allow-empty="true" to allow it.
   A document whose status is draft, proposed, rejected, deprecated, superseded
   or archived is reported and not executed; --ignore-status runs it anyway.
-  A status written in Chinese is read as the English word it translates -
-  草稿 draft, 已取代 superseded, 已接受 accepted - and 狀態 as the key.
+  The status is read in English, whatever language the document is written in:
+  status: superseded.
 
 prove adds, changes or removes files in memory only - never on disk - to make
 the violation each rule forbids, and runs the rule over that tree. A rule that

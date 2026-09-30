@@ -695,7 +695,7 @@ describe('TOML front matter', () => {
       { level: 'warning', message: { text: `docs/b.md:2 ${unreadable}` } },
     ]);
     expect(runAnnotations(report).filter(({ rule }) => rule === 'spec-warning' || rule === 'not-in-force')).toEqual([
-      { rule: 'spec-warning', identity: ['spec-warning', 'docs/b.md', 'unreadable-status'], level: 'warning', severity: 'minor', file: 'docs/b.md', line: 2, message: unreadable, hint: 'write a status word spec-guard reads, such as accepted or superseded' },
+      { rule: 'spec-warning', identity: ['spec-warning', 'docs/b.md', 'unreadable-status'], level: 'warning', severity: 'minor', file: 'docs/b.md', line: 2, message: unreadable, hint: 'write the status as an English word spec-guard reads, such as accepted or superseded' },
       {
         rule: 'not-in-force',
         identity: ['not-in-force', 'docs/c.md'],
@@ -786,8 +786,8 @@ describe('a front-matter status that cannot be read', () => {
       { level: 'warning', message: { text: `docs/b.md:2 ${said('a plain value cannot contain ": "; quote it')}` } },
     ]);
     expect(runAnnotations(report).filter(({ rule }) => rule === 'spec-warning')).toEqual([
-      { rule: 'spec-warning', identity: ['spec-warning', 'docs/a.md', 'unreadable-status'], level: 'warning', severity: 'minor', file: 'docs/a.md', line: 2, message: said('text follows a closing quote'), hint: 'write a status word spec-guard reads, such as accepted or superseded' },
-      { rule: 'spec-warning', identity: ['spec-warning', 'docs/b.md', 'unreadable-status'], level: 'warning', severity: 'minor', file: 'docs/b.md', line: 2, message: said('a plain value cannot contain ": "; quote it'), hint: 'write a status word spec-guard reads, such as accepted or superseded' },
+      { rule: 'spec-warning', identity: ['spec-warning', 'docs/a.md', 'unreadable-status'], level: 'warning', severity: 'minor', file: 'docs/a.md', line: 2, message: said('text follows a closing quote'), hint: 'write the status as an English word spec-guard reads, such as accepted or superseded' },
+      { rule: 'spec-warning', identity: ['spec-warning', 'docs/b.md', 'unreadable-status'], level: 'warning', severity: 'minor', file: 'docs/b.md', line: 2, message: said('a plain value cannot contain ": "; quote it'), hint: 'write the status as an English word spec-guard reads, such as accepted or superseded' },
     ]);
     expect(json.specWarnings.map(({ kind }) => kind)).toEqual(['unreadable-status', 'unreadable-status']);
   });
@@ -845,158 +845,83 @@ describe('a status in the body that cannot be read', () => {
   });
 });
 
-describe('a status written in Chinese', () => {
-  // The family's table: each Chinese word is read as the English word it
-  // translates, in Traditional and in Simplified, and the English then does
-  // what it does here (ADR-0010's amendment of 2026-09-30). Every word of it,
-  // by the English it is read as.
-  const TABLE: ReadonlyArray<readonly [string, readonly string[]]> = [
-    ['superseded', ['已被取代', '被取代', '已取代']],
-    ['deprecated', ['已棄用', '棄用', '已廢棄', '廢棄', '已停用', '已過時', '已弃用', '弃用', '已废弃', '废弃', '已过时']],
-    ['rejected', ['已否決', '否決', '已拒絕', '不採納', '已否决', '否决', '已拒绝', '不采纳']],
-    ['withdrawn', ['已撤回', '撤回', '已作廢', '作廢', '已作废', '作废']],
-    ['deferred', ['延後', '暫緩', '擱置', '延后', '暂缓', '搁置']],
-    ['archived', ['封存', '已封存', '歸檔', '已歸檔', '归档', '已归档']],
-    ['final', ['已定案', '定案', '已凍結', '已冻结']],
-    ['provisionally', ['暫定', '暂定']],
-    ['accepted', ['已接受', '接受', '已採納', '採納', '已核准', '核准', '已批准', '批准', '已生效', '生效', '已采纳', '采纳']],
-    ['implemented', ['已實施', '已完成', '已实施']],
-    ['draft', ['草稿', '草案']],
-    ['proposed', ['提議', '提案', '審查中', '審核中', '討論中', '待審', '待審核', '提议', '审查中', '审核中', '讨论中', '待审', '待审核']],
-  ];
+describe('a status not written in English', () => {
+  // A document may be written in any language, and its status is written in
+  // English (ADR-0010, amended 2026-09-30). 0.17.0 read a status in Chinese as
+  // the English word it translated, and 狀態 as the key; neither is read now,
+  // so a document that gives its status so stays in force, and where the key
+  // is one spec-guard reads, the report says the status cannot be read.
   const context = { file: '/r/docs/a.md', relativeFile: 'docs/a.md' };
   const warningOf = (source: string) => parseDocument(source, context).warnings?.map(({ location, message }) => [location.line, message]);
+  const inFrontMatter = (reason: string) =>
+    `the status in front matter cannot be read (${reason}), so its status is unrecognised and the document stays in force; a status written below the front matter is not read in its place`;
+  const below = '; a status written elsewhere in the document is not read in its place';
+  const unread = (subject: string, text: string, rest = below) =>
+    `${subject} cannot be read ("${text}" does not begin with a word), so its status is unrecognised and the document stays in force${rest}`;
 
-  it.each(TABLE)('reads the words for %s as it, and withholds a document only if it is one of the six', (english, words) => {
-    for (const word of words) {
-      const expected = { value: english, label: word, source: 'heading', active: !INACTIVE_STATUSES.has(english) };
-      expect(parseStatus(`# ADR-1\n\n## Status\n\n${word}\n`), word).toEqual(expected);
-      // Followed by punctuation, a date in brackets, or in bold, it is the same word.
-      expect(parseStatus(`# ADR-1\n\n## Status\n\n${word}（2024-05-01）。\n`)?.value, word).toBe(english);
-      expect(parseStatus(`# ADR-1\n\n## Status\n\n**${word}**\n`), word).toEqual(expected);
-    }
-  });
-
-  it('keeps in force a document whose word is none of the six, as the English keeps it', () => {
-    expect(parseStatus('# ADR-1\n\n## Status\n\n延後\n')).toMatchObject({ value: 'deferred', active: true });
-    expect(parseStatus('# ADR-1\n\n## Status\n\n已撤回\n')).toMatchObject({ value: 'withdrawn', active: true });
-    expect(parseStatus('# ADR-1\n\n## Status\n\n暫定\n')).toMatchObject({ value: 'provisionally', active: true });
-    expect(parseStatus('# ADR-1\n\n## Status\n\n封存\n')).toMatchObject({ value: 'archived', active: false });
-  });
-
-  it('reads only a word followed by a space, punctuation or the end, so a longer word is no word listed', () => {
-    for (const text of ['草稿已核准', '暫定接受', '接受度', '被 ADR-3 取代了', '已接受了']) {
+  it('reads a Chinese word under an English key as a status that cannot be read, which keeps its document in force', () => {
+    expect(parseStatus('---\nstatus: 已取代\n---\n')).toBeUndefined();
+    expect(warningOf('---\nstatus: 已取代\n---\n')).toEqual([[2, inFrontMatter('"已取代" does not begin with a word')]]);
+    expect(warningOf('+++\nstatus = "已取代"\n+++\n')).toEqual([[2, inFrontMatter('"已取代" does not begin with a word')]]);
+    for (const text of ['已取代', '草稿', '已棄用', '**已取代**', '被 ADR-0003 取代']) {
       expect(parseStatus(`# ADR-1\n\n## Status\n\n${text}\n`), text).toBeUndefined();
+      expect(warningOf(`# ADR-1\n\n## Status\n\n${text}\n`), text).toEqual([[5, unread('the status under the heading "Status"', text)]]);
     }
-    expect(parseStatus('# ADR-1\n\n## Status\n\n已接受 (Accepted)\n')?.value).toBe('accepted');
-    expect(parseStatus('# ADR-1\n\n## Status\n\n已接受\t2024\n')?.value).toBe('accepted');
+    expect(warningOf('# ADR-1\n\n| Status | 已取代 |\n| --- | --- |\n')).toEqual([[3, unread('the status in the table', '已取代')]]);
+    expect(warningOf('# ADR-1\n\nStatus: 已取代\n')).toEqual([[3, unread('the status label', '已取代', '')]]);
+    // It decides as any status that cannot be read does: nothing below is read in its place.
+    expect(parseStatus('---\nstatus: 已取代\n---\n\n## Status\n\nDraft\n')).toBeUndefined();
+    expect(parseStatus('# ADR-1\n\nStatus: draft\n\n## Status\n\n已取代\n')).toBeUndefined();
   });
 
-  it('reads 被 and a verb of superseding within thirty characters as superseded', () => {
-    // A negation elsewhere than before the verb is part of what superseded it.
-    for (const text of ['被 ADR-0003 取代', '已被 ADR-0003 取代', '被 ADR-0003 替代', '被 ADR-0003 取而代之', `被${'x'.repeat(30)}取代`, '被不同的 ADR-3 取代']) {
-      expect(parseStatus(`# ADR-1\n\n## Status\n\n${text}\n`), text).toMatchObject({ value: 'superseded', label: text, active: false });
+  it('reads no key in Chinese: 狀態 names no section, label, table row or front-matter key', () => {
+    // Each of these would withhold its document were 狀態 read as the key.
+    for (const source of [
+      '# ADR-1\n\n## 狀態\n\n已取代\n',
+      '# ADR-1\n\n## 状态\n\nDraft\n',
+      '# ADR-1\n\n| 狀態 | 已取代 |\n| --- | --- |\n',
+      '# ADR-1\n\n| 状态 | Draft |\n| --- | --- |\n',
+      '# ADR-1\n\n狀態：已取代\n',
+      '# ADR-1\n\n**狀態：** Draft\n',
+      '# ADR-1\n\n状态: Draft\n',
+      '---\n狀態: 已取代\n---\n',
+      '---\n状态: draft\n---\n',
+      '+++\n"狀態" = "draft"\n+++\n',
+    ]) {
+      expect(parseStatus(source), source).toBeUndefined();
+      expect(warningOf(source), source).toBeUndefined();
     }
-    expect(parseStatus(`# ADR-1\n\n## Status\n\n被${'x'.repeat(31)}取代\n`)).toBeUndefined();
-    // Without 被, 取代 says what this document supersedes, and is no retirement.
-    expect(parseStatus('# ADR-1\n\n## Status\n\n已接受（取代 ADR-0002）\n')).toMatchObject({ value: 'accepted', active: true });
-    expect(parseStatus('# ADR-1\n\n## Status\n\n取代 ADR-0002\n')).toBeUndefined();
+    // Front matter whose only key in Chinese names no status hands over to the
+    // section, with a full-width colon after it or YAML's.
+    expect(parseStatus('---\n狀態: draft\n---\n\n## Status\n\nAccepted\n')).toMatchObject({ value: 'accepted', source: 'heading' });
+    expect(parseStatus('---\ntitle: x\n状态：草稿\n---\n\n## Status\n\nDraft\n')).toMatchObject({ value: 'draft', source: 'heading' });
+    expect(warningOf('---\ntitle: x\n状态：草稿\n---\n\n## Status\n\nDraft\n')).toBeUndefined();
   });
 
-  it('does not read a negation, or 已取代 before a document reference, and says why', () => {
-    const said = (reason: string) =>
-      `the status under the heading "Status" cannot be read (${reason}), so its status is unrecognised and the document stays in force; a status written elsewhere in the document is not read in its place`;
-    // Nor a word or 被 that does not begin the value.
-    for (const text of ['未接受', '尚未核准', '不再生效', '非草稿', '被 ADR-0003 未取代', '被 ADR-0003 尚未取代', '被 ADR-0003 不再取代', '進行中', '進行，草稿', '此決議已被 X 取代']) {
-      expect(warningOf(`# ADR-1\n\n## Status\n\n${text}\n`), text).toEqual([[5, said(`"${text}" does not begin with a status word spec-guard reads`)]]);
-    }
-    // A word the table lists that begins with a negation is that word.
-    expect(parseStatus('# ADR-1\n\n## Status\n\n不採納\n')?.value).toBe('rejected');
-    for (const text of ['已取代 ADR-0002', '已取代：ADR-0002', '已取代: adr-2', '已取代 0002', '已取代　RFC 7']) {
-      expect(warningOf(`# ADR-1\n\n## Status\n\n${text}\n`), text).toEqual([[5, said('"已取代" before a document reference names the document this one supersedes, not this one\'s status')]]);
-    }
-    // Around anything else it is superseded.
-    for (const text of ['已取代', '已取代。', '已取代（見 ADR-0003）', '**已取代**', '已取代 - 見下']) {
-      expect(parseStatus(`# ADR-1\n\n## Status\n\n${text}\n`)?.value, text).toBe('superseded');
-    }
-  });
-
-  it('reads a value that begins with neither a letter nor a Han character as beginning with no word, whatever Chinese follows', () => {
-    // A date or a bracket before a Chinese word is what it is before an
-    // English one: no word begins the value, and the warning says that rather
-    // than that the value is Chinese naming no status word.
-    const said = (reason: string) =>
-      `the status under the heading "Status" cannot be read (${reason}), so its status is unrecognised and the document stays in force; a status written elsewhere in the document is not read in its place`;
-    for (const text of ['2024-05-01 已接受', '（草稿）']) {
-      expect(warningOf(`# ADR-1\n\n## Status\n\n${text}\n`), text).toEqual([[5, said(`"${text}" does not begin with a word`)]]);
-    }
-  });
-
-  it('reads the key in Chinese wherever it reads status: a heading, a label, front matter', () => {
-    expect(parseStatus('# ADR-1\n\n## 狀態\n\n已取代\n')).toEqual({ value: 'superseded', label: '已取代', source: 'heading', active: false });
-    expect(parseStatus('# ADR-1\n\n## 状态\n\n草稿\n')).toMatchObject({ value: 'draft', source: 'heading' });
-    for (const line of ['狀態：已取代', '狀態: 已取代', '状态：已取代', '**狀態：** 已取代', '**狀態**：已取代', '__状态__: 已取代']) {
-      expect(parseStatus(`# ADR-1\n\n${line}\n\n## Context\n`), line).toMatchObject({ value: 'superseded', source: 'label' });
-    }
-    expect(parseStatus('---\n狀態: 已取代\n---\n\n## Status\n\nAccepted\n')).toEqual({ value: 'superseded', label: '已取代', source: 'frontmatter', active: false });
-    expect(parseStatus('---\ntitle: x\n状态: 草稿 # 審查後改\n---\n')).toMatchObject({ value: 'draft', source: 'frontmatter' });
-    expect(parseStatus('---\n狀態: "已棄用"\n---\n')).toMatchObject({ value: 'deprecated' });
-    expect(parseStatus('---\n狀態 : 已棄用\n---\n')).toMatchObject({ value: 'deprecated' });
-    expect(parseStatus('+++\n"狀態" = "已棄用"\n+++\n')).toMatchObject({ value: 'deprecated', source: 'frontmatter' });
-    // An English status is read as it was, in any spelling, with a Chinese key or without.
-    expect(parseStatus('# ADR-1\n\n狀態：Accepted\n')).toMatchObject({ value: 'accepted', source: 'label' });
-    expect(parseStatus('---\nstatus: 已取代\n---\n')).toMatchObject({ value: 'superseded', source: 'frontmatter' });
-  });
-
-  it('lets front matter\'s status key decide before its Chinese one, and reads the Chinese one as that key is read', () => {
-    expect(parseStatus('---\n狀態: 草稿\nstatus: accepted\n---\n')?.value).toBe('accepted');
-    // Then the Traditional key before the Simplified, wherever each is written.
-    expect(parseStatus('---\n状态: 草稿\n狀態: 已接受\n---\n')?.value).toBe('accepted');
-    expect(parseStatus('---\n狀態: 已接受\n状态: 草稿\n---\n')?.value).toBe('accepted');
-    // A key YAML reads decides before a line it passes over.
-    expect(parseStatus('---\n狀態：草稿\n状态: 已接受\n---\n')?.value).toBe('accepted');
-    const said = (reason: string) =>
-      `the status in front matter cannot be read (${reason}), so its status is unrecognised and the document stays in force; a status written below the front matter is not read in its place`;
-    expect(warningOf('---\n狀態:\n---\n\n## Status\n\nDraft\n')).toEqual([[2, said('it is empty')]]);
-    expect(warningOf('---\n狀態: # 待定\n---\n')).toEqual([[2, said('it is empty')]]);
-    expect(warningOf('---\n狀態: [草稿]\n---\n')).toEqual([[2, said('a list is not a status')]]);
-    expect(warningOf('---\n狀態:\n  草稿\n---\n')).toEqual([[2, said('the value continues on the next line; keep it on one line, or quote it')]]);
-    expect(warningOf('---\n狀態: "已取代" 2024\n---\n')).toEqual([[2, said('text follows a closing quote')]]);
-    expect(warningOf('---\n狀態: 進行中\n---\n')).toEqual([[2, said('"進行中" does not begin with a status word spec-guard reads')]]);
-    // YAML ends a key at an ASCII colon and at nothing else: a full-width one
-    // is a key YAML would not read, so the status cannot be read, the document
-    // stays in force, and nothing below is read in its place.
-    const fullWidth = '---\ntitle: x\n状态：草稿\n---\n\n## Status\n\nDraft\n';
-    expect(parseStatus(fullWidth)).toBeUndefined();
-    expect(warningOf(fullWidth)).toEqual([[3, said('YAML ends a key at an ASCII colon, and this one is full-width')]]);
-    expect(parseDocument(fullWidth, context).warnings?.[0]?.hint).toBe('write "状态:" with an ASCII colon');
-    expect(parseDocument('---\n狀態：已取代\n---\n', context).warnings?.[0]?.hint).toBe('write "狀態:" with an ASCII colon');
-    // Space or a tab before the colon, as before YAML's, and a line ended by
-    // CR LF, counted as the document's own lines.
-    expect(warningOf('---\n状态 ：草稿\n---\n')).toEqual([[2, said('YAML ends a key at an ASCII colon, and this one is full-width')]]);
-    expect(warningOf('---\n状态\t：草稿\n---\n')).toEqual([[2, said('YAML ends a key at an ASCII colon, and this one is full-width')]]);
-    expect(warningOf('---\r\ntitle: x\r\n状态：草稿\r\n---\r\n')).toEqual([[3, said('YAML ends a key at an ASCII colon, and this one is full-width')]]);
-    // Every other status that cannot be read leaves the hint to its kind.
-    expect(parseDocument('---\n狀態: 進行中\n---\n', context).warnings?.[0]).not.toHaveProperty('hint');
-    // Not the key: under another key, or with no space after YAML's colon.
-    expect(parseStatus('---\nmeta:\n  狀態: 草稿\n---\n')).toBeUndefined();
-    expect(warningOf('---\nmeta:\n  狀態：草稿\n---\n')).toBeUndefined();
-    // Below the front matter the full-width colon is prose's, and read.
-    expect(parseStatus('---\ntitle: x\n---\n\n# ADR-1\n\n狀態：已取代\n')).toMatchObject({ value: 'superseded', source: 'label' });
-    expect(parseStatus('---\n狀態:草稿\n---\n')).toBeUndefined();
-    expect(parseStatus('---\n狀態碼: 草稿\n---\n')).toBeUndefined();
-  });
-
-  it('withholds a document a Chinese word takes out of force, and names it by its line as written', async () => {
+  it('runs the rules of a document whose status is in Chinese, and tells a status it cannot read to be written in English', async () => {
     const root = await repo({
       'docs/a.md': `# ADR-1\n\n## 狀態\n\n已被 ADR-0003 取代\n\n${VIOLATION}`,
-      'docs/b.md': `# ADR-2\n\n狀態：延後\n\n${VIOLATION}`,
+      'docs/b.md': `---\nstatus: 已取代\n---\n\n# ADR-2\n\n${VIOLATION}`,
+      'docs/c.md': `# ADR-3\n\n| 狀態 | 已取代 |\n| --- | --- |\n\n${VIOLATION}`,
       ...CODE,
     });
     const report = await run(root);
-    expect(report.summary).toMatchObject({ total: 1, failed: 1, inactive: 1 });
-    expect(report.inactiveSpecs).toEqual([{ file: 'docs/a.md', status: 'superseded', label: '已被 ADR-0003 取代', directives: 1 }]);
-    expect(formatReport(report, { color: false, verbose: false })).toContain('○ docs/a.md is 已被 ADR-0003 取代 - 1 assertion not executed');
+    expect(report.summary).toMatchObject({ total: 3, failed: 3, inactive: 0 });
+    expect(report.inactiveSpecs).toEqual([]);
+    expect(report.specWarnings?.map(({ location, kind, message }) => [location.relativeFile, location.line, kind, message])).toEqual([
+      ['docs/b.md', 2, 'unreadable-status', inFrontMatter('"已取代" does not begin with a word')],
+    ]);
+    expect(runAnnotations(report).filter(({ rule }) => rule === 'spec-warning').map(({ file, hint }) => [file, hint])).toEqual([
+      ['docs/b.md', 'write the status as an English word spec-guard reads, such as accepted or superseded'],
+    ]);
+    // The control: the same documents with the status in English withhold their rules.
+    const english = await repo({
+      'docs/a.md': `# ADR-1\n\n## Status\n\nSuperseded by ADR-0003\n\n${VIOLATION}`,
+      'docs/b.md': `---\nstatus: superseded\n---\n\n# ADR-2\n\n${VIOLATION}`,
+      'docs/c.md': `# ADR-3\n\n| Status | Superseded |\n| --- | --- |\n\n${VIOLATION}`,
+      ...CODE,
+    });
+    expect((await run(english)).summary).toMatchObject({ total: 0, inactive: 3 });
   });
 });
 
@@ -1007,15 +932,19 @@ describe('a status given in a table', () => {
   const warningOf = (source: string) => parseDocument(source, context).warnings?.map(({ location, message }) => [location.line, message]);
 
   it('reads the row that names the status, the header row among them', () => {
-    expect(parseStatus('# ADR-1\n\n| 狀態 | 已接受 |\n| --- | --- |\n\n## Context\n')).toEqual({ value: 'accepted', label: '已接受', source: 'table', active: true });
+    expect(parseStatus('# ADR-1\n\n| Status | Accepted |\n| --- | --- |\n\n## Context\n')).toEqual({ value: 'accepted', label: 'Accepted', source: 'table', active: true });
     expect(parseStatus('# ADR-1\n\n| Field | Value |\n| --- | --- |\n| Date | 2024-05-01 |\n| Status | Superseded by ADR-3 |\n\n## Context\n')).toEqual({
       value: 'superseded',
       label: 'Superseded by ADR-3',
       source: 'table',
       active: false,
     });
-    for (const key of ['**Status**', 'STATE', 'state', '状态', '__狀態__', '*Status*']) {
+    for (const key of ['**Status**', 'STATE', 'state', '__Status__', '*Status*']) {
       expect(parseStatus(`# ADR-1\n\n| ${key} | draft |\n| :-- | --: |\n`)?.value, key).toBe('draft');
+    }
+    // The keys are English: a table that names its status in another language is not read.
+    for (const key of ['狀態', '__状态__', 'Statut']) {
+      expect(parseStatus(`# ADR-1\n\n| ${key} | draft |\n| :-- | --: |\n`), key).toBeUndefined();
     }
   });
 
@@ -1049,9 +978,6 @@ describe('a status given in a table', () => {
     expect(warningOf(source)).toEqual([[7, said('"2024-05-01" does not begin with a word')]]);
     expect(warningOf('# ADR-1\n\n| Status | `draft` |\n| --- | --- |\n')).toEqual([[3, said('it is empty')]]);
     expect(warningOf('# ADR-1\n\n| Field | Value |\n| --- | --- |\n| Status |\n')).toEqual([[5, said('it is empty')]]);
-    expect(warningOf('# ADR-1\n\n| 狀態 | 已取代 ADR-0002 |\n| --- | --- |\n')).toEqual([
-      [3, said('"已取代" before a document reference names the document this one supersedes, not this one\'s status')],
-    ]);
   });
 
   it('reads its right cell with code masked as a section reads its line, so code beside the value is no part of what it names', () => {
@@ -1066,10 +992,10 @@ describe('a status given in a table', () => {
   });
 
   it('withholds the rules of a document its table takes out of force', async () => {
-    const root = await repo({ 'docs/a.md': `# ADR-1\n\n| 狀態 | 已棄用 |\n| --- | --- |\n\n## Context\n\n${VIOLATION}`, ...CODE });
+    const root = await repo({ 'docs/a.md': `# ADR-1\n\n| Status | **Deprecated** |\n| --- | --- |\n\n## Context\n\n${VIOLATION}`, ...CODE });
     const report = await run(root);
     expect(report.summary).toMatchObject({ total: 0, inactive: 1 });
-    expect(report.inactiveSpecs).toEqual([{ file: 'docs/a.md', status: 'deprecated', label: '已棄用', directives: 1 }]);
+    expect(report.inactiveSpecs).toEqual([{ file: 'docs/a.md', status: 'deprecated', label: 'Deprecated', directives: 1 }]);
   });
 });
 

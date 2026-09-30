@@ -109,8 +109,6 @@ export interface SpecWarning {
   /** Which of them, in words that stay the same while the document changes around it. */
   kind: 'unreadable-status' | 'unclosed-front-matter' | 'unclosed-block';
   message: string;
-  /** What to do, where the warning knows better than its kind: the colon to write after a key in Chinese. */
-  hint?: string;
 }
 
 /** What hides a directive-shaped comment from being read as a directive. */
