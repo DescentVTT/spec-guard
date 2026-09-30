@@ -16,6 +16,7 @@ import {
   passKey,
   resolveEngine,
   runSearches,
+  sealPaths,
   ANY_FILE_PROBE,
   ROOT_TARGETS,
   type CachedEngine,
@@ -920,10 +921,11 @@ function resolveStructure(
  * The spec files a search must not count, as absolute paths.
  *
  * A spec names the symbol it forbids, so without this every absence rule would
- * find itself. Empty under `--include-specs`.
+ * find itself. Empty under `--include-specs`. Sealed, since every request of
+ * a run carries it and a key names it by number (`engine.ts`).
  */
 export function specExclusions(specFiles: readonly string[], includeSpecs: boolean): ReadonlySet<string> {
-  return new Set(includeSpecs ? undefined : specFiles.map((file) => path.resolve(file)));
+  return sealPaths(includeSpecs ? undefined : specFiles.map((file) => path.resolve(file)));
 }
 
 async function pathExists(io: Io, candidate: string): Promise<boolean> {
