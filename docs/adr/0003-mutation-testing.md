@@ -1555,6 +1555,29 @@ ran high where they were least measured: `runner.ts` and `text.ts` took 7m35s
 against 15.2 minutes, and `cli.ts` alone 8m18s against 15.1, so the next
 split starts from this run's logs rather than 398fe94's.
 
+### 0.17.0: thirteen survivors replayed, two of them equivalent
+
+CI's full sweep of b925c28 (run 36654468570), the merge of 0.17.0's code,
+came out at 99.07% over 12,405 mutants with 112 survivors and 3 without
+coverage, thirteen of the survivors new. Before the release, 746461d killed
+nine by tests - the Han check anchored at the start of a status, a table
+cell's trim, the fingerprint separator that keeps `Legacy` in `src` apart
+from `Legacys` in `rc`, and the colour names of the strict ending, held by
+exact coloured output as every earlier colour survivor is - and removed two
+with the code, which decided nothing: the text of a refused front-matter
+status, and a count of rules in force only ever compared with zero, now a
+boolean. Two are equivalent and commented beside the code: `candidate.line <
+end` made `<=` in the table reading, since no table starts on a heading's
+line, and `/^[*_]*/` without its `^`, since a pattern that matches the
+empty string and is not global first matches at index 0. The sweep of
+746461d (run 36658570070) then came out at **99.16%
+over 12,407 mutants with 101 survivors and 3 without coverage**; the shards
+took from 4m09s to 16m23s. Every survivor of 0.16.0 is still one except the
+recorded slice of YAML front matter, `scan.text.slice(0, block.bodyStart)`
+made `scan.text`, which the test of a Chinese front-matter key now kills,
+since the reader copied from spec-core 5666c96 makes the slice matter. The
+round added 357 mutants.
+
 ### 0.16.0: one survivor more, and it decides nothing
 
 CI's full sweep of 5c4cb28 (run 36592485044) came out at **99.15% over 12,050

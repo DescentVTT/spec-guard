@@ -10,128 +10,64 @@ what to do when upgrading; the family's policy, including how a flag or field
 is deprecated before it goes, is spec-core's
 [ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
-## Unreleased
+## 0.17.0
+
+Chinese statuses and status tables are read, `--strict` refuses a run that
+verified nothing, a hint travels with every finding to GitLab and GitHub,
+fingerprints no longer follow a message's wording, and spec-core is at
+5666c96.
 
 ### Changed
 
-- **A status written in Chinese is read.** `status: 已取代` was a status that
-  cannot be read, and `## 狀態` and `狀態：已取代` were not read at all. A
-  Chinese word from the family's table, Traditional or Simplified, is now read
-  as the English word it translates - 已取代 `superseded`, 草稿 `draft`, 延後
-  `deferred` - and does what that word does: only the six words withhold a
-  document, and 延後 stays in force as `deferred` does. The key is read as
-  `狀態` or `状态` in a heading, a label with `:` or `：`, a table, and front
-  matter with YAML's colon, `status` first, then `狀態`, then `状态`;
-  `状态：草稿` there is a status that cannot be read when no key names one,
-  and its warning says to write `状态:`. Upgrading: a Chinese ADR that says it is superseded, deprecated,
-  rejected, archived, a draft or proposed stops running its rules; write its
-  status in English, or run with `--ignore-status`, to keep them running.
-  [ADR-0010](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0010-spec-status.md)'s
-  amendments of 2026-09-30.
-- **A status given in a two-column table in the preamble is read.** A row
-  whose left cell is `Status`, `State`, `狀態` or `状态`, in a table of two
-  columns before the first section heading, gives the status; it ranks after
-  a `## Status` section and before a label. Upgrading: a document whose table
-  says it is out of force stops running its rules.
-- **A status section or label that cannot be read keeps its document in
-  force.** A `## Status` section with nothing under it, or a value that
-  begins with no word, handed over to the `Status:` label; it now decides as
-  front matter does, warning on its line, and the label is not read in its
-  place. Upgrading: a document withheld only by a label under such a section
-  runs its rules again; write its status in the section.
-- **Under `--strict`, a run that executed no assertion fails.** Specs that
-  matched and state no rule in force - every document withheld, no directive
-  in any - exited 0 and said so in the human report alone. Under `--strict`
-  or `"strict": true` that run is now exit 1, and says so everywhere: JSON's
-  `ok` is `false` with `"nothingVerified": true`, and SARIF, GitHub and
-  GitLab carry a `nothing-verified` finding; `prove --strict` fails the same
-  way when it proved no rule. One rule in force passes, and the MCP server's
-  check of paths no rule governs passes. Upgrading: a strict run over specs
-  with nothing in force turns red; put a rule in force, fix the spec
-  patterns, or pass `--no-strict` to that run.
-  [ADR-0010](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0010-spec-status.md)'s
-  amendment of 2026-09-30.
-- **A `cites` check under `--strict` that read no source file is a finding in
-  every format.** It exited 1 and said so in the human report alone; SARIF,
-  GitHub and GitLab now carry a `nothing-read` finding, an error and `major`,
-  with a hint, JSON adds `"nothingRead": true`, and the human report's last
-  line is a failure. Upgrading: the exit code does not change; a pipeline that
-  reads the GitLab report or code scanning sees one finding where it saw none.
-  [ADR-0017](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0017-citations-in-comments.md)'s
-  amendment of 2026-09-30.
-- **GitLab's description and GitHub's message carry the finding's hint.**
-  A Code Quality issue's `description` and a workflow command's message were
-  the message alone; they are now the message and then the next action: fix
-  the code or the rule, fix the directive, write a status word spec-guard
-  reads, close the block, run with `--ignore-status`, narrow a rule `prove`
-  showed cannot fail. A `cites` finding reads as it did. Fingerprints do not
-  change. Upgrading: nothing to do, unless a script compares a description
-  whole; its message is still how it starts.
-- **A directive that cannot be read keeps its GitLab fingerprint while its
-  message changes.** It was the hash of the message, so a release that
-  worded one differently made GitLab show the issue fixed and a new one
-  found; it is now the hash of the directive as written, as every other
-  finding's is of what it is about. Upgrading: the first pipeline after
-  upgrading shows each such issue fixed and found again, once.
-- **So does its SARIF fingerprint.** A code-scanning alert for a directive
-  that cannot be read was fingerprinted by its message too; it is now of the
-  directive as written, with a count for a second copy, and is the first half
-  of the GitLab fingerprint of the same finding. `prove`'s SARIF follows.
-  Upgrading: each open code-scanning alert for such a directive closes and
-  reopens once, on the first upload after upgrading.
-- **A leading `./` goes with the slashes after it, so `.//f.ts` is `f.ts`
-  at any depth.** spec-core, copied again from `5666c96`, reads `.//docs` as
-  POSIX does, where it read `/docs`, rooted, and a slash the braces give
-  after a `./` roots nothing either. `glob=".//f.ts"` and
-  `glob="./{/f.ts,x}"` found `f.ts` at the root only and now find it at any
-  depth, as `glob="./f.ts"` does, under both engines; `exclude=".//build"`,
-  a module and a layer leave out every `build`; a spec pattern
-  `.//docs/*.md` is walked from the repository's `docs`, where it was the
-  filesystem's `/docs`; and `dirs=".//a"` chooses `a`, where it chose
-  nothing. Upgrading: a pattern that meant the root with `.//` says so with
-  `/`: write `/f.ts`, or `{/f.ts,x}`.
-  [ADR-0015](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0015-globs-from-spec-core.md)'s
-  and [ADR-0013](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0013-structure-assertions.md)'s
-  amendments of 2026-09-30.
+- A status written in Chinese is read as the English word it translates
+  (`已取代` superseded, `草稿` draft, `延後` deferred), from a heading, a
+  label with `:` or `：`, a table, or front matter (`狀態:`); only the six
+  English words withhold a document ([ADR-0010](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0010-spec-status.md)).
+  Upgrading: a Chinese ADR marked superseded, deprecated, rejected, archived,
+  draft or proposed stops running its rules; write its status in English or
+  run with `--ignore-status` to keep them.
+- A two-column table before the first section whose left cell is `Status`,
+  `State`, `狀態` or `状态` gives the status, after a `## Status` section.
+  Upgrading: as above.
+- A `## Status` section or label that cannot be read keeps its document in
+  force with a warning, where it fell through to a later label. Upgrading:
+  write the status in the section.
+- Under `--strict`, a run or `prove` that executed no assertion exits 1, with
+  a `nothing-verified` finding in every format; a selection that picks no
+  rule still passes (ADR-0010). Upgrading: put a rule in force, fix the spec
+  patterns, or pass `--no-strict`.
+- `cites --strict` that read no source file writes a `nothing-read` finding
+  in every format; its exit code is unchanged
+  ([ADR-0017](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0017-citations-in-comments.md)).
+  Upgrading: a code-scanning or GitLab report shows one finding where it
+  showed none.
+- GitLab descriptions and GitHub messages carry the hint after the message.
+  Upgrading: nothing, unless a script compares a description whole.
+- The GitLab and SARIF fingerprints of a directive that cannot be read are
+  built from the directive as written, never its message. Upgrading: each
+  such issue or alert closes and reopens once.
+- spec-core at 5666c96: `.//f.ts` is `f.ts` at any depth, as `./f.ts` is,
+  in every pattern and under both engines, where it meant the root
+  ([ADR-0015](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0015-globs-from-spec-core.md),
+  [ADR-0013](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0013-structure-assertions.md)).
+  Upgrading: write `/f.ts` for the root.
 
 ### Fixed
 
-- **A `./` before a `!` is read as naming a file, not taken off to leave a
-  negation.** `glob="./!a"` was an invalid directive and is now the name
-  `!a` at any depth, under both engines; `exclude="./!build"`, a module, a
-  layer and `dirs=` read it so too, and a spec pattern `./!*.md` is the names
-  `!*.md` at any depth and `././!*.md` the root's, where both were exit 2.
-  `!a` alone is refused as it was.
-  [ADR-0015](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0015-globs-from-spec-core.md)'s
-  amendment of 2026-09-30.
-- **`impact` lines up a path written in Chinese, Japanese or Korean.** Its
-  report padded each dependent's path by UTF-16 units, and a terminal draws
-  a Han character two columns wide, so what a path such as `src/頁面.ts`
-  imports began further right than on the lines around it. It now pads by
-  the columns a terminal draws, with spec-core's `displayWidth`. `--json` is
-  unchanged.
-- **The README's account of GitLab Code Quality.** It said an issue's
-  fingerprint is the SHA-256 of its rule, file and message; since 0.12.0 it
-  is of what the finding is about and never of its message, as the code and
-  that release's entry say. Its table of severities now has the row for a
-  document read differently from how it was written, `spec-warning`,
-  `minor`.
-- **The README says how to install ripgrep beyond GitHub's runners**: on a
-  GitLab runner's Debian or Alpine image, and on Windows, and what
-  `SPEC_GUARD_RG` does.
-- **The README's SARIF example uploads with `github/codeql-action/upload-sarif@v4`**,
-  the current major, where it used v3, deprecated in December 2026, and
-  shows the permissions the job needs.
+- `glob="./!a"` and the spec pattern `./!*.md` name files called `!a` and
+  `!*.md`, where they were refused as negations.
+- `impact` lines up paths in Chinese, Japanese or Korean.
+- The README describes the GitLab fingerprint as the code builds it, lists
+  the `spec-warning` severity, says how to install ripgrep on GitLab runners
+  and Windows, and uploads SARIF with `upload-sarif@v4`.
 
 ### Documentation
 
-- **README reorganised**: the reference for all eight directives sits under
-  Directives, dense paragraphs are lists and tables, Design decisions is an
-  index of the ADRs, and development, mutation testing and releasing moved to a
-  new `CONTRIBUTING.md`, with the release flow recorded in
-  [ADR-0019](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0019-releases-are-staged-by-ci.md)
-  and how to report a vulnerability in `SECURITY.md`. It no longer says
-  `@assert-absence` accepts `min`, which it never did.
+- The README is reorganised: the directive reference sits under Directives,
+  Design decisions is an index of the ADRs, and development, mutation testing
+  and releasing moved to CONTRIBUTING.md, with the release flow in
+  [ADR-0019](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0019-releases-are-staged-by-ci.md);
+  SECURITY.md says how to report a vulnerability privately.
 
 ## 0.16.0
 
