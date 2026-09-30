@@ -234,6 +234,16 @@ describe('the patterns both engines are given', () => {
     // A ./ before a ! stays, since it is what makes the ! part of a name.
     ['./!a', './!a'],
     ['././!a', './!a'],
+    // The slashes after a ./ go with it, as spec-core reads them from its
+    // copy of 5666c96, so what is left is not rooted.
+    ['.//a.ts', 'a.ts'],
+    ['./', ''],
+    ['.//!a', './/!a'],
+    // Before braces that give a / it stays, since it keeps that / from
+    // rooting the text.
+    ['./{/a,b}', './{/a,b}'],
+    ['./{/a,b}/', './{/a,b}/**'],
+    ['././{/a,b}', './{/a,b}'],
   ])('include glob %s is %s', (pattern, normalized) => {
     expect(normalizeGlob(pattern)).toBe(normalized);
   });
@@ -249,6 +259,9 @@ describe('the patterns both engines are given', () => {
     ['./', ''],
     ['/', ''],
     ['./!build/', './!build'],
+    ['.//build', 'build'],
+    ['.//', ''],
+    ['./{/build,x}/', './{/build,x}'],
   ])('exclude pattern %s is %s', (pattern, normalized) => {
     expect(normalizeExclude(pattern)).toBe(normalized);
   });

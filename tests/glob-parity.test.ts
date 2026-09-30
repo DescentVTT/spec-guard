@@ -32,6 +32,7 @@ function tree(): Promise<string> {
         '}a.ts',
         'c/d.log',
         'docs/a.md',
+        'k,l',
         'docs/x/b.md',
         'lib/src',
         'src/a.ts',
@@ -69,6 +70,7 @@ const EVERY = [
   'c/d.log',
   'docs/a.md',
   'docs/x/b.md',
+  'k,l',
   'lib/src',
   'src/!a',
   'src/a.ts',
@@ -111,6 +113,14 @@ const cases: Case[] = [
   // read from and makes the ! a name, at any depth, as ./a is a at any depth.
   { name: 'a leading ./ before a !', globs: ['./!a', './!b'], files: ['!b', 'src/!a'] },
   { name: 'a leading ./ before a !, excluded', exclude: ['./!a'], files: without('src/!a') },
+  // The slashes after a leading ./ go with it, so they root nothing, whether
+  // the braces give them or not.
+  { name: 'a leading ./ with slashes after it', globs: ['.//a.ts'], files: ['a.ts', 'src/a.ts'] },
+  { name: 'a leading ./ before braces that give a /', globs: ['./{/a.ts,x.log}'], files: ['a.ts', 'src/a.ts', 'x.log'] },
+  { name: 'a leading ./ with slashes after it, excluded', exclude: ['.//tests'], files: without('src/tests/t.ts', 'tests/u.ts') },
+  // A comma no group took is a character, which ripgrep is handed as a class.
+  { name: 'a comma no group took', globs: ['k,{l,m}'], files: ['k,l'] },
+  { name: 'a comma no group took, excluded', exclude: ['k,{l,m}'], files: without('k,l') },
   // An alternative that ends in `/` is the directory's contents, as a whole
   // pattern that ends in one is: never the file `lib/src`, which the scanner's
   // segment shortcut and ripgrep's `src` both took for it before.

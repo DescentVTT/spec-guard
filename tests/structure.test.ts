@@ -452,10 +452,18 @@ describe('required', () => {
       // chooses what dirs="d" does; it chose `a` too, the slash read as
       // nothing.
       expect(await held('/{a/,d}')).toEqual([]);
-      expect(await held('././/{a/,d}')).toEqual([]);
       expect(await held('{/a/,d}')).toEqual(missing('svc/d'));
       expect(await held('{/a/,{//c,d}}')).toEqual(missing('svc/d'));
       expect(await held('{/a/,/d/}')).toEqual([]);
+    });
+
+    it('roots nothing with a slash after a leading ./, which goes with it', async () => {
+      // From spec-core's copy of 5666c96 a `./` takes the slashes after it,
+      // as POSIX reads `.//a`, and a slash the braces give after it is one of
+      // them. `.//` rooted the pattern and chose nothing.
+      expect(await held('././/{a/,d}')).toEqual(missing('svc/a', 'svc/d'));
+      expect(await held('.//a/')).toEqual(missing('svc/a'));
+      expect(await held('./{/a/,d}')).toEqual(missing('svc/a', 'svc/d'));
     });
 
     it('changes nothing about a slash ending the whole of dirs=, braces without one, or one an alternative goes on after', async () => {
@@ -840,25 +848,27 @@ describe('resolving @assert-structure', () => {
     expect(assertionOf('<!-- @assert-structure required="x" -->').structure).toEqual({ claim: 'required', values: ['x'] });
   });
 
-  it('writes the braces of dirs again when an alternative loses its ./ or its trailing slash, and says so in the description', () => {
+  it('writes the braces of dirs again when an alternative loses its trailing slash, and says so in the description', () => {
     const dirsOf = (dirs: string): string | undefined => assertionOf(`<!-- @assert-structure dirs="${dirs}" required="x" -->`).structure?.dirs;
     expect(dirsOf('{a/,d}')).toBe('{a,d}');
     expect(dirsOf('{./a/,{b//,c}}')).toBe('{a,b,c}');
-    expect(dirsOf('{./a,d}')).toBe('{a,d}');
     expect(dirsOf('x/{a/,b}')).toBe('{x/a,x/b}');
     // What spec-core takes off the front before braces stays in front of them.
     expect(dirsOf('/{a/,d}')).toBe('/{a,d}');
     expect(dirsOf('//{a/,d}')).toBe('//{a,d}');
     expect(dirsOf('././/{a/,d}')).toBe('.//{a,d}');
+    expect(dirsOf('./{/a/,d}')).toBe('./{a,d}');
     // An alternative's own leading / stays on it, where it roots that
     // alternative alone.
     expect(dirsOf('{/a/,d}')).toBe('{/a,d}');
     expect(dirsOf('x,{a/,b}')).toBe('{x[,]a,x[,]b}');
     // A \ is a separator, so the pattern is written with /.
     expect(dirsOf('a\\\\b')).toBe('a/b');
-    // Otherwise the braces stay as written.
+    // Otherwise the braces stay as written, a ./ an alternative starts with
+    // among them: `{./a,d}` chooses what `{a,d}` does.
     expect(dirsOf('x/{a,b}/')).toBe('x/{a,b}');
     expect(dirsOf('{a/,b}c')).toBe('{a/,b}c');
+    expect(dirsOf('{./a,d}')).toBe('{./a,d}');
     expect(assertionOf('<!-- @assert-structure target="svc" dirs="{a/,d}" required="x" -->').description).toBe('directories matching {a,d} under svc must contain x');
   });
 
