@@ -119,14 +119,11 @@ describe('a run\'s findings', () => {
       }),
     });
     expect(runAnnotations(report).map(({ file, hint }) => [file, hint])).toEqual([
-      ['docs/a.md', 'write a status word spec-guard reads, such as accepted or superseded'],
+      ['docs/a.md', 'write the status as an English word spec-guard reads, such as accepted or superseded'],
       ['docs/b.md', 'close it, and the directives after it run'],
       // Its message ends with how to close it.
       ['docs/c.md', undefined],
     ]);
-    // A warning that knows what to write says it, in place of its kind's hint.
-    const colon = await runSpecGuard({ patterns: ['docs/*.md'], root: ROOT, io: memoryIo(ROOT, { 'docs/a.md': '---\n状态：草稿\n---\n', 'src/a.ts': '' }) });
-    expect(gitlab(runAnnotations(colon)).map(({ description }) => description.split('. ').at(-1))).toEqual(['write "状态:" with an ASCII colon']);
   });
 
   it('put a directory missing an entry on the directive, since the directory has no line', async () => {

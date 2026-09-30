@@ -1123,12 +1123,13 @@ function inactiveAnnotations(inactive: readonly InactiveSpec[], what: 'assertion
 }
 
 /**
- * What to do about a warning, by its kind, where its message does not say -
- * the one for front matter never closed ends with how to close it - and the
- * warning names nothing more particular of its own.
+ * What to do about a warning, by its kind, where its message does not say:
+ * the one for front matter never closed ends with how to close it. A status
+ * is read in English whatever language the document is in, so the hint for
+ * one that cannot be read names English words (ADR-0010).
  */
 const WARNING_HINTS: Readonly<Partial<Record<SpecWarning['kind'], string>>> = {
-  'unreadable-status': 'write a status word spec-guard reads, such as accepted or superseded',
+  'unreadable-status': 'write the status as an English word spec-guard reads, such as accepted or superseded',
   'unclosed-block': 'close it, and the directives after it run',
 };
 
@@ -1142,7 +1143,7 @@ function warningAnnotations(warnings: readonly SpecWarning[] | undefined): Annot
     file: warning.location.relativeFile,
     line: warning.location.line,
     message: warning.message,
-    hint: warning.hint ?? WARNING_HINTS[warning.kind],
+    hint: WARNING_HINTS[warning.kind],
   }));
 }
 
