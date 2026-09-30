@@ -395,9 +395,14 @@ function fromFrontmatter(scan: MarkdownScan): StatusReading | undefined {
   const declared =
     block.kind === 'toml' ? tomlStatus(block.raw, (offset) => scan.index.positionAt(block.start + offset).line) : yamlStatus(scan, block);
   if (declared === undefined) return undefined;
-  const read = 'text' in declared ? toStatus(declared.text, 'frontmatter') : declared;
-  if ('status' in read) return { status: read.status };
-  const reason = unreadable('text' in declared ? declared.text : '', read.reason);
+  let reason: string;
+  if ('text' in declared) {
+    const read = toStatus(declared.text, 'frontmatter');
+    if ('status' in read) return { status: read.status };
+    reason = unreadable(declared.text, read.reason);
+  } else {
+    reason = declared.reason;
+  }
   return {
     problem: {
       line: declared.line,
