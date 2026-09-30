@@ -39,6 +39,7 @@ import {
   ripgrepFailureMessage,
   runSearches,
   scanContent,
+  sealPaths,
   smallTreeBudget,
   truncate,
   withinSizeLimit,
@@ -52,8 +53,10 @@ import {
   type SearchRequest,
 } from '../src/engine.js';
 import { nodeIo, type DirectoryReader } from '../src/io.js';
+import { runSpecGuard } from '../src/runner.js';
 import { DEFAULT_SCOPE, MAX_LEDGER_ENTRIES, SCAN_EVERYTHING } from '../src/scope.js';
 import { DEMO_REPO, makeTempRepo, memoryIo, reading, removeTempRepo, searchOptions, wideTree } from './helpers.js';
+import { fastestInTurnAsync, instrumented } from './timing.js';
 
 const temporary: string[] = [];
 
@@ -378,6 +381,73 @@ describe('two requests are the same question only when they are', () => {
     const whole = await engine.search({ ...base, options: searchOptions({ word: true }) });
 
     expect([loose.count, whole.count]).toEqual([2, 1]);
+  });
+
+  it('does not answer for one sealed set of files left out from another, even holding the same paths', async () => {
+    // A key names a sealed set by its number, not by its paths.
+    const root = await repo({ 'src/a.ts': 'Widget\n', 'src/b.ts': 'Widget\n' });
+    const engine = createCachedEngine(javascriptEngine);
+    const base = { root, symbol: 'Widget', targets: ['src'] };
+    const leaveOut = (...files: string[]): ReadonlySet<string> => sealPaths(files.map((file) => path.resolve(root, file)));
+
+    const counts = [];
+    for (const excludeFiles of [leaveOut('src/b.ts'), leaveOut(), leaveOut('src/b.ts'), leaveOut('src/a.ts', 'src/b.ts')]) {
+      counts.push((await engine.search({ ...base, options: searchOptions({ excludeFiles }) })).count);
+    }
+    expect(counts).toEqual([1, 2, 1, 0]);
+
+    const merged = await runSearches(javascriptEngine, [
+      { ...base, options: searchOptions({ excludeFiles: leaveOut() }) },
+      { ...base, options: searchOptions({ excludeFiles: leaveOut('src/b.ts') }) },
+    ]);
+    expect(merged.map((result) => result.count)).toEqual([2, 1]);
+  });
+
+  it('keeps a sealed set as it was made, which is what lets a key name it by number', () => {
+    const set = sealPaths(['/a', '/b']) as Set<string>;
+    expect(() => set.add('/c')).toThrow('a sealed set of paths cannot change');
+    expect(() => set.delete('/a')).toThrow('a sealed set of paths cannot change');
+    expect(() => set.clear()).toThrow('a sealed set of paths cannot change');
+    expect([...set]).toEqual(['/a', '/b']);
+  });
+});
+
+/* ------------------------------------------------- what the keys cost a run */
+
+describe('a run over many specs', () => {
+  // Every request of a run leaves out the run's spec files. The keys that say
+  // which requests share a walk, a pass or an answer wrote those files out
+  // whole, several times for each assertion, so a run over 6,000 specs spent
+  // 45% of its time building keys. The set is sealed and named by a number.
+  const root = path.resolve('/virtual/keys');
+  const specs = (count: number) => {
+    const files: Record<string, string> = { 'src/a.ts': 'export const a = 1;\n' };
+    for (let n = 0; n < count; n += 1) {
+      const name = `docs/decisions/${String(n).padStart(4, '0')}-a-decision-named-as-long-as-most-are.md`;
+      files[name] = `# Decision ${n}\n\n<!-- @assert-absence target="src/a.ts" symbol="Gone${n}" -->\n`;
+    }
+    return memoryIo(root, files);
+  };
+  const run = (io: ReturnType<typeof memoryIo>) => runSpecGuard({ patterns: ['docs/**/*.md'], root, io });
+
+  it('takes time linear in its specs, one rule to each', async () => {
+    const small = specs(100);
+    const large = specs(800);
+    expect((await run(large)).summary).toMatchObject({ specs: 800, total: 800, passed: 800, failed: 0 });
+    if (instrumented()) return;
+    // Eight runs over a hundred specs against one over eight hundred: keys
+    // that grow with assertions times specs take eight times as long on the
+    // larger. Twice linear is allowed, and 200 ms for noise. On the machine
+    // this was written on, the larger took 6.6 s against 0.3 s allowed before
+    // the set was sealed, and after it, 46 ms, as long as the eight smaller.
+    const [eightSmall, oneLarge] = (await fastestInTurnAsync(
+      3,
+      async () => {
+        for (let n = 0; n < 8; n += 1) await run(small);
+      },
+      () => run(large),
+    )) as [number, number];
+    expect(oneLarge).toBeLessThan(2 * eightSmall + 200);
   });
 });
 

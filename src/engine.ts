@@ -212,9 +212,49 @@ function walkKey(request: WalkRequest): string {
     request.targets,
     options.globs,
     options.excludeGlobs,
-    [...options.excludeFiles],
+    sealed.get(options.excludeFiles) ?? [...options.excludeFiles],
     [...options.scope.skippedDirectories],
   ]);
+}
+
+/**
+ * Sets of paths nothing can change once made, each with the number it stands
+ * for in a key.
+ *
+ * Every request of a run leaves out the run's spec files, and every key wrote
+ * them out whole: 1,500 paths, some 200 KB, several times for each assertion,
+ * so the keys cost assertions times specs, and took 45% of a run over 6,000
+ * specs. A sealed set's number says what it holds as surely as its paths do,
+ * since nothing can add to it or take from it once it has one. Two sealed sets
+ * of the same paths have two numbers, which costs a repeated search, the safe
+ * direction; a set sealed nowhere is written out whole, as before.
+ */
+const sealed = new WeakMap<ReadonlySet<string>, number>();
+let sealedCount = 0;
+
+class SealedPaths extends Set<string> {
+  // The constructor adds the paths it is given, before the set has a number.
+  override add(value: string): this {
+    if (sealed.has(this)) throw new TypeError('a sealed set of paths cannot change');
+    return super.add(value);
+  }
+
+  override delete(): boolean {
+    throw new TypeError('a sealed set of paths cannot change');
+  }
+
+  override clear(): void {
+    throw new TypeError('a sealed set of paths cannot change');
+  }
+}
+
+/** A set of the given paths, or of none, that nothing can change, which a key names by its number. */
+export function sealPaths(paths?: Iterable<string>): ReadonlySet<string> {
+  const set = new SealedPaths(paths);
+  // Counting down would number every set apart as well: `sealedCount--` is an
+  // equivalent mutant.
+  sealed.set(set, sealedCount++);
+  return set;
 }
 
 /**
