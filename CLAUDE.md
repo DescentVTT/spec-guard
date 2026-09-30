@@ -66,7 +66,7 @@ The selfcheck reads the specs `package.json` names, `docs/**/*.md` and
 executes: say so in the pull request.
 
 **Mutation testing runs only in GitHub Actions**, in `mutation.yml`: an
-incremental sweep on every branch and pull request, the full sweep on main,
+incremental sweep on every pull request, the full sweep on main,
 both gated by the `break` in `stryker.config.mjs`. Do not run Stryker locally.
 For new or changed code, replay its likely mutants by hand: write the mutation
 into the source, run the test files that cover it, watch one fail, restore the
