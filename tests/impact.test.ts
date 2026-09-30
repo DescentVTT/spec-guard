@@ -473,6 +473,44 @@ describe('the report', () => {
     expect(formatImpact({ ...many, unresolved: many.unresolved.slice(0, 10) })).not.toContain('--json lists them all');
   });
 
+  it('lines up what each dependent imports by the columns its path takes in a terminal, a Han character two', () => {
+    const report: ImpactReport = {
+      root: '/r',
+      specFiles: [],
+      exclude: [],
+      depth: null,
+      results: [
+        {
+          path: 'src/db.ts',
+          shape: 'file',
+          files: ['src/db.ts'],
+          dependents: [
+            { file: 'src/頁面/設定.ts', depth: 1, via: { imports: 'src/db.ts', line: 1, specifier: './db' } },
+            { file: 'src/app/list.ts', depth: 1, via: { imports: 'src/db.ts', line: 2, specifier: '../db' } },
+          ],
+        },
+      ],
+      rules: [],
+      withheld: { rules: 0, documents: [] },
+      documents: [],
+      unresolved: [],
+      unfollowed: [],
+      gaps: [],
+      errors: [],
+      scanned: 3,
+      durationMs: 1,
+    };
+    // The first path is twelve UTF-16 units and sixteen columns, the second
+    // fifteen of each: counted in units, `imports` began four columns later
+    // on the first line than on the second.
+    expect(formatImpact(report).split('\n').slice(0, 4)).toEqual([
+      'src/db.ts',
+      '  2 files depend on it, 2 directly',
+      '    1  src/頁面/設定.ts  imports src/db.ts (line 1)',
+      '    1  src/app/list.ts   imports src/db.ts (line 2)',
+    ]);
+  });
+
   it('says nothing it has nothing to say about, and counts in the singular and the plural', () => {
     const bare: ImpactReport = {
       root: '/r',

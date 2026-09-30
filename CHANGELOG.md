@@ -104,6 +104,12 @@ is deprecated before it goes, is spec-core's
   `!a` alone is refused as it was.
   [ADR-0015](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0015-globs-from-spec-core.md)'s
   amendment of 2026-09-30.
+- **`impact` lines up a path written in Chinese, Japanese or Korean.** Its
+  report padded each dependent's path by UTF-16 units, and a terminal draws
+  a Han character two columns wide, so what a path such as `src/頁面.ts`
+  imports began further right than on the lines around it. It now pads by
+  the columns a terminal draws, with spec-core's `displayWidth`. `--json` is
+  unchanged.
 - **The README's account of GitLab Code Quality.** It said an issue's
   fingerprint is the SHA-256 of its rule, file and message; since 0.12.0 it
   is of what the finding is about and never of its message, as the code and

@@ -64,10 +64,12 @@ anchors that alternative as it would the pattern written alone, as the second
 amendment of 2026-09-29 below says. An eleventh, from `5666c96`, changed
 `pattern`, `markdown` and `text`: a leading `./` goes with the slashes after
 it, and spec-core gives its own reading of how each brace alternative starts,
-as the amendment of 2026-09-30 on a `./` and its slashes below says; front matter reads a key of
-any script, by which [ADR-0010](0010-spec-status.md)'s amendment of that date
-reads a status key in Chinese; and `rebaseGlob`, a plain scalar in any script
-and a terminal's display width arrived, which nothing here uses.
+as the amendment of 2026-09-30 on a `./` and its slashes below says; front
+matter reads a key of any script, by which [ADR-0010](0010-spec-status.md)'s
+amendment of that date reads a status key in Chinese; `text` counts the
+columns a terminal draws a text in, by which `impact` lines up the paths it
+lists ([ADR-0018](0018-impact.md)); and `rebaseGlob` and a plain scalar in
+any script arrived, which nothing here uses.
 `VENDOR.json` records the commit and the SHA-256 of every file. Nothing in
 this repository edits them.
 

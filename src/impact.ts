@@ -28,6 +28,7 @@ import { governs, viewRule, within, type DocumentView, type QueryPath, type Rule
 import { formatOptionLines } from './reporter.js';
 import { createScope } from './scope.js';
 import type { ConfigUse } from './types.js';
+import { displayWidth } from './vendor/spec-core/text/index.js';
 
 /* -------------------------------------------------------------------- graph */
 
@@ -346,6 +347,16 @@ function plural(count: number, one: string, many: string): string {
   return `${count} ${count === 1 ? one : many}`;
 }
 
+/**
+ * A text and the spaces after it that make it `width` columns wide in a
+ * terminal. `.padEnd` counts UTF-16 units, and a path such as `src/頁面.ts`
+ * is nine of them and eleven columns, so the column after it began two
+ * columns late on its line. Never given a text wider than `width`.
+ */
+function padded(text: string, width: number): string {
+  return `${text}${' '.repeat(width - displayWidth(text))}`;
+}
+
 /** At most this many unresolved references are listed in the human report; JSON has them all. */
 const SHOWN_UNRESOLVED = 10;
 
@@ -369,9 +380,9 @@ export function formatImpact(report: ImpactReport): string {
         ? '  nothing in scope imports it'
         : `  ${plural(result.dependents.length, 'file depends', 'files depend')} on it, ${direct} directly${deepest > 1 ? `, up to ${deepest} imports away` : ''}`,
     );
-    const width = Math.max(0, ...result.dependents.map((dependent) => dependent.file.length));
+    const width = Math.max(0, ...result.dependents.map((dependent) => displayWidth(dependent.file)));
     for (const dependent of result.dependents) {
-      out.push(`    ${dependent.depth}  ${dependent.file.padEnd(width)}  imports ${dependent.via.imports} (line ${dependent.via.line})`);
+      out.push(`    ${dependent.depth}  ${padded(dependent.file, width)}  imports ${dependent.via.imports} (line ${dependent.via.line})`);
     }
     out.push('');
   }
