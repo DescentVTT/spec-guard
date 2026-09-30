@@ -12,6 +12,21 @@ is deprecated before it goes, is spec-core's
 
 ## Unreleased
 
+### Changed
+
+- **A run over thousands of specs takes time that grows with the specs, not
+  with their square.** Its searches are grouped and cached by keys that held
+  every spec file's path, several times for each assertion: over 6,000 specs
+  and 80,000 files a run took 64 s, 45% of it building keys. The spec files a
+  run leaves out are now one set nothing can change, which a key names by a
+  number. Nothing a run answers has changed.
+- **`impact`, and `get_dependents` in the MCP server, take time that grows
+  with the rules and the dependents, not with the one times the other.** Every
+  rule was asked whether it governs every dependent, and is now asked only
+  about the dependents under its targets. Over the same 6,000 specs, an
+  `impact` of a file 74,800 files depend on took 73 s. Nothing it answers has
+  changed.
+
 ### Documentation
 
 - The README's GitHub Actions examples pin each action to a commit with its
