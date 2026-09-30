@@ -10,20 +10,39 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Nothing here writes to the repository; the SARIF upload asks for what it
+# needs on its own job. Stated rather than inherited, because the default is
+# whatever the repository setting happens to be.
+permissions:
+  contents: read
+
 jobs:
   test:
     name: test (${{ matrix.os }}, node ${{ matrix.node }})
     runs-on: ${{ matrix.os }}
+    # Headroom for a bad runner, not a budget: the slowest leg, Windows, took
+    # under a minute and a half. A job that hangs stops here rather than at
+    # GitHub's six hours.
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
+        # 22 is the floor package.json promises, 24 the active LTS, 26 the
+        # current release and the next LTS: a break there is news before it is
+        # an incident.
         os: [ubuntu-latest, windows-latest, macos-latest]
-        node: ['22', '24']
+        node: ['22', '24', '26']
 
     steps:
-      - uses: actions/checkout@v7
+      # Pinned to a commit, with the tag beside it, because a tag can be moved
+      # and a commit cannot.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Nothing here uses git again, and a token left in .git/config is one
+          # a later step, or a dependency of one, could read.
+          persist-credentials: false
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ matrix.node }}
           cache: npm
@@ -65,14 +84,19 @@ jobs:
   scan:
     name: code scanning
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
-      security-events: write
+      security-events: write # the SARIF upload
 
     steps:
-      - uses: actions/checkout@v7
+      # Without the token in .git/config, `npm ci` and the build cannot reach
+      # the upload's write access; only the upload step is handed it.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22'
           cache: npm
@@ -86,7 +110,7 @@ jobs:
         run: node ./bin/spec-guard.js --format sarif > spec-guard.sarif || true
 
       - name: Upload to code scanning
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4.38.1
         # A pull request from a fork gets a read-only token, so the upload would
         # fail for a reason that has nothing to do with the code.
         if: ${{ !github.event.pull_request.head.repo.fork }}
@@ -98,10 +122,13 @@ jobs:
   coverage:
     name: coverage
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22'
           cache: npm
@@ -113,7 +140,7 @@ jobs:
       - name: Test with coverage
         run: npm run test:coverage
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: coverage
           path: coverage/
