@@ -921,6 +921,17 @@ describe('a status written in Chinese', () => {
     }
   });
 
+  it('reads a value that begins with neither a letter nor a Han character as beginning with no word, whatever Chinese follows', () => {
+    // A date or a bracket before a Chinese word is what it is before an
+    // English one: no word begins the value, and the warning says that rather
+    // than that the value is Chinese naming no status word.
+    const said = (reason: string) =>
+      `the status under the heading "Status" cannot be read (${reason}), so its status is unrecognised and the document stays in force; a status written elsewhere in the document is not read in its place`;
+    for (const text of ['2024-05-01 已接受', '（草稿）']) {
+      expect(warningOf(`# ADR-1\n\n## Status\n\n${text}\n`), text).toEqual([[5, said(`"${text}" does not begin with a word`)]]);
+    }
+  });
+
   it('reads the key in Chinese wherever it reads status: a heading, a label, front matter', () => {
     expect(parseStatus('# ADR-1\n\n## 狀態\n\n已取代\n')).toEqual({ value: 'superseded', label: '已取代', source: 'heading', active: false });
     expect(parseStatus('# ADR-1\n\n## 状态\n\n草稿\n')).toMatchObject({ value: 'draft', source: 'heading' });
@@ -1041,6 +1052,17 @@ describe('a status given in a table', () => {
     expect(warningOf('# ADR-1\n\n| 狀態 | 已取代 ADR-0002 |\n| --- | --- |\n')).toEqual([
       [3, said('"已取代" before a document reference names the document this one supersedes, not this one\'s status')],
     ]);
+  });
+
+  it('reads its right cell with code masked as a section reads its line, so code beside the value is no part of what it names', () => {
+    const inTable = (reason: string) =>
+      `the status in the table cannot be read (${reason}), so its status is unrecognised and the document stays in force; a status written elsewhere in the document is not read in its place`;
+    const inSection = (reason: string) =>
+      `the status under the heading "Status" cannot be read (${reason}), so its status is unrecognised and the document stays in force; a status written elsewhere in the document is not read in its place`;
+    for (const value of ['`draft` 2024-05-01', '2024-05-01 `draft`']) {
+      expect(warningOf(`# ADR-1\n\n| Status | ${value} |\n| --- | --- |\n`), value).toEqual([[3, inTable('"2024-05-01" does not begin with a word')]]);
+      expect(warningOf(`# ADR-1\n\n## Status\n\n${value}\n`), value).toEqual([[5, inSection('"2024-05-01" does not begin with a word')]]);
+    }
   });
 
   it('withholds the rules of a document its table takes out of force', async () => {
@@ -1567,6 +1589,14 @@ describe('a run under --strict that verified nothing', () => {
       },
     ]);
     expect(run?.invocations[0]?.executionSuccessful).toBe(false);
+  });
+
+  it('ends in a failure\'s colour when colour is on, where the same run without --strict ends in a warning\'s', async () => {
+    // A colour nobody asserts is a colour that can be dropped.
+    const root = await repo({ 'docs/a.md': `# ADR-1\n\n## Status\n\nDraft\n\n${VIOLATION}`, ...CODE });
+    const last = async (options: object) => formatReport(await run(root, ['docs/a.md'], options), { color: true, verbose: false }).split('\n').at(-1);
+    expect(await last({ strictTargets: true })).toBe(`${ESC}[31m${ESC}[1m✖ ${REFUSED}${ESC}[0m`);
+    expect(await last({})).toBe(`${ESC}[33m⚠ no assertion was executed, so nothing was verified${ESC}[0m`);
   });
 
   it('is one GitLab issue whatever spec it is shown on, fingerprinted by its rule alone', async () => {
