@@ -282,6 +282,21 @@ describe('a glob that starts with /, asked of spec-core as written', () => {
     expect(normalizeDirs('./a/')).toBe('a');
   });
 
+  it('is asked of spec-core as written, its leading ./ kept, at every door, and refused in its words', () => {
+    // The ./ was taken off before spec-core was asked, so its advice named
+    // the pattern without it, and `./` alone was the empty pattern.
+    const advice = (deep: string, flat: string): string => `"**" means any number of directories only as a whole segment: write "${deep}" for any depth, or "${flat}" for one level`;
+    expect(globPatternError('./src/**.ts')).toBe(`invalid glob pattern "./src/**.ts": ${advice('./src/**/*.ts', './src/*.ts')}`);
+    expect(excludePatternError('./src/**.ts')).toBe(`invalid exclude pattern "./src/**.ts": ${advice('./src/**/*.ts', './src/*.ts')}`);
+    expect(modulePatternError('./src/**.ts', 'layer')).toBe(`invalid layer pattern "./src/**.ts": ${advice('./src/**/*.ts', './src/*.ts')}`);
+    // `.//` is not rooted, so neither is what it is told to write.
+    expect(globPatternError('.//**.md')).toBe(`invalid glob pattern ".//**.md": ${advice('.//**/*.md', './/*.md')}`);
+    for (const pattern of ['./', './/']) {
+      expect(globPatternError(pattern)).toBe(`invalid glob pattern "${pattern}": the pattern names the root itself, not a path under it`);
+      expect(modulePatternError(pattern)).toBe(`invalid module pattern "${pattern}": the pattern names the root itself, not a path under it`);
+    }
+  });
+
   it('is told to write what it meant from the root, at every door that reads such a pattern', () => {
     const advice = (deep: string, flat: string): string => `"**" means any number of directories only as a whole segment: write "${deep}" for any depth, or "${flat}" for one level`;
     expect(globPatternError('/**.md')).toBe(`invalid glob pattern "/**.md": ${advice('/**/*.md', '/*.md')}`);
@@ -455,14 +470,20 @@ describe('a predicate over one compiled glob', () => {
     ['{/f.ts,x}', 'include', 'whole'],
     ['{/src/*.ts,x}', 'include', 'whole'],
     ['{x,{/f.ts,y}}', 'include', 'whole'],
-    ['{.//f.ts,x}', 'include', 'whole'],
     ['{/build,x}', 'exclude', 'whole'],
     ['{x,{/build,y}}', 'exclude', 'whole'],
-    ['{.//build,x}', 'exclude', 'whole'],
     ['{/build/,x}', 'exclude', 'whole'],
     // A slash after a segment, or after a `.` that is dropped first, anchors nothing.
     ['{./f.ts,x}', 'include', 'last'],
     ['{./build,x}', 'exclude', 'any'],
+    // Nor, from spec-core's copy of 5666c96, one after a `./`, which goes
+    // with the slashes after it, whether the braces give them or not.
+    ['{.//f.ts,x}', 'include', 'last'],
+    ['./{/f.ts,x}', 'include', 'last'],
+    ['.//f.ts', 'include', 'last'],
+    ['{.//build,x}', 'exclude', 'any'],
+    ['./{/build,x}', 'exclude', 'any'],
+    ['.//build', 'exclude', 'any'],
   ])('reads %s as an %s decided by %s of a path', (pattern, kind, shape) => {
     expect(patternShape(pattern, kind)).toBe(shape);
   });
@@ -487,9 +508,14 @@ describe('the globs ripgrep is handed', () => {
     ['{/f.ts,x}', 'include', ['/f.ts', 'x']],
     ['{x,{/f.ts,y}}', 'include', ['x', '/f.ts', 'y']],
     ['{//f.ts,x}', 'include', ['/f.ts', 'x']],
-    ['{.//f.ts,x}', 'include', ['/f.ts', 'x']],
-    ['{././/f.ts,x}', 'include', ['/f.ts', 'x']],
     ['{/./f.ts,x}', 'include', ['/f.ts', 'x']],
+    // One after a `./` anchors nothing: the `./` goes with the slashes after
+    // it, from spec-core's copy of 5666c96, as POSIX reads `.//f.ts`.
+    ['{.//f.ts,x}', 'include', ['f.ts', 'x']],
+    ['{././/f.ts,x}', 'include', ['f.ts', 'x']],
+    ['./{/f.ts,x}', 'include', ['f.ts', 'x']],
+    ['.//f.ts', 'include', ['f.ts']],
+    ['.//src/*.ts', 'include', ['src/*.ts']],
     ['{/src/,x}', 'include', ['/src/**', 'x']],
     ['{a,/b}c', 'include', ['ac', '/bc']],
     ['/{a,/b}', 'include', ['/a', '/b']],
@@ -519,10 +545,12 @@ describe('the globs ripgrep is handed', () => {
     ['{[^],]x,y}', 'include', ['[^],]x', 'y']],
     ['{[]{]x,y}', 'include', ['[]{]x', 'y']],
     ['[[}]x', 'include', ['[[}]x']],
-    // A `}` that closes nothing is a character.
+    // A `}` that closes nothing is a character, and so is a comma no group
+    // took, each written as the class that matches it, as spec-core gives it.
     ['}a.ts', 'include', ['[}]a.ts']],
     ['a}{b,c}', 'include', ['a[}]b', 'a[}]c']],
     ['{a,b}}', 'include', ['a[}]', 'b[}]']],
+    ['x,{a,b}', 'include', ['x[,]a', 'x[,]b']],
     // An alternative that starts with `!` is a name, not a negation.
     ['{!a,b}', 'include', ['**/!a', 'b']],
     ['{!a,b}/c', 'include', ['/!a/c', 'b/c']],
@@ -553,7 +581,9 @@ describe('the globs ripgrep is handed', () => {
     ['{/build,x}', 'exclude', ['/build', 'x']],
     ['{/build/,x}', 'exclude', ['/build', 'x']],
     ['{x,{/build,y}}', 'exclude', ['x', '/build', 'y']],
-    ['{.//build,x}', 'exclude', ['/build', 'x']],
+    ['{.//build,x}', 'exclude', ['build', 'x']],
+    ['./{/build,x}', 'exclude', ['build', 'x']],
+    ['.//build', 'exclude', ['build']],
     // In an exclusion a trailing `/` is dropped, on an alternative as on the
     // whole pattern, and the directory is excluded with everything in it.
     ['{build/,dist}', 'exclude', ['build', 'dist']],
@@ -636,6 +666,17 @@ describe('the globs ripgrep is handed', () => {
     // A leading `./` before a `!` makes it a name, as spec-core reads it.
     './!a',
     '././!*',
+    // A leading `./` goes with the slashes after it, whether the braces give
+    // them or not, and roots nothing (spec-core's copy of 5666c96).
+    './/a.ts',
+    '././/a.ts',
+    './/src/*',
+    '{.//a.ts,b}',
+    './{/a.ts,b}',
+    './{/src/,a.md}',
+    './/!a',
+    // A comma no group took is a character.
+    ',{x,y}',
   ];
 
   /**
@@ -1394,17 +1435,36 @@ describe('a brace alternative that names no path, wherever a pattern is given', 
       expect(specPatternError('!*.md')).toBe('invalid spec pattern "!*.md": a negated pattern is a list entry, not a glob; narrow the positive pattern');
     });
 
+    it('walks from what follows a leading ./ and the slashes after it, which root nothing', async () => {
+      // From spec-core's copy of 5666c96 `.//docs` is `./docs`. `.//docs/*.md`
+      // was walked from the filesystem's /docs, and `.//*.md` from its root.
+      const tree = memoryIo(root, { 'repo/a.md': '', 'repo/docs/b.md': '', 'repo/docs/deep/c.md': '' });
+      const read = (pattern: string) => expandSpecPatterns([pattern], repo, undefined, tree);
+      expect(await read('.//docs/*.md')).toEqual(found('repo/docs/b.md'));
+      expect(await read('.///docs/*.md')).toEqual(found('repo/docs/b.md'));
+      expect(await read('././/docs/*.md')).toEqual(found('repo/docs/b.md'));
+      expect(await read('.//*.md')).toEqual(found('repo/a.md', 'repo/docs/b.md', 'repo/docs/deep/c.md'));
+      expect(await read('{.//a.md,x}')).toEqual(found('repo/a.md'));
+      expect(await read('./{/b.md,x}')).toEqual(found('repo/docs/b.md'));
+      // Its advice for ** inside a name is below `docs`, not the filesystem's root.
+      expect(specPatternError('.//docs/**.md')).toBe(
+        'invalid spec pattern ".//docs/**.md": "**" means any number of directories only as a whole segment: write "docs/**/*.md" for any depth, or "docs/*.md" for one level',
+      );
+    });
+
     it('reads a base outside the root as the directory it is, which spec-core is never given', async () => {
       expect(await expand('../shared/docs/{./,deep}')).toEqual(found('shared/docs/d.md', 'shared/docs/deep/e.md'));
     });
 
     it('still refuses what names no path below a base that names no directory: none, the root, or .', async () => {
-      for (const pattern of ['{./,docs}', '/{./,docs}', '//{./,docs}', '././{./,docs}']) {
+      // `.//./` is `././`, its `./` going with the slashes after it, as
+      // spec-core reads it from its copy of 5666c96: it was the root.
+      for (const pattern of ['{./,docs}', '/{./,docs}', '//{./,docs}', '././{./,docs}', './/./{./,docs}']) {
         expect(specPatternError(pattern), pattern).toBe(`invalid spec pattern "${pattern}": ${NO_PATH}`);
       }
       // Below the root spec-core is asked the whole pattern, as glob= asks it,
       // and names what its braces give there, the `./` after the root kept.
-      expect(specPatternError('.//./{./,docs}')).toBe('invalid spec pattern ".//./{./,docs}": the braces expand to "././", which names no path');
+      expect(specPatternError('/./{./,docs}')).toBe('invalid spec pattern "/./{./,docs}": the braces expand to "././", which names no path');
       expect(globPatternError('/./{./,docs}')).toBe('invalid glob pattern "/./{./,docs}": the braces expand to "././", which names no path');
       await expect(expand('{./,docs}')).rejects.toThrow(`invalid spec pattern "{./,docs}": ${NO_PATH}`);
     });

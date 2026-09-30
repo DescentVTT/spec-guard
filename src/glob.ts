@@ -18,7 +18,16 @@ import path from 'node:path';
 
 import { nodeIo, type Io } from './io.js';
 import { DEFAULT_SCOPE, type ScopePolicy, type SkipReason } from './scope.js';
-import { globWitness, parseGlob, type Glob, type GlobOptions, type GlobParse } from './vendor/spec-core/pattern/index.js';
+import {
+  globAlternatives,
+  globWitness,
+  parseGlob,
+  type Glob,
+  type GlobAlternative,
+  type GlobAlternatives,
+  type GlobOptions,
+  type GlobParse,
+} from './vendor/spec-core/pattern/index.js';
 
 const MAGIC_RE = /[*?[\]{}]/;
 
@@ -118,8 +127,10 @@ export function globToRegExp(pattern: string, options: { ignoreCase?: boolean } 
 
 /**
  * An include glob in the one form both engines are given: forward slashes, no
- * surrounding space, no leading `./` but before a `!`, and a trailing slash
- * read as everything under the directory.
+ * surrounding space, no leading `./` where taking it off changes nothing, and
+ * a trailing slash read as everything under the directory. It reads as the
+ * glob as written reads, and ripgrep's globs are made from it
+ * (`ripgrepGlobs`).
  *
  * ripgrep used to be handed the glob as written, and matched nothing for
  * `./src/*.ts` or `src/` while the scanner matched the files. ADR-0014. The
@@ -127,23 +138,34 @@ export function globToRegExp(pattern: string, options: { ignoreCase?: boolean } 
  * as part of a name.
  */
 export function normalizeGlob(pattern: string): string {
-  return slashAsContents(writtenGlob(pattern));
-}
-
-/** A glob in the form `normalizeGlob` gives it, but for its trailing slash. */
-function writtenGlob(pattern: string): string {
-  return withoutDotSlash(toPosix(pattern.trim()));
+  return slashAsContents(withoutDotSlash(trimmed(pattern)));
 }
 
 /**
- * A pattern without the `./` it starts with, which names the directory the
- * pattern is read from and so changes nothing - but before a `!`, which it
- * keeps. There it is what makes `!a` a name and not a negation, as spec-core
- * reads `./!a` in every dialect, and taken off it left the negation `!a` to be
- * refused, where `/!a` names the root's `!a` and `{./!a,x}` was read so.
+ * A pattern as every reading here takes it: without the space around it,
+ * which spec-core trims too, and with each `\` a `/`. What it starts with is
+ * spec-core's to read, so a `./` before a `!` keeps the `!` part of a name,
+ * and one before braces keeps a slash they give from rooting a text.
+ */
+function trimmed(pattern: string): string {
+  return toPosix(pattern.trim());
+}
+
+/**
+ * A pattern without the `./` it starts with and the slashes after it, which
+ * name the directory the pattern is read from - but where taking them off
+ * would change what spec-core reads. Before a `!` the `./` is what makes `!a`
+ * a name and not a negation. Before braces that give a text starting with
+ * `/`, it is what keeps that text from being rooted: `./{/docs,x}` is `docs`
+ * or `x` at any depth, where `{/docs,x}` roots `docs`. Only the first `./`
+ * goes, so `././a` is `./a`; the slashes after it go with it, as spec-core
+ * reads them from its copy of `5666c96`, so `.//a` is `a`, where it was `/a`.
  */
 function withoutDotSlash(pattern: string): string {
-  return pattern.replace(/^\.\/(?!!)/, '');
+  const rest = pattern.replace(/^\.\/+/, '');
+  // `rest` starts with no `/`, so a text rooted there is rooted by its own.
+  const read = globAlternatives(rest);
+  return rest.startsWith('!') || (read.ok && read.alternatives.some(({ rooted }) => rooted)) ? pattern : rest;
 }
 
 /** A glob with a trailing slash written as everything under the directory. */
@@ -152,12 +174,12 @@ function slashAsContents(written: string): string {
 }
 
 /**
- * A glob parsed in the form both engines are given, unless spec-core refuses
- * it as written, read as `options` say.
+ * A glob parsed as spec-core reads it, a trailing slash included, unless
+ * spec-core refuses it as written, read as `options` say.
  *
  * spec-core reads a trailing `/` as the directory's contents too, so asking it
  * about the glob as written changes the reading of none it accepts. But `**`
- * names a path whatever comes before it, and `normalizeGlob` adds it before
+ * names a path whatever comes before it, and `slashAsContents` adds it before
  * spec-core is asked: `glob="/./"` and `glob="{./}/"` were read as `/./**`
  * and `{./}/**`, every path, where spec-core refuses `/./` as it refuses `/.`,
  * and the `.//` the braces give as it refuses `./`. A glob refused as read
@@ -175,8 +197,8 @@ function parseAsWritten(written: string, options: GlobOptions): GlobParse {
 
 /**
  * An `exclude` pattern in the one form both engines are given: forward slashes,
- * no surrounding space, no leading `./` but before a `!`, and no trailing
- * slash. A leading `/` stays, because it means something: see
+ * no surrounding space, no leading `./` where taking it off changes nothing,
+ * and no trailing slash. A leading `/` stays, because it means something: see
  * `createExcludeMatcher`.
  *
  * ripgrep used to be handed the pattern as written, and read three shapes
@@ -184,54 +206,61 @@ function parseAsWritten(written: string, options: GlobOptions): GlobParse {
  * `build/` did not exclude a file named `build`. ADR-0014.
  */
 export function normalizeExclude(pattern: string): string {
-  return withoutDotSlash(toPosix(pattern.trim())).replace(/\/+$/, '');
+  return withoutDotSlash(trimmed(pattern)).replace(/\/+$/, '');
 }
 
 /**
  * A `dirs=` pattern in the one form it is read in: forward slashes, no
- * surrounding space, and no leading `./` or trailing `/`, on the whole of it
- * and on each alternative of its braces. A pattern spec-core refuses keeps
- * its braces as written, since they may not close.
+ * surrounding space, no leading `./` where taking it off changes nothing, and
+ * no trailing `/`, on the whole of it and on each alternative of its braces.
+ * A pattern spec-core refuses keeps its braces as written, since they may not
+ * close.
  *
  * `dirs=` names directories, so a trailing slash there says only that the
  * name is a directory's, and the attribute always dropped the one ending it:
  * `dirs="a/"` is `a`. spec-core, from its copy of `f9ce375`, reads a slash
  * ending a brace alternative as the directory's contents, and `{a/,d}` became
- * every directory below `a`, and `d`, where it had been `a` and `d`. So each
- * alternative is read as the whole is, and the braces written again from what
- * is left: `{a/,d}` is `{a,d}`, and `x/{a/,b}` is `{x/a,x/b}`. A `\` is a
- * separator here as everywhere, so `{a\/,d}` is `{a,d}` too. ADR-0013.
+ * every directory below `a`, and `d`, where it had been `a` and `d`. So the
+ * braces are written again from the alternatives spec-core reads, each
+ * without the slashes it ends with: `{a/,d}` is `{a,d}`, and `x/{a/,b}` is
+ * `{x/a,x/b}`. A `\` is a separator here as everywhere, so `{a\/,d}` is
+ * `{a,d}` too. ADR-0013.
  */
 export function normalizeDirs(pattern: string): string {
-  const whole = bareDirectory(toPosix(pattern.trim()));
-  // The helpers below expect braces that close, which only a pattern spec-core
-  // accepts is sure to have.
+  const whole = bareDirectory(trimmed(pattern));
+  // Braces that do not close are read by nothing below, and only a pattern
+  // spec-core accepts is sure to have none.
   if (!readWhole(whole).parsed.ok) return whole;
+  const read = textsOf(whole);
+  // Only a slash ending an alternative reads other than dirs= means it. A
+  // `./` or a slash an alternative starts with names what it names written
+  // again without them, so braces with no such slash stay as written.
+  if (!read.alternatives.some(({ text }) => text.endsWith('/'))) return whole;
   // What spec-core takes off the front before it reads braces stays in front
   // of them, so the braces written again read as the writer put them:
   // `/{a/,d}` is `/{a,d}`, every alternative under the filesystem's root, as
   // `/a` is. A `/` leading one alternative stays on it and roots it alone, as
   // spec-core reads it from its copy of `7e41240`: `{/a/,d}` is `{/a,d}`.
   const body = whole.replace(/^(?:\.?\/)+/, '');
-  const written = expandBraces(lex(body)).map((tokens) => tokens.map(asCharacter).join(''));
-  const read = written.map(bareDirectory);
-  return read.every((alternative, index) => alternative === written[index])
-    ? whole
-    : `${whole.slice(0, whole.length - body.length)}{${read.join(',')}}`;
+  const texts = read.alternatives.map(({ rooted, text }) => `${rooted && !read.rooted ? '/' : ''}${text.replace(/\/+$/, '')}`);
+  return `${whole.slice(0, whole.length - body.length)}{${texts.join(',')}}`;
 }
 
-/** A pattern, or one alternative of one, without the `./` it starts with or the slashes it ends with. */
+/** A pattern without the `./` it starts with, where that changes nothing, or the slashes it ends with. */
 function bareDirectory(pattern: string): string {
   return withoutDotSlash(pattern).replace(/\/+$/, '');
 }
 
+/** The alternatives of a pattern spec-core read. */
+type Read = Extract<GlobAlternatives, { readonly ok: true }>;
+
 /**
- * A brace or a comma no group took, spelled as the class that matches it, so
- * braces written around it again do not read it as syntax. A `{` is never
- * left over: every one closes in a pattern spec-core accepted.
+ * The texts a pattern's braces give, as spec-core reads each at its start.
+ * Only ever asked of a pattern spec-core accepted, whose braces expand, and
+ * that is all spec-core refuses here.
  */
-function asCharacter(token: string): string {
-  return token === '}' || token === ',' ? `[${token}]` : token;
+function textsOf(pattern: string): Read {
+  return globAlternatives(pattern) as Read;
 }
 
 /* --------------------------------------------------------------- readings */
@@ -323,38 +352,23 @@ const belowReadings = readings();
  * slashes kept, as `{/!a,x}` and `{/**.md,x}` are asked. The slashes were
  * taken off first, so `/!a` was refused as the negation `!a` is, where
  * spec-core reads the name `!a` at the root; and `/**.md` was told to write
- * `*.md` for one level, a name at any depth, rather than `/*.md`.
+ * `*.md` for one level, a name at any depth, rather than `/*.md`. So is a
+ * leading `./`, which spec-core reads with the slashes after it, and which
+ * makes a `!` after it part of a name: `./!a` is the name `!a` at any depth.
  */
 function readInclude(pattern: string): Reading {
   return includeReadings(pattern, () => {
-    const written = writtenGlob(pattern);
-    const normalized = slashAsContents(written);
+    const written = trimmed(pattern);
     const parsed = parseAsWritten(written, RIPGREP);
     // In the `path` dialect every alternative is a whole path, so one that
     // ripgrep reads as a name at any depth is written as one.
-    const rooted = parsed.ok ? fromWhereRead(normalized, (alternative) => (segmentsOf(alternative).length > 1 ? alternative : `**/${alternative}`)) : null;
+    const rooted = parsed.ok ? fromWhereRead(written, (alternative) => (segmentsOf(alternative).length > 1 ? alternative : `**/${alternative}`)) : null;
     if (rooted !== null) return { parsed: rooted, shape: 'whole' };
     // The kind decides here only whether a trailing slash on an alternative
     // adds a segment, and any text after the slash is one: a kind naming
     // neither reading, whose lookup adds `undefined`, gives the same shape.
-    return { parsed, shape: parsed.ok && oneSegment(normalized, 'include') ? 'last' : 'whole' };
+    return { parsed, shape: parsed.ok && oneSegment(written, 'include') ? 'last' : 'whole' };
   });
-}
-
-/**
- * What roots a pattern, or a text its braces give, as spec-core reads it: the
- * slashes that lead it once the `./` it starts with are dropped, with those
- * `./`, or nothing. A rooted text is rooted at the filesystem's root in the
- * `path` and `ripgrep` dialects, and anchored at the repository root in
- * `gitignore`; `.//docs` is, as `/docs` is.
- */
-function rootOf(text: string): string {
-  return /^(?:\.\/)*\/+/.exec(text)?.[0] ?? '';
-}
-
-/** Whether a pattern, or a text its braces give, is rooted. */
-function isRooted(text: string): boolean {
-  return rootOf(text) !== '';
 }
 
 /**
@@ -365,25 +379,26 @@ function isRooted(text: string): boolean {
  * never what a writer meant by it: `glob="/src/*.ts"` anchors at the root, and
  * below a spec pattern's base `docs/{/adr,x}` is `docs//adr`, which is
  * `docs/adr`. The braces are written again around what is left, a brace or a
- * comma no group took written as a character.
+ * comma no group took written as a character, as spec-core gives it.
  */
 function fromWhereRead(pattern: string, write: (text: string) => string): GlobParse | null {
-  const texts = alternatives(pattern, 'include', asCharacter);
-  if (!texts.some(isRooted)) return null;
-  const read = texts.map((text) => (isRooted(text) ? text.slice(rootOf(text).length) : write(text)));
-  return parseGlob(`{${read.join(',')}}`, WHOLE);
+  const read = alternatives(pattern, 'include');
+  if (!read.some(({ rooted }) => rooted)) return null;
+  return parseGlob(`{${read.map(({ rooted, text }) => (rooted ? text : write(text))).join(',')}}`, WHOLE);
 }
 
 /**
  * An exclusion, a module or a layer, as `.gitignore` reads a line: one that is
  * one segment in every alternative, and none of them anchored by a leading
- * `/`, matches a path when it matches any one of the path's segments.
+ * `/`, matches a path when it matches any one of the path's segments. A
+ * trailing slash is spec-core's to drop, on the whole and on an alternative,
+ * and a leading `./` its to read, as `glob=` leaves it.
  */
 function readExclude(pattern: string): Reading {
   return excludeReadings(pattern, () => {
-    const normalized = normalizeExclude(pattern);
-    const parsed = parseGlob(normalized, GITIGNORE);
-    return { parsed, shape: parsed.ok && oneSegment(normalized, 'exclude') ? 'any' : 'whole' };
+    const written = trimmed(pattern);
+    const parsed = parseGlob(written, GITIGNORE);
+    return { parsed, shape: parsed.ok && oneSegment(written, 'exclude') ? 'any' : 'whole' };
   });
 }
 
@@ -411,7 +426,7 @@ function segmentsOf(pattern: string): string[] {
  * at the root, as `/build` does, so a segment of a path cannot answer for it.
  */
 function oneSegment(pattern: string, kind: PatternKind): boolean {
-  return alternatives(pattern, kind).every((alternative) => !isRooted(alternative) && segmentsOf(alternative).length === 1);
+  return alternatives(pattern, kind).every(({ rooted, text }) => !rooted && segmentsOf(text).length === 1);
 }
 
 /** The predicate a reading produced, or an error naming the pattern as it was written. */
@@ -606,23 +621,26 @@ export function createPathMatcher(pattern: string): (relativePath: string) => bo
  *   matched nothing;
  * - it refuses a `}` that closes nothing, which spec-core reads as itself.
  *
- * So the braces are expanded here, one glob per alternative, each alternative
- * is read as `kind` reads it, cleaned of `.` and empty segments and anchored or
- * not by its own shape - by a leading `/` on the pattern or on the alternative
- * too, since spec-core, from its copy of `7e41240`, reads `{/build,x}` as
- * `/build` or `x` - and a lone `}` is written as the class `[}]`. Only ever
- * given a pattern spec-core accepts, since a directive's are refused before
- * anything runs.
+ * So it is handed one glob per alternative spec-core's braces give, each read
+ * as `kind` reads it, cleaned of `.` and empty segments and anchored or not
+ * as spec-core roots it - by a leading `/` on the pattern or on the
+ * alternative, since spec-core, from its copy of `7e41240`, reads
+ * `{/build,x}` as `/build` or `x`, and never by one after a `./`, which from
+ * its copy of `5666c96` goes with the slashes after it - and a `}` or `,` no
+ * group took is written as the class that matches it. Only ever given a
+ * pattern spec-core accepts, since a directive's are refused before anything
+ * runs.
  */
 export function ripgrepGlobs(normalized: string, kind: PatternKind): string[] {
-  const globs = alternatives(normalized, kind).map((alternative) => {
-    const segments = segmentsOf(alternative);
-    const text = segments.join('/');
+  const globs = alternatives(normalized, kind).map(({ rooted, text }) => {
+    const segments = segmentsOf(text);
+    const joined = segments.join('/');
     // ripgrep reads a leading `!` as negation and spec-core reads it as a
-    // character. Only an alternative can start with one - a pattern that does
-    // is refused - and a prefix that changes nothing else keeps it a character.
-    if (isRooted(alternative) || (segments.length > 1 && text.startsWith('!'))) return `/${text}`;
-    return text.startsWith('!') ? `**/${text}` : text;
+    // character. Only an alternative, or a pattern after its `./`, can start
+    // with one - a pattern that does is refused - and a prefix that changes
+    // nothing else keeps it a character.
+    if (rooted || (segments.length > 1 && joined.startsWith('!'))) return `/${joined}`;
+    return joined.startsWith('!') ? `**/${joined}` : joined;
   });
   return [...new Set(globs)];
 }
@@ -636,10 +654,12 @@ export function ripgrepGlobs(normalized: string, kind: PatternKind): string[] {
 const TRAILING_SLASH: Readonly<Record<PatternKind, string>> = { include: '**', exclude: '' };
 
 /**
- * The patterns a pattern's braces stand for, each read as spec-core reads an
- * alternative: as it would be written alone, a trailing `/` included. So
- * `{src/,*.md}` is `src/**` or a `.md` at any depth to `glob=`, and
- * `{build/,dist}` is `build` or `dist` to `exclude=`.
+ * The patterns a pattern's braces stand for, as spec-core's `globAlternatives`
+ * reads each: rooted or not, and its text without the `./` and the slashes it
+ * starts with, a `}` or a `,` no group took written as the class that matches
+ * it, and a trailing `/` read as `kind` reads one. So `{src/,*.md}` is
+ * `src/**` or a `.md` at any depth to `glob=`, and `{build/,dist}` is `build`
+ * or `dist` to `exclude=`.
  *
  * Until spec-core's copy from `f9ce375` the slash was read only at the end of
  * the whole pattern, so inside braces it was dropped, and `{src/,*.md}` was a
@@ -648,55 +668,12 @@ const TRAILING_SLASH: Readonly<Record<PatternKind, string>> = { include: '**', e
  * ripgrep was handed `src`, which it matches against a file named `src` at any
  * depth and never against what is under the directory. ADR-0015.
  *
- * A `}` no group took is written as the class that matches it, and so is a
- * comma when `spell` says so: in braces written again it would part two
- * alternatives, where ripgrep, handed it alone, reads it as itself.
+ * The braces were expanded here, and a leading `./` and `/` read here, until
+ * spec-core's copy from `5666c96` gave its own reading of both, which is the
+ * one it matches by.
  */
-function alternatives(pattern: string, kind: PatternKind, spell: (token: string) => string = (token) => (token === '}' ? '[}]' : token)): string[] {
-  return expandBraces(lex(pattern)).map((tokens) => {
-    const alternative = tokens.map(spell).join('');
-    return alternative.endsWith('/') ? `${alternative}${TRAILING_SLASH[kind]}` : alternative;
-  });
-}
-
-/**
- * A pattern spec-core accepted, cut into classes, braces, commas and the runs
- * of anything else between them. A class is one token, so what it holds is
- * never read as a brace or a comma: it opens with `[`, may be negated with `!`
- * or `^`, and its first member is a member even when it is `]`.
- */
-function lex(pattern: string): string[] {
-  return pattern.match(/\[[!^]?\]?[^\]]*\]|[{},]|[^[{},]+/g) as string[];
-}
-
-/**
- * `{a,b}` groups expanded into the patterns they stand for, as spec-core
- * expands them: groups nest, and a `}` that closes nothing is a character.
- * Every `{` closes, since spec-core accepted the pattern.
- */
-function expandBraces(tokens: readonly string[]): Array<readonly string[]> {
-  const open = tokens.indexOf('{');
-  if (open === -1) return [tokens];
-  let close = open;
-  for (let depth = 1; depth > 0; depth += nesting(tokens[close] as string)) close += 1;
-  const options: string[][] = [[]];
-  let depth = 0;
-  for (const token of tokens.slice(open + 1, close)) {
-    // Below 1 rather than at 0: the depth never goes below 0, and read this
-    // way its sign decides something, where at 0 either sign would do.
-    if (token === ',' && depth < 1) {
-      options.push([]);
-    } else {
-      depth += nesting(token);
-      (options[options.length - 1] as string[]).push(token);
-    }
-  }
-  return options.flatMap((option) => expandBraces([...tokens.slice(0, open), ...option, ...tokens.slice(close + 1)]));
-}
-
-/** How a token moves the depth of brace groups. */
-function nesting(token: string): number {
-  return token === '{' ? 1 : token === '}' ? -1 : 0;
+function alternatives(pattern: string, kind: PatternKind): GlobAlternative[] {
+  return textsOf(pattern).alternatives.map(({ rooted, text }) => ({ rooted, text: text.endsWith('/') ? `${text}${TRAILING_SLASH[kind]}` : text }));
 }
 
 export interface WalkOptions {
@@ -865,7 +842,7 @@ interface SpecGlob {
   /** The literal directories the pattern starts with, and whether they are absolute. */
   base: string;
   absolute: boolean;
-  /** The pattern in the form it is read in, but for a trailing slash: the walk takes its root when there is no base. */
+  /** The pattern as it is read, trimmed and with forward slashes: the walk takes its root when there is no base. */
   written: string;
   reading: Reading;
   /** What a path below the base is put under for `reading` to be asked of it: nothing, or `BASE` and a `/`. */
@@ -911,22 +888,25 @@ const BASE = 'base';
  * told `/**.md` to write `**\/*.md` or `*.md`, where it reads the whole as
  * the names `!*.md` at the root and tells it to write `/**\/*.md` or `/*.md`.
  *
- * A `./` before a `!` is kept, as `glob=` keeps it, so `./!*.md` is the names
- * `!*.md` at any depth, as `./*.md` is `*.md`; the base is found without it.
- * Where the base is only `.`, as in `././!*.md`, and what is below it is
- * refused alone, spec-core is asked the whole pattern: one it reads, such as
- * that negation, which there is a name, is read below the base as below a
- * named one, and one it refuses, such as `././{./,a}`, is refused as below
- * the base.
+ * A `./` is spec-core's to read, as `glob=` leaves it, so `./!*.md` is the
+ * names `!*.md` at any depth, as `./*.md` is `*.md`; the base is found
+ * without it and the slashes after it, as spec-core reads them from its copy
+ * of `5666c96`, so `.//docs/*.md` is walked from `docs`, as `./docs/*.md` is,
+ * where it was walked from the filesystem's `/docs`. Where the base is only
+ * `.`, as in `././!*.md`, and what is below it is refused alone, spec-core is
+ * asked the whole pattern: one it reads, such as that negation, which there
+ * is a name, is read below the base as below a named one, and one it refuses,
+ * such as `././{./,a}`, is refused as below the base.
  */
 function readSpecGlob(pattern: string): SpecGlob {
-  const written = writtenGlob(pattern);
+  const written = trimmed(pattern);
   const absolute = path.isAbsolute(written);
   // The base ends at the first segment holding glob syntax, which comes before
   // the empty one a trailing `/` leaves, so the glob as written has the base
-  // the glob as read has. It is found with the `./` taken off, whatever
-  // follows it, so `./!*.md` has none, as `./*.md` has none.
-  const { base, rest } = globBase(toPosix(pattern.trim()).replace(/^\.\//, ''));
+  // the glob as read has. It is found with the first `./` taken off, whatever
+  // follows it, so `./!*.md` has none, as `./*.md` has none; a second stays,
+  // and makes `././*.md` the root's, below the base `.`.
+  const { base, rest } = globBase(written.replace(/^\.\/+/, ''));
   const spec = { base, absolute, written, whole: false };
   // With no base, or the root for one, the pattern is read as glob= reads it,
   // from where the walk starts.

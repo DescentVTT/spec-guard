@@ -32,6 +32,8 @@
  *   `{/docs,lib}` is `/docs` or `lib`, the leading `/` rooting or anchoring
  *   that alternative as it would the pattern. One that names no path,
  *   `{./,lib}` or `{,lib}`, is refused, as `./` and the empty pattern are.
+ * - A leading `./` is the current directory, and goes with the slashes after
+ *   it, as POSIX reads them: `.//docs` is `docs`, and never `/docs`.
  * - Case is the caller's decision, stated every time. A result must not
  *   depend on the host it ran on.
  * - A malformed pattern is an error, never a literal. An unclosed `[` or `{`,
@@ -152,14 +154,25 @@ export function compileGlob(source: string, options: GlobOptions): Glob {
   return result;
 }
 
-function build(source: string, options: GlobOptions): Glob | string {
-  const escapes = options.backslash !== 'separator';
-  let pattern = source.trim();
-  if (!escapes) pattern = pattern.replace(/\\/g, '/');
-  const written = pattern;
+/**
+ * A pattern as every dialect takes it - trimmed, and each `\` a separator
+ * when the caller asks - or the reason it is refused before anything in it is
+ * read.
+ */
+function prepare(source: string, escapes: boolean): { readonly pattern: string } | string {
+  const trimmed = source.trim();
+  const pattern = escapes ? trimmed : trimmed.replace(/\\/g, '/');
   if (pattern.length === 0) return 'the pattern is empty';
   if (pattern.startsWith('!')) return 'a negated pattern is a list entry, not a glob; narrow the positive pattern';
   if (/(?:^|[^\\])[?*+@!]\([^)]*\|/.test(pattern)) return EXTGLOB;
+  return { pattern };
+}
+
+function build(source: string, options: GlobOptions): Glob | string {
+  const escapes = options.backslash !== 'separator';
+  const prepared = prepare(source, escapes);
+  if (typeof prepared === 'string') return prepared;
+  const { pattern } = prepared;
 
   // The pattern's own leading slash is taken off before the braces expand, so
   // that the root itself, and a text the braces give, are refused in the
@@ -181,12 +194,13 @@ function build(source: string, options: GlobOptions): Glob | string {
     // before anything else is decided: `{/docs,x}` is `/docs` or `x`. Left to
     // `parseAlternative`, the slash would be an empty segment, dropped, and
     // `/docs` would read as `docs`. A slash after a segment, as in
-    // `a/{/b,c}`, starts no text, and is the empty segment of `a//b`.
+    // `a/{/b,c}`, starts no text, and is the empty segment of `a//b`; one
+    // after the pattern's `./` roots nothing either.
     const alone = unrooted(text);
     const parsed = parseAlternative(trailingSlash(alone.text, options.dialect), escapes);
-    if (parsed === GLOBSTAR_IN_NAME) return `${GLOBSTAR_IN_NAME}: ${globstarAdvice(written)}`;
+    if (parsed === GLOBSTAR_IN_NAME) return `${GLOBSTAR_IN_NAME}: ${globstarAdvice(pattern)}`;
     if (typeof parsed === 'string') return parsed;
-    alternatives.push({ ...parsed, rooted: whole.rooted || alone.rooted });
+    alternatives.push({ ...parsed, rooted: rootedIn(whole, alone) });
   }
 
   const builder = new Builder();
@@ -321,16 +335,36 @@ function classEnd(pattern: string, open: number, escapes: boolean): number {
 
 /**
  * A pattern, or a text its braces give, without the `./` and the slashes it
- * starts with, and whether a slash led it once the `./` was gone. What a
- * leading slash means is the dialect's: it roots a pattern at the
- * filesystem's root in `path` and `ripgrep`, and only anchors it at the
- * repository root in `gitignore`, as git reads one. `.//docs` is led by one,
- * as `/docs` is.
+ * starts with; whether a slash led it, which roots it; and whether a `./`
+ * did, which leaves every slash after it rootless. What a leading slash means
+ * is the dialect's: it roots a pattern at the filesystem's root in `path` and
+ * `ripgrep`, and only anchors it at the repository root in `gitignore`, as
+ * git reads one.
+ *
+ * The slashes after a `./` go with it, as POSIX reads `.//docs` as `./docs`:
+ * the current directory, then `docs`. Left behind, they would lead what is
+ * left and root it, and `.//docs` would be `/docs`. A slash the braces give
+ * after a pattern's `./` is one of them, so `./{/docs,x}`, which is
+ * `.//docs` or `./x`, roots neither.
  */
-function unrooted(text: string): { readonly text: string; readonly rooted: boolean } {
+function unrooted(text: string): Lead {
   let rest = text;
-  while (rest.startsWith('./')) rest = rest.slice(2);
-  return { text: rest.replace(/^\/+/, ''), rooted: rest.startsWith('/') };
+  while (rest.startsWith('./')) rest = rest.slice(2).replace(/^\/+/, '');
+  return { text: rest.replace(/^\/+/, ''), rooted: rest.startsWith('/'), dotted: rest !== text };
+}
+
+interface Lead {
+  readonly text: string;
+  readonly rooted: boolean;
+  readonly dotted: boolean;
+}
+
+/**
+ * Whether a text the braces give is rooted: by the pattern's own leading
+ * slash, or by its own when the pattern's `./` does not stand before it.
+ */
+function rootedIn(whole: Lead, alone: Lead): boolean {
+  return whole.rooted || (alone.rooted && !whole.dotted);
 }
 
 /** Whether a pattern's text names no path: nothing in it but `/` and `.` segments. */
@@ -375,7 +409,7 @@ function parseAlternative(text: string, escapes: boolean): Omit<Alternative, 'ro
   const raw = text.split('/');
   for (const part of raw) {
     if (part === '' || part === '.') continue;
-    if (part === '..') return 'a pattern cannot climb out of its root with ".."';
+    if (part === '..') return CLIMBS_OUT;
     if (part === '**') {
       if (segments[segments.length - 1]?.kind !== 'globstar') segments.push({ kind: 'globstar' });
       continue;
@@ -387,6 +421,7 @@ function parseAlternative(text: string, escapes: boolean): Omit<Alternative, 'ro
   return { segments, slashed: raw.filter((part) => part !== '' && part !== '.').length > 1 };
 }
 
+const CLIMBS_OUT = 'a pattern cannot climb out of its root with ".."';
 const EXTGLOB = 'extended globs such as "+(a|b)" are not supported: write alternatives as "{a,b}", and a literal parenthesis as "[(]"';
 const GLOBSTAR_IN_NAME = '"**" means any number of directories only as a whole segment';
 
@@ -690,4 +725,203 @@ export function parseGlobList(patterns: readonly string[], options: GlobOptions)
       },
     },
   };
+}
+
+/* ------------------------------------------------------------- alternatives */
+
+/** One text a pattern's braces give, as every dialect reads its start. */
+export interface GlobAlternative {
+  /**
+   * Led by a `/`, the pattern's or its own with no `./` of the pattern's
+   * before it: rooted at the filesystem's root in the `path` and `ripgrep`
+   * dialects, and anchored at the repository root in `gitignore`.
+   */
+  readonly rooted: boolean;
+  /**
+   * The text without the `./` and the slashes it starts with, the pattern's
+   * included, and with each `}` and `,` no group took written as a class of
+   * that one character, so that it reads the same inside braces again. Alone,
+   * it reads the same behind a `/` when rooted and behind a `./` when not,
+   * which keeps a `!` it starts with a character. A trailing `/` stays: what
+   * it means is the dialect's.
+   */
+  readonly text: string;
+}
+
+export type GlobAlternatives =
+  | {
+      readonly ok: true;
+      /** Led by a `/` of its own, before any `./`, which roots every alternative. */
+      readonly rooted: boolean;
+      /** In the order the braces give them. */
+      readonly alternatives: readonly GlobAlternative[];
+    }
+  | { readonly ok: false; readonly error: string };
+
+/**
+ * The alternatives a pattern's braces give, each read at its start as
+ * {@link parseGlob} reads it, for a tool that reads a pattern's alternatives
+ * one by one - to anchor a rooted one, to hand each to another engine - and
+ * would otherwise expand braces and read a leading `./` and `/` again itself.
+ *
+ * Braces expand first, and an alternative is rooted by a leading `/` on the
+ * pattern, or on the text the braces give when no `./` of the pattern's stands
+ * before it: `{/docs,x}` is `docs` rooted and `x`; `./{/docs,x}` and
+ * `{.//docs,x}` are `docs` and `x`, neither rooted; `a/{/b,c}` is `a//b` and
+ * `a/c`. A `!` after a `./` is a character, as it is to `parseGlob`: `./!a` is
+ * the name `!a`.
+ *
+ * A reading, not a verdict: refused are only what `parseGlob` refuses before
+ * it reads an alternative, in its words, and braces that do not expand. An
+ * alternative `parseGlob` refuses - `{/,x}` gives `/` - is given as read.
+ */
+export function globAlternatives(source: string, options: Pick<GlobOptions, 'backslash'> = {}): GlobAlternatives {
+  const escapes = options.backslash !== 'separator';
+  const prepared = prepare(source, escapes);
+  if (typeof prepared === 'string') return { ok: false, error: prepared };
+  const whole = unrooted(prepared.pattern);
+  const texts = expandBraces(whole.text, escapes);
+  if (typeof texts === 'string') return { ok: false, error: texts };
+  return {
+    ok: true,
+    rooted: whole.rooted,
+    alternatives: texts.map((text) => {
+      const alone = unrooted(text);
+      // Past its root, a text may start with a `./` of its own, as `/./docs`
+      // does, and names the same without it.
+      return { rooted: rootedIn(whole, alone), text: asCharacters(unrooted(alone.text).text) };
+    }),
+  };
+}
+
+/**
+ * A text the braces gave, with each `}` and `,` no group took written as the
+ * class of that one character: once the braces have expanded, that is every
+ * one outside a class and not escaped. Escapes and classes are copied as
+ * written. A `\` is always an escape here, since one read as a separator was
+ * a `/` before the braces expanded. A step past the end reads `''`, which
+ * adds nothing, so the bound could be one further.
+ */
+function asCharacters(text: string): string {
+  let out = '';
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text.charAt(i);
+    let next = i + 1;
+    if (ch === '\\') next = i + 2;
+    else if (ch === '[') next = Math.max(next, classEnd(text, i, true) + 1);
+    out += ch === '}' || ch === ',' ? `[${ch}]` : text.slice(i, next);
+    i = next - 1;
+  }
+  return out;
+}
+
+/* ----------------------------------------------------------------- rebasing */
+
+export type GlobRebase = { readonly ok: true; readonly pattern: string } | { readonly ok: false; readonly error: string };
+
+/**
+ * A list entry typed in a directory below the root, rewritten to read from
+ * the root as the `path` dialect reads it: for a tool run in a subdirectory
+ * that matches whole paths from the root, where what is typed means what it
+ * names from where it was typed.
+ *
+ * `directory` is where the entry was typed, a path under the root; at the
+ * root itself, `''`, there is nothing to rewrite. The entry is read as
+ * {@link parseGlobList} reads one: a leading `!` stays in front, and what
+ * follows is the pattern. Braces expand first, and each alternative is
+ * rebased as that text written alone would be:
+ *
+ * - one with a leading `/` is rooted at the filesystem's root, which no
+ *   directory moves, and is kept: `/docs` is `/docs` typed anywhere;
+ * - any other gets the directory in front, a leading `..` climbing out of
+ *   it: `docs/*.md` typed in `sub` is `sub/docs/*.md`, and `../*.md` typed in
+ *   `docs/deep` is `docs/*.md`.
+ *
+ * When every alternative is rebased alike, the braces stay as written, `{a,b}`
+ * typed in `sub` being `sub/{a,b}`; when they are not, each is written out:
+ * `{/docs,x}` is `{/docs,sub/x}`.
+ *
+ * Refused, with the reason: what {@link parseGlob} refuses before it reads an
+ * alternative, in its words; braces that do not expand; a `..` that climbs
+ * above the root; a directory no pattern can name; and alternatives written
+ * out that hold a `,` or a `}`, which would read as braces. Anything else a
+ * rebased pattern holds is for `parseGlob` to refuse, as it would the same
+ * pattern typed at the root.
+ */
+export function rebaseGlob(entry: string, directory: string, options: Pick<GlobOptions, 'backslash'> = {}): GlobRebase {
+  if (directory === '') return { ok: true, pattern: entry };
+  const directories = directory.split('/');
+  if (directories.some((name) => name === '' || name === '.' || name === '..')) {
+    throw new Error(`"${directory}" is not a directory under the root`);
+  }
+  const escapes = options.backslash !== 'separator';
+  const trimmed = entry.trim();
+  const negation = trimmed.startsWith('!') ? '!' : '';
+  const prepared = prepare(trimmed.slice(negation.length), escapes);
+  if (typeof prepared === 'string') return { ok: false, error: prepared };
+  const { pattern } = prepared;
+  const whole = unrooted(pattern);
+  if (whole.rooted) return { ok: true, pattern: negation + pattern };
+  const texts = expandBraces(whole.text, escapes);
+  if (typeof texts === 'string') return { ok: false, error: texts };
+
+  const pieces: string[] = [];
+  const depths = new Set<number>();
+  let rooted = false;
+  for (const text of texts) {
+    // Rooted as `build` roots it, the pattern's own slash having been read.
+    if (rootedIn(whole, unrooted(text))) {
+      rooted = true;
+      pieces.push(text);
+      continue;
+    }
+    const moved = climb(text, directories);
+    if (moved === null) return { ok: false, error: CLIMBS_OUT };
+    depths.add(moved.directories.length);
+    pieces.push(spell(moved));
+  }
+  if (depths.size === 0) return { ok: true, pattern: negation + pattern };
+  if (/^[!\s]|[*?[{\\]/.test(directory)) {
+    return {
+      ok: false,
+      error: `the directory "${directory}" cannot be named in a pattern: a "*", "?", "[", "{" or "\\" in it, or a "!" or a space it starts with, would be read as syntax`,
+    };
+  }
+  // Every text the braces give starts with the pattern's own leading `..`
+  // segments, and one of them has just climbed without leaving the root.
+  const lead = climb(whole.text, directories) as Climbed;
+  if (!rooted && depths.size === 1 && depths.has(lead.directories.length)) return { ok: true, pattern: negation + spell(lead) };
+  const split = pieces.find((piece) => /[,}]/.test(piece));
+  if (split !== undefined) {
+    return { ok: false, error: `the braces cannot be rebased one alternative at a time: "${split}" holds a "," or a "}"` };
+  }
+  return { ok: true, pattern: `${negation}{${pieces.join(',')}}` };
+}
+
+interface Climbed {
+  /** The directories left once the text's leading `..` segments have climbed out. */
+  readonly directories: readonly string[];
+  /** The text after them, without a leading `./` or slash. */
+  readonly rest: string;
+}
+
+/** A relative text's leading `..` segments taken off the directories it was typed in, or `null` past the root. */
+function climb(text: string, directories: readonly string[]): Climbed | null {
+  let kept = directories.length;
+  let rest = unrooted(text).text;
+  while (rest === '..' || rest.startsWith('../')) {
+    if (kept === 0) return null;
+    kept -= 1;
+    rest = unrooted(rest.slice(3)).text;
+  }
+  return { directories: directories.slice(0, kept), rest };
+}
+
+/**
+ * A rebased relative text. At the root itself it is read from there behind a
+ * `./`, which keeps a slash the braces give after it from rooting it, and
+ * leaves the root refused as `./` is.
+ */
+function spell(moved: Climbed): string {
+  return moved.directories.length > 0 ? `${moved.directories.join('/')}/${moved.rest}` : `./${moved.rest}`;
 }
