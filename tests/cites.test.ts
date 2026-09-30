@@ -1054,6 +1054,10 @@ describe('the report', () => {
     const clean = { ...report, findings: [], gaps: [], summary: { ...report.summary, ghosts: 0, stale: 0 } };
     expect(last({ ...clean, families: [] })).toBe(`${YELLOW}⚠ no citation was looked for, so nothing was checked${R}`);
     expect(last({ ...clean, summary: { ...clean.summary, files: 0 } })).toBe(`${YELLOW}⚠ no source file was read, so nothing was checked${R}`);
+    // Under --strict either is why the check failed, and is painted as a failure is.
+    const refused = { ...clean, ok: false, nothingRead: { file: 'docs/adr/0001-kept.md' } };
+    expect(last({ ...refused, families: [] })).toBe(`${RED}${B}✖ no citation was looked for, so nothing was checked, which --strict refuses${R}`);
+    expect(last({ ...refused, summary: { ...clean.summary, files: 0 } })).toBe(`${RED}${B}✖ no source file was read, so nothing was checked, which --strict refuses${R}`);
     expect(last({ ...clean, summary: { ...clean.summary, stale: 1 }, ok: true })).toBe(`${YELLOW}${B}⚠ 1 citation names a document no longer in force${R}`);
     expect(last(clean)).toBe(`${GREEN}✔ every citation names a document in force${R}`);
   });

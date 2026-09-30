@@ -309,7 +309,9 @@ function toStatus(raw: string, source: SpecStatus['source']): StatusRead {
   const trimmed = raw.trim();
   // The word is read through any leading emphasis, so `**Superseded** by
   // ADR-0007` is superseded rather than nothing at all - which is what a rule
-  // that required the markers to balance made of it.
+  // that required the markers to balance made of it. The `^` decides nothing:
+  // the pattern matches the empty string, so its first match is at the start
+  // whether or not it is anchored there.
   const text = trimmed.replace(/^[*_]*/, '');
   const english = /^[a-zA-Z]+/.exec(text)?.[0].toLowerCase();
   const read = english === undefined ? chineseStatus(text) : { value: english };

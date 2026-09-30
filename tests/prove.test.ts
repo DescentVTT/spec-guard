@@ -1150,11 +1150,14 @@ describe('the report, rendered', () => {
     expect(glyphs()).toEqual(['✖', '✖', '○', '✔', '⚠', '○', '✖']);
   });
 
-  it('closes in colour on a proof that showed every rule failing, or showed nothing', () => {
+  it('closes in colour on a proof that showed every rule failing, showed nothing, or showed nothing under --strict', () => {
     const proved = { ...REPORT, results: [], errors: [], inactiveSpecs: [], summary: { ...REPORT.summary, total: 1, killed: 1, survived: 0, unprovable: 0, inactive: 0 } };
     expect(formatProve(proved, { color: true, verbose: false }).split('\n').at(-1)).toBe(`${GREEN}✔ every rule in force was seen to fail${R}`);
     const nothing = { ...proved, summary: { ...proved.summary, total: 0, killed: 0 } };
     expect(formatProve(nothing, { color: true, verbose: false }).split('\n').at(-1)).toBe(`${YELLOW}⚠ no rule was proved, so nothing was shown${R}`);
+    // Where it fails the proof, it is painted as a failure is.
+    const refused = { ...nothing, ok: false, nothingVerified: true };
+    expect(formatProve(refused, { color: true, verbose: false }).split('\n').at(-1)).toBe(`${RED}${B}✖ no rule was proved, so nothing was shown, which --strict refuses${R}`);
   });
 
   it('calls a presence rule\'s claim by its name', () => {

@@ -295,6 +295,22 @@ describe('GitLab Code Quality', () => {
     expect(before).toHaveLength(1);
   });
 
+  it('numbers only findings that share an identity, not two whose parts run together alike', async () => {
+    // "Legacy" in src and "Legacys" in rc read the same with nothing between
+    // the symbol and the target. They are two rules, and neither is the
+    // other written again.
+    const tree = {
+      'docs/r.md': '<!-- @assert-absence target="src" symbol="Legacy" -->\n<!-- @assert-absence target="rc" symbol="Legacys" -->\n',
+      'src/a.ts': 'Legacy;\n',
+      'rc/a.ts': 'Legacys;\n',
+    };
+    const issues = gitlab(runAnnotations(await runSpecGuard({ patterns: ['docs/*.md'], root: ROOT, io: memoryIo(ROOT, tree) })));
+    expect(issues.map((issue) => issue.fingerprint)).toEqual([
+      sha256('docs/r.md', 'assert-absence', 'Legacy', 'src'),
+      sha256('docs/r.md', 'assert-absence', 'Legacys', 'rc'),
+    ]);
+  });
+
   it('is written for a run, and is an empty array when no spec matched', async () => {
     const out: string[] = [];
     const io: CliIO = { stdout: (text) => out.push(text), stderr: () => {}, env: {}, cwd: DEMO_REPO, isTTY: false };
