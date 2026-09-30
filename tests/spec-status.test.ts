@@ -939,6 +939,11 @@ describe('a status written in Chinese', () => {
 
   it('lets front matter\'s status key decide before its Chinese one, and reads the Chinese one as that key is read', () => {
     expect(parseStatus('---\n狀態: 草稿\nstatus: accepted\n---\n')?.value).toBe('accepted');
+    // Then the Traditional key before the Simplified, wherever each is written.
+    expect(parseStatus('---\n状态: 草稿\n狀態: 已接受\n---\n')?.value).toBe('accepted');
+    expect(parseStatus('---\n狀態: 已接受\n状态: 草稿\n---\n')?.value).toBe('accepted');
+    // A key YAML reads decides before a line it passes over.
+    expect(parseStatus('---\n狀態：草稿\n状态: 已接受\n---\n')?.value).toBe('accepted');
     const said = (reason: string) =>
       `the status in front matter cannot be read (${reason}), so its status is unrecognised and the document stays in force; a status written below the front matter is not read in its place`;
     expect(warningOf('---\n狀態:\n---\n\n## Status\n\nDraft\n')).toEqual([[2, said('it is empty')]]);
@@ -955,10 +960,18 @@ describe('a status written in Chinese', () => {
     expect(warningOf(fullWidth)).toEqual([[3, said('YAML ends a key at an ASCII colon, and this one is full-width')]]);
     expect(parseDocument(fullWidth, context).warnings?.[0]?.hint).toBe('write "状态:" with an ASCII colon');
     expect(parseDocument('---\n狀態：已取代\n---\n', context).warnings?.[0]?.hint).toBe('write "狀態:" with an ASCII colon');
+    // Space or a tab before the colon, as before YAML's, and a line ended by
+    // CR LF, counted as the document's own lines.
+    expect(warningOf('---\n状态 ：草稿\n---\n')).toEqual([[2, said('YAML ends a key at an ASCII colon, and this one is full-width')]]);
+    expect(warningOf('---\n状态\t：草稿\n---\n')).toEqual([[2, said('YAML ends a key at an ASCII colon, and this one is full-width')]]);
+    expect(warningOf('---\r\ntitle: x\r\n状态：草稿\r\n---\r\n')).toEqual([[3, said('YAML ends a key at an ASCII colon, and this one is full-width')]]);
     // Every other status that cannot be read leaves the hint to its kind.
     expect(parseDocument('---\n狀態: 進行中\n---\n', context).warnings?.[0]).not.toHaveProperty('hint');
     // Not the key: under another key, or with no space after YAML's colon.
     expect(parseStatus('---\nmeta:\n  狀態: 草稿\n---\n')).toBeUndefined();
+    expect(warningOf('---\nmeta:\n  狀態：草稿\n---\n')).toBeUndefined();
+    // Below the front matter the full-width colon is prose's, and read.
+    expect(parseStatus('---\ntitle: x\n---\n\n# ADR-1\n\n狀態：已取代\n')).toMatchObject({ value: 'superseded', source: 'label' });
     expect(parseStatus('---\n狀態:草稿\n---\n')).toBeUndefined();
     expect(parseStatus('---\n狀態碼: 草稿\n---\n')).toBeUndefined();
   });
