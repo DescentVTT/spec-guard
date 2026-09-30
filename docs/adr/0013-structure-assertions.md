@@ -437,3 +437,25 @@ reads it by spec-core's rules chooses what the run chooses.
   were.
 
 <!-- @assert-count target="src/runner.ts" symbol="normalizeDirs(" min="1" reason="dirs drops a trailing slash from each alternative of its braces, not from the whole of it alone" -->
+
+## Amended 2026-09-30: the alternatives are spec-core's, and `.//` roots nothing
+
+spec-core's copy from `5666c96` reads a leading `./` with the slashes after
+it, so `.//a` is `a` where it was `/a`, and a slash the braces give after a
+`./` roots nothing; and it gives its own reading of each brace alternative's
+start ([ADR-0015](0015-globs-from-spec-core.md)'s amendment of this date).
+`dirs` writes its braces again from that reading, each alternative without
+the slashes it ends with, and only where one ends with a slash: an
+alternative's `./` or a slash it starts with names what it names written
+again without them, and no longer writes the braces again alone.
+
+| `dirs=` | Until now | Now |
+| --- | --- | --- |
+| `.//a`, `.//a/` | nothing: rooted, as `/a` | `a` |
+| `././/{a/,d}` | nothing, described as `.//{a,d}` | `a` and `d`, described the same |
+| `./{/a/,d}` | `d`, described as `{/a,d}` | `a` and `d`, described as `./{a,d}` |
+| `{./a,d}` | `a` and `d`, described as `{a,d}` | `a` and `d`, described as written |
+| `{./a/,d}`, `/{a/,d}`, `{/a/,d}`, `./!a/` | `a` and `d`; nothing; `d`; `!a` | the same, described the same |
+
+`tests/structure.test.ts` holds a run on a real tree to the first three rows,
+and each group of braces to its description.

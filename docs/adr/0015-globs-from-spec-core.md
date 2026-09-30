@@ -61,8 +61,15 @@ path is refused as the same text written alone is, and every refusal of one
 names it, as the amendment of 2026-09-29 below says. A tenth, from `7e41240`,
 changed `pattern/glob.ts` alone: a leading `/` on a brace alternative roots or
 anchors that alternative as it would the pattern written alone, as the second
-amendment of 2026-09-29 below says. `VENDOR.json` records the commit and the
-SHA-256 of every file. Nothing in this repository edits them.
+amendment of 2026-09-29 below says. An eleventh, from `5666c96`, changed
+`pattern`, `markdown` and `text`: a leading `./` goes with the slashes after
+it, and spec-core gives its own reading of how each brace alternative starts,
+as the amendment of 2026-09-30 on a `./` and its slashes below says; front matter reads a key of
+any script, by which [ADR-0010](0010-spec-status.md)'s amendment of that date
+reads a status key in Chinese; and `rebaseGlob`, a plain scalar in any script
+and a terminal's display width arrived, which nothing here uses.
+`VENDOR.json` records the commit and the SHA-256 of every file. Nothing in
+this repository edits them.
 
 spec-core's `LICENSE` lies beside the copies, and `package.json` names it in
 `files`: the package carries spec-core's compiled code under
@@ -458,6 +465,61 @@ differences below, so the adoption changed exactly what this ADR says it did.
   `tests/glob-core.test.ts` holds `./!a` and `././!*` to spec-core's reading
   on every path of its universe, as an inclusion and as an exclusion, and
   the parity tests state what `./!a` finds under each engine.
+- **Amended 2026-09-30: a `./` goes with the slashes after it, and spec-core
+  names each alternative.** spec-core's copy from `5666c96` reads a leading
+  `./` with the slashes after it, as POSIX reads `.//docs`: the current
+  directory, then `docs` (its ADR-0003's amendment of this date). Until then
+  the slashes were left to lead what followed and rooted it, so `.//docs`
+  was `/docs`, and a slash the braces give after a pattern's `./` was one of
+  them too: `./{/docs,x}` rooted `docs`. Neither roots anything now. The same
+  copy gives `globAlternatives`, spec-core's own reading of how each
+  alternative of a pattern's braces starts: whether it is rooted, and its
+  text without the `./` and the slashes it starts with, a `}` or a `,` no
+  group took written as the class that matches it.
+
+  spec-guard had read both itself, and read `.//` as rooting. `rootOf` and
+  `isRooted` decided which alternatives are rooted, `lex`, `expandBraces`,
+  `nesting` and `asCharacter` expanded the braces, and `withoutDotSlash`
+  took a `./` off every pattern before spec-core was asked, keeping it only
+  before a `!`. The first six are gone. `alternatives` is `globAlternatives`
+  with the kind's trailing slash, and `fromWhereRead`, `oneSegment`,
+  `ripgrepGlobs` and `normalizeDirs` read its `rooted` and `text`; ripgrep is
+  handed a comma no group took as `[,]`, as spec-core writes it, which it
+  reads as a comma. `withoutDotSlash` is gone from every reading: `glob=`, a
+  structure rule's `pattern=`, `exclude=`, `--exclude` and the
+  configuration's `exclude`, `module=`, a layer and a spec pattern ask
+  spec-core the pattern as written, trimmed and with each `\` a `/`, so
+  `./!a` is the name `!a` because spec-core reads it so, and not because a
+  `./` was kept before a `!`. It is left to the normal forms,
+  `normalizeGlob`, `normalizeExclude` and the one `dirs=` is read in, which
+  still drop a leading `./` ([ADR-0014](0014-configuration-and-watch.md)),
+  now with the slashes after it, and only where that changes nothing
+  spec-core reads: before a `!`, and before braces that give a text starting
+  with `/`, where spec-core's reading decides, it stays. A
+  spec pattern's walk starts from its base found without its first `./` and
+  the slashes after it; a second `./` stays, so `././*.md` is still the
+  root's Markdown, below the base `.`.
+
+  | Pattern | Until now | Now |
+  | --- | --- | --- |
+  | `glob=".//f.ts"`, `glob="././/f.ts"`, `glob="{.//f.ts,x}"` | `f.ts` at the root | `f.ts` at any depth, as `glob="./f.ts"` is, under both engines |
+  | `glob="./{/f.ts,x}"` | `f.ts` at the root, and `x` at any depth | both at any depth |
+  | `exclude=".//build"`, `{.//build,x}` or `./{/build,x}`, a module or a layer | the root's `build` | every `build` |
+  | spec pattern `.//docs/*.md` | walked from the filesystem's `/docs` | walked from the repository's `docs` |
+  | spec pattern `.//*.md`; `{.//a.md,README.md}` | the filesystem root's Markdown; the root's `a.md` | every `.md`, as `./*.md` is; every `a.md` |
+  | spec pattern `.//./{./,docs}` | refused, naming `"././"` | refused, naming `"./"`, as `././{./,docs}` is |
+  | `glob="./src/**.ts"`, `glob=".//**.md"` | told to write `src/**/*.ts`; `/**/*.md` | told to write `./src/**/*.ts`; `.//**/*.md`, which is not rooted |
+  | `module="./"`, `module=".//"`, `glob="./"` | `the pattern is empty` | `the pattern names the root itself, not a path under it` |
+
+  `glob="/f.ts"`, `glob="{/f.ts,x}"`, `glob="./!a"` and a spec pattern
+  `././*.md` read as they did. `dirs=` follows, and
+  [ADR-0013](0013-structure-assertions.md)'s amendment of this date has its
+  table. `tests/glob-core.test.ts` holds eight more
+  patterns to spec-core's reading on every path of its universe, now 56,
+  as an inclusion and as an exclusion, and the parity tests state what
+  `.//a.ts`, `./{/a.ts,x.log}`, `.//tests` excluded and a comma no group
+  took find under each engine. The brace expander written over tokens, as
+  the last section below tells, went with the rest.
 
 ### Both engines, one reading
 
@@ -483,16 +545,18 @@ Two decisions close them, and `tests/glob-parity.test.ts` states the files each
 shape must find, under each engine:
 
 - **ripgrep is handed spec-core's reading, spelled for globset.**
-  `ripgrepGlobs` expands a pattern's braces into one glob per alternative, as
-  spec-core expands them; reads a trailing `/` on each as the kind of pattern
-  reads it (amended 2026-09-28, above); drops `.` and empty segments; writes a
-  lone `}` as the class `[}]`; and anchors each alternative, or not, by its own
+  `ripgrepGlobs` hands it one glob per alternative of a pattern's braces, as
+  spec-core expands them, and from its copy of `5666c96` as spec-core names
+  them (amended 2026-09-30, above); reads a trailing `/` on each as the kind
+  of pattern reads it (amended 2026-09-28, above); drops `.` and empty
+  segments; writes a lone `}` as the class `[}]`, and from that copy a comma
+  no group took as `[,]`; and anchors each alternative, or not, by its own
   shape - a leading `/` where it must be anchored, as one on the alternative
   itself says it must be (amended 2026-09-29, above), and `**/` where an
   alternative starting with `!` must not become a negation.
   `tests/glob-core.test.ts` holds that spelling, and the matchers' segment
   shortcut, to spec-core's own answer for the whole path on every path of a
-  universe of 3,615, for 46 patterns chosen for each piece of syntax, and the
+  universe of 3,615, for 56 patterns chosen for each piece of syntax, and the
   parity tests hold ripgrep to the same reading on a real tree. Removing the
   spelling fails six of them.
 - **ripgrep's list is held to the scanner's filters.** A file ripgrep names is
