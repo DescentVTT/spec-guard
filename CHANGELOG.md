@@ -10,6 +10,14 @@ what to do when upgrading; the family's policy, including how a flag or field
 is deprecated before it goes, is spec-core's
 [ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
+## Unreleased
+
+### Documentation
+
+- The README's GitHub Actions examples pin each action to a commit with its
+  version beside it, check out without keeping the token, and grant
+  permissions per job, `security-events: write` only where SARIF is uploaded.
+
 ## 0.18.0
 
 spec-guard reads a status in English only again, by the maintainer's
