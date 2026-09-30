@@ -8,16 +8,16 @@ name: Mutation
 # was 2,118 mutants and 6m54s; it is the kind of cost that stops being
 # affordable quietly, and by then the usual response is to lower the gate.
 #
-# So: branches and pull requests run Stryker in incremental mode, which reuses
-# the verdicts for mutants whose source and covering tests are both unchanged.
-# main, the nightly schedule and any manual run do the full sweep and publish
-# the incremental file the branches start from.
+# So: pull requests run Stryker in incremental mode, which reuses the verdicts
+# for mutants whose source and covering tests are both unchanged. main, the
+# weekly schedule and any manual run do the full sweep and publish the
+# incremental file the pull requests start from.
 #
 # The honest caveat, which belongs in the file rather than in a footnote: an
 # incremental result is only as trustworthy as its cache. Stryker invalidates on
 # file hashes, so it is sound as far as it goes, but "as far as it goes" is a
 # heuristic and the full run is not. The gate is enforced in both tiers, so a
-# branch cannot get worse unnoticed - and every push to main re-derives the
+# pull request cannot get worse unnoticed - and every push to main re-derives the
 # score from scratch, so nothing stays merged on a cached verdict for longer
 # than one run.
 #
@@ -34,7 +34,13 @@ name: Mutation
 # source edit can (vitest itself is pinned for exactly that reason - see
 # ADR-0003), and filtering on src/** would miss it.
 on:
+  # A pull request's sweep gates it, and main's feeds the release commit
+  # (ADR-0019). A push to any other branch runs nothing: one with a pull
+  # request would run the sweep twice, once per event. A v* tag runs the
+  # incremental tier on the commit it names.
   push:
+    branches: [main]
+    tags: ['v*']
   pull_request:
   schedule:
     - cron: '0 4 * * 1'
@@ -45,13 +51,11 @@ on:
         type: boolean
         default: true
 
-# A newer push supersedes an older push's run on the same branch, and a newer
-# commit on a pull request its older one, so those cancel. Nothing a push does
-# supersedes a schedule or a dispatch, so the event is part of the key: without
-# it, on 2026-09-14, the Monday sweep cancelled the full sweep of the push to
-# main it shared a commit with, the sweep a release waits for (ADR-0019). A
-# push to a branch with an open pull request is two events and so two runs;
-# the key cannot tell a push's run which pull request it belongs to.
+# A newer push to main supersedes an older push's run, and a newer commit on a
+# pull request its older one, so those cancel. Nothing a push does supersedes a
+# schedule or a dispatch, so the event is part of the key: without it, on
+# 2026-09-14, the Monday sweep cancelled the full sweep of the push to main it
+# shared a commit with, the sweep a release waits for (ADR-0019).
 concurrency:
   group: mutation-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
@@ -101,10 +105,10 @@ jobs:
 
       - run: npm ci
 
-      # A branch starts from whatever main last published. The restore-keys
-      # fallback matters more than the exact key: a branch that finds nothing
-      # simply does a full run and is correct, only slower. A full sweep
-      # restores nothing: it re-derives every verdict from the code.
+      # A pull request starts from whatever main last published. The
+      # restore-keys fallback matters more than the exact key: a run that finds
+      # nothing simply does a full run and is correct, only slower. A full
+      # sweep restores nothing: it re-derives every verdict from the code.
       - name: Restore the incremental file
         if: env.FULL != 'true'
         uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0

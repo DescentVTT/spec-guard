@@ -103,12 +103,14 @@ killing it.
 
 CI runs it in **two tiers**, both gated at 97%:
 
-- **Branches and pull requests** run Stryker incrementally, reusing the verdict
-  for any mutant whose source and covering tests are both unchanged.
+- **Pull requests** run Stryker incrementally, reusing the verdict for any
+  mutant whose source and covering tests are both unchanged. A push to a
+  branch runs nothing until the branch has a pull request, and a `v*` tag
+  runs this tier on the commit it names.
 - **Pushes to `main`, the weekly schedule and manual runs** do the full sweep,
   which is the authoritative number and the one quoted above. A full sweep is
-  also what publishes the cache the branches start from, so an incremental
-  verdict can never be built on another incremental verdict.
+  also what publishes the cache the pull requests start from, so an
+  incremental verdict can never be built on another incremental verdict.
 
 The full sweep was 6m54s at 2,118 mutants, 15m51s at 3,493, and 42m39s at 7,763.
 That growth is why the tiers exist: a check that gets quietly more expensive
