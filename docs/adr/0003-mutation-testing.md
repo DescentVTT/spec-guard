@@ -1711,3 +1711,16 @@ CI is the measurement, not a convenience. A local run of the same suite takes
 over two hours on the Windows machine this was developed on, against 15m51s
 hosted - the same 24x gap the ordinary test suite shows (3.2s hosted, 77s
 local), and enough that local timings say nothing useful about the budget.
+
+## Amended 2026-10-01: pull requests, not every branch push
+
+The incremental tier runs on pull requests, not on every push to a branch.
+`mutation.yml` answered both events, so a branch with a pull request ran
+the sweep twice for each commit, eight shards each time: 33c619a, 34761ee,
+8482743 and 85a5a7f each have a push sweep and a pull request sweep. The
+concurrency key could not fold them together, since a push event does not
+know its pull request. `push` now names `main` and `v*` tags, as
+spec-graph's does. A pull request's sweep still gates it, `main`'s full
+sweep still feeds the release commit (ADR-0019), a tag still runs the
+incremental tier, and the schedule and the manual trigger are as they were.
+A branch pushed without a pull request is swept when it gets one.
