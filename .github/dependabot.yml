@@ -6,6 +6,11 @@
 # release that is withdrawn or compromised in its first days never lands, and
 # the pins stay the newest that have been out long enough to trust. Security
 # updates are not held back: the cooldown applies to version updates only.
+#
+# Dependabot tells a patch from a major for npm but not for GitHub Actions,
+# where it ignores the semver keys: an action waits a week whatever its
+# version says. `default-days` is also the wait for an npm version Dependabot
+# cannot place on semver. Unset, both would wait its built-in three days.
 version: 2
 updates:
   - package-ecosystem: npm
@@ -13,6 +18,7 @@ updates:
     schedule:
       interval: weekly
     cooldown:
+      default-days: 7
       semver-patch-days: 7
       semver-minor-days: 14
       semver-major-days: 30
@@ -35,9 +41,7 @@ updates:
     schedule:
       interval: weekly
     cooldown:
-      semver-patch-days: 7
-      semver-minor-days: 14
-      semver-major-days: 30
+      default-days: 7
     groups:
       actions:
         patterns:
