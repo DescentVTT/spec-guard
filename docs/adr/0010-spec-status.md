@@ -465,6 +465,10 @@ as a run does.
 
 ## Amended 2026-09-30: a status in Chinese, and a status in a table
 
+*Withdrawn 2026-09-30, all but the table, which is read with English keys
+alone: see [a status is read in English](#amended-2026-09-30-a-status-is-read-in-english).
+Kept as the record of what 0.17.0 read.*
+
 **The list stays closed.** A status written in Chinese is read as the English
 word it translates, by the family's table (spec-core's ADR-0005), Traditional
 and Simplified, and the English then does here what it already does. These
@@ -527,3 +531,47 @@ other documents, whose status column is theirs, and is never read.
 
 On the 146 Markdown files of the five spec-* repositories every status is read
 as it was: none is written in Chinese or in a table.
+
+## Amended 2026-09-30: a status is read in English
+
+The amendment above that read a status in Chinese is withdrawn. The
+maintainer chose English only for the family: a small team, one language to
+maintain, and a heuristic in a second language is where false positives come
+from. A document may be written in any language, and its status is written in
+English under an English key - `status: superseded`, or `## Status` over
+`Superseded by ADR-0007` - which every spec-* tool reads.
+
+What went: the Chinese words and the English each was read as; `被` ... `取代`
+read as superseded; the refusal of `已取代` before a document reference; the
+negations; `狀態` and `状态` as the key in front matter, a heading, a label and
+a table's left cell; a full-width colon after a label; and the warning for
+that key with a full-width colon in YAML front matter, with its hint to write
+an ASCII colon. That warning was the only one with a hint of its own, so a
+spec warning no longer carries one; each takes its kind's.
+
+A status in Chinese is now read as any other status that cannot be read is.
+Under an English key - `status: 已取代`, or `已取代` under `## Status`, in a
+table's `Status` row or after `Status:` - it begins with no word, so it cannot
+be read: the document stays in force, the report warns on its line, kind
+`unreadable-status`, and nothing ranked below is read in its place. The
+warning's hint says to write the status as an English word spec-guard reads.
+A key in another language names no status: `## 狀態` is a section about
+something else, `| 狀態 | 已取代 |` a table that gives none, and `狀態: 已取代`
+in front matter a key like any other. Such a document stays in force as one
+with no status does, unless it also gives its status in English, which is
+then what is read: `狀態: accepted` in front matter over `## Status` and
+`Draft` is draft, as `title: x` over the same section is. So a document 0.17.0
+took out of force by a Chinese word runs its rules again, and one whose
+Chinese key decided before an English spelling ranked below it now reads that
+English spelling. To withhold a document, write its status in English:
+`status: superseded`.
+
+What stays: the table of two columns in the preamble, with its keys in
+English, `Status` and `State`; a section, a table or a label that cannot be
+read deciding, and keeping its document in force; a strict run that verified
+nothing failing. `INACTIVE_STATUSES` keeps its six words. The translations
+were keyed by the English so that the assertion that `'archived'` is written
+once held beside them; without them it holds as it did before them.
+
+On the 174 Markdown files of the five spec-* repositories every status and
+every warning is read as 0.17.0 read it: none is written in Chinese.

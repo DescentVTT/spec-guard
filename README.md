@@ -910,38 +910,13 @@ That asymmetry is deliberate: an unanticipated word that keeps enforcing is a
 visible failure with an obvious fix, while one that stops enforcing is a green
 build over a rule nobody is checking.
 
-A status may be written in Chinese, Traditional or Simplified, and the key as
-`狀態` or `状态` - a heading, a table's cell, a label with `:` or a full-width
-`：`, or a front-matter key with YAML's colon. YAML ends a key at an ASCII colon
-and at nothing else, so `状态：草稿` in front matter is a status that cannot be
-read: the document stays in force, and the warning says to write `状态:`. A
-Chinese word is read as the English word it translates, and the English then
-does what it does here: only a word for one of the six above withholds a
-document, and the report shows the line as written. These are translations of
-the list, not words added to it:
-
-| Read as | Traditional | Simplified |
-| --- | --- | --- |
-| superseded | 已被取代, 被取代, 已取代, and 被 ... 取代, 替代 or 取而代之 within 30 characters | the same |
-| deprecated | 已棄用, 棄用, 已廢棄, 廢棄, 已停用, 已過時 | 已弃用, 弃用, 已废弃, 废弃, 已停用, 已过时 |
-| rejected | 已否決, 否決, 已拒絕, 不採納 | 已否决, 否决, 已拒绝, 不采纳 |
-| archived | 封存, 已封存, 歸檔, 已歸檔 | 封存, 已封存, 归档, 已归档 |
-| draft | 草稿, 草案 | 草稿, 草案 |
-| proposed | 提議, 提案, 審查中, 審核中, 討論中, 待審, 待審核 | 提议, 提案, 审查中, 审核中, 讨论中, 待审, 待审核 |
-| withdrawn, in force | 已撤回, 撤回, 已作廢, 作廢 | 已撤回, 撤回, 已作废, 作废 |
-| deferred, in force | 延後, 暫緩, 擱置 | 延后, 暂缓, 搁置 |
-| final, in force | 已定案, 定案, 已凍結 | 已定案, 定案, 已冻结 |
-| provisionally (accepted), in force | 暫定 | 暂定 |
-| accepted, in force | 已接受, 接受, 已採納, 採納, 已核准, 核准, 已批准, 批准, 已生效, 生效 | 已接受, 接受, 已采纳, 采纳, 已核准, 核准, 已批准, 批准, 已生效, 生效 |
-| implemented, in force | 已實施, 已完成 | 已实施, 已完成 |
-
-A word is read at the start of the value, and only when a space, punctuation or
-the end follows it: `草稿已核准` and `暫定接受` are no word listed. Nor is a word
-after a negation - `未接受`, `尚未核准`, `不再生效` - or `已取代` before a
-document reference, `已取代 ADR-0002`, which usually names the document this
-one supersedes; `已接受（取代 ADR-0002）` is accepted. A Chinese value that is
-no word listed keeps its document in force, with a warning, as any value that
-cannot be read does.
+The status is read in English. A document may be written in any language, and
+its status is written in English under an English key - `status: superseded`,
+or `## Status` over `Superseded by ADR-0007` - which every spec-* tool reads.
+A word in another language under that key, `status: 已取代`, is a status that
+cannot be read: the document stays in force, and the report warns and says to
+write the status as an English word. A key in another language, `## 狀態` or
+`| 狀態 | 已取代 |`, names no status, and the document stays in force.
 
 Withholding is never quiet:
 
