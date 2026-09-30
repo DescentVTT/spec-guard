@@ -58,12 +58,19 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      - uses: actions/checkout@v7
+      # Pinned to commits, with the tag beside each: a moved tag would be a
+      # way into the tarball. The checkout keeps no token for `npm ci` and
+      # the suite to find, and no dependency cache is restored: other runs
+      # write it, and the tarball comes from the lockfile and the registry
+      # alone.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '24'
-          cache: npm
+          package-manager-cache: false
 
       - run: npm ci
 
@@ -126,7 +133,7 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: npm-package
           path: npm-package/*.tgz
@@ -157,18 +164,22 @@ jobs:
       # v7 or newer. Earlier releases exported a dummy NODE_AUTH_TOKEN whenever
       # registry-url was set, and the npm CLI treats any token it finds as a
       # credential and stops short of the OIDC exchange.
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '24'
           registry-url: https://registry.npmjs.org
+          package-manager-cache: false
 
       # Node's bundled npm is not reliably new enough, and when it is not the
       # failure arrives as an authentication error that says nothing about
-      # versions. Pinned inside 11.x rather than @latest: 12 is newer, which is
-      # not the same as proven, and a release is the wrong place to find out.
+      # versions. Pinned to the exact version every staged release so far
+      # has used: a range would bring whatever npm published an hour ago into
+      # the one job that holds the publish token, past the cooldown everything
+      # else waits out, and a release is the wrong place to find out. Moving
+      # it is an edit made on purpose, since Dependabot cannot see it here.
       - name: An npm new enough to stage
         run: |
-          npm install -g 'npm@^11.15.0'
+          npm install -g npm@11.20.0
           installed="$(npm --version)"
           required=11.15.0
           if [ "$(printf '%s\n%s\n' "$required" "$installed" | sort -V | head -1)" != "$required" ]; then
@@ -177,7 +188,7 @@ jobs:
           fi
           echo "npm $installed on node $(node --version)"
 
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: npm-package
           path: npm-package
