@@ -1731,14 +1731,14 @@ export function planRun(
   }
 
   const assertions: Assertion[] = [];
-  let inForce = 0;
+  let ruleInForce = false;
   for (const directive of directives) {
     const resolved = resolveDirective(directive, { root, excludeFiles, scope, exclude });
     if ("error" in resolved) {
       errors.push(resolved.error);
       continue;
     }
-    inForce += 1;
+    ruleInForce = true;
     // Selection happens after resolution, so a directive that is not selected
     // is still held to being well-formed - the same bargain ADR-0010 strikes
     // for a document that is not in force.
@@ -1766,7 +1766,7 @@ export function planRun(
   // Specs matched and not one rule in force among them: a strict run refuses
   // that rather than report clean, as the family contract has it. No spec at
   // all is the command line's to refuse, and it does, as exit 2.
-  const nothingVerified = (options.strictTargets ?? false) && specs.files.length > 0 && inForce === 0;
+  const nothingVerified = (options.strictTargets ?? false) && specs.files.length > 0 && !ruleInForce;
   return { root, specFiles: specs.files, assertions, withheld: notRun, errors, inactiveSpecs, warnings: specs.warnings, masked: specs.masked, exclude, nothingVerified };
 }
 
