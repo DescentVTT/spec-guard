@@ -26,7 +26,6 @@ import { lineStarts, locate } from './text.js';
 import {
   findEntry,
   keyName,
-  parseInline,
   readFrontMatter,
   scanMarkdown,
   titleOf,
@@ -407,12 +406,20 @@ function fromFrontmatter(scan: MarkdownScan): StatusReading | undefined {
 }
 
 /**
- * The `status` of YAML front matter, as spec-core's reader reads it, or,
- * without one, its `狀態` or `状态`; undefined when it has neither.
+ * The status of YAML front matter, as spec-core's reader reads it: its
+ * `status`, or without one its `狀態`, or without that its `状态`; undefined
+ * when it has none of them.
+ *
+ * The reader reads a key of any script from its copy of `5666c96`, so the key
+ * in Chinese is an entry as `status` is, and its value is read as that key's
+ * is: quoted or plain, to a comment, and refused in the same words when it
+ * goes on under the key.
  */
 function yamlStatus(scan: MarkdownScan, block: FrontMatterBlock): Declared | undefined {
-  const entry = findEntry(readFrontMatter(scan.text.slice(0, block.bodyStart)), 'status');
-  if (entry === undefined) return chineseYamlStatus(scan.text.slice(0, block.bodyStart));
+  const text = scan.text.slice(0, block.bodyStart);
+  const frontMatter = readFrontMatter(text);
+  const entry = findEntry(frontMatter, 'status') ?? findEntry(frontMatter, '狀態') ?? findEntry(frontMatter, '状态');
+  if (entry === undefined) return fullWidthKey(scan, text);
   // The reader counts lines from 0 in the text the scan read, which is the
   // document's own lines after any byte-order mark.
   const line = entry.line + 1;
@@ -421,47 +428,29 @@ function yamlStatus(scan: MarkdownScan, block: FrontMatterBlock): Declared | und
   return { line, reason: value.kind === 'list' ? 'a list is not a status' : value.reason };
 }
 
-/**
- * A top-level `狀態` or `状态` key in YAML front matter: the key, a colon -
- * YAML's, with a space or nothing after it, or a full-width one, which YAML
- * does not read as one - and the value on its line.
- */
-const CHINESE_YAML_KEY = /^(狀態|状态)[ \t]*(?:(:)(?=[ \t]|$)|：)(.*)$/;
+/** A top-level `狀態` or `状态` followed by a full-width colon, which YAML does not read as one. */
+const FULL_WIDTH_KEY = /^(狀態|状态)[ \t]*：/m;
 
 /**
- * The status key in Chinese in YAML front matter, on the first line at the top
- * level that holds it.
+ * The status key in Chinese written with a full-width colon, as Chinese text
+ * writes one, on the first line of YAML front matter at the top level that
+ * holds it.
  *
- * spec-core's reader reads keys written in ASCII and passes over any other
- * line, so this key is found here and its value read as the reader reads one,
- * quoted or plain, to a comment. A value written on the lines under the key is
- * one the reader refuses for `status` too, and is refused here in its words.
- *
- * YAML ends a key at an ASCII colon and at nothing else, so `状态：草稿`, with a
- * full-width one as Chinese text writes it, is a line YAML would not read as
- * the key. It is a status that cannot be read: its document stays in force,
- * nothing below the front matter is read in its place, and the warning says to
- * write the colon in ASCII. A label or a heading in the body is prose, where
- * the full-width colon is read.
+ * YAML ends a key at an ASCII colon and at nothing else, so `状态：草稿` is a
+ * line YAML would not read as the key, and the reader passes over it. It is a
+ * status that cannot be read: its document stays in force, nothing below the
+ * front matter is read in its place, and the warning says to write the colon
+ * in ASCII. A label or a heading in the body is prose, where the full-width
+ * colon is read.
  */
-function chineseYamlStatus(frontMatter: string): Declared | undefined {
-  const lines = frontMatter.split(/\r\n|\r|\n/);
-  const at = lines.findIndex((text) => CHINESE_YAML_KEY.test(text));
-  if (at === -1) return undefined;
-  const line = at + 1;
-  const [, key, ascii, written] = CHINESE_YAML_KEY.exec(lines[at] as string) as RegExpExecArray;
-  if (ascii === undefined) {
-    return { line, reason: 'YAML ends a key at an ASCII colon, and this one is full-width', hint: `write "${key as string}:" with an ASCII colon` };
-  }
-  const inline = (written as string).trim();
-  if (inline === '' || inline.startsWith('#')) {
-    // The closing line follows the key's, so there is always a line below it.
-    const below = lines[at + 1] as string;
-    return /^[ \t]+\S/.test(below) ? { line, reason: 'the value continues on the next line; keep it on one line, or quote it' } : { line, text: '' };
-  }
-  const value = parseInline(inline);
-  if (value.kind === 'scalar') return { line, text: value.scalar.text };
-  return { line, reason: value.kind === 'list' ? 'a list is not a status' : value.reason };
+function fullWidthKey(scan: MarkdownScan, frontMatter: string): Declared | undefined {
+  const found = FULL_WIDTH_KEY.exec(frontMatter);
+  if (found === null) return undefined;
+  return {
+    line: scan.index.positionAt(found.index).line,
+    reason: 'YAML ends a key at an ASCII colon, and this one is full-width',
+    hint: `write "${found[1] as string}:" with an ASCII colon`,
+  };
 }
 
 /*
