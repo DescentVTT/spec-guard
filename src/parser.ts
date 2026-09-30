@@ -231,6 +231,12 @@ function unwrapped(text: string): string {
   return text.replace(/^(\*{1,2}|_{1,2})(.*)\1$/, '$2');
 }
 
+/**
+ * What a status that cannot be read is told to become, in its warning's own
+ * `hint`: a status is read in English whatever language the document is in.
+ */
+const UNREADABLE_STATUS_HINT = 'write the status as an English word spec-guard reads, such as accepted or superseded';
+
 /** Why a status written as `text` cannot be read: what the text holds. */
 function unreadable(text: string): string {
   return text.trim() === '' ? 'it is empty' : `"${text}" does not begin with a word`;
@@ -879,7 +885,7 @@ function directivesOf(source: string, scan: MarkdownScan, context: ParseContext)
   const at = (line: number): SourceLocation => ({ file: context.file, relativeFile: context.relativeFile, line, column: 1 });
   const warnings: SpecWarning[] = [
     ...unclosedFrontMatter(scan).map(({ line, message }) => ({ location: at(line), kind: 'unclosed-front-matter' as const, message })),
-    ...(problem === undefined ? [] : [{ location: at(problem.line), kind: 'unreadable-status' as const, message: problem.message }]),
+    ...(problem === undefined ? [] : [{ location: at(problem.line), kind: 'unreadable-status' as const, message: problem.message, hint: UNREADABLE_STATUS_HINT }]),
     ...unclosedBlocks(scan).map(({ line, message }) => ({ location: at(line), kind: 'unclosed-block' as const, message })),
   ];
   const hidden = maskedDirectives(source, masked, scan, starts, context);

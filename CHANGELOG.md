@@ -16,15 +16,16 @@ is deprecated before it goes, is spec-core's
 
 - A status written in Chinese is no longer read, and neither is `狀態` or
   `状态` as the status key. Under an English key, `status: 已取代` is a status
-  that cannot be read: the document stays in force, with a warning, and every
-  such warning's hint now says to write the status as an English word. A
-  heading, label, table row or front-matter key in Chinese names no status,
-  so an English status below it decides
+  that cannot be read: the document stays in force, with a warning whose
+  `hint` says to write the status as an English word; every such warning now
+  carries that hint in `hint`, where 0.17.0 carried one only for a full-width
+  colon, and GitLab and GitHub show it after the message. A heading, label,
+  table row or front-matter key in Chinese names no status, so an English
+  status below it decides
   ([ADR-0010](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0010-spec-status.md)).
   The warning for `狀態：` with a full-width colon in front matter goes with
-  them, and with it `hint` on a spec warning in the programmatic API. A
-  two-column status table is still read, with `Status` or `State` as the key.
-  Upgrading: write the status in English, e.g. `status: superseded`.
+  them. A two-column status table is still read, with `Status` or `State` as
+  the key. Upgrading: write the status in English, e.g. `status: superseded`.
 
 ## 0.17.0
 

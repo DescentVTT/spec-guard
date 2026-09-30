@@ -546,15 +546,17 @@ read as superseded; the refusal of `已取代` before a document reference; the
 negations; `狀態` and `状态` as the key in front matter, a heading, a label and
 a table's left cell; a full-width colon after a label; and the warning for
 that key with a full-width colon in YAML front matter, with its hint to write
-an ASCII colon. That warning was the only one with a hint of its own, so a
-spec warning no longer carries one; each takes its kind's.
+an ASCII colon. The warning's own `hint`, which that one used, stays: every
+status that cannot be read now carries its hint there.
 
 A status in Chinese is now read as any other status that cannot be read is.
 Under an English key - `status: 已取代`, or `已取代` under `## Status`, in a
 table's `Status` row or after `Status:` - it begins with no word, so it cannot
 be read: the document stays in force, the report warns on its line, kind
 `unreadable-status`, and nothing ranked below is read in its place. The
-warning's hint says to write the status as an English word spec-guard reads.
+warning's `hint` says to write the status as an English word spec-guard
+reads, and GitLab and GitHub write it after the message, where they wrote the
+full-width colon's; the message is the one 0.16.0 wrote.
 A key in another language names no status: `## 狀態` is a section about
 something else, `| 狀態 | 已取代 |` a table that gives none, and `狀態: 已取代`
 in front matter a key like any other. Such a document stays in force as one
