@@ -1555,6 +1555,18 @@ ran high where they were least measured: `runner.ts` and `text.ts` took 7m35s
 against 15.2 minutes, and `cli.ts` alone 8m18s against 15.1, so the next
 split starts from this run's logs rather than 398fe94's.
 
+### 0.18.0: the Chinese reading removed, and one equivalent back
+
+CI's full sweep of 858782d (run 36681719802), after the Chinese status
+reading was removed, came out at **99.15% over 12,228 mutants with 101
+survivors and 3 without coverage**; the shards took from 6m21s to 17m21s.
+The removal took 179 mutants with it, among them the survivor of 0.17.0 in
+`/^[*_]*/`, whose code is gone. One survivor is back: the recorded slice of
+YAML front matter, `scan.text.slice(0, block.bodyStart)` made `scan.text`,
+equivalent again now that the check of a full-width key, the one thing that
+made the slice matter in 0.17.0, is gone; the comment beside the code says
+so, as the 0.12.0 table does.
+
 ### 0.17.0: thirteen survivors replayed, two of them equivalent
 
 CI's full sweep of b925c28 (run 36654468570), the merge of 0.17.0's code,

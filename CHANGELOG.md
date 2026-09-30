@@ -10,7 +10,11 @@ what to do when upgrading; the family's policy, including how a flag or field
 is deprecated before it goes, is spec-core's
 [ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
-## Unreleased
+## 0.18.0
+
+spec-guard reads a status in English only again, by the maintainer's
+decision: a Chinese status stays in force with a warning whose hint asks for
+an English word. The two-column status table stays with English keys.
 
 ### Removed
 
