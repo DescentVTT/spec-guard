@@ -187,9 +187,6 @@ jobs:
       contents: read
 
     steps:
-      # v7 or newer. Earlier releases exported a dummy NODE_AUTH_TOKEN whenever
-      # registry-url was set, and the npm CLI treats any token it finds as a
-      # credential and stops short of the OIDC exchange.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '24'
