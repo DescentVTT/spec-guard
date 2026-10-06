@@ -979,25 +979,40 @@ export const javascriptEngine: BatchEngine = createJavaScriptEngine();
  * How much scanning the JavaScript engine may do before ripgrep is worth a
  * process spawn.
  *
- * Measured with scripts/bench-engines.mjs. ripgrep's cost is dominated by
- * process startup and is nearly flat in tree size; the JavaScript scanner grows
- * linearly. The crossover is therefore wherever a spawn costs, and that differs
- * by an order of magnitude between platforms:
+ * Measured with scripts/bench-engines.mjs on GitHub's hosted runners, three
+ * machines for each system (ADR-0004, amended 2026-10-07). ripgrep's cost is
+ * starting a process, and is nearly flat in tree size; the scanner's grows with
+ * the files it opens, and hardly with their bytes. So the crossover is a number
+ * of files, set by what a process costs to start, and about half as many when
+ * a run searches several targets at once, since their processes start side by
+ * side. ripgrep overtakes the scanner between:
  *
- *   Windows 11, Node 24, rg 15   spawn floor ~130ms   crossover ~575 files
- *   Linux (container), Node 22, rg 13   spawn floor ~15ms   crossover ~25 files
+ *   Linux, rg 14     16 files in 6 ms    one search 64-96 files     several targets 32-48
+ *   macOS, rg 15     16 files in 18 ms   one search 128-192 files   several targets 48-64
+ *   Windows, rg 15   16 files in 57 ms   one search 384-512 files   several targets 192-256
  *
- * The budget is set just below each crossover, so choosing JavaScript is never
- * the slower option by more than a few milliseconds, while a small tree on
- * Windows avoids a spawn that would cost ten times the whole search.
+ * `auto` pays for more than ripgrep when it hands a target over: the walk it
+ * abandons on the way, 6 ms a target on Windows. Each file budget is the
+ * largest size measured at which the scanner beat that walk and ripgrep
+ * together in a run of several targets, every time it was measured; a run of
+ * more than a handful of rules is one. Windows was measured through
+ * Chocolatey's shim, which is half of what ripgrep costs to start there.
+ *
+ * The byte budgets used to be what decided for ordinary source files: 64 KB
+ * and 1 MB are 2 KB a file, and at 12 KB a file they handed over searches the
+ * scanner answered three to seven times faster. Each is now under the largest
+ * size at which the scanner still won a run of several targets of long files:
+ * 2.5 MB on Linux, 5 MB on macOS, 10 MB on Windows.
  *
  * Taking the platform as an argument rather than reading it: a decision that is
- * explicitly about two platforms cannot be verified on one of them if the other
- * branch is only reachable by being that other platform. Both are now asserted
+ * explicitly about platforms cannot be verified on one of them if the other
+ * branches are only reachable by being those platforms. All are asserted
  * everywhere the suite runs.
  */
 export function smallTreeBudget(platform: NodeJS.Platform): EnumerationBudget {
-  return platform === 'win32' ? { maxFiles: 512, maxBytes: 1024 * 1024 } : { maxFiles: 32, maxBytes: 64 * 1024 };
+  if (platform === 'win32') return { maxFiles: 256, maxBytes: 8 * 1024 * 1024 };
+  if (platform === 'darwin') return { maxFiles: 64, maxBytes: 4 * 1024 * 1024 };
+  return { maxFiles: 32, maxBytes: 2 * 1024 * 1024 };
 }
 
 export const SMALL_TREE_BUDGET: EnumerationBudget = smallTreeBudget(process.platform);

@@ -15,7 +15,7 @@ import {
   type Engine,
   type SearchRequest,
 } from '../src/engine.js';
-import { DEMO_REPO, findTestRipgrep, makeTempRepo, removeTempRepo, searchOptions } from './helpers.js';
+import { DEMO_REPO, findTestRipgrep, makeTempRepo, pastEveryBudget, removeTempRepo, searchOptions } from './helpers.js';
 
 const rgPath = findTestRipgrep();
 const originalRg = process.env.SPEC_GUARD_RG;
@@ -39,23 +39,19 @@ afterAll(async () => {
 });
 
 /**
- * A tree comfortably past SMALL_TREE_BUDGET on every platform (the Windows
- * budget is 1MB). Built once and shared: the tests only read it, and rebuilding
- * a megabyte per test made the suite four times slower.
+ * A tree past SMALL_TREE_BUDGET on every platform, by its number of files.
+ * Built once and shared: the tests only read it, and rebuilding it for each
+ * made the suite four times slower.
  */
 let bigRepoOnce: Promise<string> | undefined;
 
 function makeBigRepo(): Promise<string> {
   bigRepoOnce ??= (async () => {
-    const filler = 'const padding = 1;\n'.repeat(20_000);
     const root = await makeTempRepo({
-      'src/a.ts': filler,
-      'src/b.ts': filler,
-      'src/c.ts': filler,
-      // Small enough to sit under the budget on every platform, so a
+      ...pastEveryBudget(),
+      // One small file is under the budget on every platform, so a
       // single-file target is a genuinely different question from the
-      // whole tree. The Linux budget is 64KB: the filler files are ~380KB
-      // each, so any one of them would already be over it.
+      // whole tree.
       'src/needle.ts': 'export class Needle {}\n',
     });
     return root;

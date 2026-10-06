@@ -747,13 +747,21 @@ describe('resolveEngine', () => {
 });
 
 describe('the small-tree budget', () => {
-  it('is larger on Windows, where spawning a process costs an order of magnitude more', () => {
-    // Both branches asserted on whichever platform the suite runs on. Read
+  it('is each platform\'s own, largest on Windows, where starting a process costs an order of magnitude more', () => {
+    // Every branch asserted on whichever platform the suite runs on. Read
     // from `process.platform` instead, each branch was verified on exactly one
     // operating system and taken on trust everywhere else.
-    expect(smallTreeBudget('win32')).toEqual({ maxFiles: 512, maxBytes: 1024 * 1024 });
-    expect(smallTreeBudget('linux')).toEqual({ maxFiles: 32, maxBytes: 64 * 1024 });
-    expect(smallTreeBudget('darwin')).toEqual(smallTreeBudget('linux'));
+    expect(smallTreeBudget('win32')).toEqual({ maxFiles: 256, maxBytes: 8 * 1024 * 1024 });
+    expect(smallTreeBudget('darwin')).toEqual({ maxFiles: 64, maxBytes: 4 * 1024 * 1024 });
+    expect(smallTreeBudget('linux')).toEqual({ maxFiles: 32, maxBytes: 2 * 1024 * 1024 });
+  });
+
+  it('is Linux\'s on a platform nothing was measured on', () => {
+    // A process starts there about as it does on Linux, and the smallest
+    // budget is the one that is wrong by least where that is not so.
+    for (const platform of ['freebsd', 'openbsd', 'sunos', 'aix', 'android'] as const) {
+      expect(smallTreeBudget(platform)).toEqual(smallTreeBudget('linux'));
+    }
   });
 
   it('is the budget this process actually uses', () => {
