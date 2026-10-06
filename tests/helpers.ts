@@ -10,6 +10,7 @@ import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { smallTreeBudget } from '../src/engine.js';
 import { nodeIo, type DirectoryReader, type Io } from '../src/io.js';
 import { DEFAULT_SCOPE } from '../src/scope.js';
 
@@ -70,6 +71,20 @@ export function wideTree(directories: number, filesPerDirectory: number, prefix 
     }
   }
   return files;
+}
+
+/**
+ * Files enough to put `prefix` past the adaptive engine's budget on every
+ * platform, so that `auto` hands a search of it to ripgrep: one more than the
+ * most files any platform scans in process (ADR-0004).
+ *
+ * By count and not by size. The budgets differ most in bytes, and megabytes
+ * written for a test are time the suite does not have; a few hundred files of
+ * one line are written at once.
+ */
+export function pastEveryBudget(prefix = 'src'): Record<string, string> {
+  const most = Math.max(...(['win32', 'darwin', 'linux'] as const).map((platform) => smallTreeBudget(platform).maxFiles));
+  return Object.fromEntries(Array.from({ length: most + 1 }, (_, index) => [`${prefix}/filler/f${index}.ts`, 'const padding = 1;\n']));
 }
 
 /** The filesystem, with every directory listing answered by `readDirectory`. */

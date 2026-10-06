@@ -19,7 +19,7 @@ import {
   type SearchRequest,
 } from '../src/engine.js';
 import { runSpecGuard, type RunResult } from '../src/runner.js';
-import { DEMO_REPO, findTestRipgrep, makeTempRepo, removeTempRepo, searchOptions } from './helpers.js';
+import { DEMO_REPO, findTestRipgrep, makeTempRepo, pastEveryBudget, removeTempRepo, searchOptions } from './helpers.js';
 
 const rgPath = findTestRipgrep();
 const originalRg = process.env.SPEC_GUARD_RG;
@@ -41,23 +41,19 @@ async function repo(files: Record<string, string>): Promise<string> {
 }
 
 /**
- * A tree comfortably past SMALL_TREE_BUDGET on every platform (the Windows
- * budget is 1MB). Built once and shared: the tests only read it, and rebuilding
- * a megabyte per test made the suite four times slower.
+ * A tree past SMALL_TREE_BUDGET on every platform, by its number of files.
+ * Built once and shared: the tests only read it, and rebuilding it for each
+ * made the suite four times slower.
  */
 let bigRepoOnce: Promise<string> | undefined;
 
 function bigRepo(): Promise<string> {
   bigRepoOnce ??= (async () => {
-    const filler = 'const padding = 1;\n'.repeat(20_000);
     const root = await makeTempRepo({
-      'src/a.ts': filler,
-      'src/b.ts': filler,
-      'src/c.ts': filler,
-      // Small enough to sit under the budget on every platform, so a
+      ...pastEveryBudget(),
+      // One small file is under the budget on every platform, so a
       // single-file target is a genuinely different question from the
-      // whole tree. The Linux budget is 64KB: the filler files are ~380KB
-      // each, so any one of them would already be over it.
+      // whole tree.
       'src/needle.ts': 'export class Needle {}\n',
     });
     return root;
@@ -162,6 +158,42 @@ describe('engine selection', () => {
     if (rgPath) expect(whole.engine).toBe('ripgrep');
   });
 
+  /** A tree of `count` files under src, the first holding the needle and `bytes` bytes among them all. */
+  const tree = (count: number, bytes = 0): Record<string, string> => {
+    const files: Record<string, string> = { 'src/f0.ts': 'Needle\n' };
+    for (let index = 1; index < count; index++) files[`src/f${index}.ts`] = '';
+    files['src/f0.ts'] += ' '.repeat(Math.max(0, bytes - 'Needle\n'.length));
+    return files;
+  };
+  const chosenFor = async (files: Record<string, string>): Promise<string> => {
+    process.env.SPEC_GUARD_RG = rgPath as string;
+    resetRipgrepProbe();
+    const result = await (await resolveEngine('auto')).search(query(await repo(files)));
+    expect(result.count).toBe(1);
+    return result.engine;
+  };
+
+  it.runIf(rgPath)('scans as many files as its budget in process, and hands one more to ripgrep', async () => {
+    expect(await chosenFor(tree(SMALL_TREE_BUDGET.maxFiles))).toBe('javascript');
+    expect(await chosenFor(tree(SMALL_TREE_BUDGET.maxFiles + 1))).toBe('ripgrep');
+  });
+
+  it.runIf(rgPath)('scans as many bytes as its budget in process, and hands one more to ripgrep', async () => {
+    // Two files, so that nothing but their bytes can be over a budget.
+    expect(await chosenFor(tree(2, SMALL_TREE_BUDGET.maxBytes))).toBe('javascript');
+    expect(await chosenFor(tree(2, SMALL_TREE_BUDGET.maxBytes + 1))).toBe('ripgrep');
+  });
+
+  it.runIf(rgPath)('scans files of ordinary length in process, which a budget of 2 KB a file handed to ripgrep', async () => {
+    // Files of 12 KB, fewer than the platform's budget of files: 16 of them
+    // are three times the 64 KB that sent them to ripgrep on Linux and macOS,
+    // and 128 half as much again as the megabyte that did on Windows. The
+    // scanner was measured three, seven and four times faster over them.
+    const files = tree(process.platform === 'win32' ? 128 : 16);
+    for (const name of Object.keys(files)) files[name] += 'const padding = 1;\n'.repeat(630);
+    expect(await chosenFor(files)).toBe('javascript');
+  });
+
   it('does not reuse an enumeration across different exclusions', async () => {
     // Same targets, different exclude sets: caching on targets alone would hand
     // the second search the first search's file list.
@@ -229,9 +261,9 @@ describe('the choice never changes the answer', () => {
 });
 
 describe('SMALL_TREE_BUDGET', () => {
-  it('is larger on Windows, where spawning a process costs more', () => {
+  it('is largest on Windows, where starting a process costs most', () => {
     expect(SMALL_TREE_BUDGET.maxFiles).toBeGreaterThan(0);
     expect(SMALL_TREE_BUDGET.maxBytes).toBeGreaterThan(0);
-    expect(SMALL_TREE_BUDGET.maxFiles).toBe(process.platform === 'win32' ? 512 : 32);
+    expect(SMALL_TREE_BUDGET.maxFiles).toBe(process.platform === 'win32' ? 256 : process.platform === 'darwin' ? 64 : 32);
   });
 });

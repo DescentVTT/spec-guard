@@ -32,7 +32,7 @@ import { nodeIo } from '../src/io.js';
 import { DEFAULT_SCOPE } from '../src/scope.js';
 import { createTreeIndex } from '../src/structure.js';
 import type { Assertion, Bounds, Directive, DirectiveKind } from '../src/types.js';
-import { DEMO_REPO, makeTempRepo, removeTempRepo, searchOptions, wideTree } from './helpers.js';
+import { DEMO_REPO, makeTempRepo, pastEveryBudget, removeTempRepo, searchOptions, wideTree } from './helpers.js';
 
 const temporary: string[] = [];
 
@@ -1107,8 +1107,7 @@ describe('a spec file that cannot be read', () => {
 });
 
 describe('when ripgrep breaks part way through a run', () => {
-  /** A tree past SMALL_TREE_BUDGET on every platform, so the run reaches for ripgrep. */
-  const FILLER = 'const padding = 1;\n'.repeat(20_000);
+  // The tree is past SMALL_TREE_BUDGET on every platform, so the run reaches for ripgrep.
 
   it('says so in the warnings and reports the engine that finished the job', async () => {
     const previous = process.env.SPEC_GUARD_RG;
@@ -1118,10 +1117,7 @@ describe('when ripgrep breaks part way through a run', () => {
     resetRipgrepProbe();
     try {
       const root = await repo({
-        'src/a.ts': FILLER,
-        'src/b.ts': FILLER,
-        'src/c.ts': FILLER,
-        'src/d.ts': FILLER,
+        ...pastEveryBudget(),
         'src/needle.ts': 'const w = Widget;\n',
         'docs/a.md': '<!-- @assert-count target="src" symbol="Widget" expected="1" -->\n',
       });
