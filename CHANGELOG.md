@@ -26,6 +26,12 @@ is deprecated before it goes, is spec-core's
   the specs out
   ([ADR-0014](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0014-configuration-and-watch.md)).
 
+### Documentation
+
+- The README's SARIF example pins upload-sarif v4.38.2, the commit this
+  repository's own workflow runs now. A test holds the README's examples to
+  the workflows, so they move when the workflows do.
+
 ## 0.18.1
 
 A run and `impact` over thousands of specs take time that grows with the

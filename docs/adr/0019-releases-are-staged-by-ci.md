@@ -78,12 +78,13 @@ delete a `v*` tag, because pushing one is the release.
 
 `.github/workflows/release.yml` runs two jobs:
 
-1. **`verify`**, with read access alone: the tag, `package.json` and a
-   `## <version>` heading in `CHANGELOG.md` must agree; then type checking, the
-   build, the suite and this repository's own specs, since a tag push does not
-   run CI; then `npm pack`, with the tarball's file list and SHA-256 in the
-   log. `npm ci`, the postinstall that downloads a ripgrep binary and the suite
-   run here, where there is no token to take.
+1. **`verify`**, with read access alone: the tagged commit must be on main,
+   and the tag, `package.json` and a `## <version>` heading in `CHANGELOG.md`
+   must agree; then type checking, the build, the suite and this repository's
+   own specs, since a tag push does not run CI; then `npm pack`, with the
+   tarball's file list and SHA-256 in the log. `npm ci`, the postinstall that
+   downloads a ripgrep binary and the suite run here, where there is no token
+   to take.
 2. **`publish`**, the one job with `id-token: write`, in the `npm` environment,
    which accepts deployments only from main and `v*` tags. It checks nothing
    out and installs no dependencies: it installs an npm new enough to stage
@@ -118,6 +119,17 @@ rather than the newest 11.x: a range would bring a version published an hour
 earlier into the one job that can stage, past the cooldown Dependabot holds
 every other dependency to. Moving it is an edit made on purpose.
 
+*Amended 2026-10-07.* `verify` checks that the tagged commit is on main, as
+spec-brief's, spec-graph's and spec-harness's release workflows do: it checks
+out all of history and stops, before `npm ci`, unless `origin/main` has the
+commit. This record said the workflow left that to the `Release tags` ruleset
+and to the release commit being made on main. The ruleset says who may push a
+`v*` tag, not which commit it names, and the `npm` environment takes any
+`v*` tag, so a tag on a commit of a branch nobody reviewed would have been
+verified, packed and staged. A dry run from a branch makes the same check and
+goes on, since it stages nothing; a check that cannot be made, for want of
+history or of `origin/main`, stops a rehearsal as it stops a release.
+
 ## Consequences
 
 - The README says what spec-guard does and ships in the package; how it is
@@ -127,9 +139,8 @@ every other dependency to. Moving it is an edit made on purpose.
 - Every version from 0.12.0 carries a provenance attestation naming the
   repository, the commit and the run that built it; the versions before it do
   not, and never will.
-- `release.yml` does not itself check that the tagged commit is on main, as
-  spec-graph's does; that rests on the ruleset, and on the release commit
-  being made on main. Nor does it make a GitHub release.
+- `release.yml` makes no GitHub release, where spec-graph's makes one. Until
+  2026-10-07 it did not check that the tagged commit is on main either.
 
 ## Alternatives considered
 

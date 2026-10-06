@@ -32,10 +32,27 @@ updates:
         patterns:
           - vitest
           - '@vitest/*'
+    # @types/node follows the oldest Node that `engines` in package.json
+    # admits, 22, and not the newest Node there is (spec-core's ADR-0008).
+    # Under the types of a later major the code can call an API Node 22 does
+    # not have, and the compiler passes what the oldest runtime then fails. So
+    # a major is never proposed, while minors and patches of 22 still are. The
+    # pin moves by hand, in the change that moves `engines`.
+    ignore:
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
     open-pull-requests-limit: 5
     commit-message:
       prefix: chore
       include: scope
+  # Dependabot moves the pins in .github/workflows and reads no Markdown. The
+  # README shows workflows with the same actions, and
+  # tests/action-pins.test.ts holds each to the pin the workflows here have.
+  # So a bump of checkout, setup-node or upload-sarif fails that test until
+  # the README follows: copy the new commit and version into its `uses:`
+  # line, on Dependabot's branch. spec-core's docs/adopting.md and
+  # spec-graph's README show upload-sarif too, and no workflow of theirs runs
+  # it: when it moves here, move it there by hand.
   - package-ecosystem: github-actions
     directory: /
     schedule:

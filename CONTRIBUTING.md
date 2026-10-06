@@ -189,8 +189,8 @@ documentation (spec-core's
 
 [`release.yml`](.github/workflows/release.yml) then:
 
-1. refuses the release unless the tag, `package.json` and a `## <version>`
-   heading in `CHANGELOG.md` all agree;
+1. refuses the release unless the tagged commit is on main, and the tag,
+   `package.json` and a `## <version>` heading in `CHANGELOG.md` all agree;
 2. type checks, builds, runs the suite and executes this repository's own ADRs.
    A tag push does not run CI, so the release job runs those steps itself;
 3. `npm pack`s the tarball, prints its file list and its SHA-256, and hands that
