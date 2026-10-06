@@ -848,3 +848,61 @@ would silently take the policy of the directory above it.
 
 **`--config <path>`.** Nothing needs it yet. The root decides where the
 configuration is, as it decides where everything else is.
+
+## Amended 2026-10-07: the spec files a rule leaves out, named by a number
+
+A rule is re-executed unless its resolved form is identical to last time, and
+its resolved form holds the spec files the rule leaves out. A session told two
+resolved forms apart by writing each out, spec files and all: every spec's
+path, once for each rule, on every run, whether or not anything had changed.
+0.18.1 took the same cost out of the search keys of a plain run, and left this
+one to be measured.
+
+It was measured over a synthetic repository of 1,500 specs with 422 rules in
+force and 20,000 source files, and over the same doubled. The session read
+through an `Io` that held each edit in memory, so nothing on disk changed
+between runs. A CPU profile of the 25 runs after the first put a third of
+their time in `identity`: 200 ms of each run, 57% of a run that found nothing
+changed. The figures below are medians of seven, the two builds taken in turn,
+on a Windows workstation busy with other work. The ratios are what they are
+evidence of.
+
+| A session's run after | 1,500 specs, before | after | 3,000 specs, before | after |
+| --- | ---: | ---: | ---: | ---: |
+| nothing changed | 384 ms | **91 ms** | 1,381 ms | **218 ms** |
+| a save in `src` | 805 ms | **531 ms** | 2,036 ms | **1,001 ms** |
+| an edit to an ADR's prose | 602 ms | **310 ms** | 1,809 ms | **807 ms** |
+
+Twice the specs and rules took 3.6 times as long to find nothing changed
+before, and 2.4 times after.
+
+The spec files a run leaves out were already 0.18.1's sealed set (`sealPaths`
+in `src/engine.ts`), and `identity` now names that set by its number, as a
+search's key does. A number says what the paths said only while one set stands
+for one list of paths from run to run, so the session keeps the set. Each run
+still finds and reads the specs, and makes the set its rules would leave out;
+where that holds the same paths as the last run's, the last run's set is the
+one its rules are resolved with. The paths are compared once a run, not once
+a rule.
+
+- **Nothing is reused that was not reused before.** A spec added, removed or
+  renamed makes a set of other paths, with a number of its own, and every rule
+  that leaves the specs out executes again, as the Decision has it. So does
+  `includeSpecs` turned on or off. A spec whose text changed and whose path did
+  not changes no set, and never did: its directives are in the resolved forms,
+  and its bytes among the facts.
+- **The reports are the same.** Over the synthetic repository the first run, a
+  run with nothing changed, one after a save and one after an edited ADR gave
+  the JSON they gave before, byte for byte with durations taken out, 842 KB of
+  it, and re-executed as many rules.
+- **Tests.** `tests/watch-equivalence.test.ts` holds a run over 3,200 specs,
+  one rule to each, to twice sixteen runs over 200, and 200 ms: a ratio, the
+  two taken in turn, as spec-core's ADR-0007 states cost, and not timed when
+  the code is instrumented. It holds a session to a fresh run after a spec is
+  renamed, when as many are left out as before and not the same ones, and
+  after the configuration starts searching the specs and stops again.
+
+What the profile shows next is another cost, and it is left as it is: a batch
+of events asks every fact the session holds whether an event names a
+directory above it, 235 ms a batch over the 45,404 facts held here. It grows
+with the facts, not with their square.

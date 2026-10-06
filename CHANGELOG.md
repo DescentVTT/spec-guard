@@ -10,6 +10,22 @@ what to do when upgrading; the family's policy, including how a flag or field
 is deprecated before it goes, is spec-core's
 [ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
+## Unreleased
+
+### Changed
+
+- **A watch session over thousands of specs answers a change in time that
+  grows with the specs, not with the specs times the rules.** Every run told
+  each rule from its last execution by a key that held every spec file's path:
+  over 1,500 specs and 422 rules, a run that found nothing changed took
+  384 ms, and over 3,000 specs and 804 rules 1,381 ms. The spec files a
+  session's rules leave out are now the one sealed set a plain run's keys name
+  by a number, kept from run to run while the spec files are the same, and
+  those runs take 91 ms and 218 ms. Nothing a session reports has changed, and
+  a spec added, removed or renamed still executes again every rule that leaves
+  the specs out
+  ([ADR-0014](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0014-configuration-and-watch.md)).
+
 ## 0.18.1
 
 A run and `impact` over thousands of specs take time that grows with the
