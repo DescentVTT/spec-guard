@@ -1704,10 +1704,16 @@ export function planRun(
   specs: SpecSet,
   root: string,
   options: Pick<RunOptions, "includeSpecs" | "defaultSkips" | "ignoreStatus" | "select" | "exclude" | "strictTargets">,
+  /**
+   * Makes the set of spec files the plan's rules leave out. A watch session
+   * passes one that answers with the last run's set while the paths are the
+   * same, since its rules are told apart by that set's number.
+   */
+  leaveOut: typeof specExclusions = specExclusions,
 ): RunPlan {
   const exclude = checkProjectExcludes(options.exclude);
   const scope = createScope(options.defaultSkips ?? true);
-  const excludeFiles = specExclusions(specs.files, options.includeSpecs ?? false);
+  const excludeFiles = leaveOut(specs.files, options.includeSpecs ?? false);
 
   const directives: Directive[] = [];
   /** Parsed, validated, and then not run: see ADR-0010. Each with the document it is counted against. */

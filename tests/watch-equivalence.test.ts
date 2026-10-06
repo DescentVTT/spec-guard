@@ -32,7 +32,8 @@ import { nodeIo, readText, type Io } from '../src/io.js';
 import { createMemo } from '../src/memo.js';
 import { runSpecGuard, type RunResult } from '../src/runner.js';
 import { createSession, ruleCaches, type RuleCaches, type Session, type SessionOptions, type SessionSettings } from '../src/watch.js';
-import { makeTempRepo, removeTempRepo } from './helpers.js';
+import { makeTempRepo, memoryIo, removeTempRepo } from './helpers.js';
+import { fastestInTurnAsync, instrumented } from './timing.js';
 
 const temporary: string[] = [];
 afterAll(async () => {
@@ -635,6 +636,56 @@ describe('what a session holds to besides the tree', () => {
     expect(after.report.results[0]?.ok).toBe(true);
   });
 
+  it('leaves out the specs this run names when one is renamed, not the ones the last run named', async () => {
+    const root = await makeTempRepo({
+      'package.json': JSON.stringify({ specGuard: { specs: ['docs/**/*.md', 'src/*.md'] } }),
+      'docs/rules.md': '<!-- @assert-absence target="src" symbol="MARK" -->\n',
+      'src/notes.md': 'MARK\n',
+      'src/a.ts': '',
+    });
+    temporary.push(root);
+    const watched = session(root);
+    expect((await watched.run()).report.ok).toBe(true);
+    // As many specs as before, and not the same ones: the rule over src leaves
+    // out the spec's new name, where a session that kept the last run's specs
+    // would search it and find MARK.
+    await fs.rename(path.join(root, 'src/notes.md'), path.join(root, 'src/other.md'));
+    await watched.observe([
+      { type: 'rename', filename: path.join('src', 'notes.md') },
+      { type: 'rename', filename: path.join('src', 'other.md') },
+    ]);
+    const after = await watched.run();
+    expect(comparable(after.report)).toEqual(comparable(await fresh(root)));
+    expect(after.report.ok).toBe(true);
+    expect(after.report.specFiles).toEqual(['docs/rules.md', 'src/other.md']);
+  });
+
+  it('re-executes a rule when the specs it leaves out become none, and when they come back', async () => {
+    const root = await makeTempRepo({
+      'package.json': '{}',
+      // Over docs, which holds the rule's own spec, and not over the root: a
+      // rule that read package.json would run again whatever it left out.
+      'docs/rules.md': 'No MARK under docs.\n\n<!-- @assert-absence target="docs" symbol="MARK" -->\n',
+      'docs/notes.txt': 'clean\n',
+    });
+    temporary.push(root);
+    const configure = async (config: object): Promise<void> => {
+      await fs.writeFile(path.join(root, 'package.json'), JSON.stringify(config));
+      await watched.observe([{ type: 'change', filename: 'package.json' }]);
+    };
+    const watched = session(root);
+    expect((await watched.run()).report.ok).toBe(true);
+    // With the specs searched too, the rule finds the symbol in its own document.
+    await configure({ specGuard: { includeSpecs: true } });
+    const searched = await watched.run();
+    expect(comparable(searched.report)).toEqual(comparable(await fresh(root)));
+    expect(searched.report.ok).toBe(false);
+    await configure({});
+    const leftOut = await watched.run();
+    expect(comparable(leftOut.report)).toEqual(comparable(await fresh(root)));
+    expect(leftOut.report.ok).toBe(true);
+  });
+
   it('re-executes a rule whose skipped directories changed, though no file it read did', async () => {
     const root = await makeTempRepo({
       'package.json': '{}',
@@ -652,6 +703,53 @@ describe('what a session holds to besides the tree', () => {
     const after = await watched.run();
     expect(comparable(after.report)).toEqual(comparable(await fresh(root)));
     expect(after.report.ok).toBe(false);
+  });
+});
+
+/* ------------------------------------------------- what a run costs a session */
+
+describe('a session over many specs', () => {
+  // A rule is told from its last execution by its resolved form, which holds
+  // the spec files the rule leaves out. Written out whole, that was every
+  // spec's path once for each rule on every run, changed or not: over 1,500
+  // specs and 422 rules, 57% of a run that found nothing to do. The set is
+  // sealed and named by a number, which a session keeps from run to run while
+  // the paths are the same.
+  const root = path.resolve('/virtual/watch');
+  const watching = (count: number): Session => {
+    const files: Record<string, string> = { 'src/a.ts': 'export const a = 1;\n' };
+    for (let n = 0; n < count; n += 1) {
+      const name = `docs/decisions/${String(n).padStart(4, '0')}-a-decision-named-as-long-as-most-are.md`;
+      files[name] = `# Decision ${n}\n\n<!-- @assert-absence target="src/a.ts" symbol="Gone${n}" -->\n`;
+    }
+    return createSession({ root, io: memoryIo(root, files), settings: async () => ({ patterns: ['docs/**/*.md'], run: {} }) });
+  };
+
+  it('answers a run that found nothing changed in time linear in its specs, one rule to each', async () => {
+    const small = watching(200);
+    const first = await small.run();
+    expect(first.executed).toBe(200);
+    expect(first.report.summary).toMatchObject({ specs: 200, total: 200, passed: 200, failed: 0 });
+    expect((await small.run()).executed).toBe(0);
+    // Instrumented, the smaller session's answers are all this holds: the
+    // larger executes 3,200 rules before it can be timed, for every mutant.
+    if (instrumented()) return;
+    const large = watching(3200);
+    expect((await large.run()).executed).toBe(3200);
+    // Sixteen runs over two hundred specs against one over thirty-two hundred:
+    // an identity that grows with rules times specs takes sixteen times as
+    // long on the larger. Twice linear is allowed, and 200 ms for noise. On
+    // the machine this was written on, the larger took 5.5 s against 1.2 s
+    // allowed with the paths written out, and 150 ms with the set named by its
+    // number, as long as the sixteen smaller.
+    const [sixteenSmall, oneLarge] = (await fastestInTurnAsync(
+      3,
+      async () => {
+        for (let n = 0; n < 16; n += 1) await small.run();
+      },
+      () => large.run(),
+    )) as [number, number];
+    expect(oneLarge, `sixteen small runs took ${sixteenSmall} ms`).toBeLessThan(2 * sixteenSmall + 200);
   });
 });
 
