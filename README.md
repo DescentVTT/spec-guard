@@ -1605,10 +1605,12 @@ a synthetic tree:
 The decision uses a bounded enumeration as its probe: spec-guard walks the
 target set until it either finishes - in which case the file list is already in
 hand and the scanner runs against it, with no process and no second walk - or
-exceeds a budget, in which case ripgrep takes over. The crossover above sits
-between 500 and 1,000 files, which is what the Windows budget of 512 encodes;
-on Linux it is far lower, because what is really being measured is process
-spawn cost. `scripts/bench-engines.mjs` reproduces this, and
+exceeds a budget, in which case ripgrep takes over. The crossover above, between
+500 and 1,000 files, is one search on one Windows machine. On machines doing
+nothing else it is a number of files set by what starting a process costs, and
+about half as many when a run searches several targets at once, so the budget
+is 32 files on Linux, 64 on macOS and 256 on Windows. `scripts/bench-engines.mjs`
+reproduces this, and
 [ADR-0004](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0004-adaptive-engine.md) has the full tables.
 
 Treat single measurements from one machine with suspicion. On the development
