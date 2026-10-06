@@ -12,6 +12,25 @@ is deprecated before it goes, is spec-core's
 
 ## Unreleased
 
+### Changed
+
+- **`--engine auto` hands a target to ripgrep at a number of files measured
+  for each platform, and no longer for its bytes.** On machines doing nothing
+  else, ripgrep overtakes the built-in scanner at a number of files set by
+  what starting a process costs, and at about half as many when a run
+  searches several targets at once. The scanner now searches a target in
+  process up to 32 files on Linux, 64 on macOS and 256 on Windows, where it
+  did up to 32, 32 and 512; and up to 2 MB, 4 MB and 8 MB, where it stopped
+  at 64 KB, 64 KB and 1 MB, which a few files of ordinary length passed. Ten
+  files of 127 KB went to ripgrep on Windows and took 58 ms where the scanner
+  takes 3 ms; eighty directories of 500 files stayed with the scanner there
+  and took 4.7 s where ripgrep takes 2.6 s. Every count and every finding is
+  the same under either engine. Upgrading: nothing to do; the `engine` a
+  report names may be the other one than before for the same tree.
+  `--engine`, the `engine` key of the configuration and `SPEC_GUARD_RG` are
+  as they were
+  ([ADR-0004](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0004-adaptive-engine.md)).
+
 ### Documentation
 
 - The README's SARIF example pins upload-sarif v4.38.2, the commit this
