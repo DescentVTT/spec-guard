@@ -10,6 +10,14 @@ what to do when upgrading; the family's policy, including how a flag or field
 is deprecated before it goes, is spec-core's
 [ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
+## Unreleased
+
+### Documentation
+
+- The README's SARIF example pins upload-sarif v4.38.2, the commit this
+  repository's own workflow runs now. A test holds the README's examples to
+  the workflows, so they move when the workflows do.
+
 ## 0.18.1
 
 A run and `impact` over thousands of specs take time that grows with the
