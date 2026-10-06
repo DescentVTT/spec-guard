@@ -212,7 +212,7 @@ function walkKey(request: WalkRequest): string {
     request.targets,
     options.globs,
     options.excludeGlobs,
-    sealed.get(options.excludeFiles) ?? [...options.excludeFiles],
+    pathsKey(options.excludeFiles),
     [...options.scope.skippedDirectories],
   ]);
 }
@@ -255,6 +255,17 @@ export function sealPaths(paths?: Iterable<string>): ReadonlySet<string> {
   // equivalent mutant.
   sealed.set(set, sealedCount++);
   return set;
+}
+
+/**
+ * What a key says of a set of paths: a sealed set's number, and any other set
+ * written out whole.
+ *
+ * A request's keys and a watch session's identity of a rule (`watch.ts`) both
+ * ask here, so neither can write a run's spec files out once for each rule.
+ */
+export function pathsKey(paths: ReadonlySet<string>): number | string[] {
+  return sealed.get(paths) ?? [...paths];
 }
 
 /**

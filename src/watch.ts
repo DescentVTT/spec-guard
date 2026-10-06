@@ -14,7 +14,7 @@
 
 import path from 'node:path';
 
-import { createCachedEngine, createJavaScriptEngine } from './engine.js';
+import { createCachedEngine, createJavaScriptEngine, pathsKey } from './engine.js';
 import { createFactCache, type FactKey, type FactPolicy, type WatchEvent } from './facts.js';
 import { createImportIndex } from './imports.js';
 import { nodeIo, type Io, type TreeWatcher } from './io.js';
@@ -27,6 +27,7 @@ import {
   executeAssertion,
   planRun,
   reportRun,
+  specExclusions,
   type ExecuteOptions,
   type RunOptions,
   type RunResult,
@@ -130,12 +131,28 @@ interface Executed {
  * excluded, which directories skipped - are already in the resolved form, as the
  * spec files it leaves out and the scope it walks, and are held there, where a
  * rule is changed by them, rather than beside it.
+ *
+ * The spec files a rule leaves out are a sealed set, named here by its number
+ * as a search's key names it (`pathsKey` in `engine.ts`). Written out whole
+ * they were every spec's path once for each rule on every run: 57% of a run
+ * that found nothing changed, over 1,500 specs and 422 rules. A session keeps
+ * one set from run to run for as long as the paths are the same, so the number
+ * says what the paths said.
  */
 export function identity(assertion: Assertion, run: SessionRunOptions): string {
   const { allowMissingTargets, strictTargets, allowEmptyScope, maxSnippets } = run;
   return JSON.stringify([assertion, allowMissingTargets, strictTargets, allowEmptyScope, maxSnippets], (_key, value: unknown) =>
-    value instanceof Set ? [...(value as Set<string>)] : value instanceof Map ? [...(value as Map<string, unknown>)] : value,
+    value instanceof Set ? pathsKey(value as Set<string>) : value instanceof Map ? [...(value as Map<string, unknown>)] : value,
   );
+}
+
+/** Whether two sets hold the same paths. */
+function samePaths(one: ReadonlySet<string>, other: ReadonlySet<string>): boolean {
+  if (one.size !== other.size) return false;
+  for (const each of one) {
+    if (!other.has(each)) return false;
+  }
+  return true;
 }
 
 export function createSession(options: SessionOptions): Session {
@@ -149,6 +166,23 @@ export function createSession(options: SessionOptions): Session {
   let planned = new Set<FactKey>();
   /** Facts whose value changed since the last run. */
   let changed = new Set<FactKey>();
+  /** The spec files the last run's rules left out. */
+  let leftOut: ReadonlySet<string> | undefined;
+
+  /**
+   * The spec files a run's rules leave out: the last run's set while the paths
+   * are the same, and a new one the moment a spec is added, removed or renamed.
+   *
+   * A rule's identity names this set by its number. Made again on every run it
+   * would have a new number each time, and every rule would execute on every
+   * run; kept past a change of paths, a rule would leave out the specs of a
+   * run before. The paths are compared once a run, not once a rule.
+   */
+  const leaveOut: typeof specExclusions = (specFiles, includeSpecs) => {
+    const now = specExclusions(specFiles, includeSpecs);
+    if (leftOut === undefined || !samePaths(leftOut, now)) leftOut = now;
+    return leftOut;
+  };
 
   const used = (key: FactKey): boolean => planned.has(key) || [...executed.values()].some((entry) => entry.reads.has(key));
 
@@ -177,7 +211,7 @@ export function createSession(options: SessionOptions): Session {
       const reads = new Set<FactKey>();
       const door = facts.view(reads);
       const settings = await options.settings(door);
-      const plan = planRun(await readSpecs(settings.patterns, root, door, memo), root, settings.run);
+      const plan = planRun(await readSpecs(settings.patterns, root, door, memo), root, settings.run, leaveOut);
       planned = reads;
 
       const before = executed;
