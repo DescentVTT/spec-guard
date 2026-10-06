@@ -10,7 +10,12 @@ what to do when upgrading; the family's policy, including how a flag or field
 is deprecated before it goes, is spec-core's
 [ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
-## Unreleased
+## 0.18.2
+
+`--engine auto` chooses between the scanner and ripgrep by a number of files
+measured on each platform, and a watch session over thousands of specs
+answers a change in time that grows with the specs alone. Every count and
+every finding is as it was.
 
 ### Changed
 

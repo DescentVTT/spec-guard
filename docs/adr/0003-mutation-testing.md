@@ -1555,6 +1555,19 @@ ran high where they were least measured: `runner.ts` and `text.ts` took 7m35s
 against 15.2 minutes, and `cli.ts` alone 8m18s against 15.1, so the next
 split starts from this run's logs rather than 398fe94's.
 
+### 0.18.2: no survivor more
+
+CI's full sweep of 68f2e57 (run 37533838955), after the engine's budgets were
+measured for each platform and a watch session's keys stopped holding every
+spec path, came out at **99.14% over 12,321 mutants with 103 survivors and 3
+without coverage**; the shards took from 5m40s to 16m05s. No survivor is new.
+One of 0.18.1's three is counted killed this time, `target === '.'` made
+`true` in `impact`: a test ran past its 30 seconds under it. That is the
+mutant being slow, not being wrong - it still answers the same - so it is
+equivalent as before, its comment stays, and a sweep on a faster runner may
+count it a survivor again. The other two remain. The two changes added 27
+mutants.
+
 ### 0.18.1: three survivors that only cost time
 
 CI's full sweep of 15b8ccf (run 36732743375), after a run's search keys and
