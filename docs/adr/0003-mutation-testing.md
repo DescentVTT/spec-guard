@@ -1555,6 +1555,21 @@ ran high where they were least measured: `runner.ts` and `text.ts` took 7m35s
 against 15.2 minutes, and `cli.ts` alone 8m18s against 15.1, so the next
 split starts from this run's logs rather than 398fe94's.
 
+### 0.20.0: two survivors fewer, and none more
+
+CI's full sweep of 7af3d34 (run 37695345550) came out at **99.16% over
+12,338 mutants with 101 survivors and 3 without coverage**; the shards took
+from 7m10s to 16m42s. Against 0.19.1's sweep, 103 survivors over 12,333:
+
+- two are gone, the two the replay scripts told apart from the unmutated
+  build once they ran again (the amendment of 2026-10-08 below): a brace in
+  a template resumed after a substitution, and the modules of a graph rule.
+  Each has its test, and main's sweep of eb0ecf0 (run 37661407305) was the
+  first to read 101;
+- the catch in `main` that answers an error nothing expected with exit 2
+  made five mutants, and the sweep killed all five;
+- no survivor is new: mutant for mutant, the 101 are among 0.19.1's 103.
+
 ### 0.19.1: the same survivors
 
 CI's full sweep of a43630a (run 37621944335), before a release that changes
