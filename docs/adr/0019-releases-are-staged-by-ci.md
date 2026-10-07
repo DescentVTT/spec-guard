@@ -190,6 +190,14 @@ run is handed and for a dispatch that stages, the version a dry run names, and
 nothing installed for any other text; and it holds that the input is written
 into no script.
 
+**What the first dry runs showed.** On 2026-10-07 two dry runs dispatched from
+main read as the source said. Run 37598036257, under the pin, and run
+37598304614, under 12.2.0, each had `POST 201` from the exchange and
+`npm verbose oidc Successfully retrieved and set token`, and each ended at
+npm's version check on 0.19.0; 12.2.0 refused no flag. So npmjs.com does
+give a dry run dispatched from main a token, and the two npms agree as far as
+a dry run goes, which is not as far as signing or uploading.
+
 ## Consequences
 
 - The README says what spec-guard does and ships in the package; how it is
