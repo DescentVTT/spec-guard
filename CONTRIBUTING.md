@@ -9,9 +9,13 @@ agent.
 ## Development setup
 
 Node 22 or newer. There are no runtime dependencies.
+npm 10, 11 and 12 install the same tree from the lockfile and run the same
+suite. `npm ci` leaves the lockfile as it is under each of them; npm 10's
+`npm install` writes it back without the `libc` fields npm 11 and 12 keep, so
+a change to the lockfile is made with npm 11 or later.
 
 ```bash
-npm install
+npm ci
 npm run build      # tsc -> dist/
 npm test           # vitest
 npm run test:coverage
@@ -202,8 +206,9 @@ documentation (spec-core's
    trusted publishing, so there is no credential to leak or to rotate.
 
 The publishing job installs no dependencies and checks nothing out. Everything
-that runs third-party code - `npm ci`, a postinstall that downloads a ripgrep
-binary, the test suite - happens in the earlier job, which has no token.
+that runs third-party code - the build and the test suite, over what `npm ci`
+installed - happens in the earlier job, which has no token. That job runs no
+dependency's install script: ripgrep arrives as a package for the platform.
 
 Staging is not publishing. The version sits on npmjs.com visible to maintainers
 and installable by nobody until:
