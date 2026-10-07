@@ -1555,6 +1555,14 @@ ran high where they were least measured: `runner.ts` and `text.ts` took 7m35s
 against 15.2 minutes, and `cli.ts` alone 8m18s against 15.1, so the next
 split starts from this run's logs rather than 398fe94's.
 
+### 0.19.1: the same survivors
+
+CI's full sweep of a43630a (run 37621944335), before a release that changes
+the README, its examples and the tests that hold them, came out at **99.14%
+over 12,333 mutants with 103 survivors and 3 without coverage**, mutant for
+mutant what 0.19.0's sweep left; the shards took from 7m07s to 16m05s.
+Nothing under `src/` changed.
+
 ### 0.19.0: no survivor more
 
 0.18.2 was committed and never tagged; what it held ships in 0.19.0, with an

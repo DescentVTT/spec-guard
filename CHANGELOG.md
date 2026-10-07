@@ -10,33 +10,30 @@ what to do when upgrading; the family's policy, including how a flag or field
 is deprecated before it goes, is spec-core's
 [ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
-## Unreleased
+## 0.19.1
+
+The README's commands gave `npx` the command's bare name, which on npm is
+not this project's package. spec-guard itself is unchanged.
 
 ### Security
 
-- **The README gave `npx` the command's name, which on npm is not this
-  project's.** `spec-guard` without the `@descent-vtt` scope belonged to
-  nobody on the registry on 2026-10-07, so anyone can register it; and `npx`
-  given a name the project has not installed fetches the package of that
-  name and runs it, unasked when no terminal is attached. That is a fresh
+- Every command in the README gives `npx` the package's full name behind
+  `--no-install`, as in `npx --no-install @descent-vtt/spec-guard ...`.
+  `spec-guard` without the scope belongs to nobody on npm (2026-10-07), so
+  anyone can register it.
+  `npx` given a name the project has not installed fetches the package of
+  that name and runs it, unasked when no terminal is attached: a fresh
   clone, a worktree before `npm ci`, and the `mcpServers` entry the README
   showed, which an MCP client starts with no terminal, wherever it stands.
-  The quick start, the pre-commit hook and the MCP entry now give the
-  package's full name behind `--no-install`, as in
-  `npx --no-install @descent-vtt/spec-guard "docs/**/*.md"`: it runs the
-  project's install, or stops with an error that names this package.
-  [Names](README.md#names) says whose the names are. spec-guard itself is
-  unchanged. What was measured, under npm 10.9.9, 11.20.0 and 12.2.0, is in
+  [Names](README.md#names) says whose the names are; what was measured is in
   the family's
-  [adopting guide](https://github.com/DescentVTT/spec-core/blob/main/docs/adopting.md#names),
-  and `tests/names.test.ts` holds every file here to the rule.
-  Upgrading: in an `.mcp.json`, a hook, a CI job or a script that gives
-  `npx` the command's name alone, write
-  `npx --no-install @descent-vtt/spec-guard`; in an MCP entry that is
+  [adopting guide](https://github.com/DescentVTT/spec-core/blob/main/docs/adopting.md#names).
+  Upgrading: where an `.mcp.json`, a hook, a CI job or a script gives `npx`
+  the command's name alone, write `npx --no-install @descent-vtt/spec-guard`;
+  in an MCP entry that is
   `"args": ["--no-install", "@descent-vtt/spec-guard", "mcp", ...]`.
-  `--no-install` in front of the bare name is not enough: it stops a
-  download, and npm still runs a copy of the bare name's package that an
-  earlier fetch left in its cache.
+  `--no-install` before the bare name is not enough: npm still runs a copy
+  of that name's package an earlier fetch left in its cache.
 
 ### Documentation
 

@@ -1841,7 +1841,7 @@ fail, and `spec-guard cites` holds every ADR a comment in the code cites to
 existing and being in force.
 
 Line coverage is 100%, CI's full mutation sweep kills 99.14% of 12,333 mutants
-(0.19.0), and every survivor a release adds is replayed before it ships
+(0.19.1), and every survivor a release adds is replayed before it ships
 ([ADR-0003](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0003-mutation-testing.md));
 [CONTRIBUTING.md](https://github.com/DescentVTT/spec-guard/blob/main/CONTRIBUTING.md)
 has how to build, test and release, and
