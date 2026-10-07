@@ -42,6 +42,13 @@ on:
         description: 'Verify and pack, but stage nothing'
         type: boolean
         default: true
+      # The npm a dry run installs, to try the one the pin might move to
+      # without moving it. A tag has no inputs and stages with the pin, and a
+      # dispatch that stages is refused any other.
+      npm_version:
+        description: 'A dry run only: one exact npm version to try, such as 12.2.0. A release always uses the pin.'
+        type: string
+        default: '11.20.0'
 
 # A release is not a thing to cancel halfway through.
 concurrency:
@@ -203,16 +210,55 @@ jobs:
       # the one job that holds the publish token, past the cooldown everything
       # else waits out, and a release is the wrong place to find out. Moving
       # it is an edit made on purpose, since Dependabot cannot see it here.
+      #
+      # A dry run may name another npm, and only a dry run: a tag installs the
+      # pin whatever this step is handed, and a dispatch that stages stops
+      # here unless it names the pin. The name is text nobody vouched for. It
+      # comes through the environment and is never written into the script,
+      # and nothing is installed unless it is one exact version, so no range,
+      # dist-tag, URL or path reaches npm for it to resolve.
       - name: An npm new enough to stage
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+          CANDIDATE: ${{ inputs.npm_version }}
         run: |
-          npm install -g npm@11.20.0
-          installed="$(npm --version)"
+          pin=11.20.0
           required=11.15.0
-          if [ "$(printf '%s\n%s\n' "$required" "$installed" | sort -V | head -1)" != "$required" ]; then
-            echo "::error::npm $installed is older than $required, which npm stage publish needs"
+          use="$pin"
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            # Each digit by name: a range is read by the runner's locale.
+            part='(0|[123456789][0123456789]*)'
+            exact="^$part\\.$part\\.$part\$"
+            if ! [[ "$CANDIDATE" =~ $exact ]]; then
+              echo "::error::npm_version must be one exact npm version, such as $pin; nothing was installed"
+              exit 1
+            fi
+            if [ "$DRY_RUN" = 'true' ]; then
+              use="$CANDIDATE"
+            elif [ "$CANDIDATE" != "$pin" ]; then
+              echo "::error::a release stages with npm $pin, and another npm is for a dry run; nothing was installed"
+              exit 1
+            fi
+          fi
+          if [ "$(printf '%s\n%s\n' "$required" "$use" | sort -V | head -1)" != "$required" ]; then
+            echo "::error::npm $use is older than $required, which npm stage publish needs; nothing was installed"
             exit 1
           fi
-          echo "npm $installed on node $(node --version)"
+          npm install -g "npm@$use"
+          installed="$(npm --version)"
+          if [ "$installed" != "$use" ]; then
+            echo "::error::npm $installed answers where npm $use was installed"
+            exit 1
+          fi
+          if [ "$installed" = "$pin" ]; then
+            used="npm $installed on node $(node --version), the pin"
+          else
+            used="npm $installed on node $(node --version), a candidate: a release stages with the pin, $pin"
+          fi
+          echo "$used"
+          if [ "$DRY_RUN" = 'true' ]; then
+            echo "Dry run with $used." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -242,17 +288,22 @@ jobs:
           fi
 
           # How far a dry run gets, and where it has to stop. `--dry-run` goes
-          # as far as the registry's version check and no further, and a
-          # dispatch runs from main, where package.json's version is by
-          # definition already published. So "cannot publish over the previously
-          # published versions" is where a healthy dry run ends rather than a
-          # fault, and it is the only failure tolerated below.
+          # as far as npm's check of the version against the registry and no
+          # further, and a dispatch runs from main, where package.json's
+          # version is by definition already published. So "cannot publish
+          # over the previously published versions" is where a healthy dry run
+          # ends rather than a fault, and it is the only failure tolerated
+          # below.
           #
-          # What a dry run cannot tell you is whether authentication works. The
-          # OIDC exchange happens only on a publish that intends to write, so
-          # the first real tag is what proves that end of this file.
+          # On the way there npm asks npmjs.com to trade this run's identity
+          # for a token: it does that before `--dry-run` holds anything back,
+          # and says how it went at `--loglevel verbose` and at no quieter
+          # level, which is why a dry run passes it. What a dry run cannot
+          # try is the signing and the upload, where a token that may not
+          # stage is refused, so the first real tag is what proves that end
+          # of this file.
           set +e
-          out="$(npm stage publish "$tarball" --provenance --access public --dry-run 2>&1)"
+          out="$(npm stage publish "$tarball" --provenance --access public --dry-run --loglevel verbose 2>&1)"
           status=$?
           set -e
           echo "$out"
@@ -275,10 +326,11 @@ jobs:
             {
               echo '### Dry run'
               echo
-              echo 'Verified, packed, and npm read the tarball. Nothing was staged and'
-              echo 'nothing was published. Authentication is the one thing still'
-              echo 'untested: the OIDC exchange happens only on a publish that intends'
-              echo 'to write, so the first real tag is what proves it.'
+              echo 'Verified, packed, and npm read the tarball and tried its token'
+              echo 'exchange with npmjs.com: the lines of the log that start'
+              echo '"npm verbose oidc" say how that went. Nothing was signed, staged'
+              echo 'or published, so the first real tag is what proves the signing'
+              echo 'and the upload.'
             } >> "$GITHUB_STEP_SUMMARY"
             exit 0
           fi
