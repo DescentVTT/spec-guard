@@ -73,6 +73,12 @@ into the source, run the test files that cover it, watch one fail, restore the
 source. A test file that fails to load counts as a survivor
 ([ADR-0003](docs/adr/0003-mutation-testing.md)).
 
+Vitest is pinned to 4 by that ADR, and stays there while Stryker's runner
+runs no test against a mutant on 5: a sweep then reads a few percent, and a
+pull request's incremental sweep does not notice. Dependabot proposes no
+major of it, the ADR's assertion fails one made by hand, and its amendment
+of 2026-10-07 says what lifts the pin.
+
 The mutation `break` and the coverage floors in `vitest.config.ts` sit below
 the last measurement. They move up with the measurement and never down to make
 a change pass.

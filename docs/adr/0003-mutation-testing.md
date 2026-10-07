@@ -1757,3 +1757,48 @@ spec-graph's does. A pull request's sweep still gates it, `main`'s full
 sweep still feeds the release commit (ADR-0019), a tag still runs the
 incremental tier, and the schedule and the manual trigger are as they were.
 A branch pushed without a pull request is swept when it gets one.
+
+## Amended 2026-10-07: the cause upstream, and what lifts the pin
+
+The Decision says the runner never activates the mutants, and lays that to
+vitest 5's module runner. The symptom was read right and the cause was not.
+[stryker-js #6210](https://github.com/stryker-mutator/stryker-js/issues/6210),
+opened three days before this ADR, has it: vitest 5 matches
+`testNamePattern` against a test's suites and name joined by ` > `, and the
+runner builds the pattern for a mutant's covering tests from names joined by
+a space. The mutant is activated, no test is chosen to run against it, and
+it is scored as survived. A static mutant runs the whole suite under no
+pattern and is judged as before, which is why a score under vitest 5 is a
+few percent and not zero. Two pull requests there, #6214 and #6220, fix it
+the same way, and neither is merged or released:
+`@stryker-mutator/vitest-runner` 10.0.0 is still the newest.
+
+On 2026-10-06 Dependabot proposed vitest 5.0.0 here (pull request 31). The
+assertion under the Decision failed it, as Consequences promised, and
+nothing else did: a pull request's sweep is incremental, run 37528663145
+reused 12,218 of 12,294 verdicts, all vitest 4's, and read 98.74% against a
+`break` of 97. The same bump read 4.00% in spec-core and 3.83% in
+spec-harness, which sweep a pull request in full. Two things changed.
+
+- **Dependabot proposes no major of `vitest` or of an `@vitest` package**
+  (`.github/dependabot.yml`). Minors and patches of 4 still come, and a
+  security update is not held back. The assertion stays: it is what fails a
+  bump made by hand.
+- **A red job now says which rule failed.** CI stopped at `tests/e2e.test.ts`
+  with `expected 1 to be +0`, one step before the step that prints the
+  report, so the reason the assertion carries reached no log. That test
+  now fails with the report's failed rules as its message, for this rule
+  and every other.
+
+Lifting the pin is the family's decision and has one procedure, in
+[spec-core's ADR-0008](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0008-toolchain.md)
+(amended 2026-10-07): the runner's fixed release and vitest 5 together, on
+spec-core first, accepted on its sweep and on a count of covered mutants
+that ran no test, never on a version number. That ADR also records what
+vitest 4 still receives while it is held. The check in Consequences, one
+pure function against the `command` runner, is still a fair probe of one
+function; the procedure there is the one that decides. When the bump
+reaches this repository its pull request's sweep proves nothing about it,
+as pull request 31's did not: dispatch the full sweep on the branch before
+merging, and delete the pin, the assertion and the two `ignore` entries in
+that change.
