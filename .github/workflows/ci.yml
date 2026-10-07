@@ -30,7 +30,13 @@ jobs:
         # 22 is the floor package.json promises, 24 the active LTS, 26 the
         # current release and the next LTS: a break there is news before it is
         # an incident.
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        # Each image by the label that is its alone, never `-latest`, which
+        # GitHub moves (tests/runner-images.test.ts). Windows and macOS are what
+        # their `-latest` gave on 2026-10-07. Both Ubuntu images, because
+        # `ubuntu-latest` hands a user's job either from 2026-10-19 and the
+        # suite runs the image's bash. spec-core's ADR-0008 has the steps
+        # that move one.
+        os: [ubuntu-24.04, ubuntu-26.04, windows-2025-vs2026, macos-26]
         node: ['22', '24', '26']
 
     steps:
@@ -84,9 +90,11 @@ jobs:
   # Dogfooding the SARIF output: this is the surface that puts a broken
   # architecture rule on the offending line of a pull request, so it should be
   # exercised by the project that ships it rather than only by its tests.
+  # On one image, as coverage, the sweep and the release are: the one their
+  # numbers were measured on. Moving one is spec-core's ADR-0008.
   scan:
     name: code scanning
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
@@ -124,7 +132,7 @@ jobs:
 
   coverage:
     name: coverage
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

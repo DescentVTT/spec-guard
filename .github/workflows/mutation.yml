@@ -70,7 +70,9 @@ jobs:
     # The name says which tier ran, so a green tick in the checks list cannot be
     # mistaken for an authority it does not have.
     name: stryker (${{ (github.ref == 'refs/heads/main' || github.event_name == 'schedule' || inputs.full) && 'full' || 'incremental' }}, shard ${{ matrix.shard }} of ${{ strategy.job-total }})
-    runs-on: ubuntu-latest
+    # The image the hosted sweeps in ADR-0003 were measured on. Another image
+    # is another measurement: spec-core's ADR-0008 says what moving takes.
+    runs-on: ubuntu-24.04
     # Headroom for a bad day, not a budget. Three shards took 19 to 21 minutes
     # on the second sharded sweep's runners, which is why there were four; on
     # 398fe94's sweep three of those four took 23 to 28 minutes and the fourth
@@ -160,7 +162,7 @@ jobs:
     # Runs when a shard failed too, so the failure is reported as an incomplete
     # sweep rather than as a skipped check.
     if: ${{ !cancelled() }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
 
     env:
