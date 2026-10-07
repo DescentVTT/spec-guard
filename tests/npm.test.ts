@@ -2,9 +2,9 @@
  * What this repository asks of npm, held to what npm 10, 11 and 12 all do.
  *
  * CI installs with the npm each Node carries, 10 with Node 22 and 11 with
- * Node 24 and 26, and a contributor may have 12, which the registry has
- * served as `latest` since July 2026. npm 12 changed three things a workflow
- * can lean on without noticing: a dependency's install script runs only when
+ * Node 24 and 26, and a contributor may have 12, the registry's `latest` on
+ * 2026-10-07. npm 12 changed three things a workflow can lean on without
+ * noticing: a dependency's install script runs only when
  * `allowScripts` in package.json names the package, `npm pack --json` prints
  * an object keyed by the package's name where it printed an array, and a flag
  * npm does not define, or an abbreviation of one, is an error where it was a
