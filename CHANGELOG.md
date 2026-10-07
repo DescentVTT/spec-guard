@@ -10,6 +10,14 @@ what to do when upgrading; the family's policy, including how a flag or field
 is deprecated before it goes, is spec-core's
 [ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
+## Unreleased
+
+### Documentation
+
+- The README said spec-guard's own CI reports `engine: javascript` on a
+  GitHub-hosted runner. No step of it prints that line: the engine that ran
+  is the `engine` field of `--json`, and the sentence now says so.
+
 ## 0.19.1
 
 The README's commands gave `npx` the command's bare name, which on npm is
