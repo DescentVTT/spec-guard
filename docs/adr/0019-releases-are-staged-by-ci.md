@@ -144,6 +144,52 @@ the three do not all define, which npm 12 refuses, or reads `npm pack --json`,
 whose shape npm 12 changed: `verify` takes the tarball from the directory it
 packs into, as it always has. `publish` installs npm 11.20.0 as before.
 
+*Amended 2026-10-07.* A dry run can try another npm without the pin moving.
+Until now the only way to run the release under an npm other than 11.20.0 was
+to move the pin on main, for every tag after it as well. A dispatch takes a
+second input, `npm_version`, and `publish` installs that version where a
+release installs the pin:
+
+```bash
+gh workflow run release.yml --ref main                         # the pin
+gh workflow run release.yml --ref main -f npm_version=12.2.0   # a candidate
+```
+
+The input is read by a dry run alone. A tag has no inputs, and the step
+installs the pin for a tag whatever its environment holds; a dispatch with
+`dry_run` off, which stages, stops there unless it names the pin. The input is
+text nobody vouched for, so it reaches the step through `env` and is never
+written into the script, and nothing is installed unless it is one exact
+version, three numbers and two dots - no range, dist-tag, address or path for
+npm to resolve - and no older than 11.15.0. The npm that then answers
+`npm --version` must be the one named, and the run says which npm it used and
+whether that is the pin. A candidate runs in the one job that can stage, so it
+is chosen as the pin is: a version that has been out long enough to trust.
+
+This record said a dry run cannot try the OIDC exchange, which happens only on
+a publish that intends to write. npm 11.20.0 and 12.2.0 both ask npmjs.com to
+trade the run's identity for a token before `--dry-run` holds anything back -
+`lib/commands/publish.js` calls the exchange ahead of its dry-run branch - and
+report how it went at `--loglevel verbose` and at no quieter level. That is
+read in their source; a dry run's log is where it is seen, so the dry run now
+passes `--loglevel verbose`. It ends where it did: the version check it stops
+at is npm's own, made after it has read the tarball and tried the exchange.
+
+A dry run under an npm shows that it installs over the one Node 24 carries,
+that it takes the command line the release passes, where npm 12 refuses a flag
+it does not define, that it reads the tarball, and, on the lines that start
+`npm verbose oidc`, whether npmjs.com gave this workflow a token. It does not
+show that a release works. `--dry-run` signs nothing and uploads nothing: no
+provenance statement is made, nothing goes to Sigstore or to the staging
+endpoint, and whether the token may stage is never asked. spec-brief's and
+spec-graph's first tags passed every step before the upload and were refused
+there. The first tag after the pin moves is the first time that npm signs and
+uploads. `tests/npm.test.ts` runs the step's script, on Linux where the
+workflow runs it, against a stand-in for npm: the pin for a tag whatever the
+run is handed and for a dispatch that stages, the version a dry run names, and
+nothing installed for any other text; and it holds that the input is written
+into no script.
+
 ## Consequences
 
 - The README says what spec-guard does and ships in the package; how it is
