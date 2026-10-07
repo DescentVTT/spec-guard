@@ -82,9 +82,8 @@ delete a `v*` tag, because pushing one is the release.
    and the tag, `package.json` and a `## <version>` heading in `CHANGELOG.md`
    must agree; then type checking, the build, the suite and this repository's
    own specs, since a tag push does not run CI; then `npm pack`, with the
-   tarball's file list and SHA-256 in the log. `npm ci`, the postinstall that
-   downloads a ripgrep binary and the suite run here, where there is no token
-   to take.
+   tarball's file list and SHA-256 in the log. `npm ci`, the build and the
+   suite run here, where there is no token to take.
 2. **`publish`**, the one job with `id-token: write`, in the `npm` environment,
    which accepts deployments only from main and `v*` tags. It checks nothing
    out and installs no dependencies: it installs an npm new enough to stage
@@ -129,6 +128,21 @@ and to the release commit being made on main. The ruleset says who may push a
 verified, packed and staged. A dry run from a branch makes the same check and
 goes on, since it stages nothing; a check that cannot be made, for want of
 history or of `origin/main`, stops a rehearsal as it stops a release.
+
+*Amended 2026-10-07.* The workflows ask of npm only what npm 10, 11 and 12
+all do. `verify`, CI and the mutation sweep install with
+`npm ci --ignore-scripts`. npm 12 runs a dependency's install script only
+where `allowScripts` in `package.json` names the package, npm 10 and 11 run
+every one unless told not to, and nothing in the lockfile needs one, so the
+flag gives the three one reading: a development dependency runs in CI when
+the build or the suite loads it, and not by being installed. This record
+said a postinstall downloads a ripgrep binary in `verify`. `@vscode/ripgrep`
+has carried its binary in a package for each platform, and no install script,
+since 1.18.0, the oldest version this repository has installed.
+`tests/npm.test.ts` holds the flag, and that no workflow passes npm a flag
+the three do not all define, which npm 12 refuses, or reads `npm pack --json`,
+whose shape npm 12 changed: `verify` takes the tarball from the directory it
+packs into, as it always has. `publish` installs npm 11.20.0 as before.
 
 ## Consequences
 
