@@ -1431,7 +1431,7 @@ should be able to tell them apart, so they are 1 and 2:
 | `1` | An assertion failed, or a directive was malformed; under `--strict`, the specs matched state no rule in force, so no assertion was executed |
 | `1`, `prove` | A rule survived, or under `--strict` none was proved |
 | `1`, `cites` | A comment cites a document that does not exist, or under `--strict` a citation is stale, a file was read in part, or no source file was read |
-| `2` | spec-guard could not run: bad usage, a malformed configuration, no spec files matched, `--engine rg` with no ripgrep, a watch that could not start, a `cites` family whose files match no document |
+| `2` | spec-guard could not run: bad usage, a malformed configuration, no spec files matched, `--engine rg` with no ripgrep, a watch that could not start, a `cites` family whose files match no document, or an error spec-guard did not expect, reported on stderr as `spec-guard: unexpected error:` with its stack |
 | `130` | A `--watch` session was stopped |
 
 ## CI integration

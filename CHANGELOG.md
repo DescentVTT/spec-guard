@@ -12,6 +12,18 @@ is deprecated before it goes, is spec-core's
 
 ## Unreleased
 
+### Changed
+
+- **An error spec-guard did not expect ends the run with exit 2, not 1.** It
+  left the process as Node's uncaught error, and exit 1 reads as a failed
+  assertion; every command now reports it as `spec-guard: unexpected error:`
+  with its stack on stderr, nothing on stdout, and exit 2, as does an error
+  thrown where nothing waits for it, such as a pipe its reader closed
+  ([ADR-0001](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0001-invariants.md)).
+  Upgrading: a script that took exit 1 after a crash for a failed assertion
+  now sees 2, "spec-guard could not run"; `main()` from the package resolves
+  to 2 where its promise rejected.
+
 ### Documentation
 
 - The README said spec-guard's own CI reports `engine: javascript` on a
