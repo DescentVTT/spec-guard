@@ -1472,8 +1472,8 @@ repository with no JavaScript of its own keeps a `package.json` with
 commits the lockfile.
 
 That job needs nothing else installed. GitHub-hosted runners do **not** ship
-ripgrep on `PATH` - spec-guard's own CI reports `engine: javascript` there - so
-the fallback is what actually runs, and it produces identical results. If your
+ripgrep on `PATH` - `--json` reports `"engine": "javascript"` there - so the
+fallback is what actually runs, and it produces identical results. If your
 repository is large enough that you want ripgrep's speed, install it first:
 
 ```yaml
