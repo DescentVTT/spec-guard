@@ -74,3 +74,33 @@ rule would have stopped matching the thing it forbids. The boundary goes after
 If someone adds a `console.log` to `src/`, or reaches for `child_process`
 outside the engine, CI fails with the line number of this document. The ADR and
 the code cannot drift apart, because the ADR is a test.
+
+## Amended 2026-10-08: an error nothing expected is exit 2
+
+`main()` returns an exit code, and for an error no command expected it
+rejected instead: a write the stream refused, a defect in a formatter, a
+server whose input failed. The launcher ends on
+`process.exitCode = await cli.main()`, so the rejection was Node's uncaught
+error, the stack and exit 1, which the exit codes read as a failed assertion
+and the family contract (spec-core's ADR-0005) as "it found something".
+Measured on 0.19.1 through the launcher, with a stdout that throws:
+`--version`, `--help`, a run, `query`, `prove`, `cites` and `impact` each
+exited 1. An error thrown where no promise holds it - a stream's `error`
+event, as when a reader closes the pipe, or a timer's callback in a watch
+session or the server - never reaches `main()`, and exited 1 the same way.
+
+`main()` now resolves to 2 for every error it awaits that nothing expected:
+`spec-guard: unexpected error:` and the stack on stderr, so that a report of
+it says where, and nothing on stdout, where a script reads a document. The
+launcher answers what nothing awaits the same way. It owns the process, which
+`main()` does not: a caller of `main()` from the package gets 2 where it got a
+rejection, and no handler it did not ask for. `runSpecGuard`, `queryRules` and
+the rest of the API throw as they did.
+
+<!-- @assert-count target="bin/spec-guard.js" symbol="uncaughtException" expected="1" reason="the launcher answers an error nothing awaits with exit 2, and the test that runs the launcher is skipped where nothing is built" -->
+
+What already answered is unchanged. An error inside a command's own run is
+its message and exit 2. A watch session that meets one in a later run prints
+it and keeps watching, and ends with 2 only when it cannot start or its
+watcher fails (ADR-0014). The server answers a request that fails with an
+error for that request and serves the next (ADR-0012).
