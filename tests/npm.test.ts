@@ -119,6 +119,168 @@ describe('a contributor, with any npm from 10 to 12', () => {
   });
 });
 
+/**
+ * `npx <name>` runs the project's install of a command, and where there is
+ * none it fetches the registry's package of that name and runs it, unasked
+ * when no terminal is attached. Here that is a worktree before `npm ci`, and
+ * the names are other people's: `tsc` on the registry is not the `typescript`
+ * package, and `vitest` there is a major this repository holds back. So
+ * `.npmrc` has npm fetch nothing for a command, and each line that runs a
+ * tool through npx says `--no-install` as well: the reason is then on the
+ * line, and the flag holds where the environment says `npm_config_yes=true`,
+ * which outranks the file. Under npm 10.9.9, 11.20.0 and 12.2.0, with either
+ * one npm stops and names the package it did not fetch. Neither stops a
+ * package an earlier npx left in npm's cache, and `--yes` on a command undoes
+ * the file.
+ */
+
+/** What starts a command by the name it is given: npx, and npm's own spellings of it. */
+const RUNNER = /(?<![\w@/.-])(?:npx|npm\s+(?:exec|x))(?![\w-])/g;
+
+interface Run {
+  readonly where: string;
+  readonly written: string;
+  /** What the runner itself is told: the flags in front of the command. */
+  readonly flags: readonly string[];
+  readonly command: string;
+}
+
+/**
+ * Each place `text` starts a command through a runner, comment lines apart,
+ * since a comment runs nothing. The words are taken as a shell, a string or
+ * an array of strings separates them, up to where the shell ends the command.
+ */
+function runsOf(text: string, file: string): Run[] {
+  return text.split(/\r?\n/).flatMap((line, index) => {
+    if (/^\s*(?:#|\/\/|\/?\*)/.test(line)) return [];
+    return [...line.matchAll(RUNNER)].map((match) => {
+      const tail = line.slice(match.index + match[0].length).split(/[|;&<>()]/)[0] as string;
+      const words = tail
+        .replace(/["'`,[\]{}]/g, ' ')
+        .split(/\s+/)
+        .filter((word) => word !== '' && word !== '--');
+      const first = words.findIndex((word) => !word.startsWith('-'));
+      const flags = (first === -1 ? words : words.slice(0, first)).map((word) => word.split('=')[0] as string);
+      return { where: `${file}:${index + 1}`, written: line.trim(), flags, command: words[first] ?? '' };
+    });
+  });
+}
+
+/**
+ * What is wrong with a run, if anything. `--no-install` and `--no` have npm
+ * stop where the command is not installed. A package under the family's scope
+ * is the family's whoever fetches it; any other name is whoever registered it.
+ */
+function faultOf({ flags, command }: Run): string | null {
+  if (flags.includes('--yes') || flags.includes('-y')) return 'is told to fetch';
+  if (flags.includes('--no-install') || flags.includes('--no')) return null;
+  return command.startsWith('@descent-vtt/') ? null : 'fetches where the command is not installed';
+}
+
+/** What runs a command here: the workflows, the scripts of package.json, the files under scripts/ and the configuration files beside them. */
+const sources: ReadonlyArray<readonly [file: string, text: string]> = [
+  ...workflows.map((name) => [name, read(`.github/workflows/${name}`)] as const),
+  ...Object.entries((JSON.parse(read('package.json')) as { scripts: Record<string, string> }).scripts).map(([name, script]) => [`package.json "${name}"`, script] as const),
+  ...readdirSync(`${ROOT}scripts`, { withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => `scripts/${entry.name}`)
+    .sort()
+    .map((file) => [file, read(file)] as const),
+  ...readdirSync(ROOT)
+    .filter((name) => /\.config\.[cm]?[jt]s$/.test(name))
+    .sort()
+    .map((name) => [name, read(name)] as const),
+];
+
+describe('a tool run through npx, in a tree that may not have it installed', () => {
+  const runs = sources.flatMap(([file, text]) => runsOf(text, file));
+  const faults = (text: string): Array<string | null> => runsOf(text, 'x').map(faultOf);
+
+  it.each([
+    ['          npx stryker run stryker.shard.config.mjs --concurrency 4'],
+    ["run('npx', ['tsc', '-p', 'tsconfig.build.json', '--outDir', path.join(WORK, 'base')], { shell: true });"],
+    ["execSync(`npx vitest run ${SUITE}`, { stdio: 'pipe' });"],
+    ['"docs": "npx typedoc && node scripts/x.mjs"'],
+    ['npm exec -- tsc --noEmit'],
+    // A flag after the command is the command's own.
+    ['npx stryker run --no-install'],
+    // Another scope is another publisher.
+    ['npx @example/spec-guard'],
+  ])('is one npm would fetch for, as %j runs it', (text) => {
+    expect(faults(text)).toEqual(['fetches where the command is not installed']);
+  });
+
+  it.each([
+    ['npx --yes cowsay'],
+    ['npx -y cowsay@1.6.0'],
+    ['npm exec --yes -- cowsay'],
+    // Told both: `--yes` is the one that decides nothing good.
+    ['npx --no-install --yes cowsay'],
+    ['npx --yes @descent-vtt/spec-guard'],
+  ])('is one npm is told to fetch for, as %j runs it', (text) => {
+    expect(faults(text)).toEqual(['is told to fetch']);
+  });
+
+  it.each([
+    ['          npx --no-install stryker run stryker.shard.config.mjs --concurrency 4'],
+    ["run('npx', ['--no-install', 'tsc', '-p', 'tsconfig.build.json'], { shell: true });"],
+    ["execSync(`npx --no-install vitest run ${SUITE}`, { stdio: 'pipe' });"],
+    ['started=$SECONDS; npx --no-install stryker run; echo done'],
+    ['npx --no tsc --noEmit'],
+    ['npm exec --no -- tsc --noEmit'],
+    // The command's own `--yes`, which npx hands on unread.
+    ['npx --no-install stryker run --yes'],
+    ['npx @descent-vtt/spec-guard --format github'],
+    ['npx --no-install @descent-vtt/spec-guard@0.19.0'],
+  ])('is in order as %j runs it', (text) => {
+    expect(faults(text)).toEqual([null]);
+  });
+
+  it.each([
+    ['      # npx alone would fetch whatever the registry has under the name'],
+    ['// npx is a shim Windows cannot start without a shell'],
+    [' * npx, where nothing is installed, fetches'],
+    ['npm run lint'],
+    ['npm ci --ignore-scripts'],
+    ['node node_modules/typescript/bin/tsc -p tsconfig.json'],
+    ['"build": "tsc -p tsconfig.build.json"'],
+  ])('is not what %j is: a comment runs nothing, and a script or a path fetches nothing', (text) => {
+    expect(faults(text)).toEqual([]);
+  });
+
+  it('is looked for where this repository runs one: the workflows, the scripts and the configuration files', () => {
+    // A directory that moved, or a line this file no longer reads, would leave
+    // the checks below nothing to fail on.
+    expect(sources.map(([name]) => name)).toEqual(expect.arrayContaining(['ci.yml', 'mutation.yml', 'release.yml', 'package.json "test:mutation"', 'scripts/mutation-shards.mjs', 'stryker.shard.config.mjs']));
+    const found = runs.map(({ where, flags, command }) => [where.split(':')[0], ...flags, command].join(' '));
+    expect(found).toEqual(expect.arrayContaining(['mutation.yml --no-install stryker', 'scripts/mutation-equivalence.mjs --no-install tsc', 'scripts/mutation-regex.mjs --no-install vitest']));
+  });
+
+  it('is one npm stops at, where the command is not installed: `.npmrc` says `yes=false` for every command here', () => {
+    // The last line that sets a key is the one npm takes.
+    const settings = new Map(
+      read('.npmrc')
+        .split(/\r?\n/)
+        .filter((line) => !/^\s*(?:[#;]|$)/.test(line))
+        .map((line) => {
+          const [key, ...value] = line.split('=');
+          return [(key as string).trim(), value.join('=').trim()] as const;
+        }),
+    );
+    expect(settings.get('yes')).toBe('false');
+  });
+
+  it("says so on its line as well: `--no-install`, or the full name of one of the family's packages", () => {
+    expect(runs.filter((run) => faultOf(run) !== null).map((run) => `${run.where}: ${run.written} (${faultOf(run)})`)).toEqual([]);
+  });
+
+  it('is never told to fetch: npm is given no `--yes`, and nothing sets `npm_config_yes` to anything but false', () => {
+    expect(shown(commands.filter(({ text }) => flagsOf(text).some((flag) => flag === '--yes' || flag === '-y')))).toEqual([]);
+    const set = /npm_config_yes["']?\s*[:=]\s*["']?(?!false\b)/i;
+    expect(sources.flatMap(([file, text]) => text.split(/\r?\n/).flatMap((line, index) => (set.test(line) ? [`${file}:${index + 1}: ${line.trim()}`] : [])))).toEqual([]);
+  });
+});
+
 /** Each script of `workflow` as the runner hands it to bash: what follows a `run:` on its line, or the block under `run: |`. */
 function scriptsOf(workflow: string): string[] {
   const lines = workflow.split(/\r?\n/);
