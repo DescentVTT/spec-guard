@@ -230,11 +230,17 @@ move or delete a `v*` tag - under this workflow, pushing one is the release, and
 an accidental push should not be able to start it.
 
 `Actions -> Release -> Run workflow` with `dry_run` left on verifies, packs and
-hands the tarball to npm without spending a version number. It stops at the
-registry's version check - a dispatch runs from `main`, whose version is already
-published - and it does not exercise authentication, because the OIDC exchange
-happens only on a publish that intends to write. The first real tag is what
-proves that end.
+hands the tarball to npm without spending a version number. It stops at npm's
+check of the version against the registry - a dispatch runs from `main`, whose
+version is already published - having tried the OIDC exchange on the way: the
+lines of its log that start `npm verbose oidc` say how that went. It signs
+nothing and uploads nothing, so the first real tag is what proves that end.
+
+A dry run can try another npm than the one the release pins, without moving
+the pin: name one exact version in its `npm_version` input, as in
+`gh workflow run release.yml --ref main -f npm_version=12.2.0`. A release
+stages with the pin whatever was tried, and ADR-0019 says what a dry run does
+and does not show.
 
 ## Reporting a vulnerability
 
