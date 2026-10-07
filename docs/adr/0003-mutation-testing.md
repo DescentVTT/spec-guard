@@ -1555,9 +1555,15 @@ ran high where they were least measured: `runner.ts` and `text.ts` took 7m35s
 against 15.2 minutes, and `cli.ts` alone 8m18s against 15.1, so the next
 split starts from this run's logs rather than 398fe94's.
 
-### 0.18.2: no survivor more
+### 0.19.0: no survivor more
 
-CI's full sweep of 68f2e57 (run 37533838955), after the engine's budgets were
+0.18.2 was committed and never tagged; what it held ships in 0.19.0, with an
+engine's name asked of the engines the tool has. CI's full sweep of 7f8a5ba
+(run 37554667338), the last commit before the release, came out at **99.14%
+over 12,333 mutants with 103 survivors and 3 without coverage**, the same
+survivors as the sweep below; the shards took from 7m03s to 17m51s.
+
+The sweep of 68f2e57 (run 37533838955), after the engine's budgets were
 measured for each platform and a watch session's keys stopped holding every
 spec path, came out at **99.14% over 12,321 mutants with 103 survivors and 3
 without coverage**; the shards took from 5m40s to 16m05s. No survivor is new.

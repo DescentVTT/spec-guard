@@ -10,7 +10,13 @@ what to do when upgrading; the family's policy, including how a flag or field
 is deprecated before it goes, is spec-core's
 [ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
-## Unreleased
+## 0.19.0
+
+An engine named `constructor` or `__proto__` is refused as any unknown
+engine is, `--engine auto` chooses between the scanner and ripgrep by a
+number of files measured on each platform, and a watch session over
+thousands of specs answers a change in time that grows with the specs alone.
+Every count and every finding is as it was.
 
 ### Changed
 
@@ -26,16 +32,6 @@ is deprecated before it goes, is spec-core's
   more than an unknown word: a status of `constructor` keeps its document in
   force, an attribute of that name is refused by name, and a configuration
   key of that name is an unknown option, as before; tests now hold each.
-
-## 0.18.2
-
-`--engine auto` chooses between the scanner and ripgrep by a number of files
-measured on each platform, and a watch session over thousands of specs
-answers a change in time that grows with the specs alone. Every count and
-every finding is as it was.
-
-### Changed
-
 - **`--engine auto` hands a target to ripgrep at a number of files measured
   for each platform, and no longer for its bytes.** On machines doing nothing
   else, ripgrep overtakes the built-in scanner at a number of files set by
