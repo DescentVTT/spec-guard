@@ -24,7 +24,7 @@ name: Release
 #
 # Two jobs, because the job holding the OIDC token should run as little code as
 # it can. `verify` installs the devDependencies - Stryker, vitest, a ripgrep
-# binary fetched by a postinstall script - runs the suite, and packs a tarball.
+# binary in a package for the platform - runs the suite, and packs a tarball.
 # `publish` checks out nothing and installs no dependencies at all; it hands
 # that same tarball to npm. What reaches the registry is the artifact the tests
 # ran against, not a second build that merely shares a commit with it.
@@ -98,7 +98,10 @@ jobs:
             echo "$GITHUB_SHA is not on main: a rehearsal from $GITHUB_REF_NAME, which stages nothing."
           fi
 
-      - run: npm ci
+      # No dependency's install script runs: the tree needs none, npm 12 runs
+      # none unless package.json allows the package, and the flag has npm 10 and
+      # 11 run none either (tests/npm.test.ts).
+      - run: npm ci --ignore-scripts
 
       # The tag is the version claim and the changelog is the description of it.
       # Disagreement means the tag is wrong, and saying so costs a minute;
