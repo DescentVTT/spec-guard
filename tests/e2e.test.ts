@@ -46,6 +46,17 @@ function run(args: string[], options: { cwd?: string; env?: NodeJS.ProcessEnv; b
   });
 }
 
+/**
+ * The failed rules of a report, each with the lines under it: where the rule
+ * is written, what it found and its reason. Found by those indented lines,
+ * since the mark in front of a rule is the platform's. A report with none is
+ * given whole.
+ */
+function failuresIn(report: string): string {
+  const failed = report.split('\n\n').filter((block) => /\n {4}\S/.test(block));
+  return failed.length > 0 ? failed.join('\n\n') : report;
+}
+
 describe.skipIf(!built)('spec-guard executable', () => {
   it('exits 0 and reports success for a spec that holds', async () => {
     const result = await run(['docs/adr/0001-passing.md', '--root', DEMO_REPO]);
@@ -155,7 +166,10 @@ describe.skipIf(!built)('spec-guard executable', () => {
     const result = await run(['docs/**/*.md', 'README.md', '--verbose']);
 
     expect(result.stdout).toContain('spec-guard');
-    expect(result.code).toBe(0);
+    // CI stops at this test, a step before the one that prints the report,
+    // and "expected 1 to be 0" names neither the rule that failed nor its
+    // reason. The report does, so it is the message.
+    expect(result.code, failuresIn(result.stdout)).toBe(0);
   }, 120_000);
 });
 
