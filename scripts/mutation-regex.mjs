@@ -69,7 +69,7 @@ try {
       }
       writeFileSync(FILE, original.replace(literal, `/${mutant.pattern}/${flags}`));
       try {
-        execSync(`npx vitest run ${SUITE}`, { stdio: 'pipe', timeout: 300_000 });
+        execSync(`npx --no-install vitest run ${SUITE}`, { stdio: 'pipe', timeout: 300_000 });
         alive.push(`${name}: ${mutant.description}  =>  /${mutant.pattern}/${flags}`);
         console.log(`ALIVE   ${alive.at(-1)}`);
       } catch {

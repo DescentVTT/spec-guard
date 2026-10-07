@@ -132,13 +132,18 @@ jobs:
       # The config's concurrency of 8 is tuned for a developer machine.
       # Hosted runners have 4 vCPUs, and each Stryker worker drives a vitest
       # process of its own, so oversubscribing here makes the run slower.
+      #
+      # `--no-install`: the sweep runs the Stryker that `npm ci` installed, and
+      # a job that lost that step stops here, where npx alone would fetch
+      # whatever the registry has under the name. `.npmrc` says the same for
+      # every command (tests/npm.test.ts).
       - name: Mutation test
         run: |
           started=$SECONDS
           if [ "$FULL" = "true" ]; then
-            npx stryker run stryker.shard.config.mjs --concurrency 4
+            npx --no-install stryker run stryker.shard.config.mjs --concurrency 4
           else
-            npx stryker run stryker.shard.config.mjs --concurrency 4 --incremental
+            npx --no-install stryker run stryker.shard.config.mjs --concurrency 4 --incremental
           fi
           echo "{\"seconds\": $((SECONDS - started))}" > "reports/mutation/shard-$MUTATION_SHARD.timing.json"
 

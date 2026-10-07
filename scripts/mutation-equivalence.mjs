@@ -111,8 +111,10 @@ function probe(dist, full) {
   return run(process.execPath, args, { env }).trim();
 }
 
-// The baseline, from the tree exactly as committed.
-run('npx', ['tsc', '-p', 'tsconfig.build.json', '--outDir', path.join(WORK, 'base')], { shell: true });
+// The baseline, from the tree exactly as committed. `--no-install`, here and
+// below: the compiler is the one `npm ci` installed, and without it npx stops
+// rather than fetch the registry's `tsc`, which is not the `typescript` package.
+run('npx', ['--no-install', 'tsc', '-p', 'tsconfig.build.json', '--outDir', path.join(WORK, 'base')], { shell: true });
 const baseline = probe(path.join(WORK, 'base'), path.join(WORK, 'base.txt'));
 console.log(`baseline ${baseline}\n`);
 
@@ -139,7 +141,7 @@ try {
     let verdict;
     let detail = '';
     try {
-      run('npx', ['tsc', '-p', 'tsconfig.build.json', '--outDir', outDir, '--noEmitOnError', 'false'], { shell: true });
+      run('npx', ['--no-install', 'tsc', '-p', 'tsconfig.build.json', '--outDir', outDir, '--noEmitOnError', 'false'], { shell: true });
     } catch (error) {
       // Type errors do not stop emit, so this only fires on a syntax error.
       if (!error.stdout?.includes('error TS')) {
