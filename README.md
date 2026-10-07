@@ -51,23 +51,11 @@ build with a line number, not a landmine.
 
 ```bash
 npm install --save-dev @descent-vtt/spec-guard
-npx spec-guard "docs/**/*.md"
+npx --no-install @descent-vtt/spec-guard "docs/**/*.md"
 ```
 
-**The package is scoped; the command is not.** Once installed, the binary is
-plain `spec-guard`, so `npx spec-guard`, `npm scripts` and a global install all
-use that name:
-
-```bash
-npm install -g @descent-vtt/spec-guard   # then: spec-guard "docs/**/*.md"
-```
-
-Without a local install, `npx` needs the full package name - `npx spec-guard`
-on its own would resolve to a different package on the registry:
-
-```bash
-npx @descent-vtt/spec-guard "docs/**/*.md"
-```
+`npx` is given the package's full name, here and in every command below:
+[Names](#names) says why the command's name alone is not written.
 
 Add a directive to any Markdown file, directly under the sentence it makes
 executable:
@@ -83,7 +71,7 @@ Session state has exactly one owner.
 Run it:
 
 ```bash
-npx spec-guard "docs/**/*.md" --verbose
+npx --no-install @descent-vtt/spec-guard "docs/**/*.md" --verbose
 ```
 
 ```text
@@ -109,6 +97,38 @@ And when it drifts:
 ```
 
 Exit code 1. The ADR is now a test.
+
+## Names
+
+The package is `@descent-vtt/spec-guard`, and the command it installs is
+`spec-guard`. The name without the scope is not this project: on npm,
+`spec-guard` belonged to nobody on 2026-10-07, and whoever registers it decides
+what it runs.
+
+`npx` fetches and runs the package of whatever name it is given when the
+project has none installed - a fresh clone, a worktree before `npm ci`, a CI job
+without the install step - and without a terminal it does not ask first. So
+give `npx` the full name:
+
+- `npx --no-install @descent-vtt/spec-guard` in a project that installed it: it
+  runs that install, the version the lockfile pins, and where there is none it
+  stops with an error that names this package.
+- `npx @descent-vtt/spec-guard`, without `--no-install`, where nothing is
+  installed: it fetches this package and runs it.
+
+<!-- bare-name: the two forms in the next sentence are shown as what not to write -->
+Never `npx spec-guard`, and not `npx --no-install spec-guard` either:
+`--no-install` stops a download, and npm still runs a copy of the bare name's
+package that an earlier fetch left in its cache. The family's
+[adopting guide](https://github.com/DescentVTT/spec-core/blob/main/docs/adopting.md#names)
+has what was measured, under npm 10, 11 and 12.
+
+The command alone, `spec-guard`, is what a `package.json` script holds - npm
+fetches nothing for a script - and what a global install puts on the path:
+
+```bash
+npm install -g @descent-vtt/spec-guard   # then: spec-guard "docs/**/*.md"
+```
 
 ## Directives
 
@@ -1015,11 +1035,15 @@ usual `mcpServers` entry is:
   "mcpServers": {
     "spec-guard": {
       "command": "npx",
-      "args": ["spec-guard", "mcp", "--spec", "docs/**/*.md"]
+      "args": ["--no-install", "@descent-vtt/spec-guard", "mcp", "--spec", "docs/**/*.md"]
     }
   }
 }
 ```
+
+A client starts a server with no terminal, wherever it stands, so the entry
+gives `npx` the package's [full name](#names) behind `--no-install`: in a tree
+without the install the server fails to start, and nothing is fetched.
 
 The root defaults to the directory the client starts the server in; pass
 `--root` if yours starts servers somewhere else. On Windows, `npx` is a `.cmd`
@@ -1432,12 +1456,20 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22'
-      - run: npx @descent-vtt/spec-guard "docs/**/*.md" "README.md" --verbose
+      - run: npm ci
+      - run: npx --no-install @descent-vtt/spec-guard "docs/**/*.md" "README.md" --verbose
 ```
 
 The actions are pinned to commits, with the version beside each, because a tag
 can be moved and a commit cannot; Dependabot's `github-actions` updates keep
 pins like these current.
+
+spec-guard is pinned the same way, by the lockfile: `npm ci` installs the
+version it names, and `--no-install` behind the package's [full name](#names)
+stops the job where that install is missing, rather than fetching another. A
+repository with no JavaScript of its own keeps a `package.json` with
+`"private": true` and spec-guard as its only `devDependencies` entry, and
+commits the lockfile.
 
 That job needs nothing else installed. GitHub-hosted runners do **not** ship
 ripgrep on `PATH` - spec-guard's own CI reports `engine: javascript` there - so
@@ -1464,10 +1496,10 @@ default `--engine auto`, a binary that cannot be run leaves the built-in
 scanner to do the work, and the report's engine says `javascript`; under
 `--engine rg` it is exit 2.
 
-As a pre-commit hook (assuming a local install, so the bare command resolves):
+As a pre-commit hook, in a project that installed it:
 
 ```bash
-npx spec-guard "docs/**/*.md" --fail-fast
+npx --no-install @descent-vtt/spec-guard "docs/**/*.md" --fail-fast
 ```
 
 ### Annotations on the pull request
@@ -1481,8 +1513,8 @@ comment on the offending line:
       security-events: write
       actions: read # only in a private repository
     steps:
-      # ...checkout and setup-node as above
-      - run: npx @descent-vtt/spec-guard "docs/**/*.md" --format sarif > spec-guard.sarif || true
+      # ...checkout, setup-node and npm ci as above
+      - run: npx --no-install @descent-vtt/spec-guard "docs/**/*.md" --format sarif > spec-guard.sarif || true
       - uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
         with:
           sarif_file: spec-guard.sarif
@@ -1518,7 +1550,8 @@ which a merge request shows beside its changes:
 ```yaml
 spec-guard:
   script:
-    - npx @descent-vtt/spec-guard --format gitlab > gl-code-quality-report.json || true
+    - npm ci
+    - npx --no-install @descent-vtt/spec-guard --format gitlab > gl-code-quality-report.json || true
   artifacts:
     reports:
       codequality: gl-code-quality-report.json
