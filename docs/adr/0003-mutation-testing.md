@@ -1810,3 +1810,126 @@ reaches this repository its pull request's sweep proves nothing about it,
 as pull request 31's did not: dispatch the full sweep on the branch before
 merging, and delete the pin, the assertion and the two `ignore` entries in
 that change.
+
+## Amended 2026-10-08: the replay scripts run again, and a test holds them to the source
+
+The sections on 0.5.1 and 0.6.0 name three scripts as what keeps their
+measurements reproducible, and the two assertions beside them hold that the
+files are there. They were there, and from 0.12.0 none of them ran.
+
+- **`scripts/mutation-probe.mjs` threw from 214a2ee**, five hours after
+  8b1e0ec added it and before 0.6.0 shipped. It printed a report it had
+  written out by hand, and with that commit the reporter read
+  `inactiveSpecs`, which the report did not have. From 3502d2f (0.12.0) it
+  stopped sooner, on the glob `a[b`: a malformed glob had become a refusal,
+  and the probe took a refusal for a crash. Run against the source of each
+  release, it reaches its end for 0.5.1 and for none since.
+- **`scripts/mutation-equivalence.mjs` could not read a report page from
+  68a4da5** (0.9.0). The page holds the tests' sources,
+  `tests/mutation-shards.test.ts` quotes the two lines the report sits
+  between, and the script read to the first of them.
+- **`scripts/mutation-regex.mjs` refused to run from 0960e15** (0.12.0), as
+  it was written to: the status reader moved onto spec-core's scanner, and
+  six of the nine patterns on its table left `src/parser.ts`. It refuses at
+  157 of the 225 commits main has had since 26af507 added it.
+
+Nothing ran them, so nothing said so. The survivors each release replayed
+were replayed by hand, as its section says, and never by these.
+
+**What each measures now**, on 07e5ebe and CI's full sweep of it (run
+37642511027: 12,333 mutants, 103 survivors and 3 without coverage):
+
+- **The regex harness replays every regex literal in `src/parser.ts`**: nine
+  patterns and 58 mutants, the 58 the sweep makes of the same file. Three of
+  0.6.0's nine are still there, the label, the word and the unwrapping; two
+  came with TOML's status in 0.15.0; and four are the directive grammar's,
+  static mutants as the others are, and never on the table before. The six
+  that left are not followed into `src/vendor`: front matter, headings and
+  lines are spec-core's reading now, which this repository copies and does
+  not mutate ([ADR-0015](0015-globs-from-spec-core.md)). The three suites it
+  runs, `tests/spec-status.test.ts`, `tests/parser.test.ts` and
+  `tests/parser-contracts.test.ts`, kill all 58, none by a test that ran out
+  of time. That took 16 minutes on the development machine, beside two other
+  replays.
+- **The probe makes 5,631 observations where 0.5.1's made 4,176.** What it
+  read then, it reads: the analyser over 1,200 files of `node_modules`, the
+  prefixes of a source file and the inputs that stop mid-construct, the
+  tokenizer, the comment lexer, the grammar over this repository's documents,
+  the offset, engine, scope and polyglot helpers. What changed under it, it
+  follows: a glob that cannot be read is refused, and the refusal is the
+  answer it records for 10 of its 40 patterns; a report is one a run made,
+  with a field changed, and never one written out; a directive is resolved as
+  each of the eight kinds the parser knows, 632 resolutions of 79 sets of
+  attributes. What was not there to read, it reads now: the status and the
+  title of 52 documents, every format the reporter has over the reports of
+  three trees, and 99 command lines over those trees - the demo fixture, the
+  citing corpus and this repository - with `query`, `prove`, `cites` and
+  `impact` among them, 15 more that the parser refuses, and the MCP server
+  asked what a client asks. One entry is dropped: a run with `verbose`, which
+  the runner never took, so it measured the plain run twice. A run of the
+  probe is seven seconds.
+- **The equivalence harness reads the sweep's `mutation.json`, or the page
+  beside it**, and takes each survivor through a build and the probe: 106
+  of them in 19 minutes, of which 104 give the fingerprint of the unmutated
+  build and two do not.
+
+**Two survivors were not equivalent**, and each has a test now.
+
+- `inner === '$'` made `true` where a template is resumed after a
+  substitution (`src/imports.ts`). Any character before a `{` then opens a
+  substitution, the text in the braces is read as code, and the scan can end
+  inside a template: of 6,860 files under this repository's `src`, `tests`,
+  `scripts` and `node_modules`, six are then reported as unreadable, one of
+  them with five of its thirteen imports gone, and another is
+  `src/vendor/spec-core/pattern/glob.ts`, which ADR-0001's rule over `src`
+  reads. The tokenizer's suite had `` `${a}b$c` ``, a dollar that no brace
+  follows, and no brace that no dollar precedes. `tests/tokenizer.test.ts`
+  now holds the token stream of `` `${a}b{c}` ``, and that a `require`
+  written in such braces is no import.
+- `[]` made `["Stryker was here"]` for the modules of a cycle rule or a layer
+  rule (`src/runner.ts`). No run, query or proof reads them there, so no
+  answer the tool gives changes; `resolveDirective` is published, and a
+  caller of it reads a module the rule never named.
+  `tests/runner-contracts.test.ts` holds that such a rule names none.
+
+A third was told apart by the first run of the new probe, and by nothing a
+run answers: `sealedCount++` made `sealedCount--`, recorded as equivalent in
+0.18.1. The probe printed a request's key, which holds the number. A key is
+compared and never read, so the probe says which keys are equal, and the
+mutant is indistinguishable again.
+
+"Indistinguishable" keeps the limit it had. It is what the probe reaches,
+and the harness does not say which survivors' lines a run of the probe
+executes.
+
+**What holds them runnable.** Each refuses to measure once an input has lost
+its subject, and says which:
+
+- the regex harness, for a pattern on its table that the file does not hold
+  exactly once, a pattern in the file that is not on the table, a suite that
+  is not there, and suites that fail before a mutant is written;
+- the probe, for an export the build does not have, which it used to read as
+  `undefined` and print for both builds; an attribute no directive takes, or
+  one a directive takes and the probe gives no value; an option the help
+  names that it passes to no command; a command line it expects to be read
+  and is refused; a field of a rule's result that a report sets and no result
+  has; and a run option that changes nothing where the demo tree shows it
+  should;
+- the equivalence harness, for a report that was not made from the source in
+  the tree, whose spans would land on other code; a fingerprint that differs
+  between two runs of one build; and a control, `comparePaths` reversed, that
+  the probe does not tell apart.
+
+Each has a `--check` that is the refusal alone, without a replay.
+`tests/replay-scripts.test.ts` runs the three, and shows each a tree it has
+to refuse; eighteen changes written by hand into the scripts and the source,
+each moving a subject or taking a refusal away, failed it. The probe's check
+runs against the build, as the end-to-end suite does, so that file is left
+out of a mutation run with it (`vitest.mutation.config.ts`).
+
+They also no longer write into the tree. The regex harness mutates a copy
+of the tree under `reports/regex`, and the equivalence harness a copy of
+`src` under `reports/equivalence`, so a run that is stopped, however it is
+stopped, leaves nothing to put back.
+
+<!-- @assert-present file="tests/replay-scripts.test.ts" reason="the replay scripts stay runnable only while something runs them; see the amendment of 2026-10-08" -->

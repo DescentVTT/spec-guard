@@ -142,6 +142,21 @@ afterwards). A test file that fails to load counts as a survivor. The pull
 request's incremental sweep then confirms it, and main's full sweep is what the
 release reads.
 
+Two scripts do that replay for a whole class of mutant, each in a copy of the
+tree under `reports/`, so the tree itself is never patched.
+`node scripts/mutation-regex.mjs` writes every mutant Stryker's generator makes
+of the patterns in `src/parser.ts` into the copy and runs the parser's suites
+on each. `node scripts/mutation-equivalence.mjs <mutation.json>` takes the
+report of a full sweep, from the run's `mutation-report` artifact, applies each
+survivor at its span, builds it, and compares a fingerprint of everything the
+build says (`scripts/mutation-probe.mjs`) with the unmutated build's: a
+survivor it tells apart is a test the suite lacks. Each refuses to run once
+what it reads has moved from the source - a pattern, an export, an attribute,
+an option, the commit the report was swept from - and
+`tests/replay-scripts.test.ts` runs that refusal as `--check`. When it fails,
+its message names the entry, and the script's table follows the source in the
+same change.
+
 Eight cautionary tales are in ADR-0003: a
 run whose score was pure fiction because the mutants were never activated, a
 tuning knob that lifted the score six points without adding a test, the platform
