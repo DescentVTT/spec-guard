@@ -5,7 +5,8 @@
  *   0 - every assertion held
  *   1 - an assertion failed, a directive was invalid, or under --strict no
  *       assertion was executed
- *   2 - spec-guard could not run (bad usage, no spec files, missing engine)
+ *   2 - spec-guard could not run (bad usage, no spec files, missing engine),
+ *       or met an error it did not expect, whose stack is on stderr
  */
 
 import { createRequire } from 'node:module';
@@ -978,8 +979,28 @@ async function runCites(options: CliOptions, io: CliIO, use: ConfigUse | undefin
   return report.ok ? EXIT_OK : EXIT_FAILED;
 }
 
-/** Runs the CLI and resolves to the process exit code. */
+/**
+ * Runs the CLI and resolves to the process exit code, for an error nothing
+ * below expected too.
+ *
+ * Such an error is neither a finding nor a refusal: the answer cannot be
+ * trusted, which is the family contract's 2 (spec-core's ADR-0005). Rejected
+ * instead, it reached the launcher as Node's uncaught error, exit 1, which a
+ * script reads as an assertion that failed. The stack is what makes a report
+ * of it something to act on, and it goes to stderr alone: a script that reads
+ * a document from stdout is handed no part of one.
+ */
 export async function main(argv: readonly string[] = process.argv.slice(2), io: CliIO = defaultIO()): Promise<number> {
+  try {
+    return await run(argv, io);
+  } catch (error) {
+    io.stderr(`spec-guard: unexpected error: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`);
+    return EXIT_ERROR;
+  }
+}
+
+/** One run of the command line, which rejects on an error it did not expect. */
+async function run(argv: readonly string[], io: CliIO): Promise<number> {
   let options: CliOptions;
   try {
     options = parseArgs(argv, io.cwd);

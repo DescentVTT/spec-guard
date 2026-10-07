@@ -188,6 +188,24 @@ describe('launcher', () => {
   });
 });
 
+describe.skipIf(!built)('an error nothing awaits', () => {
+  // main answers what it awaits, in process (cli-contracts.test.ts). An error
+  // thrown from a callback - a stream's, a timer's - reaches no promise, and
+  // only the launcher can answer it. Node's own answer is exit 1, which the
+  // exit codes read as a failed assertion.
+  it('ends the run with exit 2 and its stack on stderr', async () => {
+    // Loaded before the launcher: when the run has nothing left to do, it
+    // throws where no promise holds the error.
+    const stray = 'process.once("beforeExit", () => setImmediate(() => { throw new Error("thrown where nothing awaits"); }));';
+    const result = await run(['--version'], { env: { NODE_OPTIONS: `--import data:text/javascript,${encodeURIComponent(stray)}` } });
+
+    expect(result.code).toBe(2);
+    expect(result.stderr).toMatch(/^spec-guard: unexpected error: Error: thrown where nothing awaits\n {4}at /);
+    // The run had answered by then, and its answer is not printed twice.
+    expect(result.stdout).toMatch(/^\d+\.\d+\.\d+\n$/);
+  });
+});
+
 describe.skipIf(!built)('spec-guard mcp, as a client launches it', () => {
   /** Starts the server, feeds it lines, closes its stdin, and collects what it wrote. */
   function converse(lines: readonly string[], args: readonly string[] = []): Promise<RunOutcome> {

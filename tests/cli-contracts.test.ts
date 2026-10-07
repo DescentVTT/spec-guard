@@ -8,6 +8,7 @@
  */
 
 import { createRequire } from 'node:module';
+import { PassThrough } from 'node:stream';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { main, parseArgs, version, EXIT_ERROR, EXIT_OK, HELP, type CliIO } from '../src/cli.js';
@@ -101,6 +102,80 @@ describe('when the invocation is wrong', () => {
     // The blank line is what separates the complaint from the wall of help
     // text; without it the two run together and the reason is lost.
     expect(err).toEqual(['Unknown option "--nonsense". Run spec-guard --help.', '', HELP]);
+  });
+});
+
+describe('an error spec-guard did not expect', () => {
+  // The family contract's 2: the answer cannot be trusted. Left to reject, it
+  // reached the launcher as Node's uncaught error, exit 1 - "an assertion
+  // failed" to a script. A stdout that throws stands for every such error:
+  // nothing in a command expects the stream to refuse a write.
+  const gone = (): never => {
+    throw new Error('the stream is gone');
+  };
+
+  it.each([
+    ['--help', ['--help']],
+    ['--version', ['--version']],
+    ['a run', ['docs/adr/0001-passing.md', '--engine', 'js']],
+    ['a run, as JSON', ['docs/adr/0001-passing.md', '--engine', 'js', '--json']],
+    ['query', ['query', 'src']],
+    ['prove', ['prove', 'docs/adr/0001-passing.md']],
+    ['cites', ['cites']],
+    ['impact', ['impact', 'src']],
+  ])('ends %s with exit 2 and its stack on stderr', async (_name, argv) => {
+    const { io, out, err } = createIO({ stdout: gone });
+
+    expect(await main(argv, io)).toBe(EXIT_ERROR);
+    expect(err).toHaveLength(1);
+    // The stack, so a report of it says where: the message alone names no line.
+    expect(err[0]).toMatch(/^spec-guard: unexpected error: Error: the stream is gone\n {4}at /);
+    expect(out).toEqual([]);
+  });
+
+  it('ends the server with exit 2 when its input fails', async () => {
+    const stdin = new PassThrough();
+    const out: string[] = [];
+    const err: string[] = [];
+    const { io } = createIO({
+      stdin,
+      stdout: (text) => out.push(text),
+      stderr: (text) => {
+        err.push(text);
+        // The server says it is up once it listens; its input fails after that.
+        if (err.length === 1) setImmediate(() => stdin.destroy(new Error('the pipe broke')));
+      },
+    });
+
+    expect(await main(['mcp'], io)).toBe(EXIT_ERROR);
+    expect(err).toHaveLength(2);
+    expect(err[0]).toContain('MCP server on stdio');
+    expect(err[1]).toMatch(/^spec-guard: unexpected error: Error: the pipe broke\n {4}at /);
+    expect(out).toEqual([]);
+  });
+
+  it('reports the message of an error that has no stack', async () => {
+    const bare = new Error('no stack on this one');
+    delete bare.stack;
+    const { io, err } = createIO({
+      stdout: () => {
+        throw bare;
+      },
+    });
+
+    expect(await main(['--version'], io)).toBe(EXIT_ERROR);
+    expect(err).toEqual(['spec-guard: unexpected error: no stack on this one']);
+  });
+
+  it('reports a thrown value that is no Error as it reads', async () => {
+    const { io, err } = createIO({
+      stdout: () => {
+        throw 'only a string';
+      },
+    });
+
+    expect(await main(['--version'], io)).toBe(EXIT_ERROR);
+    expect(err).toEqual(['spec-guard: unexpected error: only a string']);
   });
 });
 
