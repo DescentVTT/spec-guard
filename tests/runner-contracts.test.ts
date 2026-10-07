@@ -244,6 +244,18 @@ describe('the types attribute', () => {
   });
 });
 
+describe('the modules an import rule names', () => {
+  it('are the patterns of its module attribute, on a rule about a module', () => {
+    expect(assertionOf('assert-import-absence', { module: 'a/**, node:fs' }).imports?.modules).toEqual(['a/**', 'node:fs']);
+  });
+
+  it('are none on a rule about the whole graph, which takes no module attribute', () => {
+    // Nothing in a run reads them there; a caller of `resolveDirective` can.
+    expect(assertionOf('assert-import-cycle', {}).imports?.modules).toEqual([]);
+    expect(assertionOf('assert-layers', { order: 'a, b' }).imports?.modules).toEqual([]);
+  });
+});
+
 describe('the dynamic attribute', () => {
   it.each([
     ['include', true],

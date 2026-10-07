@@ -269,6 +269,15 @@ describe('template literals', () => {
     expect(stream('`${a}b$c`')).toEqual(['template:', 'word:a']);
   });
 
+  it('treats a brace in the resumed part as text, where no dollar opens it', () => {
+    // After a substitution closes, only `${` opens the next. The resumption
+    // that took any character before a `{` for the dollar read the text in
+    // the braces as code, and reported the module named there as imported:
+    // the one survivor of the 0.19.1 sweep that changed an answer (ADR-0003).
+    expect(stream('`${a}b{c}`')).toEqual(['template:', 'word:a']);
+    expect(specifiers("const s = `${a} {require('./gone.js')}`;")).toEqual([]);
+  });
+
   it('handles an object literal inside a substitution', () => {
     // The brace depth is what tells the closing `}` of the substitution apart
     // from the closing `}` of an object inside it.
