@@ -80,14 +80,20 @@ export const INVOCATION_OPTIONS: ReadonlySet<string> = new Set([
 /** A configuration that cannot be used, with the words to say why. */
 export class ConfigError extends Error {}
 
-const ENGINE_ALIASES: Readonly<Record<string, EnginePreference>> = {
-  auto: 'auto',
-  rg: 'ripgrep',
-  ripgrep: 'ripgrep',
-  js: 'javascript',
-  javascript: 'javascript',
-  node: 'javascript',
-};
+/**
+ * The names an engine is asked for by. A map, because the name is typed on a
+ * command line or in a file and an object answers to more names than it was
+ * given: `--engine constructor` was an engine, neither `auto` nor the
+ * scanner, and so ran ripgrep.
+ */
+const ENGINE_ALIASES: ReadonlyMap<string, EnginePreference> = new Map<string, EnginePreference>([
+  ['auto', 'auto'],
+  ['rg', 'ripgrep'],
+  ['ripgrep', 'ripgrep'],
+  ['js', 'javascript'],
+  ['javascript', 'javascript'],
+  ['node', 'javascript'],
+]);
 
 /**
  * The engine a name asks for, whether the name came from a flag or a file.
@@ -96,7 +102,7 @@ const ENGINE_ALIASES: Readonly<Record<string, EnginePreference>> = {
  * words. Case is ignored, as the flag always has.
  */
 export function engineNamed(name: string): EnginePreference {
-  const engine = ENGINE_ALIASES[name.toLowerCase()];
+  const engine = ENGINE_ALIASES.get(name.toLowerCase());
   if (engine === undefined) throw new ConfigError(`Unknown engine "${name}". Expected auto, rg or js.`);
   return engine;
 }

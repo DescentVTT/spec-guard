@@ -10,6 +10,23 @@ what to do when upgrading; the family's policy, including how a flag or field
 is deprecated before it goes, is spec-core's
 [ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
+## Unreleased
+
+### Changed
+
+- **An engine named as something every JavaScript object answers to is
+  refused, as any unknown engine is.** `--engine constructor` and
+  `"engine": "__proto__"` were each taken for an engine, neither `auto` nor
+  the scanner, so the run searched with ripgrep and said `ripgrep` in its
+  report, or ended with `ripgrep (rg) was requested with --engine rg but is
+  not available on PATH` where there is none. Both are now
+  `Unknown engine "constructor". Expected auto, rg or js.` with exit 2, from
+  the flag and from the configuration, which names its file and key.
+  Upgrading: write `auto`, `rg` or `js`. Nothing else read such a name as
+  more than an unknown word: a status of `constructor` keeps its document in
+  force, an attribute of that name is refused by name, and a configuration
+  key of that name is an unknown option, as before; tests now hold each.
+
 ## 0.18.2
 
 `--engine auto` chooses between the scanner and ripgrep by a number of files
