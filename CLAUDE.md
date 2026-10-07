@@ -83,6 +83,14 @@ The mutation `break` and the coverage floors in `vitest.config.ts` sit below
 the last measurement. They move up with the measurement and never down to make
 a change pass.
 
+Run a tool through `npm run <script>` or `npx --no-install <tool>`, never a
+bare `npx <name>`: before `npm ci` that fetches whatever the registry has
+under the name. `.npmrc` has npm stop there instead, and `tests/npm.test.ts`
+holds both. One of the family's own tools takes its package's full name
+(spec-core's
+[ADR-0005](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0005-the-family-contract.md#names),
+Names).
+
 ## Testing
 
 - **New behaviour needs a test that fails without it**, and a new heuristic a
