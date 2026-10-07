@@ -41,6 +41,23 @@ updates:
     ignore:
       - dependency-name: '@types/node'
         update-types: ['version-update:semver-major']
+      # vitest stays on 4 until Stryker's runner reads vitest 5 (ADR-0003,
+      # which pinned it on 2026-09-07 and was amended 2026-10-07). On 5,
+      # @stryker-mutator/vitest-runner 10.0.0 runs no test against a mutant a
+      # test covers, and every one survives: stryker-mutator/stryker-js#6210,
+      # still open. The bump Dependabot proposed on 2026-10-06 read 4.00% in
+      # spec-core's sweep and 3.83% in spec-harness's; here ADR-0003's
+      # assertion failed it, and nothing else did. So a major of vitest or of
+      # an @vitest package is never proposed, while minors and patches of 4
+      # still are, and a security update is not held back: `update-types`
+      # reaches version updates only. These two entries go when a released
+      # @stryker-mutator/vitest-runner fixes #6210 and the check spec-core's
+      # ADR-0008 writes down has passed with it. Until then the assertion
+      # fails a bump made by hand, and says why.
+      - dependency-name: vitest
+        update-types: ['version-update:semver-major']
+      - dependency-name: '@vitest/*'
+        update-types: ['version-update:semver-major']
     open-pull-requests-limit: 5
     commit-message:
       prefix: chore
