@@ -1306,8 +1306,9 @@ that names it, never a run as if it had not been given. `--root "$DIR"` and
 `--spec "$DOCS"` with the variable unset were the working directory and every
 Markdown file under the root; `--concurrency 0` was 1; and an option that is
 on when it is given was on whatever followed its `=`, so `--strict=false` was
-strict and `--allow-empty=false` let an empty run through. Each has an
-opposite to turn it off, `--no-strict`, or is left out.
+strict and `--allow-empty=false` let an empty run through. An option a
+configuration can set has an opposite to turn it off, `--no-strict`; any
+other is left out.
 
 ### Configuration
 

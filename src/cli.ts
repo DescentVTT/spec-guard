@@ -596,7 +596,7 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
     // `--allow-empty=false` let an empty run through.
     if (inlineValue !== undefined && !valueTaken) {
       throw new UsageError(
-        `Option ${name} takes no value, got "${inlineValue}". Give it alone or leave it out; an on/off option has an opposite that turns it off, as --no-strict is to --strict.`,
+        `Option ${name} takes no value, got "${inlineValue}". Give it alone or leave it out; an option a configuration can set has an opposite that turns it off, as --no-strict is to --strict.`,
       );
     }
   }

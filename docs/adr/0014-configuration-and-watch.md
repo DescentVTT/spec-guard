@@ -928,7 +928,7 @@ failing:
 | `--root` a file, or a path that is not there | "no spec files matched": exit 2, and exit 0 under `--allow-empty`; `cites` exit 0, nothing to look for; `mcp` started and served | exit 2, `the root <path> is not a directory. Give --root one that exists, or leave it out to run in the working directory.` |
 | `--concurrency 0` | ran as 1 | exit 2, `Option --concurrency expects 1 or more: a concurrency of 0 would run no search.` |
 | `--exclude ","` | cleared the configuration's list, as `--exclude=` does | exit 2, `Option --exclude names no path in ",". Give it paths or globs, or --exclude= with nothing to clear the list.` |
-| `--strict=false`, `--default-skips=false`, `--allow-empty=false`, `--json=false`, `--color=never` | each on, what followed the `=` never read: strict, the default skips kept, an empty run let through, JSON written, colour | exit 2, `Option --strict takes no value, got "false". Give it alone or leave it out; an on/off option has an opposite that turns it off, as --no-strict is to --strict.` |
+| `--strict=false`, `--default-skips=false`, `--allow-empty=false`, `--json=false`, `--color=never` | each on, what followed the `=` never read: strict, the default skips kept, an empty run let through, JSON written, colour | exit 2, `Option --strict takes no value, got "false". Give it alone or leave it out; an option a configuration can set has an opposite that turns it off, as --no-strict is to --strict.` |
 
 `--root "$DIR"` and `--spec "$DOCS"` with the variable unset are how the first
 rows are reached, and each answered a question nobody had put: a run in

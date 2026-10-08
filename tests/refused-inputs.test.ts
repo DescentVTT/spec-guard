@@ -55,7 +55,7 @@ async function tree(extra: Record<string, string> = {}): Promise<string> {
 }
 
 const NO_DIRECTORY = 'Name one, or leave the option out to run in the working directory.';
-const NO_VALUE = 'Give it alone or leave it out; an on/off option has an opposite that turns it off, as --no-strict is to --strict.';
+const NO_VALUE = 'Give it alone or leave it out; an option a configuration can set has an opposite that turns it off, as --no-strict is to --strict.';
 const NO_PATH = 'Give it paths or globs, or --exclude= with nothing to clear the list.';
 const emptyPattern = (pattern: string): string =>
   `spec-guard: invalid spec pattern ${JSON.stringify(pattern)}: it is empty; write a file, a directory or a glob, or "." for every Markdown file under the root`;
