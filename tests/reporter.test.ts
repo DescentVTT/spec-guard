@@ -26,6 +26,24 @@ describe('shouldUseColor', () => {
     expect(shouldUseColor({ isTTY: true }, undefined, {})).toBe(true);
     expect(shouldUseColor({}, undefined, {})).toBe(false);
   });
+
+  it('turns colour off for FORCE_COLOR=0 on a terminal too, as spec-brief and spec-graph do', () => {
+    // It only declined to force colour, so a terminal still had it: the one
+    // value the three tools read differently.
+    expect(shouldUseColor({ isTTY: true }, undefined, { FORCE_COLOR: '0' })).toBe(false);
+    // Any other value forces it, `false` included, in all three.
+    expect(shouldUseColor({ isTTY: false }, undefined, { FORCE_COLOR: 'false' })).toBe(true);
+    expect(shouldUseColor({ isTTY: false }, undefined, { FORCE_COLOR: '00' })).toBe(true);
+  });
+
+  it('reads either variable set to nothing as unset, which is what NO_COLOR asks', () => {
+    expect(shouldUseColor({ isTTY: true }, undefined, { NO_COLOR: '' })).toBe(true);
+    expect(shouldUseColor({ isTTY: true }, undefined, { FORCE_COLOR: '' })).toBe(true);
+    expect(shouldUseColor({ isTTY: false }, undefined, { FORCE_COLOR: '' })).toBe(false);
+    expect(shouldUseColor({ isTTY: false }, undefined, { FORCE_COLOR: '1', NO_COLOR: '' })).toBe(true);
+    // NO_COLOR wins over FORCE_COLOR whatever it holds, 0 included.
+    expect(shouldUseColor({ isTTY: true }, undefined, { FORCE_COLOR: '1', NO_COLOR: '0' })).toBe(false);
+  });
 });
 
 describe('shouldUseAscii', () => {

@@ -257,3 +257,19 @@ describe('ripgrep asked for, and a variable that names none', () => {
     expect(warned.warnings[0]).toMatch(/^ripgrep failed, fell back to the JavaScript engine \(ripgrep exited with code \d+: /);
   });
 });
+
+describe('colour, as the family reads the conventions', () => {
+  const ESC = String.fromCharCode(27);
+  const coloured = async (env: NodeJS.ProcessEnv, isTTY: boolean, ...flags: string[]): Promise<boolean> => {
+    const { io, out } = createIO({ env, isTTY });
+    expect(await main(['docs/adr/0001-passing.md', '--engine', 'js', ...flags], io)).toBe(EXIT_OK);
+    return out.join('\n').includes(ESC);
+  };
+
+  it('is off for FORCE_COLOR=0 on a terminal, where it used to decide nothing', async () => {
+    expect(await coloured({ FORCE_COLOR: '0' }, true)).toBe(false);
+    expect(await coloured({}, true)).toBe(true);
+    // The flag still wins over the variable.
+    expect(await coloured({ FORCE_COLOR: '0' }, false, '--color')).toBe(true);
+  });
+});

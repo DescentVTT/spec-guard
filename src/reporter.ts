@@ -59,7 +59,9 @@ export function createPainter(color: boolean): (text: string, ...styles: Style[]
 
 /**
  * Colour is on only when the stream is a TTY and nobody asked otherwise.
- * Honours the NO_COLOR and FORCE_COLOR conventions.
+ * Honours the NO_COLOR and FORCE_COLOR conventions, as spec-brief and
+ * spec-graph read them: either set to nothing is as unset, and `FORCE_COLOR=0`
+ * turns colour off, on a terminal too, where it used to decide nothing.
  */
 export function shouldUseColor(
   stream: { isTTY?: boolean },
@@ -68,7 +70,7 @@ export function shouldUseColor(
 ): boolean {
   if (flag !== undefined) return flag;
   if (env['NO_COLOR']) return false;
-  if (env['FORCE_COLOR'] && env['FORCE_COLOR'] !== '0') return true;
+  if (env['FORCE_COLOR']) return env['FORCE_COLOR'] !== '0';
   return Boolean(stream.isTTY);
 }
 
