@@ -353,7 +353,7 @@ describe('runSpecGuard error handling', () => {
     try {
       await expect(
         runSpecGuard({ patterns: ['docs/adr/0001-passing.md'], root: DEMO_REPO, engine: 'ripgrep' }),
-      ).rejects.toThrow(/not available on PATH/);
+      ).rejects.toThrow(/^SPEC_GUARD_RG is ".*definitely-not-ripgrep", which did not answer --version as ripgrep does/);
     } finally {
       if (previous === undefined) delete process.env.SPEC_GUARD_RG;
       else process.env.SPEC_GUARD_RG = previous;

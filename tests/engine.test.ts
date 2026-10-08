@@ -1,3 +1,4 @@
+import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
@@ -64,6 +65,18 @@ async function cleanUpBigRepo(): Promise<void> {
   const root = await bigRepoOnce;
   bigRepoOnce = undefined;
   await removeTempRepo(root);
+}
+
+/** Runs with one directory for a PATH, and puts the machine's own back. */
+async function withPath<T>(directory: string, run: () => Promise<T>): Promise<T> {
+  const previous = process.env.PATH;
+  process.env.PATH = directory;
+  try {
+    return await run();
+  } finally {
+    if (previous === undefined) delete process.env.PATH;
+    else process.env.PATH = previous;
+  }
 }
 
 function bigRepoRequest(root: string, symbol = 'Needle'): SearchRequest {
@@ -185,6 +198,48 @@ describe('findRipgrep', () => {
     resetRipgrepProbe();
     expect(await findRipgrep()).toBe(rgPath);
   });
+
+  it('takes no program that answers --version and is not ripgrep', async () => {
+    // node(1) knows the flag and exits 0, which was all the probe asked: under
+    // --engine rg every search then failed and the scanner answered, exit 0.
+    process.env.SPEC_GUARD_RG = process.execPath;
+    resetRipgrepProbe();
+    expect(await findRipgrep()).toBeNull();
+  });
+
+  it('returns null for a path that cannot be started, however the system says so', async () => {
+    // Node reports some of these as an event and throws from `spawn` for
+    // others, and which is which is the system's: a file that is no program
+    // throws on Windows (EFTYPE), and ended a run with `spawn EFTYPE` for a
+    // line. Each kind of path is asked on every system.
+    const root = await makeTempRepo({ 'notes.txt': 'a file\n' });
+    temporary.push(root);
+    for (const named of [path.join(root, 'notes.txt'), path.join(root, 'notes.txt', 'rg'), root, ' ']) {
+      process.env.SPEC_GUARD_RG = named;
+      resetRipgrepProbe();
+      expect(await findRipgrep(), named).toBeNull();
+    }
+  });
+
+  it.skipIf(process.platform === 'win32')('does not wait for a program that reads its input', async () => {
+    // Given no input, such a program meets the end of it at once. Handed a
+    // pipe nobody writes to, it is waited for until the test's time is up.
+    const root = await makeTempRepo({ 'reader.sh': '#!/bin/sh\ncat\n' });
+    temporary.push(root);
+    const reader = path.join(root, 'reader.sh');
+    await fs.chmod(reader, 0o755);
+    process.env.SPEC_GUARD_RG = reader;
+    resetRipgrepProbe();
+    expect(await findRipgrep()).toBeNull();
+  });
+
+  it.runIf(rgPath)('reads a SPEC_GUARD_RG that is set to nothing as unset: the rg on PATH', async () => {
+    // What `SPEC_GUARD_RG: ${{ vars.RG }}` leaves in a workflow whose variable
+    // is not defined. The README says so beside the variable.
+    process.env.SPEC_GUARD_RG = '';
+    resetRipgrepProbe();
+    expect(await withPath(path.dirname(rgPath as string), findRipgrep)).toBe('rg');
+  });
 });
 
 describe('resolveEngine', () => {
@@ -194,10 +249,34 @@ describe('resolveEngine', () => {
     expect(await resolveEngine('javascript')).toBe(javascriptEngine);
   });
 
-  it('fails loudly when ripgrep is required but missing', async () => {
-    process.env.SPEC_GUARD_RG = path.join(DEMO_REPO, 'definitely-not-ripgrep');
+  /** What `--engine rg` is told about a variable that names no ripgrep that runs. */
+  const named = (value: string): string =>
+    `SPEC_GUARD_RG is "${value}", which did not answer --version as ripgrep does, and the rg engine was asked for. Set it to the path of an rg that runs, or unset it to use the rg on PATH.`;
+  const NOT_ON_PATH = 'ripgrep (rg) was requested with --engine rg but is not available on PATH.';
+
+  it.each([
+    ['a path that is not there', path.join(DEMO_REPO, 'definitely-not-ripgrep')],
+    ['a program that is not ripgrep', process.execPath],
+    ['a space', ' '],
+  ])('refuses ripgrep by the variable that names %s, never by PATH', async (_, value) => {
+    // Asked for and not delivered. The line used to blame PATH, which nobody
+    // had got wrong, and a program that was not ripgrep got no line at all.
+    process.env.SPEC_GUARD_RG = value;
     resetRipgrepProbe();
-    await expect(resolveEngine('ripgrep')).rejects.toThrow(/not available on PATH/);
+    await expect(resolveEngine('ripgrep')).rejects.toThrow(new Error(named(value)));
+  });
+
+  it.each([
+    ['not set', undefined],
+    ['set to nothing', ''],
+  ])('refuses ripgrep by PATH when the variable is %s and PATH has none', async (_, value) => {
+    // A directory with no rg in it for a PATH: the machine's own may have one.
+    const root = await makeTempRepo({ 'notes.txt': 'no rg here\n' });
+    temporary.push(root);
+    if (value === undefined) delete process.env.SPEC_GUARD_RG;
+    else process.env.SPEC_GUARD_RG = value;
+    resetRipgrepProbe();
+    await expect(withPath(root, () => resolveEngine('ripgrep'))).rejects.toThrow(new Error(NOT_ON_PATH));
   });
 
   it('falls back to javascript when auto cannot find ripgrep', async () => {
@@ -596,14 +675,17 @@ describe('batched searches', () => {
 });
 
 describe('ripgrep failure handling', () => {
-  it('rejects when the binary exits with an error code', async () => {
-    // node(1) rejects ripgrep's flags, exits non-zero and writes to stderr,
-    // which is exactly the shape of a broken ripgrep.
-    process.env.SPEC_GUARD_RG = process.execPath;
+  it.runIf(rgPath)('rejects when ripgrep exits with an error code', async () => {
+    // A look-ahead, which the scanner reads and ripgrep's own engine refuses:
+    // exit 2 and the reason on stderr. node(1) stood in for a broken ripgrep
+    // here until the probe stopped taking it for one.
+    process.env.SPEC_GUARD_RG = rgPath as string;
     resetRipgrepProbe();
     const engine = await resolveEngine('ripgrep');
 
-    await expect(engine.search(request())).rejects.toThrow(/ripgrep exited with code/);
+    await expect(engine.search(request({ symbol: 'User(?=Session)', options: searchOptions({ regex: true }) }))).rejects.toThrow(
+      /^ripgrep exited with code 2: rg: regex parse error/,
+    );
   });
 
   it('falls back to the javascript engine when ripgrep misbehaves mid-run', async () => {

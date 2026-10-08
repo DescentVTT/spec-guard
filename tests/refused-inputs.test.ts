@@ -15,7 +15,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { EXIT_ERROR, EXIT_OK, HELP, main, parseArgs, UsageError, version, type CliIO } from '../src/cli.js';
 import { resetRipgrepProbe } from '../src/engine.js';
-import { DEMO_REPO, makeTempRepo, removeTempRepo } from './helpers.js';
+import { DEMO_REPO, makeTempRepo, pastEveryBudget, removeTempRepo } from './helpers.js';
 
 const TAB = String.fromCharCode(9);
 const temporary: string[] = [];
@@ -193,5 +193,67 @@ describe('a root that is not a directory', () => {
     expect(await main(['--root', path.basename(root), '--engine', 'js', '--json'], io)).toBe(EXIT_OK);
     expect(err).toEqual([]);
     expect((JSON.parse(out.join('\n')) as { specFiles: string[] }).specFiles).toEqual(['docs/a.md']);
+  });
+});
+
+describe('ripgrep asked for, and a variable that names none', () => {
+  const refusal = (value: string): string =>
+    `spec-guard: SPEC_GUARD_RG is "${value}", which did not answer --version as ripgrep does, and the rg engine was asked for. Set it to the path of an rg that runs, or unset it to use the rg on PATH.`;
+
+  it('is refused for a program that is not ripgrep, where the scanner used to answer with exit 0', async () => {
+    // node(1) answers --version, which was all that was asked of it. Past
+    // every budget, so that nothing but ripgrep was ever going to search.
+    const root = await tree(pastEveryBudget());
+    process.env.SPEC_GUARD_RG = process.execPath;
+    resetRipgrepProbe();
+    const { io, out, err } = createIO({ cwd: root });
+
+    expect(await main(['docs/a.md', '--engine', 'rg', '--json'], io)).toBe(EXIT_ERROR);
+    expect(err).toEqual([refusal(process.execPath)]);
+    expect(out).toEqual([]);
+  });
+
+  it('is refused the same way when the configuration asked', async () => {
+    const root = await tree({ '.spec-guard.json': '{ "engine": "rg" }' });
+    process.env.SPEC_GUARD_RG = process.execPath;
+    resetRipgrepProbe();
+    const { io, out, err } = createIO({ cwd: root });
+
+    expect(await main(['docs/a.md'], io)).toBe(EXIT_ERROR);
+    expect(err).toEqual([refusal(process.execPath)]);
+    expect(out).toEqual([]);
+  });
+
+  it('does not stop a run that never asked for ripgrep', async () => {
+    // --engine js never reads the variable, and neither does a query.
+    const root = await tree();
+    process.env.SPEC_GUARD_RG = process.execPath;
+    resetRipgrepProbe();
+    const scanned = createIO({ cwd: root });
+    const asked = createIO({ cwd: root });
+
+    expect(await main(['docs/a.md', '--engine', 'js'], scanned.io)).toBe(EXIT_OK);
+    expect(await main(['query', 'src/a.ts', '--spec', 'docs/a.md'], asked.io)).toBe(EXIT_OK);
+    expect([...scanned.err, ...asked.err]).toEqual([]);
+  });
+
+  it('leaves auto to the scanner, with a warning where a search was handed over and failed', async () => {
+    // As documented: under auto a binary that cannot be used is no refusal.
+    // A tree under the budget never starts it, so there is nothing to say.
+    const small = await tree();
+    const big = await tree(pastEveryBudget());
+    process.env.SPEC_GUARD_RG = process.execPath;
+    resetRipgrepProbe();
+    const under = createIO({ cwd: small });
+    const over = createIO({ cwd: big });
+
+    expect(await main(['docs/a.md', '--json'], under.io)).toBe(EXIT_OK);
+    expect(await main(['docs/a.md', '--json'], over.io)).toBe(EXIT_OK);
+    const quiet = JSON.parse(under.out.join('\n')) as { engine: string; warnings: string[] };
+    const warned = JSON.parse(over.out.join('\n')) as { engine: string; warnings: string[] };
+    expect(quiet).toMatchObject({ engine: 'javascript', warnings: [] });
+    expect(warned.engine).toBe('javascript');
+    expect(warned.warnings).toHaveLength(1);
+    expect(warned.warnings[0]).toMatch(/^ripgrep failed, fell back to the JavaScript engine \(ripgrep exited with code \d+: /);
   });
 });

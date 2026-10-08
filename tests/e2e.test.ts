@@ -292,6 +292,12 @@ describe.skipIf(!built)('an input that is set and names nothing, through the lau
       {},
       `spec-guard: the root ${path.join(DEMO_REPO, 'nowhere').replaceAll('\\', '/')} is not a directory. Give --root one that exists, or leave it out to run in the working directory.\n`,
     ],
+    [
+      'ripgrep asked for and a variable that names another program',
+      ['docs/adr/0001-passing.md', '--engine', 'rg', '--json'],
+      { SPEC_GUARD_RG: process.execPath },
+      `spec-guard: SPEC_GUARD_RG is "${process.execPath}", which did not answer --version as ripgrep does, and the rg engine was asked for. Set it to the path of an rg that runs, or unset it to use the rg on PATH.\n`,
+    ],
   ] as Array<[string, string[], NodeJS.ProcessEnv, string]>)('refuses %s with exit 2 and one line', async (_, args, env, line) => {
     const result = await run(args, { cwd: DEMO_REPO, env });
 

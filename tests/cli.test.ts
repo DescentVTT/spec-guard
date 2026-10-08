@@ -255,18 +255,22 @@ describe('main', () => {
     expect(err.join('\n')).toContain('Usage');
   });
 
-  it('exits 2 when the requested engine is unavailable', async () => {
+  it('exits 2 when the requested engine is unavailable, in one line that names the variable that was set', async () => {
     const previous = process.env.SPEC_GUARD_RG;
-    process.env.SPEC_GUARD_RG = path.join(DEMO_REPO, 'definitely-not-ripgrep');
+    const missing = path.join(DEMO_REPO, 'definitely-not-ripgrep');
+    process.env.SPEC_GUARD_RG = missing;
     const { resetRipgrepProbe } = await import('../src/engine.js');
     resetRipgrepProbe();
 
     try {
-      const { io, err } = createIO();
-      const code = await main(['docs/adr/0001-passing.md', '--engine', 'rg'], io);
+      const { io, out, err } = createIO();
+      const code = await main(['docs/adr/0001-passing.md', '--engine', 'rg', '--json'], io);
 
       expect(code).toBe(EXIT_ERROR);
-      expect(err.join('\n')).toContain('not available on PATH');
+      expect(err).toEqual([
+        `spec-guard: SPEC_GUARD_RG is "${missing}", which did not answer --version as ripgrep does, and the rg engine was asked for. Set it to the path of an rg that runs, or unset it to use the rg on PATH.`,
+      ]);
+      expect(out).toEqual([]);
     } finally {
       if (previous === undefined) delete process.env.SPEC_GUARD_RG;
       else process.env.SPEC_GUARD_RG = previous;
