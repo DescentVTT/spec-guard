@@ -10,6 +10,18 @@ what to do when upgrading; the family's policy, including how a flag or field
 is deprecated before it goes, is spec-core's
 [ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
+## Unreleased
+
+### Fixed
+
+- **A reader that closes the output is answered in one line, not a stack.**
+  `spec-guard impact src --json | head` ended with `spec-guard: unexpected
+  error: Error: EPIPE: broken pipe, write` and a stack once `head` had left;
+  it now prints `spec-guard: stdout was closed before all of the output was
+  written` on stderr, from every command, a watch session and the server.
+  The exit code is 2, as it was
+  ([ADR-0001](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0001-invariants.md)).
+
 ## 0.20.0
 
 An error spec-guard did not expect ended the run with exit 1, which reads as
