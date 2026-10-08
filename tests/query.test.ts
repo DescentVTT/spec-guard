@@ -650,7 +650,7 @@ describe('spec-guard query', () => {
   it('prints help for a usage error, like every other command', async () => {
     const { cli, err } = io();
     expect(await main(['query'], cli)).toBe(EXIT_ERROR);
-    expect(err).toEqual(['spec-guard query needs a path to ask about, e.g. spec-guard query src/domain/user.ts.', '', HELP]);
+    expect(err).toEqual(['spec-guard: spec-guard query needs a path to ask about, e.g. spec-guard query src/domain/user.ts.']);
   });
 
   it('documents both commands in the help', () => {

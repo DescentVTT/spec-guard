@@ -246,13 +246,14 @@ describe('main', () => {
     expect(JSON.parse(out.join('\n')).summary.specs).toBe(0);
   });
 
-  it('exits 2 with usage help on a bad flag', async () => {
-    const { io, err } = createIO();
+  it('exits 2 on a bad flag with the one line that names it, and not the help after it', async () => {
+    const { io, out, err } = createIO();
     const code = await main(['--nope'], io);
 
     expect(code).toBe(EXIT_ERROR);
-    expect(err.join('\n')).toContain('Unknown option "--nope"');
-    expect(err.join('\n')).toContain('Usage');
+    // The whole help used to follow, a hundred lines, with the reason above them all.
+    expect(err).toEqual(['spec-guard: Unknown option "--nope". Run spec-guard --help.']);
+    expect(out).toEqual([]);
   });
 
   it('exits 2 when the requested engine is unavailable, in one line that names the variable that was set', async () => {

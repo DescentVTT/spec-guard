@@ -310,7 +310,7 @@ describe.skipIf(!built)('an input that is set and names nothing, through the lau
 
     expect(refused.code).toBe(2);
     expect(refused.stdout).toBe('');
-    expect(refused.stderr.split('\n')[0]).toBe('Option --root expects a directory, got "". Name one, or leave the option out to run in the working directory.');
+    expect(refused.stderr.trimEnd()).toBe('spec-guard: Option --root expects a directory, got "". Name one, or leave the option out to run in the working directory.');
     expect(ran.code).toBe(0);
     expect(ran.stderr).toBe('');
   });
