@@ -4,7 +4,7 @@
  * shim's own error handling. Requires `npm run build`.
  */
 
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, promises as fs } from 'node:fs';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -203,6 +203,80 @@ describe.skipIf(!built)('an error nothing awaits', () => {
     expect(result.stderr).toMatch(/^spec-guard: unexpected error: Error: thrown where nothing awaits\n {4}at /);
     // The run had answered by then, and its answer is not printed twice.
     expect(result.stdout).toMatch(/^\d+\.\d+\.\d+\n$/);
+  });
+});
+
+describe.skipIf(!built)('a reader that closed the output', () => {
+  // The process's own streams never throw this where main awaits it
+  // (cli-contracts.test.ts holds that case): the write fails, and the stream
+  // reports it as an event, which only the launcher can answer.
+  const CLOSED = 'spec-guard: stdout was closed before all of the output was written\n';
+
+  /**
+   * The launcher with one of its outputs closed by its reader before the run
+   * writes to it, as stdout is behind `| head` once head has left. What the
+   * other output was sent is the answer. A run that outlives the test is ended
+   * by the handle the test holds.
+   */
+  function closing(stream: 'stdout' | 'stderr', args: readonly string[], input?: string): Promise<{ code: number; read: string }> {
+    return new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, [BIN, ...args], {
+        cwd: PROJECT_ROOT,
+        env: { ...process.env, NO_COLOR: '1' },
+        stdio: ['pipe', 'pipe', 'pipe'],
+        windowsHide: true,
+      });
+      child[stream].destroy();
+      const open = stream === 'stdout' ? child.stderr : child.stdout;
+      let read = '';
+      open.setEncoding('utf8');
+      open.on('data', (chunk: string) => (read += chunk));
+      const overdue = setTimeout(() => child.kill(), 30_000);
+      child.once('error', reject);
+      child.once('close', (code) => {
+        clearTimeout(overdue);
+        resolve({ code: code ?? -1, read });
+      });
+      // Held open after a request, so that only the closed output ends a server.
+      child.stdin.on('error', () => {});
+      if (input === undefined) child.stdin.end();
+      else child.stdin.write(input);
+    });
+  }
+
+  it.each([
+    ['--help', ['--help']],
+    ['a run', ['docs/adr/0001-passing.md', '--root', DEMO_REPO, '--engine', 'js']],
+    ['impact, as JSON', ['impact', 'src', '--root', DEMO_REPO, '--json']],
+    ['a watch session, at its first report', ['--watch', 'docs/adr/0001-passing.md', '--root', DEMO_REPO]],
+  ])('ends %s with exit 2 and one line on stderr, with no stack', async (_name, args) => {
+    expect(await closing('stdout', args)).toEqual({ code: 2, read: CLOSED });
+  });
+
+  it('ends the server the same way, at the first answer it cannot write', async () => {
+    const initialize = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'test', version: '0' } } });
+    const result = await closing('stdout', ['mcp', '--root', DEMO_REPO], `${initialize}\n`);
+
+    expect(result.code).toBe(2);
+    // The line it greets a person with, then the one that says why it ended.
+    expect(result.read).toMatch(/^spec-guard \d+\.\d+\.\d+: MCP server on stdio, [^\n]*\n/);
+    expect(result.read.endsWith(`\n${CLOSED}`)).toBe(true);
+    expect(result.read.split('\n')).toHaveLength(3);
+  });
+
+  it('says nothing when stderr is the one that closed, on stdout either, and still exits 2', async () => {
+    // Left to Node, the error of that write is exit 1.
+    expect(await closing('stderr', ['--not-a-flag'])).toEqual({ code: 2, read: '' });
+  });
+
+  // A shell's pipe, where Node's own child is a socket pair: the reader has
+  // left by the time the run writes. Without a shell there is no pipeline to
+  // make, and cmd's has no way to hand back the exit code of its left side.
+  it.skipIf(process.platform === 'win32')('says so behind a shell pipe whose reader has left', () => {
+    const pipeline = '{ sleep 1; "$0" "$1" --help; echo "exit $?" >&2; } | true';
+    const result = spawnSync('sh', ['-c', pipeline, process.execPath, BIN], { cwd: PROJECT_ROOT, encoding: 'utf8' });
+
+    expect(result.stderr).toBe(`${CLOSED}exit 2\n`);
   });
 });
 
