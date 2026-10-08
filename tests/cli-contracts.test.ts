@@ -11,7 +11,7 @@ import { createRequire } from 'node:module';
 import { PassThrough } from 'node:stream';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { main, parseArgs, version, EXIT_ERROR, EXIT_OK, HELP, type CliIO } from '../src/cli.js';
+import { main, parseArgs, version, EXIT_ERROR, EXIT_OK, type CliIO } from '../src/cli.js';
 import { DEMO_REPO, makeTempRepo, removeTempRepo } from './helpers.js';
 
 const temporary: string[] = [];
@@ -101,7 +101,7 @@ describe('when the invocation is wrong', () => {
     expect(await main(['--nonsense'], io)).toBe(EXIT_ERROR);
     // The blank line is what separates the complaint from the wall of help
     // text; without it the two run together and the reason is lost.
-    expect(err).toEqual(['Unknown option "--nonsense". Run spec-guard --help.', '', HELP]);
+    expect(err).toEqual(['spec-guard: Unknown option "--nonsense". Run spec-guard --help.']);
   });
 });
 

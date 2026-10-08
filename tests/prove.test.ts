@@ -938,10 +938,10 @@ describe('spec-guard prove', () => {
     for (const option of ['--engine', '--concurrency', '--max-snippets']) {
       const { code, err } = await run([option, '1']);
       expect(code).toBe(2);
-      expect(err[0]).toBe(`Option ${option} does not apply to spec-guard prove.`);
+      expect(err).toEqual([`spec-guard: Option ${option} does not apply to spec-guard prove.`]);
     }
     for (const option of ['--watch', '--fail-fast', '--print-baseline']) {
-      expect((await run([option])).err[0]).toBe(`Option ${option} does not apply to spec-guard prove.`);
+      expect((await run([option])).err).toEqual([`spec-guard: Option ${option} does not apply to spec-guard prove.`]);
     }
   });
 

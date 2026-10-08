@@ -1051,9 +1051,10 @@ async function run(argv: readonly string[], io: CliIO): Promise<number> {
   try {
     options = parseArgs(argv, io.cwd);
   } catch (error) {
-    io.stderr(error instanceof UsageError ? error.message : String(error));
-    io.stderr('');
-    io.stderr(HELP);
+    // The line alone, by name as every other refusal is. The whole help
+    // used to follow it, a hundred lines, and a log is read from its end:
+    // the reason was the one line nobody saw.
+    io.stderr(`spec-guard: ${error instanceof UsageError ? error.message : String(error)}`);
     return EXIT_ERROR;
   }
 

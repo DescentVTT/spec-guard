@@ -60,6 +60,10 @@ is deprecated before it goes, is spec-core's
 
 ### Fixed
 
+- A wrong command line is answered in one line, `spec-guard:` and what was
+  wrong, as every other refusal is. The whole help followed it, a hundred
+  lines, so the reason was the first line of a log that is read from its
+  end. Exit 2, as before; `spec-guard --help` prints the help.
 - A `package.json` or `.spec-guard.json` that is not JSON is refused in one
   line. The parser quotes a short file whole, line breaks and all, so a file
   of three lines made a refusal of three; each run of line breaks and spaces

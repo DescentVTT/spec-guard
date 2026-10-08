@@ -89,7 +89,7 @@ describe('an option that is set and names nothing', () => {
     const { io, out, err } = createIO();
 
     expect(await main(['docs/adr/0001-passing.md', '--strict=false'], io)).toBe(EXIT_ERROR);
-    expect(err).toEqual([`Option --strict takes no value, got "false". ${NO_VALUE}`, '', HELP]);
+    expect(err).toEqual([`spec-guard: Option --strict takes no value, got "false". ${NO_VALUE}`]);
     expect(out).toEqual([]);
   });
 

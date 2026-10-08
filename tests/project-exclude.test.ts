@@ -13,7 +13,7 @@
 
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
-import { EXIT_ERROR, EXIT_OK, HELP, main, type CliIO } from '../src/cli.js';
+import { EXIT_ERROR, EXIT_OK, main, type CliIO } from '../src/cli.js';
 import { resetRipgrepProbe } from '../src/engine.js';
 import { formatQuery, queryRules } from '../src/query.js';
 import { resolveDirective, runSpecGuard } from '../src/runner.js';
@@ -382,7 +382,7 @@ describe('.spec-guard.json, from the command line', () => {
 
     expect(await main(['--spec', 'rules/*.md', '--exclude', 'target, !target/keep.rs'], cli)).toBe(EXIT_ERROR);
     expect(out).toEqual([]);
-    expect(err).toEqual(['Option --exclude has an invalid exclude pattern "!target/keep.rs": negation patterns are not supported in exclude.', '', HELP]);
+    expect(err).toEqual(['spec-guard: Option --exclude has an invalid exclude pattern "!target/keep.rs": negation patterns are not supported in exclude.']);
 
     const configured = await repo({ ...PROJECT, '.spec-guard.json': JSON.stringify({ specs: ['rules/*.md'], exclude: ['../target'] }) });
     const fromFile = io(configured);

@@ -1028,7 +1028,7 @@ describe('the command line', () => {
   it('exits 2 for an exclusion it cannot read, given as an option or in the configuration', async () => {
     const option = await run(PROJECT, ['--exclude', 'src/[gen', '--engine', 'js']);
     expect(option.code).toBe(EXIT_ERROR);
-    expect(option.err[0]).toBe('Option --exclude has an invalid exclude pattern "src/[gen": a "[" is never closed.');
+    expect(option.err[0]).toBe('spec-guard: Option --exclude has an invalid exclude pattern "src/[gen": a "[" is never closed.');
 
     const configured = await run({ ...PROJECT, '.spec-guard.json': JSON.stringify({ exclude: ['+(gen|out)'] }) }, ['--engine', 'js']);
     expect(configured.code).toBe(EXIT_ERROR);
@@ -1119,7 +1119,7 @@ describe('** inside a name, wherever a pattern is given', () => {
   it('is refused in the configuration\'s exclude and in --exclude', async () => {
     const option = await run(TREE, ['docs/**/*.md', '--exclude', 'src/**.ts', '--engine', 'js']);
     expect(option.code).toBe(EXIT_ERROR);
-    expect(option.err[0]).toBe(`Option --exclude has an invalid exclude pattern "src/**.ts": ${SRC}.`);
+    expect(option.err[0]).toBe(`spec-guard: Option --exclude has an invalid exclude pattern "src/**.ts": ${SRC}.`);
 
     const configured = await run({ ...TREE, '.spec-guard.json': JSON.stringify({ exclude: ['src/**.ts'] }) }, ['docs/**/*.md', '--engine', 'js']);
     expect(configured.code).toBe(EXIT_ERROR);
@@ -1276,7 +1276,7 @@ describe("a pattern past the automaton's state ceiling, wherever a pattern is gi
 
     const option = await run(TREE, ['--exclude', LONG]);
     expect([option.code, option.out]).toEqual([EXIT_ERROR, []]);
-    expect(option.err[0]).toBe(`Option --exclude has an invalid exclude pattern "${LONG}": ${TOO_LARGE}.`);
+    expect(option.err[0]).toBe(`spec-guard: Option --exclude has an invalid exclude pattern "${LONG}": ${TOO_LARGE}.`);
   });
 
   it.each([
@@ -1518,7 +1518,7 @@ describe('a brace alternative that names no path, wherever a pattern is given', 
     // brace that never closes, before and after.
     const option = await run(TREE, ['--exclude', '{./}', '--engine', 'js']);
     expect([option.code, option.out]).toEqual([EXIT_ERROR, []]);
-    expect(option.err[0]).toBe(`Option --exclude has an invalid exclude pattern "{./}": ${NO_PATH}.`);
+    expect(option.err[0]).toBe(`spec-guard: Option --exclude has an invalid exclude pattern "{./}": ${NO_PATH}.`);
 
     const configured = await run({ ...TREE, '.spec-guard.json': JSON.stringify({ exclude: ['{./,a}'] }) }, ['--engine', 'js']);
     expect([configured.code, configured.out]).toEqual([EXIT_ERROR, []]);
