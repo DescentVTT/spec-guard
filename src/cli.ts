@@ -207,7 +207,7 @@ Options
       --concurrency <n>   Assertions executed in parallel, 1 or more (default: ${DEFAULT_CONCURRENCY})
       --depth <n>         impact: follow dependents at most n imports away (default: all)
       --allow-empty       Exit 0 when no spec files matched (a run, prove or impact; not an assertion)
-      --color/--no-color  Force colour on or off (NO_COLOR is honoured, and FORCE_COLOR: 0 is off)
+      --color/--no-color  Force colour on or off (NO_COLOR, FORCE_COLOR and TERM=dumb are honoured)
   -h, --help              Show this help
       --version           Print the version
 

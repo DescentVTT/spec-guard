@@ -50,9 +50,13 @@ is deprecated before it goes, is spec-core's
   Upgrading: set the variable to the path of an `rg` that runs, unset it to
   use the one on `PATH`, or leave `--engine rg` out: `auto` still leaves a
   binary it cannot use to the scanner.
-- **`FORCE_COLOR=0` turns colour off on a terminal**, as it does in
-  spec-brief and spec-graph; it only declined to force colour. Upgrading:
-  unset it, or pass `--color`.
+- **`FORCE_COLOR=0` and `TERM=dumb` turn colour off on a terminal**, as the
+  family reads them (spec-core's
+  [ADR-0005](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0005-the-family-contract.md)).
+  `FORCE_COLOR=0` only declined to force colour, and `TERM` was not read for
+  colour, so a terminal that says it draws none was written escapes. Any
+  other `FORCE_COLOR` and `--color` still force it, over `TERM=dumb` too.
+  Upgrading: unset the variable, or pass `--color`.
 
 ### Fixed
 
@@ -64,8 +68,9 @@ is deprecated before it goes, is spec-core's
 ### Documentation
 
 - `--help` and the README's options table name `SPEC_GUARD_RG` beside
-  `--engine` and `FORCE_COLOR` beside `--color`, and say that either colour
-  variable, or `SPEC_GUARD_RG`, set to nothing is as unset.
+  `--engine`, and `FORCE_COLOR` and `TERM=dumb` beside `--color`, and say
+  that `NO_COLOR`, `FORCE_COLOR` or `SPEC_GUARD_RG` set to nothing is as
+  unset.
 
 ## 0.20.1
 

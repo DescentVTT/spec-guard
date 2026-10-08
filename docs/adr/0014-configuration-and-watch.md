@@ -958,11 +958,17 @@ into 1.
   written yet, which wants a decision of its own and a way to say a pattern
   may be empty.
 
-**Colour.** `FORCE_COLOR=0` turns colour off on a terminal. It only declined
-to force colour, so a terminal kept it, where spec-brief and spec-graph turn
-it off: the one value the three read differently, measured on the released
-tools. Either variable set to nothing is as unset, in all three, and
-`--color` and `--no-color` win over both.
+**Colour.** The family reads the conventions one way (spec-core's ADR-0005),
+and spec-guard is brought to it in two places. `FORCE_COLOR=0` turns colour
+off on a terminal: it only declined to force colour, so a terminal kept it.
+`TERM=dumb` turns colour off unless something forces it: it was not read for
+colour, so a terminal that says it draws none was written escapes, as
+measured on 0.20.1 through `main()` with a stream that says it is a terminal.
+As before, `NO_COLOR` set to anything turns colour off and wins over
+`FORCE_COLOR`, any other `FORCE_COLOR` forces it, either of the two set to
+nothing is as unset, `CI` is not read, and `--color` and `--no-color` win
+over all of them. Whether to draw glyphs on Windows is another question,
+read from `WT_SESSION`, `TERM` and `TERM_PROGRAM`, and is as it was.
 
 <!-- @assert-absence target="src/cli.ts" symbol="Math.max(1, positiveInteger" reason="a concurrency of 0 is refused, as the configuration's key refuses it, and never made 1" -->
 <!-- @assert-present file="tests/refused-inputs.test.ts" reason="each refusal is held beside the input that must still be read" -->

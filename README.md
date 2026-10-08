@@ -1290,7 +1290,7 @@ spec-guard impact <paths...>           # the files that depend on each path, and
 | `--concurrency <n>` | Search passes in flight at once, 1 or more (default 8) |
 | `--depth <n>` | `impact` only: follow dependents at most `n` imports away (default: all) |
 | `--allow-empty` | Exit 0 when no spec file matched the patterns, for a run, `prove` or `impact` (about the run, not an assertion) |
-| `--color` / `--no-color` | Force colour on or off. Without either flag, `NO_COLOR` set to anything turns it off; otherwise `FORCE_COLOR` turns it on, and `FORCE_COLOR=0` off; otherwise a terminal has colour. Either variable set to nothing is as unset |
+| `--color` / `--no-color` | Force colour on or off. Without either flag, `NO_COLOR` set to anything turns it off; otherwise `FORCE_COLOR` turns it on, and `FORCE_COLOR=0` off; otherwise `TERM=dumb` turns it off; otherwise a terminal has colour. `NO_COLOR` or `FORCE_COLOR` set to nothing is as unset |
 
 Patterns are expanded by spec-guard itself, so quoted globs behave identically
 on Windows, macOS and Linux. A directory expands to the Markdown files in it.

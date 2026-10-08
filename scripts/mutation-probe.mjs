@@ -600,7 +600,8 @@ async function main() {
   everyFormat('report', 'demo', demoRun);
   for (const [stream, flag, env] of [[{}, undefined, {}], [{ isTTY: true }, undefined, {}], [{}, true, {}], [{}, false, {}],
     [{ isTTY: true }, undefined, { NO_COLOR: '1' }], [{}, undefined, { FORCE_COLOR: '1' }], [{}, undefined, { FORCE_COLOR: '0' }],
-    [{ isTTY: true }, undefined, { FORCE_COLOR: '0' }], [{ isTTY: true }, undefined, { FORCE_COLOR: '' }], [{}, undefined, { FORCE_COLOR: 'false' }]]) {
+    [{ isTTY: true }, undefined, { FORCE_COLOR: '0' }], [{ isTTY: true }, undefined, { FORCE_COLOR: '' }], [{}, undefined, { FORCE_COLOR: 'false' }],
+    [{ isTTY: true }, undefined, { TERM: 'dumb' }], [{ isTTY: true }, undefined, { TERM: 'dumb', FORCE_COLOR: '1' }], [{ isTTY: true }, true, { TERM: 'dumb' }]]) {
     say('shouldUseColor', JSON.stringify([stream, flag, env]), reporter.shouldUseColor(stream, flag, env));
   }
   for (const [env, platform] of [[{}, 'win32'], [{}, 'linux'], [{ WT_SESSION: '1' }, 'win32'], [{ TERM: 'x' }, 'win32'], [{ TERM_PROGRAM: 'x' }, 'win32']]) {
