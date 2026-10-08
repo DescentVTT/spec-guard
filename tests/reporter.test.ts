@@ -44,6 +44,18 @@ describe('shouldUseColor', () => {
     // NO_COLOR wins over FORCE_COLOR whatever it holds, 0 included.
     expect(shouldUseColor({ isTTY: true }, undefined, { FORCE_COLOR: '1', NO_COLOR: '0' })).toBe(false);
   });
+
+  it('turns colour off for TERM=dumb, a terminal saying it draws none, unless something forces it', () => {
+    // It was not read for colour, so such a terminal was written escapes.
+    expect(shouldUseColor({ isTTY: true }, undefined, { TERM: 'dumb' })).toBe(false);
+    expect(shouldUseColor({ isTTY: true }, undefined, { TERM: 'dumb', FORCE_COLOR: '1' })).toBe(true);
+    expect(shouldUseColor({ isTTY: true }, true, { TERM: 'dumb' })).toBe(true);
+    // Any other terminal, and one that names none, is as before.
+    expect(shouldUseColor({ isTTY: true }, undefined, { TERM: 'xterm-256color' })).toBe(true);
+    expect(shouldUseColor({ isTTY: true }, undefined, { TERM: '' })).toBe(true);
+    // NO_COLOR and FORCE_COLOR=0 are off with it as without it.
+    expect(shouldUseColor({ isTTY: true }, undefined, { TERM: 'dumb', FORCE_COLOR: '0' })).toBe(false);
+  });
 });
 
 describe('shouldUseAscii', () => {

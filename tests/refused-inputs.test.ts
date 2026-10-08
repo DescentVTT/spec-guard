@@ -123,7 +123,7 @@ describe('an option that is set and names nothing', () => {
         '                          is no ripgrep that runs, rg is exit 2 and auto leaves it to the scanner',
       ].join('\n'),
     );
-    expect(HELP).toContain('      --color/--no-color  Force colour on or off (NO_COLOR is honoured, and FORCE_COLOR: 0 is off)');
+    expect(HELP).toContain('      --color/--no-color  Force colour on or off (NO_COLOR, FORCE_COLOR and TERM=dumb are honoured)');
     expect(HELP).toContain(
       [
         '  An option that is set and names nothing is refused, exit 2, never read as if',
@@ -292,5 +292,13 @@ describe('colour, as the family reads the conventions', () => {
     expect(await coloured({}, true)).toBe(true);
     // The flag still wins over the variable.
     expect(await coloured({ FORCE_COLOR: '0' }, false, '--color')).toBe(true);
+  });
+
+  it('is off for TERM=dumb on a terminal, which was written escapes it had said it does not draw', async () => {
+    expect(await coloured({ TERM: 'dumb' }, true)).toBe(false);
+    // Unless colour is forced, by the variable or by the flag.
+    expect(await coloured({ TERM: 'dumb', FORCE_COLOR: '1' }, true)).toBe(true);
+    expect(await coloured({ TERM: 'dumb' }, true, '--color')).toBe(true);
+    expect(await coloured({ TERM: 'xterm' }, true)).toBe(true);
   });
 });

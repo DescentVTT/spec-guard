@@ -59,9 +59,11 @@ export function createPainter(color: boolean): (text: string, ...styles: Style[]
 
 /**
  * Colour is on only when the stream is a TTY and nobody asked otherwise.
- * Honours the NO_COLOR and FORCE_COLOR conventions, as spec-brief and
- * spec-graph read them: either set to nothing is as unset, and `FORCE_COLOR=0`
- * turns colour off, on a terminal too, where it used to decide nothing.
+ * Honours the NO_COLOR, FORCE_COLOR and TERM conventions as the family reads
+ * them (spec-core's ADR-0005): either of the first two set to nothing is as
+ * unset, and `FORCE_COLOR=0` turns colour off, on a terminal too, where it
+ * used to decide nothing. `TERM=dumb` is a terminal saying it draws none, and
+ * was not read: it turns colour off unless something forces it.
  */
 export function shouldUseColor(
   stream: { isTTY?: boolean },
@@ -71,6 +73,7 @@ export function shouldUseColor(
   if (flag !== undefined) return flag;
   if (env['NO_COLOR']) return false;
   if (env['FORCE_COLOR']) return env['FORCE_COLOR'] !== '0';
+  if (env['TERM'] === 'dumb') return false;
   return Boolean(stream.isTTY);
 }
 
