@@ -247,13 +247,21 @@ export async function loadConfig(root: string, read: (file: string) => Promise<s
   return (await findConfig(root, read)).config;
 }
 
+/**
+ * What the JSON parser said, on one line. It quotes a short text whole, line
+ * breaks and all, and a file of three lines made a refusal of three.
+ */
+function parserSaid(error: unknown): string {
+  return (error as Error).message.replace(/\s+/g, ' ');
+}
+
 /** The `"specGuard"` value of a `package.json`'s text, unchecked, or undefined when there is none. */
 function manifestOptions(text: string, file: string): unknown {
   let manifest: unknown;
   try {
     manifest = JSON.parse(text);
   } catch (error) {
-    throw new ConfigError(`${file} is not valid JSON (${(error as Error).message}), so its "${CONFIG_KEY}" options cannot be read.`);
+    throw new ConfigError(`${file} is not valid JSON (${parserSaid(error)}), so its "${CONFIG_KEY}" options cannot be read.`);
   }
   return isObject(manifest) ? manifest[CONFIG_KEY] : undefined;
 }
@@ -308,7 +316,7 @@ export function parseStandaloneConfig(text: string, file = CONFIG_FILE): Project
   try {
     options = JSON.parse(text);
   } catch (error) {
-    throw new ConfigError(`${file} is not valid JSON (${(error as Error).message}), so its options cannot be read.`);
+    throw new ConfigError(`${file} is not valid JSON (${parserSaid(error)}), so its options cannot be read.`);
   }
   return checkOptions(options, file, false);
 }
