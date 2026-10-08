@@ -1270,27 +1270,27 @@ spec-guard impact <paths...>           # the files that depend on each path, and
 
 | Option | Description |
 | --- | --- |
-| `-r, --root <path>` | Codebase root that assertions resolve against (default: cwd) |
-| `--spec <pattern>` | A spec glob or path, repeatable. `query` and `mcp` take their specs only from here |
+| `-r, --root <path>` | Codebase root that assertions resolve against, a directory (default: cwd). One that is not there, or is a file, is exit 2 from every command |
+| `--spec <pattern>` | A spec glob or path, repeatable. `query` and `mcp` take their specs only from here. An empty one is refused: `.` is every Markdown file under the root |
 | `-v, --verbose` | Print passing assertions too |
 | `--watch` | Report, then report again as the tree changes, until Ctrl+C |
 | `--fail-fast` | Stop at the first failing assertion |
 | `--json` | Machine-readable report on stdout (same as `--format json`), versioned by `formatVersion` |
 | `--format <human\|json\|sarif\|github\|gitlab>` | Output format. `sarif` uploads to GitHub code scanning, `github` annotates a pull request from the job's log, `gitlab` is a GitLab Code Quality report |
-| `--engine <auto\|rg\|js>` | Search engine (default `auto`: scanner for small trees, ripgrep for big ones) |
+| `--engine <auto\|rg\|js>` | Search engine (default `auto`: scanner for small trees, ripgrep for big ones). ripgrep is `rg` on `PATH`, or the program `SPEC_GUARD_RG` names; `rg` with no ripgrep that runs is exit 2 ([below](#ci-integration)) |
 | `--strict` / `--no-strict` | Treat analysis that could not be completed as a failure, and a run that executed no assertion: its specs matched and state no rule in force |
 | `--allow-missing-targets` / `--no-allow-missing-targets` | Warn instead of failing when a `target` path does not exist |
 | `--allow-empty-scope` / `--no-allow-empty-scope` | Warn instead of failing when an assertion inspects no files |
 | `--print-baseline` | Print the `baseline="..."` that would exempt today's violations, and exit |
 | `--no-default-skips` / `--default-skips` | Search `.git`, `.hg`, `.svn` and `node_modules` too |
-| `--exclude <globs>` | Paths no assertion looks at, beside each directive's own `exclude`. Repeatable; replaces the configuration's list, and `--exclude=` clears it |
+| `--exclude <globs>` | Paths no assertion looks at, beside each directive's own `exclude`. Repeatable; replaces the configuration's list, and `--exclude=` clears it. Separators with nothing between them, `","`, are refused |
 | `--ignore-status` / `--no-ignore-status` | Execute directives in documents not in force too: draft, proposed, rejected, deprecated, superseded or archived |
 | `--include-specs` / `--no-include-specs` | Also count matches inside the spec files themselves |
 | `--max-snippets <n>` | Failure snippets per assertion (default 5) |
-| `--concurrency <n>` | Search passes in flight at once (default 8) |
+| `--concurrency <n>` | Search passes in flight at once, 1 or more (default 8) |
 | `--depth <n>` | `impact` only: follow dependents at most `n` imports away (default: all) |
 | `--allow-empty` | Exit 0 when no spec file matched the patterns, for a run, `prove` or `impact` (about the run, not an assertion) |
-| `--color` / `--no-color` | Force colour on or off (`NO_COLOR` honoured) |
+| `--color` / `--no-color` | Force colour on or off. Without either flag, `NO_COLOR` set to anything turns it off; otherwise `FORCE_COLOR` turns it on, and `FORCE_COLOR=0` off; otherwise a terminal has colour. Either variable set to nothing is as unset |
 
 Patterns are expanded by spec-guard itself, so quoted globs behave identically
 on Windows, macOS and Linux. A directory expands to the Markdown files in it.
@@ -1300,6 +1300,14 @@ An option that means nothing to a command is refused rather than ignored, so
 `spec-guard query --strict` does not look like a strict query. `query` does take
 `--no-color`: its output never has colour, and scripts pass the flag to every
 command they run.
+
+So is an option that is set and names nothing, which is exit 2 and a line
+that names it, never a run as if it had not been given. `--root "$DIR"` and
+`--spec "$DOCS"` with the variable unset were the working directory and every
+Markdown file under the root; `--concurrency 0` was 1; and an option that is
+on when it is given was on whatever followed its `=`, so `--strict=false` was
+strict and `--allow-empty=false` let an empty run through. Each has an
+opposite to turn it off, `--no-strict`, or is left out.
 
 ### Configuration
 
@@ -1431,7 +1439,7 @@ should be able to tell them apart, so they are 1 and 2:
 | `1` | An assertion failed, or a directive was malformed; under `--strict`, the specs matched state no rule in force, so no assertion was executed |
 | `1`, `prove` | A rule survived, or under `--strict` none was proved |
 | `1`, `cites` | A comment cites a document that does not exist, or under `--strict` a citation is stale, a file was read in part, or no source file was read |
-| `2` | spec-guard could not run, or its answer did not arrive: bad usage, a malformed configuration, no spec files matched, `--engine rg` with no ripgrep, a watch that could not start, a `cites` family whose files match no document, a stdout its reader closed before all of the output was written, as a pipeline into `head` does, said in one line on stderr, or an error spec-guard did not expect, reported on stderr as `spec-guard: unexpected error:` with its stack |
+| `2` | spec-guard could not run, or its answer did not arrive: bad usage, an option set to something that names nothing, a root that is not a directory, a malformed configuration, no spec files matched, `--engine rg` with no ripgrep, a watch that could not start, a `cites` family whose files match no document, a stdout its reader closed before all of the output was written, as a pipeline into `head` does, said in one line on stderr, or an error spec-guard did not expect, reported on stderr as `spec-guard: unexpected error:` with its stack |
 | `130` | A `--watch` session was stopped |
 
 ## CI integration
@@ -1491,10 +1499,22 @@ runs:
 | Windows | `winget install BurntSushi.ripgrep.MSVC` |
 
 spec-guard looks for `rg` on `PATH`. `SPEC_GUARD_RG=/path/to/rg` names the
-binary instead, for one that is not on `PATH` or not called `rg`. Under the
-default `--engine auto`, a binary that cannot be run leaves the built-in
-scanner to do the work, and the report's engine says `javascript`; under
-`--engine rg` it is exit 2.
+binary instead, for one that is not on `PATH` or not called `rg`; set to
+nothing, it is as unset. Under the default `--engine auto`, a binary that
+cannot be run leaves the built-in scanner to do the work, and the report's
+engine says `javascript`. `--engine rg`, or `"engine": "rg"` in the
+configuration, is ripgrep asked for, and a run that cannot have it is exit 2
+before anything is searched, never a run on the scanner: where the variable
+names a path that is not there, a file that is no program, or a program that
+does not answer `--version` as ripgrep does, the line names the variable and
+what it holds:
+
+```text
+spec-guard: SPEC_GUARD_RG is "/opt/tools/rg", which did not answer --version as ripgrep does, and the rg engine was asked for. Set it to the path of an rg that runs, or unset it to use the rg on PATH.
+```
+
+A program that runs and is not ripgrep fails each search `auto` hands it; the
+scanner answers that search, and the report carries a warning for it.
 
 As a pre-commit hook, in a project that installed it:
 

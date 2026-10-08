@@ -112,6 +112,27 @@ describe('an option that is set and names nothing', () => {
       expect(options.fromCommandLine.has('exclude')).toBe(true);
     }
   });
+
+  it('says so in the help, where each option is', () => {
+    expect(HELP).toContain('  -r, --root <path>       Codebase root that assertions are resolved against, a directory (default: cwd)');
+    expect(HELP).toContain('      --concurrency <n>   Assertions executed in parallel, 1 or more (default: 8)');
+    expect(HELP).toContain(
+      [
+        '      --engine <name>     auto | rg | js  (default: auto - scanner for small trees, ripgrep for big ones)',
+        '                          ripgrep is rg on PATH, or the program SPEC_GUARD_RG names; where that',
+        '                          is no ripgrep that runs, rg is exit 2 and auto leaves it to the scanner',
+      ].join('\n'),
+    );
+    expect(HELP).toContain('      --color/--no-color  Force colour on or off (NO_COLOR is honoured, and FORCE_COLOR: 0 is off)');
+    expect(HELP).toContain(
+      [
+        '  An option that is set and names nothing is refused, exit 2, never read as if',
+        '  it were not there: an empty --root or spec pattern, --exclude "," (--exclude=',
+        '  with nothing clears the list), --concurrency 0, a root that is no directory,',
+        '  and a value given to an option that takes none, as in --strict=false.',
+      ].join('\n'),
+    );
+  });
 });
 
 describe('a spec pattern that is empty', () => {

@@ -10,6 +10,63 @@ what to do when upgrading; the family's policy, including how a flag or field
 is deprecated before it goes, is spec-core's
 [ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
+## Unreleased
+
+### Changed
+
+- **An empty spec pattern is refused, where it was every spec under the
+  root.** `--spec ""`, or `""` for a pattern, was read as the root and ran
+  every Markdown file under it, for a run, `query`, `prove`, `cites`,
+  `impact` and the server; it is exit 2 and `invalid spec pattern "": it is
+  empty`, and `runSpecGuard` and the rest of the package throw the same
+  ([ADR-0014](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0014-configuration-and-watch.md)).
+  Upgrading: write `.` where every Markdown file under the root is meant, and
+  have the shell refuse a variable that is not set, as `"${DOCS:?}"` does.
+- **An empty `--root`, and a root that is not a directory, are refused by
+  every command.** `--root ""` ran in the working directory. A root that was
+  a file or was not there was "no spec files matched", which `--allow-empty`
+  made exit 0, `cites` exited 0 with nothing to look for, and the server
+  started; each is exit 2 and a line that names the root. Upgrading: name a
+  directory that exists, or leave the option out.
+- **`--concurrency 0` is refused**, as `"concurrency": 0` in a configuration
+  always was; it ran as 1. Upgrading: write 1 or more, or leave it out for 8.
+- **`--exclude` given separators and nothing else, as in `","`, is
+  refused**, where it cleared the configuration's list. Upgrading: `--exclude=`
+  with nothing still clears it.
+- **An option that takes no value is refused with one.** What followed the
+  `=` was never read, so `--strict=false` was strict, `--default-skips=false`
+  kept the default skips, `--allow-empty=false` let an empty run through and
+  `--json=false` wrote JSON. Upgrading: give the option alone or leave it
+  out; `--no-strict`, `--no-default-skips` and the other opposites turn one
+  off.
+- **`--engine rg` is refused where `SPEC_GUARD_RG` names no ripgrep that
+  runs, in a line that names the variable.** A program that answers
+  `--version` and is not ripgrep was taken for one: every search failed, the
+  scanner answered, and the run exited 0 with a warning for each. A path that
+  was not there was blamed on `PATH`, and on Windows a file that is no
+  program ended the run with `spawn EFTYPE`. Each is exit 2 before anything
+  is searched, and `findRipgrep()` from the package answers `null` for each
+  ([ADR-0004](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0004-adaptive-engine.md)).
+  Upgrading: set the variable to the path of an `rg` that runs, unset it to
+  use the one on `PATH`, or leave `--engine rg` out: `auto` still leaves a
+  binary it cannot use to the scanner.
+- **`FORCE_COLOR=0` turns colour off on a terminal**, as it does in
+  spec-brief and spec-graph; it only declined to force colour. Upgrading:
+  unset it, or pass `--color`.
+
+### Fixed
+
+- A `package.json` or `.spec-guard.json` that is not JSON is refused in one
+  line. The parser quotes a short file whole, line breaks and all, so a file
+  of three lines made a refusal of three; each run of line breaks and spaces
+  in what it says is now one space. Exit 2, as before.
+
+### Documentation
+
+- `--help` and the README's options table name `SPEC_GUARD_RG` beside
+  `--engine` and `FORCE_COLOR` beside `--color`, and say that either colour
+  variable, or `SPEC_GUARD_RG`, set to nothing is as unset.
+
 ## 0.20.1
 
 A reader that closed the output, as `| head` does, was answered with

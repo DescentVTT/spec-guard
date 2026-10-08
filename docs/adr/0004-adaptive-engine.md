@@ -452,3 +452,64 @@ Every table here is the output of `scripts/bench-engines.mjs`: the default
 for one search, `--run 8x1,32x1` for runs of targets, `--lines 400` to
 `--lines 40000` for longer files, `--common` for a word every file holds, and
 `SPEC_GUARD_RG` for another ripgrep.
+
+
+
+
+## Amended 2026-10-09: ripgrep asked for and not there is a refusal that names what was set
+
+`--engine rg` probes before it searches (the amendment of 2026-09-30), and
+the probe asked one thing: did `--version` exit 0. Measured through the
+launcher on 0.20.1 (Windows 11, Node 24.18.1), over a target past the budget:
+
+| `SPEC_GUARD_RG` | `--engine rg` on 0.20.1 | Now |
+| --- | --- | --- |
+| a path that is not there, a directory, a space | exit 2, `ripgrep (rg) was requested with --engine rg but is not available on PATH.` | exit 2, a line that names the variable and what it holds |
+| a file that is no program | exit 2, `spec-guard: spawn EFTYPE` | the same line |
+| `node`, which answers `--version` | exit 0: every search failed, the scanner answered, and the report said `"engine": "javascript"` with a warning for each search | the same line, exit 2 |
+| ripgrep | ripgrep | ripgrep |
+| not set, or set to nothing, with no `rg` on `PATH` | exit 2, the line about `PATH` | the same |
+
+```text
+spec-guard: SPEC_GUARD_RG is "/opt/tools/rg", which did not answer --version as ripgrep does, and the rg engine was asked for. Set it to the path of an rg that runs, or unset it to use the rg on PATH.
+```
+
+Asked for and not delivered is a refusal, as the family contract has it
+(spec-core's
+[ADR-0005](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0005-the-family-contract.md)):
+a run that asked for ripgrep and was answered by the scanner reported clean
+on an engine nobody chose. The answer is the same either way (ADR-0007), and
+that is not the point; a pipeline that pins the engine to time it, or to
+keep a large tree inside a job's limit, was told nothing.
+
+- **The probe reads what the program says.** Usable is `--version` answered
+  with `ripgrep` first, as in `ripgrep 15.0.0 (rev 3a612f88b8)`. The exit
+  code is no longer asked: any program that knows the flag exits 0. The
+  program is given no input, so one that reads its input is not waited for.
+- **What was set is what is named.** A variable that holds something is
+  named, with what it holds, written as it was: quoted as JSON, every
+  separator of a Windows path would be doubled. Set to nothing, the variable
+  is as unset, which is what `SPEC_GUARD_RG: ${{ vars.RG }}` leaves where the
+  variable is not defined, and the line is the one about `PATH`.
+- **A program that cannot be started is one answer.** Node reports a path
+  that is not there as an event, and throws from `spawn` for errors it does
+  not expect at run time: `EFTYPE` on Windows for a file that is no program,
+  as measured above. The probe had no catch for the throw, on the reasoning
+  that only an invalid argument could cause one, so it ended the run with
+  the error's own two words.
+- **`auto` is as it was.** It does not probe, and a binary that cannot be
+  started leaves each search to the scanner, with the engine in the report
+  and nothing more, as the README documents. Saying so on stderr was
+  considered and left: `auto` learns it only when a target passes the
+  budget, so the same mistyped variable would be told of in a large tree and
+  not in a small one, and the engine has no way to stderr, only to the
+  report's warnings, which a script reads.
+- **One search that ripgrep refuses is still answered by the scanner.** A
+  pattern with a look-ahead ends ripgrep with exit 2 and `regex parse
+  error`, under `--engine rg` as under `auto`; the scanner answers that
+  search and the report carries the warning and names `javascript`. That is
+  a pattern ripgrep cannot read, not a ripgrep that is not there, and
+  refusing it would leave `--engine rg` unable to run a rule the scanner
+  reads.
+
+<!-- @assert-count target="src/engine.ts" symbol="startsWith('ripgrep')" expected="1" reason="the probe takes a program for ripgrep by what it says of itself, not by an exit code any program gives" -->

@@ -906,3 +906,63 @@ What the profile shows next is another cost, and it is left as it is: a batch
 of events asks every fact the session holds whether an event names a
 directory above it, 235 ms a batch over the 45,404 facts held here. It grows
 with the facts, not with their square.
+
+
+
+
+## Amended 2026-10-09: an option that is set and names nothing is refused
+
+The family contract has a tool never fall back to defaults and report clean
+(spec-core's
+[ADR-0005](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0005-the-family-contract.md)).
+The command line did, for an option given a value that names nothing: it read
+the option as left out, or as its opposite. Measured through the launcher on
+0.20.1 (Windows 11, Node 24.18.1), in a tree of three specs, one of them
+failing:
+
+| Given | 0.20.1 | Now |
+| --- | --- | --- |
+| `--spec ""`, or `""` for a pattern, alone or beside a pattern, to any command | the root, so every Markdown file under it: three specs ran where one was named, exit 1, and `mcp` served them all | exit 2, `invalid spec pattern "": it is empty; write a file, a directory or a glob, or "." for every Markdown file under the root` |
+| `--spec " "` beside a pattern that matched | dropped, exit 0 | the same refusal |
+| `--root ""`, `--root=` | the working directory | exit 2, `Option --root expects a directory, got "". Name one, or leave the option out to run in the working directory.` |
+| `--root` a file, or a path that is not there | "no spec files matched": exit 2, and exit 0 under `--allow-empty`; `cites` exit 0, nothing to look for; `mcp` started and served | exit 2, `the root <path> is not a directory. Give --root one that exists, or leave it out to run in the working directory.` |
+| `--concurrency 0` | ran as 1 | exit 2, `Option --concurrency expects 1 or more: a concurrency of 0 would run no search.` |
+| `--exclude ","` | cleared the configuration's list, as `--exclude=` does | exit 2, `Option --exclude names no path in ",". Give it paths or globs, or --exclude= with nothing to clear the list.` |
+| `--strict=false`, `--default-skips=false`, `--allow-empty=false`, `--json=false`, `--color=never` | each on, what followed the `=` never read: strict, the default skips kept, an empty run let through, JSON written, colour | exit 2, `Option --strict takes no value, got "false". Give it alone or leave it out; an on/off option has an opposite that turns it off, as --no-strict is to --strict.` |
+
+`--root "$DIR"` and `--spec "$DOCS"` with the variable unset are how the first
+rows are reached, and each answered a question nobody had put: a run in
+another tree, or over every document. The table under Decision has had
+`concurrency` as "an integer, 1 or more" for the key while the flag made 0
+into 1.
+
+- **Where each is refused.** What the parser can tell is a wrong invocation,
+  answered as every one is: the line, a blank line, the help. An empty
+  pattern is refused by `specPatternError`, which the command line asks
+  before any command starts and the configuration asks of `specs`, in one
+  line; `expandSpecPatterns` throws it, so `runSpecGuard`, `queryRules` and
+  the rest of the package refuse it as well. The root is looked at once,
+  after `--help` and `--version`, which answer wherever they are run, and
+  before the configuration is read from it.
+- **What nothing still means.** `--exclude=` clears the configuration's list,
+  as this record has had it since 0.10.0, and whitespace alone is nothing.
+  Separators with nothing between them are a list built from values that
+  were not there, and that is what is refused.
+- **A root is the command line's to refuse.** `runSpecGuard({ root })` from
+  the package still reports no spec for a root that is not there, as it did:
+  its caller chose the root, and reads the report.
+- **Left as it is: a pattern that matches nothing beside one that matches.**
+  `spec-guard "docs/**/*.md" README.md` in a tree with no `README.md` runs
+  the specs under `docs` and says nothing of the other, on 0.20.1 and now.
+  Refusing it would turn red every project that lists a place it has not
+  written yet, which wants a decision of its own and a way to say a pattern
+  may be empty.
+
+**Colour.** `FORCE_COLOR=0` turns colour off on a terminal. It only declined
+to force colour, so a terminal kept it, where spec-brief and spec-graph turn
+it off: the one value the three read differently, measured on the released
+tools. Either variable set to nothing is as unset, in all three, and
+`--color` and `--no-color` win over both.
+
+<!-- @assert-absence target="src/cli.ts" symbol="Math.max(1, positiveInteger" reason="a concurrency of 0 is refused, as the configuration's key refuses it, and never made 1" -->
+<!-- @assert-present file="tests/refused-inputs.test.ts" reason="each refusal is held beside the input that must still be read" -->
