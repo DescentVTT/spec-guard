@@ -104,3 +104,36 @@ its message and exit 2. A watch session that meets one in a later run prints
 it and keeps watching, and ends with 2 only when it cannot start or its
 watcher fails (ADR-0014). The server answers a request that fails with an
 error for that request and serves the next (ADR-0012).
+
+## Amended 2026-10-08: a reader that closed the output is answered in a line
+
+The amendment above made a pipe its reader closed one more error nothing
+expected. Measured on 0.20.0 through the launcher (Windows 11, Node 24.18.1):
+`spec-guard impact src --json | head -c 10` in this repository, an answer of
+79 KB, printed `spec-guard: unexpected error: Error: EPIPE: broken pipe,
+write` and eight lines of stack, exit 2; so did `spec-guard --help` into a
+reader that had already left. A reader that stops reading is an everyday
+thing, and a stack sends a person looking for a defect that is not there.
+
+It is now one line on stderr and no stack,
+`spec-guard: stdout was closed before all of the output was written`, in the
+words every tool of the family uses (spec-core's ADR-0005). The exit stays 2:
+the answer did not arrive, and what a script was handed of a document is not
+the document.
+
+Every way it arrived was the stream's `error` event, which nothing awaits:
+from `--version`, `--help`, a run, `query`, `prove`, `cites` and `impact`,
+from a watch session at its first report or a later one, and from the server
+at the first answer it could not write. The process's own stdout never threw
+it where `main()` awaits. So the launcher answers it, and `main()` answers in
+the same words where a write does throw it, as a caller's own stream may. It
+is told from every other error by its code, `EPIPE`: stdout and stderr are the
+only pipes spec-guard writes to, ripgrep being given no input. When stderr is
+the one that closed there is nowhere left to say anything: nothing is written,
+to stdout either, and the exit is 2. A write that fails for another reason, a
+full disk under `> report.json`, keeps `unexpected error:` and its stack.
+
+<!-- @assert-count target="bin/spec-guard.js" symbol="EPIPE" expected="1" reason="the launcher answers a closed stdout in a line, and the tests that run the launcher are skipped where nothing is built" -->
+
+An output smaller than the pipe is written whole before its reader leaves, and
+that run ends as it would have: `spec-guard --help | head -c 10` exits 0.
