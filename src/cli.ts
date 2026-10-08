@@ -182,7 +182,7 @@ Patterns
   mcp, cites and impact take theirs from --spec.
 
 Options
-  -r, --root <path>       Codebase root that assertions are resolved against (default: cwd)
+  -r, --root <path>       Codebase root that assertions are resolved against, a directory (default: cwd)
       --spec <pattern>    A spec glob or path; repeatable (default: "docs/**/*.md")
   -v, --verbose           Print passing assertions too
       --watch             Run again as the tree changes, until Ctrl+C (human output only)
@@ -191,6 +191,8 @@ Options
       --format <name>     human | json | sarif | github | gitlab  (sarif uploads to code scanning,
                           github annotates a pull request from the log, gitlab is Code Quality)
       --engine <name>     auto | rg | js  (default: auto - scanner for small trees, ripgrep for big ones)
+                          ripgrep is rg on PATH, or the program SPEC_GUARD_RG names; where that
+                          is no ripgrep that runs, rg is exit 2 and auto leaves it to the scanner
       --strict            Treat analysis that could not be completed, and a run that
                           executed no assertion, as a failure
       --allow-missing-targets
@@ -202,12 +204,17 @@ Options
       --ignore-status     Execute directives in documents not in force too (see Directives)
       --include-specs     Also count matches inside the spec files themselves
       --max-snippets <n>  Failure snippets per assertion (default: ${DEFAULT_MAX_SNIPPETS})
-      --concurrency <n>   Assertions executed in parallel (default: ${DEFAULT_CONCURRENCY})
+      --concurrency <n>   Assertions executed in parallel, 1 or more (default: ${DEFAULT_CONCURRENCY})
       --depth <n>         impact: follow dependents at most n imports away (default: all)
       --allow-empty       Exit 0 when no spec files matched (a run, prove or impact; not an assertion)
-      --color/--no-color  Force colour on or off (NO_COLOR is honoured)
+      --color/--no-color  Force colour on or off (NO_COLOR is honoured, and FORCE_COLOR: 0 is off)
   -h, --help              Show this help
       --version           Print the version
+
+  An option that is set and names nothing is refused, exit 2, never read as if
+  it were not there: an empty --root or spec pattern, --exclude "," (--exclude=
+  with nothing clears the list), --concurrency 0, a root that is no directory,
+  and a value given to an option that takes none, as in --strict=false.
 
 Configuration
   package.json in the root can hold specs, exclude, engine, strict,
