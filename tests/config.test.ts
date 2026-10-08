@@ -52,6 +52,16 @@ function refusal(text: string): string {
   throw new Error('expected the configuration to be refused');
 }
 
+/** What this Node's JSON parser says of a text it cannot read. */
+function parserSays(text: string): string {
+  try {
+    JSON.parse(text);
+  } catch (error) {
+    return (error as Error).message;
+  }
+  throw new Error('expected the text not to be JSON');
+}
+
 /* ------------------------------------------------------------- parseConfig */
 
 describe('parseConfig', () => {
@@ -90,6 +100,16 @@ describe('parseConfig', () => {
 
   it('refuses text that is not JSON, and says the options could not be read', () => {
     expect(refusal('{"specGuard": {')).toMatch(/^package\.json is not valid JSON \(.+\), so its "specGuard" options cannot be read\.$/);
+  });
+
+  it('refuses it in one line, whatever the parser quotes of the file', () => {
+    // The parser quotes a short text whole. Three lines of file were three
+    // lines of refusal: each run of line breaks and spaces is one space.
+    const text = '[\r\n\r\n  }';
+    const parsers = parserSays(text);
+    expect(parsers).toContain(text);
+    expect(refusal(text)).toBe(`package.json is not valid JSON (${parsers.split(/\s+/).join(' ')}), so its "specGuard" options cannot be read.`);
+    expect(refusal(text)).toContain('"[ }"');
   });
 
   it('refuses a "specGuard" that is not an object, naming what it is', () => {
@@ -225,6 +245,9 @@ describe('parseStandaloneConfig', () => {
 
   it('names the file and the key, without the package.json nesting, in every refusal', () => {
     expect(standalone('{ "strict": ')).toMatch(/^\.spec-guard\.json is not valid JSON \(.+\), so its options cannot be read\.$/);
+    // In one line, as package.json's is: the parser quotes the file's line breaks.
+    expect(standalone('[\n\n}')).toBe(`.spec-guard.json is not valid JSON (${parserSays('[\n\n}').split(/\s+/).join(' ')}), so its options cannot be read.`);
+    expect(standalone('[\n\n}')).toContain('"[ }"');
     expect(standalone('[]')).toBe('.spec-guard.json must hold an object of options, got an array.');
     expect(standalone('null')).toBe('.spec-guard.json must hold an object of options, got null.');
     expect(standalone('{"stict": true}')).toBe(`.spec-guard.json: unknown option "stict". Options are ${CONFIG_KEYS.join(', ')}.`);
