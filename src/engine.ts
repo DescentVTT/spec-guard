@@ -322,20 +322,32 @@ export function resetRipgrepProbe(): void {
   ripgrepProbe = undefined;
 }
 
-/** Locates a usable `rg` binary. `SPEC_GUARD_RG` overrides PATH lookup. */
+/**
+ * Locates a usable `rg` binary. `SPEC_GUARD_RG` overrides PATH lookup, and set
+ * to nothing it is as unset.
+ *
+ * Usable is a program that says it is ripgrep: `--version` answered, with
+ * `ripgrep` first. An exit code of 0 alone took any program that knows the
+ * flag, `node` among them, and under `--engine rg` every search of the run
+ * then failed and was answered by the scanner, exit 0.
+ */
 export function findRipgrep(): Promise<string | null> {
-  ripgrepProbe ??= new Promise<string | null>((resolve) => {
+  ripgrepProbe ??= new Promise<string | null>((resolve, reject) => {
     const binary = process.env.SPEC_GUARD_RG || 'rg';
-    // No try/catch. `spawn` throws synchronously only for invalid arguments,
-    // and every argument here is a literal except the binary name, which comes
-    // from the environment and therefore cannot contain the NUL byte that is
-    // the only thing that would make a string argument invalid. The catch was
-    // unreachable, and an unreachable catch that resolves to "not installed"
-    // would have turned a real failure into a silent fallback if it ever ran.
-    const child = spawn(binary, ['--version'], { stdio: 'ignore', windowsHide: true });
-    child.once('error', () => resolve(null));
-    child.once('close', (code) => resolve(code === 0 ? binary : null));
-  });
+    // The program is given no input, so one that reads its input meets the
+    // end of it at once and is not waited for.
+    const child = spawn(binary, ['--version'], { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
+    const said: Buffer[] = [];
+    child.stdout.on('data', (chunk: Buffer) => said.push(chunk));
+    child.once('error', reject);
+    child.once('close', () => resolve(String(Buffer.concat(said)).startsWith('ripgrep') ? binary : null));
+  })
+    // One answer for a program that cannot be started, however Node reports
+    // it: as an event for a path that is not there, and by throwing from
+    // `spawn` for a file that is no program, EFTYPE on Windows. The throw had
+    // no catch, as one nothing could reach, and ended the run with
+    // `spawn EFTYPE` for a line.
+    .catch(() => null);
   return ripgrepProbe;
 }
 
@@ -1114,7 +1126,16 @@ export async function resolveEngine(preference: EnginePreference = 'auto'): Prom
   if (preference === 'auto') return new AdaptiveEngine();
   const binary = await findRipgrep();
   if (!binary) {
-    throw new Error('ripgrep (rg) was requested with --engine rg but is not available on PATH.');
+    // What was set is what is named. A variable that names no ripgrep was
+    // answered with a line about PATH, which nobody had got wrong. Its value
+    // is a path, shown as it was written: quoted as JSON, every separator of a
+    // Windows path would be doubled.
+    const named = process.env.SPEC_GUARD_RG;
+    throw new Error(
+      named
+        ? `SPEC_GUARD_RG is "${named}", which did not answer --version as ripgrep does, and the rg engine was asked for. Set it to the path of an rg that runs, or unset it to use the rg on PATH.`
+        : 'ripgrep (rg) was requested with --engine rg but is not available on PATH.',
+    );
   }
   return new RipgrepEngine(binary);
 }
