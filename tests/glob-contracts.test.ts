@@ -24,6 +24,7 @@ import {
   globToRegExp,
   normalizeExclude,
   normalizeGlob,
+  specPatternError,
   walkFiles,
 } from '../src/glob.js';
 import type { DirectoryReader } from '../src/io.js';
@@ -445,6 +446,23 @@ describe('expandSpecPatterns', () => {
     const found = await expandSpecPatterns(['docs'], root);
 
     expect(found.map((file) => path.basename(file))).toEqual(['a.md', 'b.markdown', 'c.mdx']);
+  });
+
+  it('refuses a pattern that is empty, which read as a path is the root and every spec under it', async () => {
+    // What `--spec "$DOCS"` is where the variable is not set. The root is
+    // asked for by its name, ".", and a pattern of spaces is no file's name.
+    const root = await repo({ 'docs/a.md': '#\n', 'notes/b.md': '#\n' });
+    const empty = (pattern: string): string =>
+      `invalid spec pattern ${JSON.stringify(pattern)}: it is empty; write a file, a directory or a glob, or "." for every Markdown file under the root`;
+
+    expect(specPatternError('')).toBe(empty(''));
+    expect(specPatternError('  ')).toBe(empty('  '));
+    expect(specPatternError(String.fromCharCode(9))).toBe('invalid spec pattern "\\t": it is empty; write a file, a directory or a glob, or "." for every Markdown file under the root');
+    expect(specPatternError('.')).toBeNull();
+    expect(specPatternError('a b.md')).toBeNull();
+    await expect(expandSpecPatterns(['docs/a.md', ''], root)).rejects.toThrow(new Error(empty('')));
+    await expect(expandSpecPatterns([' '], root)).rejects.toThrow(new Error(empty(' ')));
+    expect((await expandSpecPatterns(['.'], root)).map((file) => path.basename(file))).toEqual(['a.md', 'b.md']);
   });
 
   it('cleans up', async () => {

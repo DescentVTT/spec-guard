@@ -676,7 +676,7 @@ async function main() {
     ['demo', ['--default-skips']], ['demo', ['--allow-empty']], ['demo', ['--ignore-status']], ['demo', ['--exclude', 'src/legacy, src/core']],
     ['demo', ['--exclude', 'src/legacy', '--exclude=']],
     ['demo', ['--print-baseline']], ['demo', ['--engine', 'rg']], ['demo', ['--engine', 'js']], ['demo', ['--engine', 'auto']],
-    ['demo', ['--max-snippets', '1']], ['demo', ['--concurrency', '2']], ['demo', ['--concurrency', '0']],
+    ['demo', ['--max-snippets', '1']], ['demo', ['--concurrency', '2']], ['demo', ['--concurrency', '1']],
     ['demo', ['--color']], ['demo', ['--no-color']], ['demo', ['docs/**/*.rst']], ['demo', ['docs/**/*.rst', '--allow-empty']],
     ['demo', ['docs/**/*.rst', '--format', 'sarif']], ['demo', ['docs/**/*.rst', '--format', 'json']], ['demo', ['docs/**/*.rst', '--format', 'gitlab']],
     ['demo', ['docs/adr/0001-passing.md'], 0], ['demo', ['docs/adr/0002-failing.md'], 1], ['demo', ['docs/adr/0003-invalid.md']], ['demo', ['docs/**/*.rst', '--format', 'github'], 2],
@@ -684,7 +684,8 @@ async function main() {
     ['demo', ['docs/adr/0002-failing.md', '--print-baseline']], ['demo', ['docs/adr/0002-failing.md', '--json']],
     ['demo', ['docs/adr/0002-failing.md', '--format', 'github']], ['demo', ['docs/adr/0002-failing.md', '--format', 'gitlab']],
     ['demo', ['docs/**/*.md', '--engine', 'js']], ['demo', ['docs/**/*.md', '--engine', 'js', '--verbose']], ['demo', ['docs/a[b']],
-    ['demo', ['-r', 'src', '--spec', '../docs/adr/0001-passing.md']], ['demo', ['--root', 'nowhere']],
+    ['demo', ['-r', 'src', '--spec', '../docs/adr/0001-passing.md']], ['demo', ['--root', 'nowhere'], 2], ['demo', ['--root', 'nowhere', '--allow-empty'], 2],
+    ['demo', ['--spec', ''], 2], ['demo', ['docs/adr/0001-passing.md', '--spec', ' '], 2], ['demo', ['.']], ['demo', ['--exclude', ' ']],
     ['demo', ['query', 'src/services/BillingService.ts']], ['demo', ['query', 'src/services', 'src/core', '--format', 'json']],
     ['demo', ['query', 'src', '--spec', 'docs/adr/0002-failing.md']], ['demo', ['query', '../x']],
     ['demo', ['prove']], ['demo', ['prove', '--format', 'json']], ['demo', ['prove', '--format', 'sarif']], ['demo', ['prove', '--strict', '--verbose']],
@@ -706,6 +707,7 @@ async function main() {
   const REFUSED = [
     ['--nonsense'], ['--format'], ['--format', 'yaml'], ['--engine', 'nope'], ['--max-snippets', '-1'], ['--max-snippets'],
     ['--root'], ['--root', '--verbose'], ['--depth', 'x'], ['--watch', '--format', 'json'], ['--spec'], ['--exclude', '!src'], ['query'], ['impact'], ['cites', '--verbose'],
+    ['--root', ''], ['-r', ' '], ['--concurrency', '0'], ['--exclude', ','], ['--strict=false'], ['--default-skips=false'], ['--allow-empty=false'], ['--help=no'],
   ];
   /** Options the help names that no invocation here passes, each with why. */
   const NOT_RUN = new Map([['--watch', 'a session runs until it is interrupted; tests/watch.test.ts drives one']]);

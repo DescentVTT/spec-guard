@@ -112,8 +112,13 @@ describe('parseArgs', () => {
     expect(parseArgs(['-'], DEMO_REPO).patterns).toEqual(['-']);
   });
 
-  it('clamps concurrency to at least one', () => {
-    expect(parseArgs(['--concurrency', '0'], DEMO_REPO).concurrency).toBe(1);
+  it('refuses a concurrency of 0 as the configuration refuses it, and takes 1', () => {
+    // It was made 1, which is a run nobody asked for; the configuration's key
+    // has always been "an integer, 1 or more".
+    const refusal = new UsageError('Option --concurrency expects 1 or more: a concurrency of 0 would run no search.');
+    expect(() => parseArgs(['--concurrency', '0'], DEMO_REPO)).toThrow(refusal);
+    expect(() => parseArgs(['--concurrency=00'], DEMO_REPO)).toThrow(refusal);
+    expect(parseArgs(['--concurrency', '1'], DEMO_REPO).concurrency).toBe(1);
   });
 
   it.each([

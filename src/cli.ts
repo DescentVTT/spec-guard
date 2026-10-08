@@ -16,7 +16,7 @@ import type { Readable } from 'node:stream';
 import { CitesError, findCitations } from './cites.js';
 import { CONFIG_KEYS, ConfigError, engineNamed, findConfig, type ConfigKey, type ProjectConfig } from './config.js';
 import { formatImpact, formatImpactJson, impactOf } from './impact.js';
-import { excludeListError, patternListError, specPatternError } from './glob.js';
+import { excludeListError, patternListError, specPatternError, toPosix } from './glob.js';
 import { nodeIo, readText, watchTree } from './io.js';
 import { createMcpHandler, serveStdio } from './mcp.js';
 import { formatQuery, formatQueryJson, queryRules, resolveQueryPath } from './query.js';
@@ -425,7 +425,9 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
     const equals = argument.indexOf('=');
     const name = equals === -1 ? argument : argument.slice(0, equals);
     const inlineValue = equals === -1 ? undefined : argument.slice(equals + 1);
+    let valueTaken = false;
     const nextValue = (): string => {
+      valueTaken = true;
       if (inlineValue !== undefined) return inlineValue;
       index += 1;
       return requireValue(name, argv[index]);
@@ -501,7 +503,14 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
       // Repeatable, each value a list as exclude="..." takes one. Given at all, it
       // replaces the configuration's list, and --exclude= with nothing clears it.
       case '--exclude': {
-        const patterns = splitList(nextValue());
+        const value = nextValue();
+        const patterns = splitList(value);
+        // Nothing at all clears the list, as the README says. Separators with
+        // nothing between them are a list somebody built from values that were
+        // not there, and clearing the configuration's for it widened the run.
+        if (patterns.length === 0 && value.trim() !== '') {
+          throw new UsageError(`Option --exclude names no path in ${JSON.stringify(value)}. Give it paths or globs, or --exclude= with nothing to clear the list.`);
+        }
         const error = excludeListError(patterns);
         if (error !== null) throw new UsageError(`Option --exclude has an ${error}.`);
         options.exclude.push(...patterns);
@@ -528,9 +537,17 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
         options.color = false;
         break;
       case '-r':
-      case '--root':
-        options.root = path.resolve(cwd, nextValue());
+      case '--root': {
+        const value = nextValue();
+        // An empty path resolves to the working directory: `--root "$DIR"` with
+        // the variable unset ran there, and reported on a tree nobody had named.
+        // Shown as JSON, where a tab or a line break in it can be seen.
+        if (value.trim() === '') {
+          throw new UsageError(`Option ${name} expects a directory, got ${JSON.stringify(value)}. Name one, or leave the option out to run in the working directory.`);
+        }
+        options.root = path.resolve(cwd, value);
         break;
+      }
       case '--spec':
         specs.push(nextValue());
         break;
@@ -548,10 +565,15 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
         options.maxSnippets = positiveInteger(name, nextValue());
         set.add('maxSnippets');
         break;
-      case '--concurrency':
-        options.concurrency = Math.max(1, positiveInteger(name, nextValue()));
+      case '--concurrency': {
+        // Refused as the configuration's key refuses it. Made 1, it was a run
+        // somebody had asked something else of.
+        const concurrency = positiveInteger(name, nextValue());
+        if (concurrency === 0) throw new UsageError('Option --concurrency expects 1 or more: a concurrency of 0 would run no search.');
+        options.concurrency = concurrency;
         set.add('concurrency');
         break;
+      }
       case '--depth': {
         if (command !== 'impact') throw new UsageError('Option --depth applies only to spec-guard impact.');
         const depth = positiveInteger(name, nextValue());
@@ -561,6 +583,14 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
       }
       default:
         throw new UsageError(`Unknown option "${name}". Run spec-guard --help.`);
+    }
+    // An option that is on when it is given was on whatever came after its
+    // "=": `--strict=false` was strict, `--default-skips=false` skipped, and
+    // `--allow-empty=false` let an empty run through.
+    if (inlineValue !== undefined && !valueTaken) {
+      throw new UsageError(
+        `Option ${name} takes no value, got "${inlineValue}". Give it alone or leave it out; an on/off option has an opposite that turns it off, as --no-strict is to --strict.`,
+      );
     }
   }
 
@@ -1034,6 +1064,14 @@ async function run(argv: readonly string[], io: CliIO): Promise<number> {
   const patternError = patternListError(options.patterns, specPatternError);
   if (patternError !== null) {
     io.stderr(`spec-guard: ${patternError}`);
+    return EXIT_ERROR;
+  }
+  // A root that is a file, or is not there, holds no spec and no code, and
+  // each command said so in its own way or not at all: `cites` found nothing
+  // to look for and exited 0, the server served it, and `--allow-empty` made a
+  // mistyped root a clean run. One refusal, before any of them starts.
+  if (!(await nodeIo.stat(options.root))?.isDirectory()) {
+    io.stderr(`spec-guard: the root ${toPosix(options.root)} is not a directory. Give --root one that exists, or leave it out to run in the working directory.`);
     return EXIT_ERROR;
   }
   // Read after --help and --version, which must work in a project whose
