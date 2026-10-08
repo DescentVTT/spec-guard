@@ -8,8 +8,15 @@ import { pathToFileURL } from 'node:url';
 // main answers the errors it awaits with exit 2. What nothing awaits - a
 // stream's error, a timer's, a promise nobody holds - Node ends with exit 1,
 // which a script reads as a failed assertion: the same answer for those.
+//
+// A reader that closed stdout, as `| head` does, is no defect, and it arrives
+// here, as the stream's error: one line, with no stack to send a person
+// looking for a bug. The code alone names it, since stdout and stderr are the
+// only pipes spec-guard writes to, and a line about a closed stderr reaches
+// nobody.
 process.on('uncaughtException', (error) => {
-  process.stderr.write(`spec-guard: unexpected error: ${error?.stack ?? error}\n`);
+  const said = error?.code === 'EPIPE' ? 'stdout was closed before all of the output was written' : `unexpected error: ${error?.stack ?? error}`;
+  process.stderr.write(`spec-guard: ${said}\n`);
   process.exit(2);
 });
 
