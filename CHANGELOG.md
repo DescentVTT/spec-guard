@@ -10,7 +10,10 @@ what to do when upgrading; the family's policy, including how a flag or field
 is deprecated before it goes, is spec-core's
 [ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
-## Unreleased
+## 0.20.1
+
+A reader that closed the output, as `| head` does, was answered with
+`unexpected error:` and a stack; it is one line now, and still exit 2.
 
 ### Fixed
 

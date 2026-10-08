@@ -1555,6 +1555,17 @@ ran high where they were least measured: `runner.ts` and `text.ts` took 7m35s
 against 15.2 minutes, and `cli.ts` alone 8m18s against 15.1, so the next
 split starts from this run's logs rather than 398fe94's.
 
+### 0.20.1: the same survivors
+
+CI's full sweep of 4255d01 (run 37788110791) came out at **99.16% over
+12,346 mutants with 101 survivors and 3 without coverage**, mutant for
+mutant what 0.20.0's sweep left; the shards took from 6m51s to 16m37s. The
+line that answers a closed output made nine mutants, and the sweep killed
+all nine. One mutant of `src/glob.ts` that every sweep before had killed,
+a file walked as a directory, crashed the test runner twice this time:
+Stryker scores it as an error, in neither figure, so the 12,346 are of
+12,347.
+
 ### 0.20.0: two survivors fewer, and none more
 
 CI's full sweep of 7af3d34 (run 37695345550) came out at **99.16% over
