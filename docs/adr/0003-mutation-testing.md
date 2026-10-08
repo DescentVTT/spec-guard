@@ -1555,6 +1555,25 @@ ran high where they were least measured: `runner.ts` and `text.ts` took 7m35s
 against 15.2 minutes, and `cli.ts` alone 8m18s against 15.1, so the next
 split starts from this run's logs rather than 398fe94's.
 
+### 0.21.0: six survivors fewer, and none more
+
+CI's full sweep of d6fa02a (run 37832810841) came out at **99.21% over
+12,404 mutants with 96 survivors and 2 without coverage**; the shards took
+from 5m44s to 16m26s. Against 0.20.1's sweep, 101 survivors and 3 without
+coverage over 12,346:
+
+- five survivors and the one mutant without coverage are gone, all in the
+  probe that asks a binary whether it is ripgrep (`src/engine.ts`). It
+  asked for an exit code and read nothing, so the options it was started
+  with, the `--version` it was handed, the code it compared and the name
+  it fell back to were never told apart; it now reads what the binary
+  prints, and the tests of a binary that is not ripgrep kill each of them.
+  The one left there is `windowsHide` made false, recorded before;
+- the refusals of this release added 57 mutants, in `src/cli.ts`,
+  `src/glob.ts`, `src/engine.ts`, `src/config.ts` and
+  `src/reporter.ts`, and the sweep left none of them;
+- no survivor is new: mutant for mutant, the 96 are among 0.20.1's 101.
+
 ### 0.20.1: the same survivors
 
 CI's full sweep of 4255d01 (run 37788110791) came out at **99.16% over

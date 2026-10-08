@@ -10,7 +10,14 @@ what to do when upgrading; the family's policy, including how a flag or field
 is deprecated before it goes, is spec-core's
 [ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
-## Unreleased
+## 0.21.0
+
+An input that is set and names nothing is refused, exit 2, by a line that
+names it, where it was read as if it had not been given: an empty spec
+pattern or `--root`, a root that is no directory, `--exclude ","`,
+`--concurrency 0`, a value given to an option that takes none, and an
+`--engine rg` whose binary is not ripgrep. A wrong command line is answered
+in that one line, and no longer with the whole help after it.
 
 ### Changed
 
