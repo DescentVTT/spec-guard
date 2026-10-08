@@ -972,9 +972,13 @@ function specRefusal({ base, reading, under, whole }: SpecGlob): string | null {
  *
  * Asked by the command line and the configuration before anything runs, and
  * thrown by `expandSpecPatterns`. A path with no glob syntax is a path, found
- * or not; only a glob can be malformed.
+ * or not; only a glob can be malformed, and a pattern that is empty names
+ * nothing. Read as a path, an empty one is the root, and every Markdown file
+ * under it: `--spec "$DOCS"` with the variable unset widened a run to all of
+ * them.
  */
 export function specPatternError(pattern: string): string | null {
+  if (pattern.trim() === '') return `invalid spec pattern ${JSON.stringify(pattern)}: it is empty; write a file, a directory or a glob, or "." for every Markdown file under the root`;
   if (!isGlob(toPosix(pattern))) return null;
   const refused = specRefusal(readSpecGlob(pattern));
   return refused === null ? null : `invalid spec pattern "${pattern}": ${refused}`;
@@ -996,6 +1000,8 @@ export async function expandSpecPatterns(
   const found = new Set<string>();
 
   for (const rawPattern of patterns) {
+    const refused = specPatternError(rawPattern);
+    if (refused !== null) throw new Error(refused);
     const pattern = toPosix(rawPattern);
 
     if (!isGlob(pattern)) {
@@ -1013,8 +1019,6 @@ export async function expandSpecPatterns(
       continue;
     }
 
-    const refused = specPatternError(rawPattern);
-    if (refused !== null) throw new Error(refused);
     const { base, absolute, written, reading, under } = readSpecGlob(pattern);
     const walkRoot = absolute ? base || path.parse(written).root : path.resolve(root, base);
     const matches = matcherOf(reading, 'spec', rawPattern);

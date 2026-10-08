@@ -280,6 +280,36 @@ describe.skipIf(!built)('a reader that closed the output', () => {
   });
 });
 
+describe.skipIf(!built)('an input that is set and names nothing, through the launcher', () => {
+  // The shape a shell hands over: an argument that is there and empty, and a
+  // variable in the process's own environment. Each ran on 0.20.1, exit 0 or
+  // 1, as if it had not been given.
+  it.each([
+    ['an empty spec pattern', ['docs/adr/0001-passing.md', '--spec', ''], {}, 'spec-guard: invalid spec pattern "": it is empty; write a file, a directory or a glob, or "." for every Markdown file under the root\n'],
+    [
+      'a root that is not there',
+      ['--root', path.join(DEMO_REPO, 'nowhere'), '--allow-empty'],
+      {},
+      `spec-guard: the root ${path.join(DEMO_REPO, 'nowhere').replaceAll('\\', '/')} is not a directory. Give --root one that exists, or leave it out to run in the working directory.\n`,
+    ],
+  ] as Array<[string, string[], NodeJS.ProcessEnv, string]>)('refuses %s with exit 2 and one line', async (_, args, env, line) => {
+    const result = await run(args, { cwd: DEMO_REPO, env });
+
+    expect(result).toEqual({ code: 2, stdout: '', stderr: line });
+  });
+
+  it('refuses an empty --root as a wrong invocation, and runs where the option is left out', async () => {
+    const refused = await run(['docs/adr/0001-passing.md', '--root', ''], { cwd: DEMO_REPO });
+    const ran = await run(['docs/adr/0001-passing.md', '--engine', 'js'], { cwd: DEMO_REPO, env: { SPEC_GUARD_RG: '' } });
+
+    expect(refused.code).toBe(2);
+    expect(refused.stdout).toBe('');
+    expect(refused.stderr.split('\n')[0]).toBe('Option --root expects a directory, got "". Name one, or leave the option out to run in the working directory.');
+    expect(ran.code).toBe(0);
+    expect(ran.stderr).toBe('');
+  });
+});
+
 describe.skipIf(!built)('spec-guard mcp, as a client launches it', () => {
   /** Starts the server, feeds it lines, closes its stdin, and collects what it wrote. */
   function converse(lines: readonly string[], args: readonly string[] = []): Promise<RunOutcome> {
