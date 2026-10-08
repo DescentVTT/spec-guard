@@ -989,12 +989,21 @@ async function runCites(options: CliOptions, io: CliIO, use: ConfigUse | undefin
  * script reads as an assertion that failed. The stack is what makes a report
  * of it something to act on, and it goes to stderr alone: a script that reads
  * a document from stdout is handed no part of one.
+ *
+ * A write its reader had closed the pipe for is not such an error: the answer
+ * was not delivered, which is still 2, and nothing in spec-guard is at fault,
+ * so it is said in a line and no stack sends a person looking for a defect.
+ * The process's own streams report it as an event, which the launcher answers
+ * in the same words; here it is a caller's stream that throws it. It is read
+ * by its code: stdout and stderr are the only pipes spec-guard writes to.
  */
 export async function main(argv: readonly string[] = process.argv.slice(2), io: CliIO = defaultIO()): Promise<number> {
   try {
     return await run(argv, io);
   } catch (error) {
-    io.stderr(`spec-guard: unexpected error: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`);
+    if (!(error instanceof Error)) io.stderr(`spec-guard: unexpected error: ${String(error)}`);
+    else if ((error as { code?: unknown }).code === 'EPIPE') io.stderr('spec-guard: stdout was closed before all of the output was written');
+    else io.stderr(`spec-guard: unexpected error: ${error.stack ?? error.message}`);
     return EXIT_ERROR;
   }
 }

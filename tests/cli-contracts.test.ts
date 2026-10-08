@@ -179,6 +179,47 @@ describe('an error spec-guard did not expect', () => {
   });
 });
 
+describe('a reader that closed the output', () => {
+  // `spec-guard impact src --json | head`: the write fails with EPIPE once
+  // head has left. The answer was not delivered, which is still 2, and
+  // nothing in spec-guard is at fault, so no stack says a defect was found.
+  const refused = (code: string) => (): never => {
+    throw Object.assign(new Error(`${code}: the write failed`), { code, syscall: 'write' });
+  };
+
+  it.each([
+    ['--version', ['--version']],
+    ['a run', ['docs/adr/0001-passing.md', '--engine', 'js']],
+    ['impact, as JSON', ['impact', 'src', '--json']],
+  ])('ends %s with exit 2 and one line that says so', async (_name, argv) => {
+    const { io, out, err } = createIO({ stdout: refused('EPIPE') });
+
+    expect(await main(argv, io)).toBe(EXIT_ERROR);
+    expect(err).toEqual(['spec-guard: stdout was closed before all of the output was written']);
+    expect(out).toEqual([]);
+  });
+
+  it('keeps the stack of a write that failed for any other reason', async () => {
+    // A disk that filled up under `> report.json` is not a reader that left.
+    const { io, err } = createIO({ stdout: refused('ENOSPC') });
+
+    expect(await main(['--version'], io)).toBe(EXIT_ERROR);
+    expect(err).toHaveLength(1);
+    expect(err[0]).toMatch(/^spec-guard: unexpected error: Error: ENOSPC: the write failed\n {4}at /);
+  });
+
+  it('reads the code of the error, not its words', async () => {
+    const { io, err } = createIO({
+      stdout: () => {
+        throw new Error('EPIPE: broken pipe, write');
+      },
+    });
+
+    expect(await main(['--version'], io)).toBe(EXIT_ERROR);
+    expect(err[0]).toMatch(/^spec-guard: unexpected error: Error: EPIPE: broken pipe, write\n {4}at /);
+  });
+});
+
 describe('when nothing matched', () => {
   it('lists every pattern it tried, separated', async () => {
     const { io, err } = createIO();
