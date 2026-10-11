@@ -62,8 +62,12 @@ export function createPainter(color: boolean): (text: string, ...styles: Style[]
  * Honours the NO_COLOR, FORCE_COLOR and TERM conventions as the family reads
  * them (spec-core's ADR-0005): either of the first two set to nothing is as
  * unset, and `FORCE_COLOR=0` turns colour off, on a terminal too, where it
- * used to decide nothing. `TERM=dumb` is a terminal saying it draws none, and
- * was not read: it turns colour off unless something forces it.
+ * used to decide nothing. So does `FORCE_COLOR=false`, exactly that, which
+ * Node and `supports-color` read as off and this read as any other value,
+ * on: a pipeline that turned colour off that way got escapes in its log. Any
+ * other value forces colour, `FALSE` and `no` among them. `TERM=dumb` is a
+ * terminal saying it draws none, and was not read: it turns colour off unless
+ * something forces it.
  */
 export function shouldUseColor(
   stream: { isTTY?: boolean },
@@ -72,7 +76,7 @@ export function shouldUseColor(
 ): boolean {
   if (flag !== undefined) return flag;
   if (env['NO_COLOR']) return false;
-  if (env['FORCE_COLOR']) return env['FORCE_COLOR'] !== '0';
+  if (env['FORCE_COLOR']) return env['FORCE_COLOR'] !== '0' && env['FORCE_COLOR'] !== 'false';
   if (env['TERM'] === 'dumb') return false;
   return Boolean(stream.isTTY);
 }
@@ -496,6 +500,16 @@ export function formatBaselines(report: RunResult): string {
 }
 
 /**
+ * Spec patterns that matched no file, as a clause: `the pattern "a" matched
+ * no spec file`. One wording for the command line's refusal, a watch
+ * session's note and the MCP server's, so a person who has read one knows
+ * the others. Never given an empty list.
+ */
+export function unmatchedClause(patterns: readonly string[]): string {
+  return `the ${patterns.length === 1 ? 'pattern' : 'patterns'} ${patterns.map((pattern) => `"${pattern}"`).join(', ')} matched no spec file`;
+}
+
+/**
  * The version of a run's `--json` document. A field removed or renamed moves
  * it; a field added does not. The family contract (spec-core's ADR-0005) asks
  * it of every machine-readable output. The run's document went without one
@@ -518,6 +532,10 @@ export function formatJson(report: RunResult): string {
       durationMs: Math.round(report.durationMs * 1000) / 1000,
       summary: report.summary,
       specFiles: report.specFiles,
+      // Written only when a pattern matched no file, as JSON leaves out what
+      // is undefined: the document of a run whose every pattern matched is
+      // the one it was before the field.
+      unmatchedSpecs: report.unmatchedSpecs,
       results: report.results.map((result) => ({
         ok: result.ok,
         kind: result.kind,
@@ -905,6 +923,7 @@ export function formatProveJson(report: ProveReport): string {
       durationMs: Math.round(report.durationMs * 1000) / 1000,
       summary: report.summary,
       specFiles: report.specFiles,
+      unmatchedSpecs: report.unmatchedSpecs,
       results: report.results.map((result) => ({
         outcome: result.outcome,
         kind: result.kind,

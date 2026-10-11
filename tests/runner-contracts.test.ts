@@ -22,6 +22,8 @@ import {
   createScopeProbe,
   elapsed,
   executeAssertion,
+  planRun,
+  reportRun,
   resolveDirective,
   runSpecGuard,
   DEFAULT_MAX_SNIPPETS,
@@ -1169,5 +1171,31 @@ describe('errors come out in file order', () => {
       'docs/a.md:2',
       'docs/b.md:1',
     ]);
+  });
+});
+
+describe('what a report carries from its plan', () => {
+  const specs = (unmatched?: string[]) => ({ files: [], documents: [], errors: [], warnings: [], masked: [], ...(unmatched === undefined ? {} : { unmatched }) });
+
+  it('says a ripgrep failure once, however many searches met it, and failures that differ each, in the order met', () => {
+    // A program that is not ripgrep fails every search group the same way, and
+    // a run of four groups said the same line four times.
+    const plan = planRun(specs(), '/repo', {});
+    const fell = reportRun(plan, [], { name: 'ripgrep', fallbacks: ['exited 9', 'timed out', 'exited 9', 'exited 9', 'timed out'] }, 0);
+
+    expect(fell.warnings).toEqual([
+      'ripgrep failed, fell back to the JavaScript engine (exited 9)',
+      'ripgrep failed, fell back to the JavaScript engine (timed out)',
+    ]);
+    expect(fell.engine).toBe('javascript');
+    expect(reportRun(plan, [], { name: 'ripgrep', fallbacks: [] }, 0)).toMatchObject({ warnings: [], engine: 'ripgrep' });
+  });
+
+  it('names the patterns that matched no file, and has no key for them when each matched or a caller built the specs', () => {
+    const named = reportRun(planRun(specs(['gone/*.md', 'old']), '/repo', {}), [], { name: 'javascript', fallbacks: [] }, 0);
+
+    expect(named.unmatchedSpecs).toEqual(['gone/*.md', 'old']);
+    expect(reportRun(planRun(specs([]), '/repo', {}), [], { name: 'javascript', fallbacks: [] }, 0)).not.toHaveProperty('unmatchedSpecs');
+    expect(reportRun(planRun(specs(), '/repo', {}), [], { name: 'javascript', fallbacks: [] }, 0)).not.toHaveProperty('unmatchedSpecs');
   });
 });

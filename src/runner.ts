@@ -51,7 +51,7 @@ import {
   type ModuleReference,
 } from "./imports.js";
 import { checkLayers, type LayerInput } from "./layers.js";
-import { readSpecs, specPath, type DocumentMemo, type SpecSet } from "./specs.js";
+import { readSpecs, specPath, unmatchedSpecs, type DocumentMemo, type SpecSet } from "./specs.js";
 import {
   createScope,
   DEFAULT_SCOPE,
@@ -1658,6 +1658,8 @@ export interface RunPlan {
   root: string;
   /** Every spec file the patterns matched, absolute. */
   specFiles: readonly string[];
+  /** The patterns that matched no file, when there is one. */
+  unmatchedSpecs?: string[];
   /** The rules to execute, in document order. */
   assertions: Assertion[];
   /** How many directives their document's status withheld. */
@@ -1775,7 +1777,19 @@ export function planRun(
   // that rather than report clean, as the family contract has it. No spec at
   // all is the command line's to refuse, and it does, as exit 2.
   const nothingVerified = (options.strictTargets ?? false) && specs.files.length > 0 && !ruleInForce;
-  return { root, specFiles: specs.files, assertions, withheld: notRun, errors, inactiveSpecs, warnings: specs.warnings, masked: specs.masked, exclude, nothingVerified };
+  return {
+    root,
+    specFiles: specs.files,
+    ...unmatchedSpecs(specs),
+    assertions,
+    withheld: notRun,
+    errors,
+    inactiveSpecs,
+    warnings: specs.warnings,
+    masked: specs.masked,
+    exclude,
+    nothingVerified,
+  };
 }
 
 /**
@@ -1790,7 +1804,11 @@ export function reportRun(
   engine: { name: EngineName; fallbacks: readonly string[] },
   startedAt: number,
 ): RunResult {
-  const warnings = engine.fallbacks.map(
+  // One warning for one failure, however many searches met it: a program
+  // that is not ripgrep fails every search group the same way, and a run of
+  // four groups said the same line four times. Failures that differ are each
+  // said, in the order they were met.
+  const warnings = [...new Set(engine.fallbacks)].map(
     (message) =>
       `ripgrep failed, fell back to the JavaScript engine (${message})`,
   );
@@ -1825,6 +1843,7 @@ export function reportRun(
     maskedDirectives: plan.masked,
     exclude: plan.exclude,
     specFiles: plan.specFiles.map((file) => specPath(plan.root, file)),
+    ...(plan.unmatchedSpecs === undefined ? {} : { unmatchedSpecs: plan.unmatchedSpecs }),
   };
 }
 

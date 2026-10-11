@@ -997,36 +997,63 @@ export async function expandSpecPatterns(
   defaultExtensions: readonly string[] = ['.md', '.markdown', '.mdx'],
   io: Io = nodeIo,
 ): Promise<string[]> {
+  return (await expandSpecs(patterns, root, defaultExtensions, io)).files;
+}
+
+/**
+ * `expandSpecPatterns`, and the patterns that matched no file, as written and
+ * in the order given, each once.
+ *
+ * A pattern matched when it found a file, whether or not another pattern
+ * found the same one: `docs` beside `docs/adr/0001.md` names nothing twice
+ * and nothing in vain. One that found none is a file that is not there, a
+ * directory that is not there or holds no Markdown, or a glob nothing fits.
+ * The files are the answer either way; who is told about the rest, and
+ * whether the run goes on, is the caller's (ADR-0014, amended 2026-10-11).
+ */
+export async function expandSpecs(
+  patterns: readonly string[],
+  root: string,
+  defaultExtensions: readonly string[] = ['.md', '.markdown', '.mdx'],
+  io: Io = nodeIo,
+): Promise<{ files: string[]; unmatched: string[] }> {
   const found = new Set<string>();
+  const unmatched = new Set<string>();
 
   for (const rawPattern of patterns) {
     const refused = specPatternError(rawPattern);
     if (refused !== null) throw new Error(refused);
     const pattern = toPosix(rawPattern);
+    let matched = false;
 
     if (!isGlob(pattern)) {
       const absolute = path.resolve(root, pattern);
       const stats = await io.stat(absolute);
       if (stats?.isFile()) {
         found.add(absolute);
+        matched = true;
       } else if (stats?.isDirectory()) {
         for await (const file of walkPaths(absolute, { io })) {
           if (defaultExtensions.some((extension) => file.relativePath.toLowerCase().endsWith(extension))) {
             found.add(file.absolutePath);
+            matched = true;
           }
         }
       }
-      continue;
-    }
+    } else {
+      const { base, absolute, written, reading, under } = readSpecGlob(pattern);
+      const walkRoot = absolute ? base || path.parse(written).root : path.resolve(root, base);
+      const matches = matcherOf(reading, 'spec', rawPattern);
 
-    const { base, absolute, written, reading, under } = readSpecGlob(pattern);
-    const walkRoot = absolute ? base || path.parse(written).root : path.resolve(root, base);
-    const matches = matcherOf(reading, 'spec', rawPattern);
-
-    for await (const file of walkPaths(walkRoot, { io })) {
-      if (matches(`${under}${file.relativePath}`)) found.add(file.absolutePath);
+      for await (const file of walkPaths(walkRoot, { io })) {
+        if (matches(`${under}${file.relativePath}`)) {
+          found.add(file.absolutePath);
+          matched = true;
+        }
+      }
     }
+    if (!matched) unmatched.add(rawPattern);
   }
 
-  return [...found].sort();
+  return { files: [...found].sort(), unmatched: [...unmatched] };
 }

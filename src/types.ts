@@ -445,6 +445,14 @@ export interface RunReport {
   /** What the command line took from the project's configuration, when it took anything. */
   config?: ConfigUse;
   /**
+   * The spec patterns that matched no file, as written. Absent when every
+   * pattern matched one. Beside spec files that were read, each is a pattern
+   * somebody wrote whose documents are not there, and no rule of theirs was
+   * read: the command line refuses that, or says it (ADR-0014, amended
+   * 2026-10-11).
+   */
+  unmatchedSpecs?: string[];
+  /**
    * True when the run failed because it verified nothing under `--strict`:
    * its specs state no rule in force to execute. The family contract says a
    * check that measured nothing is not clean and that a strict one refuses
@@ -530,6 +538,8 @@ export interface ProveReport {
   config?: ConfigUse;
   /** Spec files that were read, relative to the root. */
   specFiles: string[];
+  /** As a run's: the spec patterns that matched no file, absent when each matched one. */
+  unmatchedSpecs?: string[];
   /** As a run's: true when the proof failed under `--strict` because its specs state no rule in force. */
   nothingVerified?: boolean;
 }

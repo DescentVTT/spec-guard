@@ -31,9 +31,25 @@ describe('shouldUseColor', () => {
     // It only declined to force colour, so a terminal still had it: the one
     // value the three tools read differently.
     expect(shouldUseColor({ isTTY: true }, undefined, { FORCE_COLOR: '0' })).toBe(false);
-    // Any other value forces it, `false` included, in all three.
-    expect(shouldUseColor({ isTTY: false }, undefined, { FORCE_COLOR: 'false' })).toBe(true);
+    // Exactly that: a value that only looks like it forces colour.
     expect(shouldUseColor({ isTTY: false }, undefined, { FORCE_COLOR: '00' })).toBe(true);
+  });
+
+  it('turns colour off for FORCE_COLOR=false, as Node and supports-color read it, where it forced colour', () => {
+    expect(shouldUseColor({ isTTY: false }, undefined, { FORCE_COLOR: 'false' })).toBe(false);
+    // On a terminal too, as 0 is, and one that says it draws none.
+    expect(shouldUseColor({ isTTY: true }, undefined, { FORCE_COLOR: 'false' })).toBe(false);
+    expect(shouldUseColor({ isTTY: true }, undefined, { FORCE_COLOR: 'false', TERM: 'dumb' })).toBe(false);
+    // The flag still wins over the variable.
+    expect(shouldUseColor({ isTTY: false }, true, { FORCE_COLOR: 'false' })).toBe(true);
+  });
+
+  it('still forces colour for every other value: true, 1, and FALSE, which is not the word Node reads', () => {
+    for (const value of ['true', '1', 'FALSE', 'False', 'no', ' false']) {
+      expect(shouldUseColor({ isTTY: false }, undefined, { FORCE_COLOR: value }), value).toBe(true);
+    }
+    // Over a terminal that says it draws none, as before.
+    expect(shouldUseColor({ isTTY: true }, undefined, { FORCE_COLOR: 'true', TERM: 'dumb' })).toBe(true);
   });
 
   it('reads either variable set to nothing as unset, which is what NO_COLOR asks', () => {

@@ -199,3 +199,19 @@ passes forever and reads exactly like a rule that found nothing. Turning this
 on found a vacuous assertion inside this repository's own test suite on the
 first run. `allow-empty="true"` covers the honest case of a rule written before
 the code it guards.
+
+## Amended 2026-10-11: a spec pattern that matches no file
+
+One silent pass was a level above the ones this record closes. A `target`
+that is not there fails, and a scope that holds no file fails; a spec pattern
+that matched no file, beside others that did, was dropped, and the rules of
+its documents stopped running with the run still green. A renamed directory
+of specs is how it is reached, the same rename that leaves a `target` behind.
+
+It is refused now, by the command line, in a line that names the pattern;
+`--allow-empty` is the request that makes it a skip somebody asked for, and a
+watch session and the MCP server, which wait for files, say which pattern
+they are waiting on. Each file ends in one of three states, and so does each
+pattern: matched, allowed to match nothing, or refused by name.
+[ADR-0014](0014-configuration-and-watch.md), amended the same day, has what
+each command does and what is left.

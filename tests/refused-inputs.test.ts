@@ -277,6 +277,20 @@ describe('ripgrep asked for, and a variable that names none', () => {
     expect(warned.warnings).toHaveLength(1);
     expect(warned.warnings[0]).toMatch(/^ripgrep failed, fell back to the JavaScript engine \(ripgrep exited with code \d+: /);
   });
+
+  it('says that warning once, however many searches were handed over and failed the same way', async () => {
+    // Two rules over two directories, each past the budget: two search groups,
+    // and on 0.21.0 the same line twice.
+    const root = await tree({ ...pastEveryBudget('src'), ...pastEveryBudget('lib'), 'docs/b.md': '<!-- @assert-absence target="lib" symbol="Removed" -->\n' });
+    process.env.SPEC_GUARD_RG = process.execPath;
+    resetRipgrepProbe();
+    const { io, out } = createIO({ cwd: root });
+
+    expect(await main(['docs', '--json'], io)).toBe(EXIT_OK);
+    const report = JSON.parse(out.join('\n')) as { engine: string; summary: { total: number; passed: number }; warnings: string[] };
+    expect(report).toMatchObject({ engine: 'javascript', summary: { total: 2, passed: 2 } });
+    expect(report.warnings).toHaveLength(1);
+  });
 });
 
 describe('colour, as the family reads the conventions', () => {
@@ -292,6 +306,15 @@ describe('colour, as the family reads the conventions', () => {
     expect(await coloured({}, true)).toBe(true);
     // The flag still wins over the variable.
     expect(await coloured({ FORCE_COLOR: '0' }, false, '--color')).toBe(true);
+  });
+
+  it('is off for FORCE_COLOR=false, which forced it on, and on for true, 1 and FALSE', async () => {
+    // Node and supports-color read `false` as off: a pipeline that set it to
+    // keep escapes out of its log got them.
+    expect(await coloured({ FORCE_COLOR: 'false' }, false)).toBe(false);
+    expect(await coloured({ FORCE_COLOR: 'false' }, true)).toBe(false);
+    for (const value of ['true', '1', 'FALSE']) expect(await coloured({ FORCE_COLOR: value }, false), value).toBe(true);
+    expect(await coloured({ FORCE_COLOR: 'false' }, false, '--color')).toBe(true);
   });
 
   it('is off for TERM=dumb on a terminal, which was written escapes it had said it does not draw', async () => {

@@ -972,3 +972,101 @@ read from `WT_SESSION`, `TERM` and `TERM_PROGRAM`, and is as it was.
 
 <!-- @assert-absence target="src/cli.ts" symbol="Math.max(1, positiveInteger" reason="a concurrency of 0 is refused, as the configuration's key refuses it, and never made 1" -->
 <!-- @assert-present file="tests/refused-inputs.test.ts" reason="each refusal is held beside the input that must still be read" -->
+
+## Amended 2026-10-11: a spec pattern that matches no file is refused
+
+The amendment of 2026-10-09 left one input that is set and names nothing as
+it was: a pattern that matches no file beside one that does. It wanted "a
+decision of its own and a way to say a pattern may be empty". This is the
+decision, and the way is `--allow-empty`, which already said it of a whole
+list.
+
+A directory of specs that is renamed leaves its pattern behind. Every rule in
+it stops running, and the run reports on the rest and exits 0: the green
+check that verified nothing, which ADR-0007 refuses for a `target` that is
+not there and for a scope that holds no file. ESLint, Prettier and Biome each
+fail a pattern that matches no file unless a flag says otherwise. Measured
+through the launcher on 0.21.0 (Windows 11, Node 24.18.1), in a tree with one
+spec under `docs`. The pattern beside `docs/**/*.md` was a glob nothing fits,
+a file that is not there, a directory that is not there or a directory that
+holds no Markdown, written as an argument, as `--spec` or in `specs`, with
+and without `--strict`, and each gave the one answer:
+
+| Command | 0.21.0 | Now |
+| --- | --- | --- |
+| a run, `prove` | the report of the rest, exit 0, and no word of the pattern | exit 2 and one line; `--allow-empty` lets it through, and the line is said after the report |
+| the same, as `--json`, `--format sarif` or `--format gitlab` | the document of the rest, exit 0 | the same document, the line on stderr, exit 2; the JSON ones name the patterns in `unmatchedSpecs` |
+| `impact` | the dependents and the rules of the rest, exit 0 | the same written, then the line, exit 2; exit 0 under `--allow-empty` |
+| `query` | the rules of the rest, exit 0 | exit 2 and the line; `--json` still writes its document, with `unmatchedSpecs` |
+| `--watch` | the report of the rest | the same, and under it which pattern the session is waiting on |
+| `mcp` | every answer from the rest | the same, each ending in a note that names the pattern, with `unmatchedSpecs` in the structured content and in `spec://rules` |
+
+```text
+spec-guard: the pattern "old-docs" matched no spec file. Remove it from "specs" in package.json, or give --allow-empty where a pattern is meant to match nothing.
+```
+
+- **Each pattern is held to what the list was held to.** Where no spec at all
+  is exit 2, one pattern that matched none is exit 2. Where `--allow-empty`
+  lets the first through, it lets the second through, and the pattern is
+  still named on stderr. Where a command carries on because a file may yet
+  appear, a watch session and the server, it carries on and says which
+  pattern it is. `--strict` changes none of it, and `--allow-empty-scope` is
+  about a rule's scope, not a run's specs.
+- **Only a pattern somebody wrote is refused.** `docs/**/*.md`, read when
+  none is given, is alone: it matches, or there is no spec at all, which
+  every command answers as it did, `no spec files matched ...`. A pattern
+  matched when it found a file, though another pattern found the same one:
+  `docs` beside `docs/adr/0001.md` names nothing in vain.
+- **A person is told in the line alone, and a script is still handed its
+  document.** As with no spec at all, the report and GitHub's commands give
+  way to the line, since "every spec assertion holds" over the rest is the
+  claim being refused, and `--print-baseline` prints nothing for a run it
+  refuses. JSON, SARIF and GitLab are written as the run made them, and the
+  exit code is what says the answer is not to be trusted. `impact` writes its
+  dependents first, as it does with no spec at all, since no spec decides
+  them.
+- **`unmatchedSpecs` is a field added**, to the JSON of a run, `prove`,
+  `query` and `impact`, to the server's structured answers and to
+  `spec://rules`: the patterns as written, in the order given, each once. It
+  is there only when a pattern matched no file, no spec at all included, so
+  the document of a run whose every pattern matched is what it was.
+  `formatVersion` stays 1 in each: a field removed or renamed moves it, and a
+  field added does not.
+- **`query` has no way through.** It takes no `--allow-empty`, as it never
+  did for no spec at all, so a configuration that keeps a pattern for a place
+  nothing is written in yet makes every query exit 2 while the run beside it
+  passes under `--allow-empty`. spec-harness asks
+  `spec-guard query <paths> --json` for its context packet. Measured with
+  spec-harness 0.12.0 and this build installed side by side, `specs` holding
+  `docs/**/*.md` and a pattern that matches nothing: `context`, and
+  `start_round` from its server, still exit 0 and write the packet, whose
+  rules section reads "The rules spec-guard holds this code to could not be
+  read: spec-guard exited 2: the pattern ... matched no spec file", where it
+  listed the rules under `docs`. `guard`, `hook claude`, `hook git`, `audit`
+  and `premises` answer as before: the first three ask spec-guard nothing,
+  and the last two name a brief's own file as the pattern, which replaces
+  `specs`. No hook holds a write over it.
+- **Left as it is: `cites`.** With no spec at all it exits 0 and notes that
+  there was nothing to look for, 1 under `--strict` (ADR-0017), so there is
+  no refusal there for one pattern to be held to. It reads the patterns for
+  the families it derives, and a pattern that matches nothing beside one that
+  matches still drops its family without a word: citations of it are not
+  looked for. What `cites` says of such a pattern wants a decision of its
+  own.
+- **Where it is decided.** `expandSpecs` in `src/glob.ts` returns the
+  patterns that matched no file beside the files, `readSpecs` carries them on
+  the spec set as `unmatched`, and each report carries them as
+  `unmatchedSpecs`. `runSpecGuard`, `proveSpecGuard`, `queryRules` and
+  `impactOf` from the package report them and refuse nothing: their caller
+  reads the report. The command line refuses, in `src/cli.ts`.
+
+**Colour.** `FORCE_COLOR=false` turns colour off, where it forced it on. The
+amendment above had "any other `FORCE_COLOR` forces it", and Node and
+`supports-color` read `false` as off, so a pipeline that set it to keep
+escapes out of a log got them. The family reads it one way (spec-core's
+ADR-0005): `FORCE_COLOR` is off when it is exactly `0` or exactly `false`, on
+a terminal too; set to nothing it is as unset; and any other value forces
+colour, `FALSE`, `no` and `true` among them. Nothing else about colour
+changes.
+
+<!-- @assert-present file="tests/unmatched-specs.test.ts" reason="each command's answer to a pattern that matches no file is held beside the run that must not be refused" -->

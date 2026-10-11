@@ -1064,6 +1064,13 @@ instructions tell an agent when to call each: the rules before creating or
 changing a file, the dependents before changing a file others import, and the
 check after changing files.
 
+The server starts whatever its patterns match, since a spec may be written
+while it runs. Where no spec file matches, the first two tools answer with an
+error that names the patterns. Where one pattern matches none beside others
+that do, each answer is given from the rest and ends by naming the pattern it
+holds no rule from, with `unmatchedSpecs` in its structured content and in
+`spec://rules`.
+
 | Resource | What it holds |
 | --- | --- |
 | `spec://rules` | Every rule in force, as JSON |
@@ -1251,7 +1258,9 @@ src/db/client.ts
 - **Exit 2** for a path that does not exist, and for a run of `impact` in which
   no spec matched, as `query` does: the dependents are still written, but "no
   rules" over no specs is nothing measured. `--allow-empty` asks for the
-  dependents alone, and exits 0.
+  dependents alone, and exits 0. A spec pattern that matched no file beside
+  others that did is the same: the dependents and the rules that were read
+  are written, and it is exit 2 unless `--allow-empty`.
 - **The MCP server** answers the same question as `get_dependents`, with the
   same document.
 [ADR-0018](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0018-impact.md) has the table and what it leaves out.
@@ -1271,7 +1280,7 @@ spec-guard impact <paths...>           # the files that depend on each path, and
 | Option | Description |
 | --- | --- |
 | `-r, --root <path>` | Codebase root that assertions resolve against, a directory (default: cwd). One that is not there, or is a file, is exit 2 from every command |
-| `--spec <pattern>` | A spec glob or path, repeatable. `query` and `mcp` take their specs only from here. An empty one is refused: `.` is every Markdown file under the root |
+| `--spec <pattern>` | A spec glob or path, repeatable. `query` and `mcp` take their specs only from here. An empty one is refused: `.` is every Markdown file under the root. So is one that matches no file beside others that do (below) |
 | `-v, --verbose` | Print passing assertions too |
 | `--watch` | Report, then report again as the tree changes, until Ctrl+C |
 | `--fail-fast` | Stop at the first failing assertion |
@@ -1289,8 +1298,8 @@ spec-guard impact <paths...>           # the files that depend on each path, and
 | `--max-snippets <n>` | Failure snippets per assertion (default 5) |
 | `--concurrency <n>` | Search passes in flight at once, 1 or more (default 8) |
 | `--depth <n>` | `impact` only: follow dependents at most `n` imports away (default: all) |
-| `--allow-empty` | Exit 0 when no spec file matched the patterns, for a run, `prove` or `impact` (about the run, not an assertion) |
-| `--color` / `--no-color` | Force colour on or off. Without either flag, `NO_COLOR` set to anything turns it off; otherwise `FORCE_COLOR` turns it on, and `FORCE_COLOR=0` off; otherwise `TERM=dumb` turns it off; otherwise a terminal has colour. `NO_COLOR` or `FORCE_COLOR` set to nothing is as unset |
+| `--allow-empty` | Let a run, `prove` or `impact` through when no spec file matched the patterns, or when one pattern matched none beside others that did, each of which is exit 2 without it; such a pattern is still named on stderr (about the run, not an assertion) |
+| `--color` / `--no-color` | Force colour on or off. Without either flag, `NO_COLOR` set to anything turns it off; otherwise `FORCE_COLOR` turns it on, and `FORCE_COLOR=0` or `FORCE_COLOR=false` off; otherwise `TERM=dumb` turns it off; otherwise a terminal has colour. `NO_COLOR` or `FORCE_COLOR` set to nothing is as unset |
 
 Patterns are expanded by spec-guard itself, so quoted globs behave identically
 on Windows, macOS and Linux. A directory expands to the Markdown files in it.
@@ -1309,6 +1318,32 @@ on when it is given was on whatever followed its `=`, so `--strict=false` was
 strict and `--allow-empty=false` let an empty run through. An option a
 configuration can set has an opposite to turn it off, `--no-strict`; any
 other is left out.
+
+And so is a spec pattern that matches no file beside others that do. After
+`old-docs` was renamed, `spec-guard docs old-docs` ran the specs under `docs`
+and said nothing of the rest: every rule in the renamed directory had stopped
+running, and the check was green. A run, `prove`, `impact` and `query` now
+exit 2 with one line that names each such pattern, wherever it was written, on
+the command line or in `specs`:
+
+```text
+spec-guard: the pattern "old-docs" matched no spec file. Remove it from "specs" in package.json, or give --allow-empty where a pattern is meant to match nothing.
+```
+
+- **`--allow-empty`** lets a run, `prove` or `impact` through, for a place
+  nothing is written in yet, and the pattern is still named on stderr.
+  `query` takes no such option.
+- **A document a script reads is still written**, by `--json`,
+  `--format sarif` and `--format gitlab`, and the JSON ones carry the
+  patterns as `unmatchedSpecs`. The key is there only when a pattern matched
+  no file, and `formatVersion` stays 1: a field added does not move it.
+- **`--watch` and `mcp` carry on**, since the file may yet appear. A session
+  says which pattern it is waiting on under each report, and each answer the
+  server gives names the pattern it holds no rule from, with `unmatchedSpecs`
+  in its structured content.
+- **No spec at all is as it was**: `no spec files matched ...`, exit 2, or 0
+  under `--allow-empty`. So is `docs/**/*.md`, the pattern read when none is
+  given, which is alone and so matches or leaves no spec at all.
 
 ### Configuration
 
@@ -1424,7 +1459,9 @@ goes.
 
 `--watch` scans in-process, where it can see what each rule reads, so it refuses
 `--engine`, and `--json`, `--format json|sarif`, `--print-baseline`,
-`--fail-fast` and `--allow-empty`, which each describe a single run. It exits
+`--fail-fast` and `--allow-empty`, which each describe a single run. A spec
+pattern that matches no file does not stop a session: it waits for one to
+appear, and says which pattern that is under each report. It exits
 130 when stopped, since a session is neither a pass nor a failure. What it
 cannot see: a change the operating system never reports, a change behind a
 symbolic link, and anything outside the root. CI stays the authority.
@@ -1440,7 +1477,7 @@ should be able to tell them apart, so they are 1 and 2:
 | `1` | An assertion failed, or a directive was malformed; under `--strict`, the specs matched state no rule in force, so no assertion was executed |
 | `1`, `prove` | A rule survived, or under `--strict` none was proved |
 | `1`, `cites` | A comment cites a document that does not exist, or under `--strict` a citation is stale, a file was read in part, or no source file was read |
-| `2` | spec-guard could not run, or its answer did not arrive: bad usage, an option set to something that names nothing, a root that is not a directory, a malformed configuration, no spec files matched, `--engine rg` with no ripgrep, a watch that could not start, a `cites` family whose files match no document, a stdout its reader closed before all of the output was written, as a pipeline into `head` does, said in one line on stderr, or an error spec-guard did not expect, reported on stderr as `spec-guard: unexpected error:` with its stack |
+| `2` | spec-guard could not run, or its answer did not arrive: bad usage, an option set to something that names nothing, a root that is not a directory, a malformed configuration, no spec files matched, a spec pattern that matched none beside others that did, `--engine rg` with no ripgrep, a watch that could not start, a `cites` family whose files match no document, a stdout its reader closed before all of the output was written, as a pipeline into `head` does, said in one line on stderr, or an error spec-guard did not expect, reported on stderr as `spec-guard: unexpected error:` with its stack |
 | `130` | A `--watch` session was stopped |
 
 ## CI integration

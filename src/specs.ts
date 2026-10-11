@@ -12,7 +12,7 @@
 import path from 'node:path';
 
 import { MAX_CONCURRENT_READS } from './engine.js';
-import { expandSpecPatterns, toPosix } from './glob.js';
+import { expandSpecs, toPosix } from './glob.js';
 import { nodeIo, type Io } from './io.js';
 import { createMemo, NO_MEMO, type Memo } from './memo.js';
 import { parseDocument } from './parser.js';
@@ -50,6 +50,21 @@ export interface SpecSet {
   warnings: SpecWarning[];
   /** Directive-shaped comments in text no directive is read from, in file order. */
   masked: MaskedDirective[];
+  /**
+   * The patterns that matched no file, as written, in the order given. Absent
+   * from a set a caller built, which is read as none.
+   */
+  unmatched?: string[];
+}
+
+/**
+ * A report's `unmatchedSpecs`: the patterns of a spec set that matched no
+ * file. The key is there only when there is a pattern to name, as `config`
+ * is there only when something came from a configuration, so the document a
+ * script reads of a run whose every pattern matched is the one it always was.
+ */
+export function unmatchedSpecs(specs: Pick<SpecSet, 'unmatched'>): { unmatchedSpecs?: string[] } {
+  return specs.unmatched === undefined || specs.unmatched.length === 0 ? {} : { unmatchedSpecs: [...specs.unmatched] };
 }
 
 /** The root-relative display path of a spec file. */
@@ -61,8 +76,8 @@ export function specPath(root: string, file: string): string {
 
 /** Expands the patterns and reads every document they match. */
 export async function readSpecs(patterns: readonly string[], root: string, io: Io = nodeIo, memo: Memo = NO_MEMO): Promise<SpecSet> {
-  const files = await expandSpecPatterns(patterns, root, undefined, io);
-  return parseSpecs(root, files, await readSources(files, io), memo);
+  const { files, unmatched } = await expandSpecs(patterns, root, undefined, io);
+  return { ...parseSpecs(root, files, await readSources(files, io), memo), unmatched };
 }
 
 /**
@@ -91,8 +106,8 @@ export function createDocumentMemo(): DocumentMemo {
   const memo = createMemo();
   return {
     async read(patterns, root, io = nodeIo) {
-      const files = await expandSpecPatterns(patterns, root, undefined, io);
-      const specs = parseSpecs(root, files, await readSources(files, io), memo);
+      const { files, unmatched } = await expandSpecs(patterns, root, undefined, io);
+      const specs = { ...parseSpecs(root, files, await readSources(files, io), memo), unmatched };
       // What bounds it. A sweep drops every entry this read did not ask for, so
       // what is held afterwards is one parse of each document the current spec
       // set names: a document that left the set, or whose bytes changed, is

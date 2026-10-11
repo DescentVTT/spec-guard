@@ -314,6 +314,18 @@ describe.skipIf(!built)('an input that is set and names nothing, through the lau
     expect(ran.code).toBe(0);
     expect(ran.stderr).toBe('');
   });
+
+  it('refuses a spec pattern that matches no file beside one that does, and runs with --allow-empty, naming it', async () => {
+    // Exit 0 on 0.21.0, with the report of the one spec and no word of the other pattern.
+    const line = 'spec-guard: the pattern "docs/gone/*.md" matched no spec file';
+    const refused = await run(['docs/adr/0001-passing.md', 'docs/gone/*.md', '--engine', 'js'], { cwd: DEMO_REPO });
+    const through = await run(['docs/adr/0001-passing.md', 'docs/gone/*.md', '--engine', 'js', '--allow-empty'], { cwd: DEMO_REPO });
+
+    expect(refused).toEqual({ code: 2, stdout: '', stderr: `${line}. Remove it, or give --allow-empty where a pattern is meant to match nothing.\n` });
+    expect(through.code).toBe(0);
+    expect(through.stdout).toContain('every spec assertion holds');
+    expect(through.stderr).toBe(`${line}, which --allow-empty lets through.\n`);
+  });
 });
 
 describe.skipIf(!built)('spec-guard mcp, as a client launches it', () => {
