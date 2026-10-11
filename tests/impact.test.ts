@@ -420,6 +420,9 @@ describe('the rules in play', () => {
       '<!-- @assert-absence target="src/app/service.ts, src/db" symbol="x" -->',
       // Named after every dependent by path, and governing none of them.
       '<!-- @assert-present file="src/zz.ts" -->',
+      // A dependent is a file, so a glob leaves out the ones it does not
+      // match, where a directory asked about could hold a file it does.
+      '<!-- @assert-absence target="src" glob="*.tsx" symbol="x" -->',
     ];
     const report = await impact(['src/db/client.ts'], {}, { ...TREE, 'docs/adr/0004-more.md': `# ADR-0004: More\n\n${rules.join('\n')}\n` });
     expect(report.rules.filter((rule) => rule.document === 'docs/adr/0004-more.md').map((rule) => [rule.line, rule.governs])).toEqual([
@@ -428,6 +431,7 @@ describe('the rules in play', () => {
       [5, ['src/db/client.ts', 'src/app/cache.ts']],
       [6, ['src/app/service.ts', 'src/app/cache.ts', 'src/ui/view.tsx', 'src/ui/button.js']],
       [7, ['src/db/client.ts', 'src/app/service.ts', 'src/db/index.ts']],
+      [9, ['src/ui/view.tsx']],
     ]);
   });
 

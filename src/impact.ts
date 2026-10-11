@@ -56,7 +56,9 @@ function pythonCandidates(resolved: string): string[] {
 export function resolvePython(specifier: string, importingFile: string, files: ReadonlySet<string>): string | null {
   // Only ever called for a relative specifier, which starts with a dot. Each
   // dot after the first climbs a directory, and one that would climb out of
-  // the root names nothing here.
+  // the root names nothing here. The first run of dots in such a specifier is
+  // the one it starts with, so the pattern without its `^` is an equivalent
+  // mutant: the anchor says what the caller already holds.
   const dots = /^\.+/.exec(specifier)![0];
   const directory = path.posix.dirname(importingFile);
   const depth = directory === '.' ? 0 : directory.split('/').length;

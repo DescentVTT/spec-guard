@@ -48,6 +48,11 @@ describe('a tree changed in memory', () => {
     expect(await io.realpath(at('src/new/deeper/d.ts'))).toBe(at('src/new/deeper/d.ts'));
     const listed = await io.readDirectory(at('src/new/deeper'));
     expect(listed.map((item) => [item.name, item.isFile(), item.isDirectory(), item.isSymbolicLink()])).toEqual([['d.ts', true, false, false]]);
+    // A directory the edit made is listed as one, and as no file: a reader
+    // that asks an entry whether it is a file before it asks anything else
+    // is answered as the disk would answer it.
+    const above = await io.readDirectory(at('src/new'));
+    expect(above.map((item) => [item.name, item.isFile(), item.isDirectory(), item.isSymbolicLink()])).toEqual([['deeper', false, true, false]]);
   });
 
   it('replaces a file, listing it once with its new size', async () => {

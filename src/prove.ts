@@ -233,6 +233,9 @@ export function regexWitness(source: string): string | null {
     const char = source.charAt(at);
     at += 1;
     if (char === '(') {
+      // A pattern that may match nothing matches where the text starts, so
+      // this one finds the same without its `^`, and so does the class's body
+      // below: each anchor taken away is an equivalent mutant.
       const group = /^(?:\?(?::|<[A-Za-z_]\w*>|(<?[=!])))?/.exec(source.slice(at))!;
       at += group[0].length;
       const inner = alternation();
