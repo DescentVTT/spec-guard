@@ -57,7 +57,7 @@ export function resolvePython(specifier: string, importingFile: string, files: R
   // Only ever called for a relative specifier, which starts with a dot. Each
   // dot after the first climbs a directory, and one that would climb out of
   // the root names nothing here.
-  const dots = (/^\.+/.exec(specifier) as RegExpExecArray)[0];
+  const dots = /^\.+/.exec(specifier)![0];
   const directory = path.posix.dirname(importingFile);
   const depth = directory === '.' ? 0 : directory.split('/').length;
   if (dots.length - 1 > depth) return null;
@@ -359,11 +359,9 @@ export async function impactOf(options: ImpactOptions): Promise<ImpactReport> {
   // a query would show for each of them.
   const governed: QueryPath[] = [
     ...queries,
-    ...[...new Set(results.flatMap((result) => result.dependents.map((dependent) => dependent.file)))].map((file) => ({
-      path: file,
-      shape: 'file' as const,
-      absolutePath: path.resolve(options.root, file),
-    })),
+    ...[...new Set(results.flatMap((result) => result.dependents.map((dependent) => dependent.file)))].map(
+      (file) => ({ path: file, shape: 'file', absolutePath: path.resolve(options.root, file) } satisfies QueryPath),
+    ),
   ];
   const includeInactive = options.includeInactive ?? false;
   const rules: ImpactReport['rules'] = [];

@@ -303,7 +303,7 @@ export function tokenize(source: string): TokenizeResult {
       continue;
     }
 
-    if (char === '}' && templateStack.length > 0 && braceDepth === (templateStack.at(-1) as number) + 1) {
+    if (char === '}' && templateStack.length > 0 && braceDepth === templateStack.at(-1)! + 1) {
       // Closing a `${`: resume scanning the template that opened it.
       templateStack.pop();
       braceDepth -= 1;

@@ -566,7 +566,7 @@ function codeAfterQuote(source: string, at: number, syntax: CommentSyntax): numb
   if (syntax.digitSeparators) {
     const inWord = /[\w']/;
     let word = at;
-    while (word > 0 && inWord.test(source[word - 1] as string)) word -= 1;
+    while (word > 0 && inWord.test(source[word - 1]!)) word -= 1;
     if (/\d/.test(source[word] as string)) return at + 1;
   }
   return at;
@@ -606,7 +606,7 @@ function opensRegex(source: string, at: number, comments: readonly CommentRange[
   const before = source[index] as string;
   if (word.test(before)) {
     let from = index;
-    while (from > 0 && word.test(source[from - 1] as string)) from -= 1;
+    while (from > 0 && word.test(source[from - 1]!)) from -= 1;
     return REGEX_AFTER_WORD.has(source.slice(from, index + 1));
   }
   return REGEX_AFTER_PUNCT.has(before) && !(before === '}' && source[at + 1] === '>');

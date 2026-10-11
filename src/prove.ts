@@ -233,7 +233,7 @@ export function regexWitness(source: string): string | null {
     const char = source.charAt(at);
     at += 1;
     if (char === '(') {
-      const group = /^(?:\?(?::|<[A-Za-z_]\w*>|(<?[=!])))?/.exec(source.slice(at)) as RegExpExecArray;
+      const group = /^(?:\?(?::|<[A-Za-z_]\w*>|(<?[=!])))?/.exec(source.slice(at))!;
       at += group[0].length;
       const inner = alternation();
       at += 1;
@@ -242,7 +242,7 @@ export function regexWitness(source: string): string | null {
     if (char === '[') {
       // Up to the first `]` that is not escaped, even straight after the `[`:
       // in JavaScript `[]` is a class that matches nothing.
-      const body = (/^(?:\\.|[^\\\]])*/.exec(source.slice(at)) as RegExpExecArray)[0];
+      const body = /^(?:\\.|[^\\\]])*/.exec(source.slice(at))![0];
       at += body.length + 1;
       const member = new RegExp(`^[${body}]$`);
       return ['a', '0', ...body].find((candidate) => member.test(candidate)) ?? null;
@@ -391,7 +391,7 @@ async function layerViolations(assertion: Assertion, now: AssertionResult, conte
   const lower = places.files.find(below);
   if (lower === undefined) return 'no file under its targets belongs to exactly one layer that another layer is listed after';
   const layer = layersOf(lower)[0] as number;
-  const upper = moduleWitness(order[layer + 1] as string);
+  const upper = moduleWitness(order[layer + 1]!);
   if (upper === null) return `no module name matches the layer ${order[layer + 1]}`;
   const need = excess(assertion, now);
   const line = importLine(path.posix.extname(lower), upper);
@@ -438,7 +438,7 @@ async function structureViolations(assertion: Assertion, now: AssertionResult, c
     const remove: string[] = [];
     const orphans = places.files.slice(0, need);
     for (const file of orphans) {
-      const target = assertion.targets.find((candidate) => within(file, candidate)) as string;
+      const target = assertion.targets.find((candidate) => within(file, candidate))!;
       for (const template of structure.values) {
         const partner = expandPartner(template, file, target);
         if ((await context.io.stat(path.resolve(context.root, partner)))?.isFile()) remove.push(partner);

@@ -28,17 +28,21 @@ type Kind = 'file' | 'directory';
 
 /** A directory entry for a path the edit made, which has no inode to describe. */
 function entry(name: string, kind: Kind): Entry {
-  return {
+  // The part of a directory entry a run reads. It is cast by its name, since a
+  // mutation sweep reads nothing that stands under the cast itself.
+  const read = {
     name,
     isFile: () => kind === 'file',
     isDirectory: () => kind === 'directory',
     isSymbolicLink: () => false,
-  } as Entry;
+  };
+  return read as Entry;
 }
 
 /** The part of `stat` a run reads, for a path the edit made. */
 function made(kind: Kind, size: number): Stats {
-  return { isFile: () => kind === 'file', isDirectory: () => kind === 'directory', size } as Stats;
+  const read = { isFile: () => kind === 'file', isDirectory: () => kind === 'directory', size };
+  return read as Stats;
 }
 
 /** What a read of a path the edit removed answers. */
