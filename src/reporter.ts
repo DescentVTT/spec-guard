@@ -62,8 +62,12 @@ export function createPainter(color: boolean): (text: string, ...styles: Style[]
  * Honours the NO_COLOR, FORCE_COLOR and TERM conventions as the family reads
  * them (spec-core's ADR-0005): either of the first two set to nothing is as
  * unset, and `FORCE_COLOR=0` turns colour off, on a terminal too, where it
- * used to decide nothing. `TERM=dumb` is a terminal saying it draws none, and
- * was not read: it turns colour off unless something forces it.
+ * used to decide nothing. So does `FORCE_COLOR=false`, exactly that, which
+ * Node and `supports-color` read as off and this read as any other value,
+ * on: a pipeline that turned colour off that way got escapes in its log. Any
+ * other value forces colour, `FALSE` and `no` among them. `TERM=dumb` is a
+ * terminal saying it draws none, and was not read: it turns colour off unless
+ * something forces it.
  */
 export function shouldUseColor(
   stream: { isTTY?: boolean },
@@ -72,7 +76,7 @@ export function shouldUseColor(
 ): boolean {
   if (flag !== undefined) return flag;
   if (env['NO_COLOR']) return false;
-  if (env['FORCE_COLOR']) return env['FORCE_COLOR'] !== '0';
+  if (env['FORCE_COLOR']) return env['FORCE_COLOR'] !== '0' && env['FORCE_COLOR'] !== 'false';
   if (env['TERM'] === 'dumb') return false;
   return Boolean(stream.isTTY);
 }

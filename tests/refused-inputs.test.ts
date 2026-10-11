@@ -308,6 +308,15 @@ describe('colour, as the family reads the conventions', () => {
     expect(await coloured({ FORCE_COLOR: '0' }, false, '--color')).toBe(true);
   });
 
+  it('is off for FORCE_COLOR=false, which forced it on, and on for true, 1 and FALSE', async () => {
+    // Node and supports-color read `false` as off: a pipeline that set it to
+    // keep escapes out of its log got them.
+    expect(await coloured({ FORCE_COLOR: 'false' }, false)).toBe(false);
+    expect(await coloured({ FORCE_COLOR: 'false' }, true)).toBe(false);
+    for (const value of ['true', '1', 'FALSE']) expect(await coloured({ FORCE_COLOR: value }, false), value).toBe(true);
+    expect(await coloured({ FORCE_COLOR: 'false' }, false, '--color')).toBe(true);
+  });
+
   it('is off for TERM=dumb on a terminal, which was written escapes it had said it does not draw', async () => {
     expect(await coloured({ TERM: 'dumb' }, true)).toBe(false);
     // Unless colour is forced, by the variable or by the flag.
