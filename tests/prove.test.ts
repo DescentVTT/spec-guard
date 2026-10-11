@@ -824,7 +824,9 @@ describe('spec-guard prove', () => {
     const cli: CliIO = {
       stdout: (text) => out.push(text),
       stderr: (text) => err.push(text),
-      env: { NO_COLOR: '1', TERM: 'xterm' },
+      // A terminal that says it draws the marks, so they are the same on
+      // Windows as anywhere: a TERM alone no longer says so there.
+      env: { NO_COLOR: '1', WT_SESSION: '1' },
       cwd: root,
       isTTY: false,
     };
@@ -1279,7 +1281,8 @@ describe('prove under --strict, over specs that state no rule in force', () => {
     try {
       const prove = async (...argv: string[]) => {
         const out: string[] = [];
-        const io: CliIO = { stdout: (text) => out.push(text), stderr: () => {}, env: { NO_COLOR: '1', TERM: 'xterm' }, cwd: root, isTTY: false };
+        // WT_SESSION, so the marks are drawn on Windows as anywhere.
+        const io: CliIO = { stdout: (text) => out.push(text), stderr: () => {}, env: { NO_COLOR: '1', WT_SESSION: '1' }, cwd: root, isTTY: false };
         return { code: await main(['prove', 'docs/a.md', ...argv], io), out: out.join('\n') };
       };
       const refused = 'no rule was proved, so nothing was shown, which --strict refuses';
