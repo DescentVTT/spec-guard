@@ -225,6 +225,12 @@ describe('an id another owner qualifies', () => {
     for (const text of ['ADR-7 is at https://example.com/', 'https://example.com ADR-7', 'see: ADR-7', 'x=1; ADR-7', 'a://b\nADR-7']) {
       expect(at(text), text).toBe(false);
     }
+    // An id may hold a space, as `R 7` of the template `R {n}` does: the URL
+    // it is in is the text before it, back to a space, and the one inside it
+    // ends nothing.
+    const spaced = '<https://example.com/(R 7)>';
+    expect(qualified(spaced, spaced.indexOf('R 7'))).toBe(true);
+    expect(qualified('see (R 7)', 5)).toBe(false);
   });
 });
 

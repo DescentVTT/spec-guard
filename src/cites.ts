@@ -233,7 +233,7 @@ const LINKED: ReadonlySet<string> = new Set(['/', '#', '=', '?']);
 /** Whether an id is written after a `://` with no whitespace between: in a URL, whatever comes just before it. */
 function inUrl(text: string, start: number): boolean {
   let begin = start;
-  while (begin > 0 && !/\s/.test(text[begin - 1] as string)) begin -= 1;
+  while (begin > 0 && !/\s/.test(text[begin - 1]!)) begin -= 1;
   return text.slice(begin, start).includes('://');
 }
 
@@ -260,14 +260,14 @@ function inUrl(text: string, start: number): boolean {
  * built from one - neither is a document this template finds.
  */
 export function qualified(text: string, start: number): boolean {
-  if (LINKED.has(text[start - 1] as string) || inUrl(text, start)) return true;
+  if (LINKED.has(text[start - 1]!) || inUrl(text, start)) return true;
   // Neither loop needs to stop at the start of the text: before it is
   // undefined, which is no space and no character of a name.
   let end = start;
   while (text[end - 1] === ' ' || text[end - 1] === '\t') end -= 1;
   if (end === start) return false;
   let begin = end;
-  while (NAME.test(text[begin - 1] as string)) begin -= 1;
+  while (NAME.test(text[begin - 1]!)) begin -= 1;
   const word = text.slice(begin, end);
   if (/^(?:its|their)$/i.test(word)) return true;
   const possessive = /^(.*\p{L})['’]s$/u.exec(word);
@@ -406,7 +406,8 @@ export function deriveFamilies(documents: ReadonlyArray<{ file: string; title?: 
     );
     const where = directory === '' ? 'the root' : directory;
     // A series has a member, so the set has at least one entry.
-    const prefix = [...prefixes][0] as string | null;
+    const found = [...prefixes];
+    const prefix = found[0] as string | null;
     if (prefixes.size !== 1 || prefix === null) {
       notes.push(
         `${where} holds numbered specs whose titles do not all begin with one id and their own number, such as ADR-0001 in 0001-x.md, so how they are cited is not guessed; name them in "cites" to check citations of them`,

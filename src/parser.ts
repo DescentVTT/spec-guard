@@ -705,7 +705,7 @@ function unclosedBlocks(scan: MarkdownScan): Array<{ line: number; message: stri
     // An indented block is always closed: it ends where the indentation does.
     if (block.closed || scan.text.slice(block.end).trim() !== '') continue;
     if (scan.lines.slice(block.line, block.endLine).every((line) => line.blank)) continue;
-    const opener = (scan.lines[block.line - 1] as { content: string }).content.trim();
+    const opener = scan.lines[block.line - 1]!.content.trim();
     const what =
       block.kind === 'fenced'
         ? `the code fence ${opener} opened here is never closed`
@@ -884,9 +884,9 @@ function directivesOf(source: string, scan: MarkdownScan, context: ParseContext)
   const { status, problem } = statusOf(scan);
   const at = (line: number): SourceLocation => ({ file: context.file, relativeFile: context.relativeFile, line, column: 1 });
   const warnings: SpecWarning[] = [
-    ...unclosedFrontMatter(scan).map(({ line, message }) => ({ location: at(line), kind: 'unclosed-front-matter' as const, message })),
-    ...(problem === undefined ? [] : [{ location: at(problem.line), kind: 'unreadable-status' as const, message: problem.message, hint: UNREADABLE_STATUS_HINT }]),
-    ...unclosedBlocks(scan).map(({ line, message }) => ({ location: at(line), kind: 'unclosed-block' as const, message })),
+    ...unclosedFrontMatter(scan).map(({ line, message }) => ({ location: at(line), kind: 'unclosed-front-matter', message } satisfies SpecWarning)),
+    ...(problem === undefined ? [] : [{ location: at(problem.line), kind: 'unreadable-status', message: problem.message, hint: UNREADABLE_STATUS_HINT } satisfies SpecWarning]),
+    ...unclosedBlocks(scan).map(({ line, message }) => ({ location: at(line), kind: 'unclosed-block', message } satisfies SpecWarning)),
   ];
   const hidden = maskedDirectives(source, masked, scan, starts, context);
   return {

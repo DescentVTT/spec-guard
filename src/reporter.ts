@@ -9,6 +9,7 @@
 
 import { createHash } from 'node:crypto';
 
+import { literal } from './literal.js';
 import { mergeLedgers, tallyLedger, type ScopeLedger } from './scope.js';
 import type {
   AssertionResult,
@@ -35,7 +36,7 @@ export interface ReporterOptions {
 // Raw SGR codes - a colour library is not worth a dependency here.
 const ESC = String.fromCharCode(27);
 
-const ANSI = {
+const ANSI = literal({
   reset: `${ESC}[0m`,
   bold: `${ESC}[1m`,
   dim: `${ESC}[2m`,
@@ -46,7 +47,7 @@ const ANSI = {
   magenta: `${ESC}[35m`,
   cyan: `${ESC}[36m`,
   gray: `${ESC}[90m`,
-} as const;
+});
 
 type Style = keyof typeof ANSI;
 
@@ -270,7 +271,7 @@ function formatError(
     `${paint(glyphs.warn, 'yellow', 'bold')} ${paint(formatLocation(error), 'bold')}  ${paint('invalid directive', 'yellow')}`,
     `    ${error.message}`,
   ];
-  if (error.raw) lines.push(`    ${paint(error.raw.split('\n')[0] as string, 'dim')}`);
+  if (error.raw) lines.push(`    ${paint(error.raw.split('\n')[0]!, 'dim')}`);
   return lines;
 }
 
@@ -878,7 +879,7 @@ export function formatProve(report: ProveReport, options: ReporterOptions): stri
     '',
   ];
 
-  for (const outcome of ['survived', 'unprovable', 'killed'] as const) {
+  for (const outcome of ['survived', 'unprovable', 'killed'] satisfies ProveOutcome[]) {
     if (outcome === 'killed' && !options.verbose) continue;
     for (const result of report.results.filter((entry) => entry.outcome === outcome)) {
       lines.push(...formatProveResult(result, paint, glyphs), '');

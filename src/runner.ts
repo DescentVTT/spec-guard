@@ -614,11 +614,11 @@ export function resolveDirective(
     // --exclude refuse the same patterns: each would exclude nothing and say so
     // nowhere.
     const excludeError = excludeListError(splitList(attributes["exclude"]));
-    if (excludeError !== null) return fail(patternAttributeError("exclude", attributes["exclude"] as string, excludeError));
+    if (excludeError !== null) return fail(patternAttributeError("exclude", attributes["exclude"]!, excludeError));
     // A malformed glob is refused for the same reason: read as a literal, it
     // was a filter that matched nothing, and the rule over it passed. ADR-0015.
     const globError = patternListError(splitList(attributes["glob"]), globPatternError);
-    if (globError !== null) return fail(patternAttributeError("glob", attributes["glob"] as string, globError));
+    if (globError !== null) return fail(patternAttributeError("glob", attributes["glob"]!, globError));
 
     const rawTargets = splitList(attributes["target"]);
     const targets = (rawTargets.length > 0 ? rawTargets : ROOT_TARGETS).map((target) =>
@@ -866,7 +866,7 @@ function resolveStructure(
   const dirsError = dirs === undefined ? null : pathPatternError(dirs, (written as string).trim());
   if (dirsError !== null) throw new Error(`Attribute "dirs" has an ${dirsError}.`);
   const namesError = claim === "pattern" ? patternListError(values, globPatternError) : null;
-  if (namesError !== null) throw new Error(patternAttributeError("pattern", attributes["pattern"] as string, namesError));
+  if (namesError !== null) throw new Error(patternAttributeError("pattern", attributes["pattern"]!, namesError));
 
   const issue = values
     .map((value) => (required ? requiredEntryIssue(value) : claim === "partner" ? partnerTemplateIssue(value) : null))
@@ -1499,7 +1499,7 @@ function finishCycles(
 
   const matches = loops.map((loop): MatchLocation => {
     const hop = (at: number): ModuleReference =>
-      graph.via.get(edgeKey(loop[at] as string, loop[at + 1] as string)) as ModuleReference;
+      graph.via.get(edgeKey(loop[at]!, loop[at + 1]!))!;
     return {
       file: loop[0] as string,
       line: hop(0).line,

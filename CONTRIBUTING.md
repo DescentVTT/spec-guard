@@ -127,6 +127,17 @@ rather than raise the limit or drop mutants. Each shard mutates its own files
 reports. The merge refuses anything that is not exactly one sweep, and applies
 the 97% gate to the merged score with the same library Stryker's gate uses.
 
+A score is of the mutants a sweep made, and Stryker makes none of what stands
+under a TypeScript `as`: a table written `{ ... } as const`, or the `i - 1` of
+`lines[i - 1] as string`, is in no column of any report. So nothing a mutator
+reads stands under one here. Put the cast on a name, or write `x!` for a
+lookup that cannot miss, `satisfies` where there is a type to hold a value to,
+and `literal({ ... })` from `src/literal.ts` for a table that needs its
+literal types. `node scripts/mutation-unmeasured.mjs` counts what is left, the
+sweep's last job fails a count above the one that script records, and
+`tests/mutation-unmeasured.test.ts` fails the same in the ordinary suite
+([ADR-0003](docs/adr/0003-mutation-testing.md), amended 2026-10-12).
+
 ### Locally, and for one change
 
 Run it locally with `npm run test:mutation` if you like, but do not calibrate

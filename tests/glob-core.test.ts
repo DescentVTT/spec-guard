@@ -989,6 +989,11 @@ describe('a directive with a pattern that cannot be read', () => {
       'Attribute "glob" has an invalid glob pattern "*.{ts": a "{" is never closed. A list attribute splits on commas, so a {a,b} group cannot be written in one: list each pattern instead.',
     );
     expect(errorOf('<!-- @assert-absence target="src" symbol="X" exclude="{gen,dist}" -->')).toContain('A list attribute splits on commas');
+    // The names a structure rule holds files to are a list as well.
+    expect(errorOf('<!-- @assert-structure target="src" pattern="*.{ts,tsx}" -->')).toBe(
+      'Attribute "pattern" has an invalid glob pattern "*.{ts": a "{" is never closed. A list attribute splits on commas, so a {a,b} group cannot be written in one: list each pattern instead.',
+    );
+    expect(errorOf('<!-- @assert-structure target="src" pattern="a,{b" -->')).not.toContain('splits on commas');
     // Without a comma inside braces, the reason is the whole story.
     expect(errorOf('<!-- @assert-absence target="src" symbol="X" glob="a,{b" -->')).not.toContain('splits on commas');
   });

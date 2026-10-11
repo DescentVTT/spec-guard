@@ -225,11 +225,11 @@ export function stronglyConnected(nodes: readonly string[], successors: Readonly
     const frames = [visit(start)];
 
     while (frames.length > 0) {
-      const frame = frames[frames.length - 1] as { node: string; next: number };
+      const frame = frames[frames.length - 1]!;
       const out = successors.get(frame.node) ?? [];
 
       if (frame.next < out.length) {
-        const next = out[frame.next++] as string;
+        const next = out[frame.next++]!;
         if (!index.has(next)) frames.push(visit(next));
         else if (onStack.has(next)) low.set(frame.node, Math.min(low.get(frame.node) as number, index.get(next) as number));
         continue;
@@ -308,7 +308,7 @@ export function witness(component: readonly string[], successors: ReadonlyMap<st
     }
   }
 
-  const last = queue.find((node) => out(node).includes(start)) as string;
+  const last = queue.find((node) => out(node).includes(start))!;
   const loop = [start];
   for (let node = last; node !== start; node = previous.get(node) as string) loop.splice(1, 0, node);
   return [...loop, start];

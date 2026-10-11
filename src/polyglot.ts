@@ -103,7 +103,7 @@ function mask(source: string, language: ModuleLanguage): Masked {
   const { comments, strings, unterminated } = lexRanges(source, syntax);
   // The opening delimiter is left visible so a reader can see that a literal
   // starts here; everything inside it is blanked so no keyword can hide there.
-  const blanks = [...comments, ...strings.map(([start, end]) => [start + 1, end] as const)];
+  const blanks = [...comments, ...strings.map(([start, end]): CommentRange => [start + 1, end])];
   return { code: maskRanges(source, blanks), strings, source, starts: lineStarts(source), unterminated };
 }
 
@@ -335,12 +335,15 @@ function readPython(collector: Collector): void {
     PYTHON_STATEMENT.lastIndex = 0;
     let match: RegExpExecArray | null;
     while ((match = PYTHON_STATEMENT.exec(line.text)) !== null) {
-      const rest = line.text.slice(match.index + match[0].length).split(';')[0] as string;
+      const rest = line.text.slice(match.index + match[0].length).split(';')[0]!;
 
       if (match[1] === 'import') {
-        // `import a.b as x, c.d` - one statement, two dependencies.
+        // `import a.b as x, c.d` - one statement, two dependencies. A name is
+        // what stands before the first white space, which is the same text
+        // whether the split takes that one character or the run it begins:
+        // `/\s/` is an equivalent mutant here, and for `from . import` below.
         for (const clause of rest.split(',')) {
-          const name = clause.trim().split(/\s+/)[0] as string | undefined;
+          const name = clause.trim().split(/\s+/)[0];
           if (name) emit(collector, name, 'import', line.offset);
         }
         continue;
@@ -358,7 +361,7 @@ function readPython(collector: Collector): void {
       // which `from .pkg import name` cannot assume.
       const names = (from[3] as string).replace(/[()]/g, '');
       for (const clause of names.split(',').slice(0, MAX_EXPANSION)) {
-        const name = clause.trim().split(/\s+/)[0] as string | undefined;
+        const name = clause.trim().split(/\s+/)[0];
         if (name && name !== '*') emit(collector, `${dots}${name}`, 'import', line.offset);
       }
     }
@@ -423,8 +426,11 @@ export function expandUsePath(input: string): string[] | null {
   const text = input.trim();
   const open = text.indexOf('{');
   if (open === -1) {
-    // `a::b as c` and `a::b;` both name `a::b`.
-    const leaf = text.split(/\s+as\s+/)[0] as string;
+    // `a::b as c` and `a::b;` both name `a::b`. Only what stands before the
+    // alias is read, and white space left at its end is taken off on the next
+    // line: one space on either side of `as` splits at a place that reads the
+    // same, so the pattern without either `+` is an equivalent mutant.
+    const leaf = text.split(/\s+as\s+/)[0]!;
     const trimmed = leaf.replace(/[;\s]+$/, '').replace(/^::/, '');
     return trimmed ? [trimmed] : [];
   }
@@ -538,7 +544,7 @@ function readCsharp(collector: Collector): void {
     }
     if (token === '}') {
       depth -= 1;
-      while (open.length > 0 && (open.at(-1) as OpenNamespace).depth > depth) open.pop();
+      while (open.length > 0 && open.at(-1)!.depth > depth) open.pop();
       continue;
     }
 

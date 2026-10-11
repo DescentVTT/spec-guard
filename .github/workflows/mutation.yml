@@ -202,6 +202,15 @@ jobs:
           path: reports/stryker-incremental.json
           key: stryker-incremental-${{ github.sha }}
 
+      # A score is of the mutants a sweep made, and Stryker makes none of what
+      # stands under a TypeScript `as`. This counts the places a mutator would
+      # have applied there, in the sources the merged report holds, and fails
+      # a count above the one the script records as left (ADR-0003, amended
+      # 2026-10-12). After the cache is published: the verdicts a sweep
+      # reached are as good with a cast in the tree as without.
+      - name: Count what the sweep did not read
+        run: node scripts/mutation-unmeasured.mjs reports/mutation/mutation.json
+
       - name: Say which tier ran
         if: always()
         run: |

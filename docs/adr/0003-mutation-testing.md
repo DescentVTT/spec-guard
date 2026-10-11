@@ -2147,3 +2147,180 @@ is the suite itself: the 16 that survive and the 36 that time out run all of
 it, and a second added to it is a second for each of them in every sweep.
 
 <!-- @assert-present file="tests/mutation-order.test.ts" reason="the sweep's order reads vitest's record of the last run by vitest's keys only while a test holds the two together; see the amendment of 2026-10-11" -->
+
+## Amended 2026-10-12: nothing a sweep reads stands under an `as`
+
+Stryker 10.0.0 makes no mutant of anything that stands under a TypeScript
+`as` expression. Read from its source: `shouldSkip` in the instrumenter's
+`dist/src/transformers/babel-transformer.js` asks `isTypeNode`, whose list in
+`dist/src/util/syntax-helpers.js` holds `TSAsExpression`, and a node on that
+list is passed over with everything beneath it. `TSEnumDeclaration` is on
+it too; `satisfies`, `!` and a call are not. So a table written
+`{ ... } as const` was never mutated, nor the `i - 1` of
+`lines[i - 1] as string`, and no report said so: a mutant that was never
+made is in no column, and a score is of the mutants there are.
+
+**Measured before changing anything**, on main's full sweep of 5650396 (run
+38141055763, 12,607 mutants), by reading each source the report holds with
+the parser Stryker reads it with: 249 `as` expressions in the 27 files,
+outermost only; 41 of them over 77 places one of Stryker's mutators applies
+to; and no mutant of the report at any of the 77. A place is not a mutant:
+a mutator makes one to three of each.
+
+| File | Places | Under what |
+| --- | ---: | --- |
+| `overlay.ts` | 16 | the two objects a tree changed in memory answers a listing and a `stat` with, beside the file's 92 mutants |
+| `reporter.ts` | 16 | the table of escape codes, the order of a `prove` report, a line of a directive |
+| `polyglot.ts` | 11 | what follows a Python `import`, and the names in it; the blanked part of a string |
+| `prove.ts` | 6 | the two patterns that read a group and a class of a regular expression; two lookups |
+| `cli.ts` | 5 | what a refusal offers besides removing a pattern; the format a command line names |
+| `cites.ts`, `parser.ts`, `runner.ts` | 4 each | index reads, the kinds of a spec's warnings, the attribute a refusal quotes |
+| `graph.ts` | 3 | the walk of a strongly connected component, and the arrow that finds a cycle's last node |
+| `comments.ts`, `config.ts`, `impact.ts` | 2 each | index reads, the keys of a `cites` entry, a dependent as a query path |
+| `imports.ts`, `structure.ts` | 1 each | an index read |
+
+**The rewrite.** Each of the 41 was rewritten so that what a mutator reads
+stands under no `as`, with the types the compiler sees as they were:
+
+- 25 read `x!`, where the cast only took `undefined` or `null` off a lookup
+  that cannot miss: 17 index reads, two `at`, two `find`, three `exec`, and
+  a `Map.get` that held two index reads more;
+- 6 are hoisted to a constant and the cast put on its name: the two objects
+  in `src/overlay.ts`, the format a command line names, the two keys of a
+  `cites` entry, and one index read whose `null` a `!` would have dropped
+  with the `undefined`;
+- 5 are held to their type with `satisfies`: the three warnings of a parsed
+  spec, a dependent as a query path, the order of a `prove` report;
+- 2 tables keep their literal types through `literal()` in `src/literal.ts`,
+  a function with a `const` type parameter that returns its argument;
+- 1 arrow says its return type, where `as const` made a pair of numbers a
+  range;
+- 2 casts are gone: `split(...)[0] as string | undefined` is the type the
+  read already has.
+
+No `as` is left with a place under it. Three things were held to that
+"as they were". `dist/*.d.ts` is byte for byte what it was for every file
+there was. The emitted JavaScript differs in the six constants and the two
+calls. And each kind of rewrite was compiled beside the cast it replaced,
+in a scratch file, against a type that is `true` only for two identical
+types: that is what caught the index read above, which was first written
+`!` and lost its `null`. One type did change, and nothing reads it: the
+order of a `prove` report is a list of the three outcomes and no longer a
+tuple of them.
+
+**What holds it.** `scripts/mutation-unmeasured.mjs` is the measurement:
+it counts, under every outermost `as` and in every enum, the nodes one of
+Stryker's mutators applies to, and `LEFT` in it records how many the tree
+is known to keep, which is none.
+
+- The sweep's score job runs it on the merged report and fails a count
+  above `LEFT`, after the cache is published: the verdicts a sweep reached
+  are as good with a cast in the tree as without.
+- `tests/mutation-unmeasured.test.ts` runs it on the tree in the ordinary
+  suite, so a cast over a table fails a pull request's tests before its
+  sweep.
+- The same test holds the count to the Stryker installed. Over one source
+  written with every kind of place, Stryker's own instrumenter makes no
+  mutant under a cast; with the casts taken away, each replaced by as many
+  spaces, it mutates exactly the places the script counted, cast by cast,
+  and nothing behind a cast the script counted nothing under. Were the
+  first to fail, Stryker reads under a cast now and the script has nothing
+  left to say; were the second, Stryker has a mutator the script does not
+  know.
+- The script finds the parser from Stryker's instrumenter and not by its
+  name: npm hoists another major of `@babel/parser` to the top of
+  `node_modules` here, for the coverage provider. Where the instrumenter's
+  is not installed it measures nothing and fails, naming the package.
+- The test reads `src/` as text, which in Stryker's sandbox has every
+  mutant written at once, and loads the instrumenter, so a mutation run
+  leaves it out, with the three before it.
+
+**The sweeps.** Main's last, and two of the branch: the rewrite and the
+measurement (8521a20), then the tests and comments the first one asked for
+(b2592ef).
+
+| | Main, run 38141055763 | Run 38157699613 | Run 38160068910 |
+| --- | ---: | ---: | ---: |
+| Mutants | 12,607 | 12,705 | 12,705 |
+| Killed | 12,303 | 12,389 | 12,396 |
+| Timed out | 207 | 207 | 204 |
+| Survived | 95 | 107 | 103 |
+| No coverage | 2 | 2 | 2 |
+| Score | 99.23% | 99.14% | 99.17% |
+| Static mutants | 2,137 | 2,156 | 2,156 |
+| Places under an `as` | 77 | 0 | 0 |
+| Tests | 4,032 | 4,036 | 4,036 |
+| The shards, by the merge's own lines | 5m40s to 11m40s | 4m04s to 16m07s | 4m08s to 13m19s |
+
+Paired by where each starts, 12,605 of main's 12,607 mutants are in both
+sweeps of the branch, and differ from main's verdicts only in mutants that
+hang, killed by a test in one sweep and timed out in another, and in the
+one named below. So the 98 more are 100 made and 2 no longer made.
+
+The two were statements taken away whole, a `lines.push(...)` in
+`src/reporter.ts` and a `throw` in `src/runner.ts`, both killed in main's
+sweep. Stryker's CallExpression mutator takes a statement away only where
+that would be the statement's one mutant, and each of these holds a string
+that is mutated too. Asked directly, the instrumenter keeps the statement's
+mutant all the same where a cast stands in the statement, and drops it once
+the cast is a `!`: a cast had been making a mutant as well as hiding some.
+
+Of the 100 made, 19 are static. The first sweep killed 87, timed out on 2,
+each a loop that no longer ends, and left 11.
+
+Four were not equivalent, and each has a test now:
+
+- `kind === 'file'` made `true` for a directory entry of a tree changed in
+  memory (`src/overlay.ts`). A directory the edit made answered that it was
+  a file as well, and the walk never asked. `tests/overlay.test.ts` holds
+  that it is listed as a directory and as no file.
+- `'file'` made `""` for the shape of a dependent (`src/impact.ts`). A
+  dependent that is not a file is read as a directory, which a glob cannot
+  leave out, so every rule over its directory would be listed for it.
+  `tests/impact.test.ts` holds that a rule with `glob="*.tsx"` governs the
+  one dependent it matches.
+- `"pattern"` made `""` where a structure rule's refusal quotes the
+  attribute (`src/runner.ts`). The refusal lost what it says of a brace
+  group split at its comma, which `glob` and `exclude` were held to and
+  `pattern` was not. `tests/glob-core.test.ts` holds it.
+- `begin - 1` made `begin + 1` where an id is looked for in a URL
+  (`src/cites.ts`). It differs for an id whose second character is a space,
+  as `R 7` of a family `R {n}`. `tests/cites.test.ts` holds that such an id
+  is still in the URL before it.
+
+Seven answer as the source does on every input, and each has a comment at
+its code saying why:
+
+- an anchor on a pattern that may match nothing, which therefore matches
+  where the text starts with or without it: the two patterns in
+  `src/prove.ts` that read what opens a group and the body of a class;
+- the anchor on the dots a relative Python specifier begins with
+  (`src/impact.ts`): the function is called only for such a specifier,
+  whose first run of dots is the one it starts with;
+- a `+` on white space of which only the text before it is read: twice
+  where a Python `import` clause gives its name (`src/polyglot.ts`), and
+  once on each side of the `as` of a Rust `use`, where the one on the left
+  leaves a space the next line trims.
+
+Each of the seven was run beside the source's own pattern over 400,000
+random strings of the characters it is about and answered the same, and a
+control, the quantifier taken off the dots, differed on 28,760 of them.
+
+One survivor of both sweeps is not new: `target === '.'` made `true` in
+`src/impact.ts`, equivalent since 0.18.1 and "counted killed" in main's sweep
+by a test that ran out its 30 seconds, as in 0.19.0 and 0.22.0. So the 103
+are 0.23.0's 95, that one, and the seven. No survivor of main's is gone.
+
+The score reads lower than it did, 99.17% against 99.23%, and holds more:
+seven mutants that cannot be killed joined the count with 93 that are
+detected, where none of the 100 was made before. The `break` stays 97.
+
+**The minutes.** The escape codes are a table built when the module loads,
+so their eleven mutants are static, and each runs the suite from its
+quickest file. `reporter.ts` and its three, the shard that holds them, took
+11m00s for 2,448 mutants in main's sweep on a runner whose initial run took
+11.9 seconds, then 16m07s for 2,467 on one that took 19.1, and 11m56s on one
+that took 12.7. No shard is near the 20 minutes at which
+`scripts/mutation-shards.mjs` says to measure again.
+
+<!-- @assert-present file="scripts/mutation-unmeasured.mjs,tests/mutation-unmeasured.test.ts" reason="a cast hides what stands under it from the sweep only while nothing counts it; see the amendment of 2026-10-12" -->
