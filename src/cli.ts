@@ -136,6 +136,12 @@ export interface CliOptions {
   maxSnippets: number;
   concurrency: number;
   color?: boolean;
+  /**
+   * How a report's marks are drawn, where the command line said: true for
+   * `--ascii`, false for `--no-ascii`, and undefined for neither, which
+   * leaves it to the environment. ADR-0014.
+   */
+  ascii?: boolean;
   /** Re-run as the tree changes, until stopped. ADR-0014. */
   watch: boolean;
   help: boolean;
@@ -213,6 +219,9 @@ Options
       --allow-empty       Let a run, prove or impact through when no spec file matched, or when
                           one pattern matched none beside others that did (not an assertion)
       --color/--no-color  Force colour on or off (NO_COLOR, FORCE_COLOR and TERM=dumb are honoured)
+      --ascii/--no-ascii  Draw a report's marks as + x ! o, or as their Unicode forms, on any
+                          platform; the two together are refused. Without either,
+                          SPEC_GUARD_ASCII asks for ASCII unless it is empty, 0 or false
   -h, --help              Show this help
       --version           Print the version
 
@@ -310,6 +319,11 @@ function positiveInteger(name: string, value: string): number {
  * takes `--no-color`, which is true of its output already and is what a script
  * passes to every command it runs; `--color` it refuses, since it would promise
  * colour a query never prints.
+ *
+ * `--ascii` and `--no-ascii` go the same way. A query and `impact` draw no
+ * mark, so `--ascii` is true of what they write and is taken, and `--no-ascii`
+ * would promise marks neither draws and is refused. The server takes neither,
+ * as it takes neither of the colour pair (ADR-0014, amended 2026-10-12).
  */
 const NOT_FOR: Record<Exclude<Command, 'check'>, ReadonlySet<string>> = {
   query: new Set([
@@ -328,6 +342,7 @@ const NOT_FOR: Record<Exclude<Command, 'check'>, ReadonlySet<string>> = {
     '--max-snippets',
     '--concurrency',
     '--color',
+    '--no-ascii',
   ]),
   // Who depends on a path is answered from the graph, and the rules from the
   // specs, as a query answers them: nothing is run, so nothing about running
@@ -347,8 +362,9 @@ const NOT_FOR: Record<Exclude<Command, 'check'>, ReadonlySet<string>> = {
     '--max-snippets',
     '--concurrency',
     '--color',
+    '--no-ascii',
   ]),
-  mcp: new Set(['--verbose', '--watch', '--fail-fast', '--json', '--format', '--print-baseline', '--allow-empty', '--color', '--no-color']),
+  mcp: new Set(['--verbose', '--watch', '--fail-fast', '--json', '--format', '--print-baseline', '--allow-empty', '--color', '--no-color', '--ascii', '--no-ascii']),
   // A proof runs every rule, one at a time, with the scanner reading through a
   // door ripgrep cannot see through, and prints no snippets.
   prove: new Set(['--watch', '--fail-fast', '--print-baseline', '--engine', '--concurrency', '--max-snippets']),
@@ -559,6 +575,12 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
       case '--no-color':
         options.color = false;
         break;
+      case '--ascii':
+        options.ascii = true;
+        break;
+      case '--no-ascii':
+        options.ascii = false;
+        break;
       case '-r':
       case '--root': {
         const value = nextValue();
@@ -615,6 +637,13 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
         `Option ${name} takes no value, got "${inlineValue}". Give it alone or leave it out; an option a configuration can set has an opposite that turns it off, as --no-strict is to --strict.`,
       );
     }
+  }
+
+  // The last of `--color` and `--no-color` wins, and says nothing of the
+  // other. This pair is refused together: one of the two would go unread, and
+  // a line that asks for both ways of drawing the marks was not meant.
+  if (given.has('--ascii') && given.has('--no-ascii')) {
+    throw new UsageError('Option --ascii is given beside --no-ascii, and the marks are drawn one way or the other. Give one of the two.');
   }
 
   if (options.watch) {
@@ -853,7 +882,7 @@ async function runWatchSession(commandLine: CliOptions, io: CliIO): Promise<numb
     reporter: {
       color: shouldUseColor({ isTTY: io.isTTY }, commandLine.color, io.env),
       verbose: commandLine.verbose,
-      ascii: shouldUseAscii(io.env),
+      ascii: commandLine.ascii ?? shouldUseAscii(io.env),
     },
     onInterrupt: io.onInterrupt ?? (() => () => {}),
     ...(stdin === undefined
@@ -1002,7 +1031,7 @@ async function runProve(options: CliOptions, io: CliIO, use: ConfigUse | undefin
             : formatProve(report, {
                 color: shouldUseColor({ isTTY: io.isTTY }, options.color, io.env),
                 verbose: options.verbose,
-                ascii: shouldUseAscii(io.env),
+                ascii: options.ascii ?? shouldUseAscii(io.env),
               });
   // GitHub's commands are one per finding, and a proof with none has no line to write.
   if (written !== '') io.stdout(written);
@@ -1100,7 +1129,7 @@ async function runCites(options: CliOptions, io: CliIO, use: ConfigUse | undefin
             : formatCites(report, {
                 color: shouldUseColor({ isTTY: io.isTTY }, options.color, io.env),
                 verbose: false,
-                ascii: shouldUseAscii(io.env),
+                ascii: options.ascii ?? shouldUseAscii(io.env),
               });
   if (written !== '') io.stdout(written);
   // A spec pattern that matched no file beside others that did is named
@@ -1264,7 +1293,7 @@ async function run(argv: readonly string[], io: CliIO): Promise<number> {
         {
           color: shouldUseColor({ isTTY: io.isTTY }, options.color, io.env),
           verbose: options.verbose,
-          ascii: shouldUseAscii(io.env),
+          ascii: options.ascii ?? shouldUseAscii(io.env),
         },
         options.maxSnippets,
       ),

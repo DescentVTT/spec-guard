@@ -95,8 +95,17 @@ export function shouldUseColor(
  * them, by the version of Windows and not by what the output is drawn on. A
  * pre-commit hook started from cmd.exe had it, and drew the marks in a
  * console that has none of them (ADR-0014, amended 2026-10-11).
+ *
+ * `SPEC_GUARD_ASCII` asks for ASCII outright, on any platform, as spec-graph
+ * reads `SPEC_GRAPH_ASCII`: set to anything but nothing, `0` or `false`,
+ * each of which is how a script writes "off", in any case and with spaces
+ * around it. It asks for ASCII only. The marks are asked for with
+ * `--no-ascii`, and the command line reads that and `--ascii` before it
+ * asks here (ADR-0014, amended 2026-10-12).
  */
 export function shouldUseAscii(env: NodeJS.ProcessEnv = process.env, platform = process.platform): boolean {
+  const asked = (env['SPEC_GUARD_ASCII'] ?? '').trim().toLowerCase();
+  if (asked !== '' && asked !== '0' && asked !== 'false') return true;
   if (platform !== 'win32') return false;
   return !env['WT_SESSION'] && !env['TERM_PROGRAM'];
 }
