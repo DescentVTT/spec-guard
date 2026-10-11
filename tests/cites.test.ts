@@ -822,6 +822,10 @@ describe('a scan', () => {
     expect((await findCitations({ root: ROOT, patterns: ['docs/**/*.md'], io, paths: ['src/a.ts'], strict: true })).ok).toBe(true);
     expect((await findCitations({ root: ROOT, patterns: ['docs/**/*.md'], io, paths: ['src/a.ts', 'src/bin.ts'], strict: true })).ok).toBe(false);
     expect((await findCitations({ root: ROOT, patterns: ['docs/**/*.md'], io, paths: ['src/a.ts', 'src/bin.ts'] })).ok).toBe(true);
+    // The report says by name that this is what failed it, and only then.
+    expect(await findCitations({ root: ROOT, patterns: ['docs/**/*.md'], io, paths: ['src/a.ts', 'src/bin.ts'], strict: true })).toMatchObject({ unreadComments: true });
+    expect(await findCitations({ root: ROOT, patterns: ['docs/**/*.md'], io, paths: ['src/a.ts', 'src/bin.ts'] })).not.toHaveProperty('unreadComments');
+    expect(await findCitations({ root: ROOT, patterns: ['docs/**/*.md'], io, paths: ['src/a.ts'], strict: true })).not.toHaveProperty('unreadComments');
   });
 
   it('under --strict makes a stale citation an error, and fails on it', async () => {
@@ -1065,6 +1069,12 @@ describe('the report', () => {
     expect(last({ ...refused, summary: { ...clean.summary, files: 0 } })).toBe(`${RED}${B}✖ no source file was read, so nothing was checked, which --strict refuses${R}`);
     expect(last({ ...clean, summary: { ...clean.summary, stale: 1 }, ok: true })).toBe(`${YELLOW}${B}⚠ 1 citation names a document no longer in force${R}`);
     expect(last(clean)).toBe(`${GREEN}✔ every citation names a document in force${R}`);
+    // What else --strict fails a check for is a failure too, and painted as one.
+    const unread = { ...clean, ok: false, gaps: report.gaps, unreadComments: true as const, unmatchedSpecs: ['rfcs/*.md'], unreadFamily: { file: 'docs/adr/0001-kept.md' } };
+    expect(formatCites(unread, { color: true, verbose: false }).split('\n').slice(-2)).toEqual([
+      `${RED}${B}✖ 1 file could not be read in full, which --strict refuses${R}`,
+      `${RED}${B}✖ the pattern "rfcs/*.md" matched no spec file, so no citation of a document under it was looked for, which --strict refuses${R}`,
+    ]);
   });
 
   it('is versioned JSON for a script', () => {
@@ -1086,7 +1096,7 @@ describe('the report', () => {
     const [runOf] = sarif.runs;
     expect(runOf?.tool.driver.name).toBe('spec-guard cites');
     expect(runOf?.tool.driver.version).toBe('9.9.9');
-    expect(runOf?.tool.driver.rules.map((rule) => rule.id)).toEqual(['ghost-citation', 'stale-citation', 'nothing-read']);
+    expect(runOf?.tool.driver.rules.map((rule) => rule.id)).toEqual(['ghost-citation', 'stale-citation', 'nothing-read', 'unread-comments', 'unread-family']);
     expect(runOf?.results.map(({ ruleId, level, message }) => [ruleId, level, message.text])).toEqual([
       ['ghost-citation', 'error', 'src/a.ts:1 cites ADR-0007, which no document defines\nno document matching docs/adr/{n}*.md has the number 7; the nearest are ADR-0006 and ADR-0009'],
       ['stale-citation', 'warning', 'src/a.ts:1 cites ADR-0002, which is superseded - cite ADR-0003 instead\ndocs/adr/0002-old.md says "Superseded by ADR-0003."'],
@@ -1123,6 +1133,12 @@ describe('the report', () => {
         { id: 'ghost-citation', name: 'ghost-citation', shortDescription: { text: 'A comment cites a document that does not exist.' } },
         { id: 'stale-citation', name: 'stale-citation', shortDescription: { text: 'A comment cites a document that is no longer in force.' } },
         { id: 'nothing-read', name: 'nothing-read', shortDescription: { text: 'A check under --strict that read no source file for citations.' } },
+        { id: 'unread-comments', name: 'unread-comments', shortDescription: { text: 'A check under --strict that could not read every comment of a file.' } },
+        {
+          id: 'unread-family',
+          name: 'unread-family',
+          shortDescription: { text: 'A check under --strict that read its families off the specs, where a spec pattern matched no file.' },
+        },
       ],
     });
   });
@@ -1182,6 +1198,166 @@ describe('the report', () => {
     expect(await cites({ 'src/a.ts': '// ADR-0001\n' }, { strict: true })).not.toHaveProperty('nothingRead');
   });
 
+  it('fails a check under --strict for a file read in part, and says so on its last line and in every format that places findings', async () => {
+    // It exited 1 and ended "every citation names a document in force", and
+    // GitHub and GitLab showed a notice, and SARIF no result, for a red job.
+    const detail = 'src/lost.ts a string or comment was never closed, so what follows it may be misread';
+    const refused = `${detail}, so a citation in it may have been missed, which --strict refuses`;
+    const todo = 'make it a file whose comments can all be read, or leave it out of the check with --exclude';
+    const identity = createHash('sha256').update(['unread-comments', 'src/lost.ts', 'lost-scan'].join('\u0000')).digest('hex');
+    const files = { 'src/a.ts': '// ADR-0001\n', 'src/lost.ts': 'const s = "open\n' };
+
+    const strict = await cites(files, { strict: true });
+    expect([strict.ok, strict.unreadComments, strict.summary.files]).toEqual([false, true, 2]);
+    expect(formatCites({ ...strict, durationMs: 3 }, { color: false, verbose: false }).split('\n').slice(-2)).toEqual([
+      '1 citation in 2 files · 3ms',
+      '✖ 1 file could not be read in full, which --strict refuses',
+    ]);
+    expect(JSON.parse(formatCitesJson(strict))).toMatchObject({ ok: false, unreadComments: true, gaps: [{ file: 'src/lost.ts', reason: 'lost-scan' }] });
+    expect(JSON.parse(formatGitlab(citesAnnotations(strict)))).toEqual([
+      { check_name: 'unread-comments', severity: 'major', description: `${refused}. ${todo}`, fingerprint: identity, location: { path: 'src/lost.ts', lines: { begin: 1 } } },
+    ]);
+    expect(formatGithub(citesAnnotations(strict))).toBe(`::error file=src/lost.ts,line=1,title=unread-comments::${refused}. ${todo}`);
+    const sarif = JSON.parse(formatCitesSarif(strict)) as { runs: Array<{ results: unknown[]; invocations?: unknown[] }> };
+    expect(sarif.runs[0]?.results).toEqual([
+      {
+        ruleId: 'unread-comments',
+        level: 'error',
+        message: { text: `${refused}\n${todo}` },
+        locations: [{ physicalLocation: { artifactLocation: { uri: 'src/lost.ts' }, region: { startLine: 1, startColumn: 1 } } }],
+        partialFingerprints: { specGuardCitation: identity.slice(0, 32) },
+      },
+    ]);
+    // Beside the notification it always was.
+    expect(sarif.runs[0]?.invocations).toEqual([{ executionSuccessful: false, toolExecutionNotifications: [{ level: 'warning', message: { text: detail } }] }]);
+
+    // Two files are a finding each, and one line that counts them.
+    const two = await cites({ ...files, 'src/bin.ts': Buffer.from('// ADR-0001\u0000') }, { strict: true });
+    expect(formatCites(two, { color: false, verbose: false, ascii: true }).split('\n').at(-1)).toBe('x 2 files could not be read in full, which --strict refuses');
+    expect(citesAnnotations(two).map(({ rule, level, file }) => [rule, level, file])).toEqual([
+      ['unread-comments', 'error', 'src/bin.ts'],
+      ['unread-comments', 'error', 'src/lost.ts'],
+    ]);
+
+    // Without --strict the file is named and fails nothing: a notice with no
+    // more to it, no result, and a report that ends as one that passed does.
+    const relaxed = await cites(files);
+    expect(relaxed.ok).toBe(true);
+    expect(relaxed).not.toHaveProperty('unreadComments');
+    expect(JSON.parse(formatCitesJson(relaxed))).not.toHaveProperty('unreadComments');
+    expect(formatCites(relaxed, { color: false, verbose: false }).split('\n').at(-1)).toBe('✔ every citation names a document in force');
+    expect(citesAnnotations(relaxed)).toEqual([
+      {
+        rule: 'unread-comments',
+        identity: ['unread-comments', 'src/lost.ts', 'lost-scan'],
+        level: 'notice',
+        severity: 'info',
+        file: 'src/lost.ts',
+        line: 1,
+        message: `${detail}, so a citation in it may have been missed`,
+      },
+    ]);
+    expect((JSON.parse(formatCitesSarif(relaxed)) as typeof sarif).runs[0]?.results).toEqual([]);
+  });
+
+  it('fails a check under --strict for a family that went unread with a spec pattern, and says so on its last line and in every format', async () => {
+    // It exited 1 on a line of stderr alone: the report ended "every citation
+    // names a document in force", and no format placed a finding.
+    const said = 'the pattern "rfcs/*.md" matched no spec file, so no citation of a document under it was looked for, which --strict refuses';
+    const todo = 'remove the pattern, or name the documents comments cite in "cites", which finds each family by its own files';
+    const identity = createHash('sha256').update(['unread-family', 'rfcs/*.md'].join('\u0000')).digest('hex');
+    const patterns = ['docs/**/*.md', 'rfcs/*.md'];
+    const files = { 'src/a.ts': '// ADR-0001\n' };
+
+    const strict = await cites(files, { patterns, strict: true });
+    // Shown where a check that read nothing is: on the first spec, since it is about a pattern and no line.
+    expect([strict.ok, strict.unreadFamily, strict.unmatchedSpecs]).toEqual([false, { file: 'docs/adr/0001-kept.md' }, ['rfcs/*.md']]);
+    expect(strict).not.toHaveProperty('nothingRead');
+    expect(formatCites({ ...strict, durationMs: 3 }, { color: false, verbose: false }).split('\n').slice(-2)).toEqual(['1 citation in 1 file · 3ms', `✖ ${said}`]);
+    expect(JSON.parse(formatCitesJson(strict))).toMatchObject({ ok: false, unreadFamily: true, unmatchedSpecs: ['rfcs/*.md'] });
+    expect(JSON.parse(formatGitlab(citesAnnotations(strict)))).toEqual([
+      { check_name: 'unread-family', severity: 'major', description: `${said}. ${todo}`, fingerprint: identity, location: { path: 'docs/adr/0001-kept.md', lines: { begin: 1 } } },
+    ]);
+    expect(formatGithub(citesAnnotations(strict))).toBe(`::error file=docs/adr/0001-kept.md,line=1,title=unread-family::${said}. ${todo}`);
+    const sarif = JSON.parse(formatCitesSarif(strict)) as { runs: Array<{ results: unknown[] }> };
+    expect(sarif.runs[0]?.results).toEqual([
+      {
+        ruleId: 'unread-family',
+        level: 'error',
+        message: { text: `${said}\n${todo}` },
+        locations: [{ physicalLocation: { artifactLocation: { uri: 'docs/adr/0001-kept.md' }, region: { startLine: 1, startColumn: 1 } } }],
+        partialFingerprints: { specGuardCitation: identity.slice(0, 32) },
+      },
+    ]);
+
+    // Two patterns are one line that names both, and a finding each, known by its pattern.
+    const two = await cites(files, { patterns: ['old', ...patterns], strict: true });
+    expect(formatCites(two, { color: false, verbose: false, ascii: true }).split('\n').at(-1)).toBe(
+      'x the patterns "old", "rfcs/*.md" matched no spec file, so no citation of a document under them was looked for, which --strict refuses',
+    );
+    expect(citesAnnotations(two).map(({ identity: known, message, file }) => [known, message, file])).toEqual([
+      [['unread-family', 'old'], 'the pattern "old" matched no spec file, so no citation of a document under it was looked for, which --strict refuses', 'docs/adr/0001-kept.md'],
+      [['unread-family', 'rfcs/*.md'], said, 'docs/adr/0001-kept.md'],
+    ]);
+
+    // Without --strict the pattern is on the report and fails nothing.
+    const relaxed = await cites(files, { patterns });
+    expect([relaxed.ok, relaxed.unmatchedSpecs]).toEqual([true, ['rfcs/*.md']]);
+    expect(relaxed).not.toHaveProperty('unreadFamily');
+    expect(JSON.parse(formatCitesJson(relaxed))).not.toHaveProperty('unreadFamily');
+    expect(citesAnnotations(relaxed)).toEqual([]);
+    expect(formatCites(relaxed, { color: false, verbose: false }).split('\n').at(-1)).toBe('✔ every citation names a document in force');
+    // Families "cites" names are found by their own files and lose nothing: a strict check of them passes.
+    const named = await cites(files, { patterns, strict: true, families: [{ id: 'ADR-{n}', files: 'docs/adr/{n}-*.md' }] });
+    expect([named.ok, named.unmatchedSpecs]).toEqual([true, ['rfcs/*.md']]);
+    expect(named).not.toHaveProperty('unreadFamily');
+    expect(citesAnnotations(named)).toEqual([]);
+    // And a strict check whose patterns each matched has nothing of it.
+    expect(await cites(files, { strict: true })).not.toHaveProperty('unreadFamily');
+  });
+
+  it('never ends the report of a check that failed as it ends the report of one that passed', async () => {
+    const CLEAR = '+ every citation names a document in force';
+    const lines = (value: CitesReport): string[] => formatCites(value, { color: false, verbose: false, ascii: true }).split('\n');
+    const passed = await cites({ 'src/a.ts': '// ADR-0001\n' }, { strict: true });
+    expect([passed.ok, lines(passed).at(-1)]).toEqual([true, CLEAR]);
+
+    const GAP = 'x 1 file could not be read in full, which --strict refuses';
+    const FAMILY = 'x the pattern "rfcs/*.md" matched no spec file, so no citation of a document under it was looked for, which --strict refuses';
+    const files = { 'src/a.ts': '// ADR-0001\n', 'src/lost.ts': 'const s = "open\n' };
+    const patterns = ['docs/**/*.md', 'rfcs/*.md'];
+    // Every way a check fails, alone and together, as the check itself reports it.
+    const failing: Array<[Record<string, string | Buffer>, Partial<CitesOptions>, string[]]> = [
+      [{ 'src/a.ts': '// ADR-0007\n' }, {}, ['x 1 citation names a document that does not exist']],
+      [{ 'src/a.ts': '// ADR-0002\n' }, { strict: true }, ['x 1 citation names a document no longer in force']],
+      [files, { strict: true }, [GAP]],
+      [{ 'src/a.ts': '// ADR-0001\n' }, { patterns, strict: true }, [FAMILY]],
+      [{}, { strict: true }, ['x no source file was read, so nothing was checked, which --strict refuses']],
+      // Each on a line of its own, after the line a citation has.
+      [files, { patterns, strict: true }, [GAP, FAMILY]],
+      [{ ...files, 'src/a.ts': '// ADR-0007\n' }, { patterns, strict: true }, ['x 1 citation names a document that does not exist', GAP, FAMILY]],
+      [{ ...files, 'src/a.ts': '// ADR-0002\n' }, { strict: true }, ['x 1 citation names a document no longer in force', GAP]],
+      // The one file there was could not be read, so nothing was.
+      [{ 'src/bin.ts': Buffer.from('// ADR-0001\u0000') }, { strict: true }, ['x no source file was read, so nothing was checked, which --strict refuses', GAP]],
+    ];
+    for (const [tree, options, ending] of failing) {
+      const report = await cites(tree, options);
+      expect([report.ok, lines(report).slice(-ending.length)], ending.join(' / ')).toEqual([false, ending]);
+      // The line before them is the count, so these are all the report ends on.
+      expect(lines(report).at(-ending.length - 1), ending.join(' / ')).toMatch(/^\d+ citations? in \d+ files?/);
+      expect(lines(report)).not.toContain(CLEAR);
+    }
+
+    // The same trees without --strict, where only a ghost fails: what did not
+    // fail the check is not said as though it had.
+    for (const [tree, options] of failing.slice(1)) {
+      const report = await cites(tree, { ...options, strict: false });
+      if (report.summary.ghosts > 0) continue;
+      expect(report.ok).toBe(true);
+      expect(lines(report).filter((line) => line.startsWith('x '))).toEqual([]);
+    }
+  });
+
   it('places each finding, and each file read in part, for GitLab and GitHub', () => {
     expect(citesAnnotations(report)).toEqual([
       {
@@ -1214,11 +1390,12 @@ describe('the report', () => {
         message: 'src/lost.ts a string or comment was never closed, so what follows it may be misread, so a citation in it may have been missed',
       },
     ]);
-    const strict = { ...report, findings: report.findings.map((finding) => ({ ...finding, severity: 'error' as const })) };
+    // Under --strict each of the three fails the check, and each is an error.
+    const strict = { ...report, unreadComments: true as const, findings: report.findings.map((finding) => ({ ...finding, severity: 'error' as const })) };
     expect(citesAnnotations(strict).map(({ level, severity }) => [level, severity])).toEqual([
       ['error', 'critical'],
       ['error', 'critical'],
-      ['notice', 'info'],
+      ['error', 'major'],
     ]);
     // The hint follows the message in GitLab's description and GitHub's
     // message, as it did when it was written into the message; a finding

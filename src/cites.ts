@@ -632,16 +632,27 @@ export async function findCitations(options: CitesOptions): Promise<CitesReport>
   }));
 
   // A check that read nothing is shown on the first spec, as a run that
-  // verified nothing is, or on a document it would have cited, or on the root.
-  const nothingRead = strict && read === 0 ? { file: specs.documents[0]?.relativeFile ?? [...cited][0] ?? '.' } : undefined;
+  // verified nothing is, or on a document it would have cited, or on the
+  // root. So is a family that went unread: each is about the specs, and no
+  // line of them.
+  const shown = { file: specs.documents[0]?.relativeFile ?? [...cited][0] ?? '.' };
+  const nothingRead = strict && read === 0 ? shown : undefined;
+  // What else fails a strict check, each by its own name on the report. With
+  // `ok` alone to say it, a report of a check that failed for one of them
+  // ended "every citation names a document in force", and SARIF, GitHub and
+  // GitLab had no finding to show why (ADR-0017, amended 2026-10-12).
+  const partlyRead = strict && gaps.length > 0;
+  const lostFamily = strict && unreadFamily ? shown : undefined;
   return {
     // Under --strict, anything short of every comment read and every citation
     // in force fails: a stale citation, a file read in part, a family that
     // may have gone unread with its pattern, and a check that read nothing -
     // which one that looked for nothing did not - since the family contract
     // says a strict run refuses that rather than reports clean.
-    ok: ghosts === 0 && !(strict && (stale > 0 || gaps.length > 0 || unreadFamily)) && nothingRead === undefined,
+    ok: ghosts === 0 && !(strict && stale > 0) && !partlyRead && lostFamily === undefined && nothingRead === undefined,
     ...(nothingRead === undefined ? {} : { nothingRead }),
+    ...(partlyRead ? { unreadComments: true } : {}),
+    ...(lostFamily === undefined ? {} : { unreadFamily: lostFamily }),
     root: toPosix(root),
     durationMs: performance.now() - startedAt,
     families: familyReports,
