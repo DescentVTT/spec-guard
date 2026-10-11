@@ -277,6 +277,20 @@ describe('ripgrep asked for, and a variable that names none', () => {
     expect(warned.warnings).toHaveLength(1);
     expect(warned.warnings[0]).toMatch(/^ripgrep failed, fell back to the JavaScript engine \(ripgrep exited with code \d+: /);
   });
+
+  it('says that warning once, however many searches were handed over and failed the same way', async () => {
+    // Two rules over two directories, each past the budget: two search groups,
+    // and on 0.21.0 the same line twice.
+    const root = await tree({ ...pastEveryBudget('src'), ...pastEveryBudget('lib'), 'docs/b.md': '<!-- @assert-absence target="lib" symbol="Removed" -->\n' });
+    process.env.SPEC_GUARD_RG = process.execPath;
+    resetRipgrepProbe();
+    const { io, out } = createIO({ cwd: root });
+
+    expect(await main(['docs', '--json'], io)).toBe(EXIT_OK);
+    const report = JSON.parse(out.join('\n')) as { engine: string; summary: { total: number; passed: number }; warnings: string[] };
+    expect(report).toMatchObject({ engine: 'javascript', summary: { total: 2, passed: 2 } });
+    expect(report.warnings).toHaveLength(1);
+  });
 });
 
 describe('colour, as the family reads the conventions', () => {

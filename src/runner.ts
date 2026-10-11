@@ -1804,7 +1804,11 @@ export function reportRun(
   engine: { name: EngineName; fallbacks: readonly string[] },
   startedAt: number,
 ): RunResult {
-  const warnings = engine.fallbacks.map(
+  // One warning for one failure, however many searches met it: a program
+  // that is not ripgrep fails every search group the same way, and a run of
+  // four groups said the same line four times. Failures that differ are each
+  // said, in the order they were met.
+  const warnings = [...new Set(engine.fallbacks)].map(
     (message) =>
       `ripgrep failed, fell back to the JavaScript engine (${message})`,
   );
