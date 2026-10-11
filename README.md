@@ -1204,10 +1204,18 @@ in the file name:
 | --- | --- |
 | a ghost citation | 1 |
 | a stale citation | 0, as a warning; 1 under `--strict` |
-| a file read in part | 0; 1 under `--strict` |
+| a file read in part | 0, and named; 1 under `--strict`, and every format then places it as an `unread-comments` finding, an error, with what to do |
 | a check that looked for nothing or read no source file | 0; 1 under `--strict`, and every format then places it as a `nothing-read` finding, an error, with what to do |
-| a spec pattern that matched no file beside others that did | 0, and named on stderr; 1 under `--strict` where the families are read off the specs, and the line says so |
+| a spec pattern that matched no file beside others that did | 0, and named on stderr; 1 under `--strict` where the families are read off the specs: the line says so, and every format places an `unread-family` finding, an error, with what to do |
 | a family whose files match no document | 2 |
+
+The report's last line is `every citation names a document in force` only
+when the check passed. One that failed ends on what failed it: the line for
+a ghost, for a check that read nothing or for a stale citation, and then,
+under `--strict`, a line for the files read in part and a line for the
+patterns that left a family unread. `--json` says which of the three that
+are no citation it was, beside `"ok": false`: `nothingRead`,
+`unreadComments` or `unreadFamily`.
 
 `--json` (versioned by `formatVersion`), `--format sarif`, `--format github`
 and `--format gitlab` carry the same findings; `spec-guard cites src lib/a.ts`
@@ -1647,10 +1655,11 @@ Every format places the same findings, and `prove` and `cites` write all three:
 | a directive that could not be read | `error` | `major` |
 | a run or a proof under `--strict` that verified nothing (`nothing-verified`), on the first spec's first line | `error` | `major` |
 | a `cites` check under `--strict` that read no source file (`nothing-read`), on the first spec's first line | `error` | `major` |
+| a spec pattern that left a `cites` check under `--strict` without a family (`unread-family`), on the first spec's first line | `error` | `major` |
 | a stale citation (`cites`) | `warning`; `error` under `--strict` | `minor`; `critical` under `--strict` |
 | a rule `prove` could make no violation for | `notice` | `minor` |
 | a document read differently from how it was written (`spec-warning`: a status that cannot be read, front matter or a block never closed), on its line | `warning` | `minor` |
-| a file `cites` could read only in part | `notice` | `info` |
+| a file `cites` could read only in part (`unread-comments`), on its first line | `notice`; `error` under `--strict` | `info`; `major` under `--strict` |
 | a document not in force, on its first line | `notice` | `info` |
 
 A finding's GitLab `description`, and its GitHub message, is its message and

@@ -524,6 +524,17 @@ export function unmatchedClause(patterns: readonly string[]): string {
 }
 
 /**
+ * What a check of citations lost with such patterns where its families are
+ * read off the specs, as the clause that follows their naming. One wording
+ * for the command line's line, which every such check gets, and for the
+ * report and the findings of one `--strict` failed for it. `refused` is
+ * whether it did.
+ */
+export function unreadFamilyClause(patterns: readonly string[] | undefined, refused: boolean): string {
+  return `, so no citation of a document under ${patterns?.length === 1 ? 'it' : 'them'} was looked for${refused ? `, ${STRICT_REFUSES}` : ''}`;
+}
+
+/**
  * The version of a run's `--json` document. A field removed or renamed moves
  * it; a field added does not. The family contract (spec-core's ADR-0005) asks
  * it of every machine-readable output. The run's document went without one
@@ -1317,6 +1328,9 @@ function familyLine(family: CitesReport['families'][number]): string {
  * no comment syntax is known for, counted by extension: a citation in either
  * was not looked at, and a report that stayed quiet about them would read as
  * though it had been.
+ *
+ * It ends "every citation names a document in force" only when the check
+ * passed. One that failed ends on what failed it, a line for each.
  */
 export function formatCites(report: CitesReport, options: ReporterOptions): string {
   const paint = createPainter(options.color);
@@ -1361,22 +1375,32 @@ export function formatCites(report: CitesReport, options: ReporterOptions): stri
   lines.push(parts.join(paint(' · ', 'dim')));
 
   const names = (count: number): string => `${countLabel(count, 'citation')} ${count === 1 ? 'names' : 'name'}`;
+  const ending: string[] = [];
   if (summary.ghosts > 0) {
-    lines.push(paint(`${glyphs.fail} ${names(summary.ghosts)} a document that does not exist`, 'red', 'bold'));
+    ending.push(paint(`${glyphs.fail} ${names(summary.ghosts)} a document that does not exist`, 'red', 'bold'));
   } else if (report.families.length === 0 || summary.files === 0) {
     const said = report.families.length === 0 ? NOTHING_LOOKED_FOR : NOTHING_READ;
     // Under --strict the same sentence is why the check failed.
-    lines.push(
+    ending.push(
       report.nothingRead === undefined
         ? paint(`${glyphs.warn} ${said}`, 'yellow')
         : paint(`${glyphs.fail} ${said}, ${STRICT_REFUSES}`, 'red', 'bold'),
     );
   } else if (summary.stale > 0) {
-    lines.push(paint(`${report.ok ? glyphs.warn : glyphs.fail} ${names(summary.stale)} a document no longer in force`, 'yellow', 'bold'));
-  } else {
-    lines.push(paint(`${glyphs.pass} every citation names a document in force`, 'green'));
+    ending.push(paint(`${report.ok ? glyphs.warn : glyphs.fail} ${names(summary.stale)} a document no longer in force`, 'yellow', 'bold'));
   }
-  return lines.join('\n');
+  // What else a strict check failed for, each on a line of its own after
+  // whichever of those was said. Neither had a line, and the report of a
+  // check that exited 1 for one of them ended as the report of one that
+  // passed (ADR-0017, amended 2026-10-12).
+  if (report.unreadComments !== undefined) {
+    ending.push(paint(`${glyphs.fail} ${countLabel(report.gaps.length, 'file')} could not be read in full, ${STRICT_REFUSES}`, 'red', 'bold'));
+  }
+  if (report.unreadFamily !== undefined) {
+    ending.push(paint(`${glyphs.fail} ${unmatchedClause(report.unmatchedSpecs as string[])}${unreadFamilyClause(report.unmatchedSpecs, true)}`, 'red', 'bold'));
+  }
+  if (ending.length === 0) ending.push(paint(`${glyphs.pass} every citation names a document in force`, 'green'));
+  return [...lines, ...ending].join('\n');
 }
 
 /**
@@ -1392,6 +1416,11 @@ export function formatCitesJson(report: CitesReport): string {
       formatVersion: CITES_FORMAT_VERSION,
       ok: report.ok,
       ...(report.nothingRead === undefined ? {} : { nothingRead: true }),
+      // Beside `ok: false`, as `nothingRead` is: which of `gaps` and
+      // `unmatchedSpecs` a strict check failed for, where each alone is in
+      // the document of a check that passed too.
+      unreadComments: report.unreadComments,
+      ...(report.unreadFamily === undefined ? {} : { unreadFamily: true }),
       root: report.root,
       durationMs: Math.round(report.durationMs * 1000) / 1000,
       families: report.families,
@@ -1416,13 +1445,17 @@ const CITE_SARIF_RULES: ReadonlyArray<{ id: string; text: string }> = [
   { id: 'ghost-citation', text: 'A comment cites a document that does not exist.' },
   { id: 'stale-citation', text: 'A comment cites a document that is no longer in force.' },
   { id: 'nothing-read', text: 'A check under --strict that read no source file for citations.' },
+  { id: 'unread-comments', text: 'A check under --strict that could not read every comment of a file.' },
+  { id: 'unread-family', text: 'A check under --strict that read its families off the specs, where a spec pattern matched no file.' },
 ];
 
 /**
  * What `spec-guard cites` found, for code scanning: each finding on the line
  * of the comment, with its hint beneath. The fingerprint is the file, the rule
  * and the id as written, which survives the comment moving. A file whose
- * comments could not all be read, and every note, is a notification.
+ * comments could not all be read, and every note, is a notification. What a
+ * strict check failed for besides a citation is a result too, on a first
+ * line, since code scanning shows results and a red job needs one to show.
  */
 export function formatCitesSarif(report: CitesReport, options: { version?: string } = {}): string {
   const notifications = [
@@ -1452,7 +1485,7 @@ export function formatCitesSarif(report: CitesReport, options: { version?: strin
               locations: [sarifLocation(finding.file, finding.line, finding.column)],
               partialFingerprints: { specGuardCitation: fingerprint([finding.file, finding.rule, finding.cited]) },
             })),
-            ...nothingReadAnnotations(report).map((annotation) => ({
+            ...strictAnnotations(report).map((annotation) => ({
               ruleId: annotation.rule,
               level: SARIF_LEVEL,
               message: { text: `${annotation.message}\n${annotation.hint as string}` },
@@ -1473,7 +1506,10 @@ export function formatCitesSarif(report: CitesReport, options: { version?: strin
  *
  * A ghost is `critical`, an error. A stale citation is a warning and `minor`,
  * and under `--strict`, where it fails the check, an error and `critical`. A
- * file whose comments could not all be read is a notice on its first line.
+ * file whose comments could not all be read is a notice on its first line,
+ * and an error there under `--strict`, which fails the check for it as well;
+ * so is each spec pattern a strict check lost a family to, and a check that
+ * read nothing, on the first spec's first line.
  */
 export function citesAnnotations(report: CitesReport): Annotation[] {
   return [
@@ -1489,19 +1525,69 @@ export function citesAnnotations(report: CitesReport): Annotation[] {
         hint: finding.hint,
       }),
     ),
-    ...report.gaps.map(
-      (gap): Annotation => ({
-        rule: 'unread-comments',
-        identity: ['unread-comments', gap.file, gap.reason],
-        level: 'notice',
-        severity: 'info',
-        file: gap.file,
-        line: 1,
-        message: `${gap.file} ${gap.detail}, so a citation in it may have been missed`,
-      }),
-    ),
+    ...unreadCommentsAnnotations(report),
+    ...unreadFamilyAnnotations(report),
     ...nothingReadAnnotations(report),
   ];
+}
+
+/**
+ * What a `cites` check failed for under `--strict` besides a citation, as the
+ * findings SARIF places beside them: a file read in part, a family that went
+ * unread, a check that read nothing. Without `--strict` none fails the check,
+ * and a file read in part is a notification there.
+ */
+function strictAnnotations(report: CitesReport): Annotation[] {
+  return [
+    ...(report.unreadComments === undefined ? [] : unreadCommentsAnnotations(report)),
+    ...unreadFamilyAnnotations(report),
+    ...nothingReadAnnotations(report),
+  ];
+}
+
+/**
+ * A file whose comments could not all be read, on its first line: a notice,
+ * and under `--strict`, which fails the check for it, an error and `major`
+ * that says so, with what to do. It is the same finding either way, known by
+ * its file and what stopped the read.
+ */
+function unreadCommentsAnnotations(report: CitesReport): Annotation[] {
+  const refused = report.unreadComments !== undefined;
+  return report.gaps.map(
+    (gap): Annotation => ({
+      rule: 'unread-comments',
+      identity: ['unread-comments', gap.file, gap.reason],
+      level: refused ? 'error' : 'notice',
+      severity: refused ? 'major' : 'info',
+      file: gap.file,
+      line: 1,
+      message: `${gap.file} ${gap.detail}, so a citation in it may have been missed${refused ? `, ${STRICT_REFUSES}` : ''}`,
+      ...(refused ? { hint: 'make it a file whose comments can all be read, or leave it out of the check with --exclude' } : {}),
+    }),
+  );
+}
+
+/**
+ * A family a strict check could not read off the specs, which fails it: one
+ * finding to each spec pattern that matched no file, an error and `major`,
+ * placed where `nothing-read` is, since it is about a pattern and no line of
+ * a spec. It is known by its rule and the pattern.
+ */
+function unreadFamilyAnnotations(report: CitesReport): Annotation[] {
+  if (report.unreadFamily === undefined) return [];
+  const { file } = report.unreadFamily;
+  return (report.unmatchedSpecs as string[]).map(
+    (pattern): Annotation => ({
+      rule: 'unread-family',
+      identity: ['unread-family', pattern],
+      level: 'error',
+      severity: 'major',
+      file,
+      line: 1,
+      message: `${unmatchedClause([pattern])}${unreadFamilyClause([pattern], true)}`,
+      hint: 'remove the pattern, or name the documents comments cite in "cites", which finds each family by its own files',
+    }),
+  );
 }
 
 /**

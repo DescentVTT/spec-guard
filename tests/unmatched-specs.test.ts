@@ -553,8 +553,10 @@ describe('cites with a pattern that matched no file beside one that did', () => 
   it('fails under --strict, in a line that says why, and passes there when every pattern matched', async () => {
     const strict = await cli(await renamed(), ['cites', ...SPECS, '--strict']);
     expect([strict.code, strict.err]).toEqual([EXIT_FAILED, [lost(STRICT)]]);
-    // The report of the rest is written as it is without --strict.
-    expect(strict.out[0]).toMatch(/ every citation names a document in force$/);
+    // The report ends on why the check failed, in the clause the line has,
+    // where it ended as the report of a check that passed.
+    expect(strict.out[0]).toMatch(/\n. the pattern "rfcs\/\*\.md" matched no spec file, so no citation of a document under it was looked for, which --strict refuses$/);
+    expect(strict.out[0]).not.toContain('every citation names a document in force');
 
     expect(await cli(await kept(), ['cites', ...SPECS, '--strict'])).toMatchObject({ code: EXIT_OK, err: [] });
   });
@@ -588,21 +590,54 @@ describe('cites with a pattern that matched no file beside one that did', () => 
     expect(report).toMatchObject({ formatVersion: 1, ok: true, families: [{ id: 'ADR-{n}', source: 'derived' }], unmatchedSpecs: ['rfcs/*.md'] });
     // After the families, which are what the pattern left short.
     expect(Object.keys(report).slice(4, 6)).toEqual(['families', 'unmatchedSpecs']);
+    // Nothing failed for it, so nothing says that it did.
+    expect(report).not.toHaveProperty('unreadFamily');
 
     const strict = await cli(root, ['cites', ...SPECS, '--json', '--strict']);
     expect([strict.code, strict.err]).toEqual([EXIT_FAILED, [lost(STRICT)]]);
     const refused = JSON.parse(strict.out.join('\n')) as Record<string, unknown>;
-    expect(refused).toMatchObject({ ok: false, unmatchedSpecs: ['rfcs/*.md'], findings: [], gaps: [] });
-    // A source file was read: this is not the check that read nothing.
+    // Beside `ok`, which of the document's lists the check failed for.
+    expect(refused).toMatchObject({ ok: false, unreadFamily: true, unmatchedSpecs: ['rfcs/*.md'], findings: [], gaps: [] });
+    expect(Object.keys(refused).slice(0, 4)).toEqual(['formatVersion', 'ok', 'unreadFamily', 'root']);
+    // A source file was read, and all of it: this is neither of the other two.
     expect(refused).not.toHaveProperty('nothingRead');
+    expect(refused).not.toHaveProperty('unreadComments');
 
+    // Every format that places findings has one for a strict check that
+    // failed, on the first spec's first line, with what the line on stderr
+    // says and what to do. Each had none, and a red job nothing to show.
+    const found = 'the pattern "rfcs/*.md" matched no spec file, so no citation of a document under it was looked for, which --strict refuses';
+    const todo = 'remove the pattern, or name the documents comments cite in "cites", which finds each family by its own files';
     const sarif = await cli(root, ['cites', ...SPECS, '--format', 'sarif', '--strict']);
     expect([sarif.code, sarif.err]).toEqual([EXIT_FAILED, [lost(STRICT)]]);
-    expect(JSON.parse(sarif.out.join('\n'))).toMatchObject({ version: '2.1.0', runs: [{ results: [] }] });
+    expect(JSON.parse(sarif.out.join('\n'))).toMatchObject({
+      version: '2.1.0',
+      runs: [
+        {
+          results: [
+            {
+              ruleId: 'unread-family',
+              level: 'error',
+              message: { text: `${found}\n${todo}` },
+              locations: [{ physicalLocation: { artifactLocation: { uri: 'docs/adr/0001-kept.md' }, region: { startLine: 1 } } }],
+            },
+          ],
+        },
+      ],
+    });
+    expect(JSON.parse((await cli(root, ['cites', ...SPECS, '--format', 'sarif'])).out.join('\n'))).toMatchObject({ runs: [{ results: [] }] });
     expect(await cli(root, ['cites', ...SPECS, '--format', 'gitlab'])).toEqual({ code: EXIT_OK, out: ['[]'], err: [lost()] });
-    expect(await cli(root, ['cites', ...SPECS, '--format', 'gitlab', '--strict'])).toEqual({ code: EXIT_FAILED, out: ['[]'], err: [lost(STRICT)] });
-    // GitHub's commands are one per finding, and there is none: the line is what the log holds.
-    expect(await cli(root, ['cites', ...SPECS, '--format', 'github', '--strict'])).toEqual({ code: EXIT_FAILED, out: [], err: [lost(STRICT)] });
+    const gitlab = await cli(root, ['cites', ...SPECS, '--format', 'gitlab', '--strict']);
+    expect([gitlab.code, gitlab.err]).toEqual([EXIT_FAILED, [lost(STRICT)]]);
+    expect(JSON.parse(gitlab.out.join('\n'))).toMatchObject([
+      { check_name: 'unread-family', severity: 'major', description: `${found}. ${todo}`, location: { path: 'docs/adr/0001-kept.md', lines: { begin: 1 } } },
+    ]);
+    expect(await cli(root, ['cites', ...SPECS, '--format', 'github'])).toEqual({ code: EXIT_OK, out: [], err: [lost()] });
+    expect(await cli(root, ['cites', ...SPECS, '--format', 'github', '--strict'])).toEqual({
+      code: EXIT_FAILED,
+      out: [`::error file=docs/adr/0001-kept.md,line=1,title=unread-family::${found}. ${todo}`],
+      err: [lost(STRICT)],
+    });
   });
 
   it('only names the pattern where "cites" names the families, which lose nothing by it, under --strict too', async () => {
@@ -613,6 +648,10 @@ describe('cites with a pattern that matched no file beside one that did', () => 
     const strict = await cli(root, ['cites', '--strict', '--json']);
     expect([strict.code, strict.err]).toEqual([EXIT_OK, [named]]);
     expect(JSON.parse(strict.out.join('\n'))).toMatchObject({ ok: true, families: [{ id: 'ADR-{n}', source: 'config' }], unmatchedSpecs: ['rfcs/*.md'] });
+    expect(JSON.parse(strict.out.join('\n'))).not.toHaveProperty('unreadFamily');
+    // So no format places a finding, and the report ends as one that passed does.
+    expect(await cli(root, ['cites', '--strict', '--format', 'gitlab'])).toEqual({ code: EXIT_OK, out: ['[]'], err: [named] });
+    expect((await cli(root, ['cites', '--strict'])).out[0]).toMatch(/ every citation names a document in force$/);
 
     // A family that lost its documents to the rename is refused by its own glob, as it always was.
     const gone = await renamed({

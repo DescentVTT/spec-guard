@@ -41,8 +41,8 @@ import {
   runAnnotations,
   shouldUseAscii,
   shouldUseColor,
-  STRICT_REFUSES,
   unmatchedClause,
+  unreadFamilyClause,
 } from './reporter.js';
 import { DEFAULT_CONCURRENCY, DEFAULT_MAX_SNIPPETS, runSpecGuard, splitList, type RunOptions } from './runner.js';
 import { createSession, runWatch } from './watch.js';
@@ -1107,9 +1107,9 @@ async function runCites(options: CliOptions, io: CliIO, use: ConfigUse | undefin
   // where the families were read off the specs, since one kept under the
   // pattern was not, and the line says so. Families `cites` names are found
   // by their own globs: the pattern is named, and cost the check nothing.
-  const them = report.unmatchedSpecs?.length === 1 ? 'it' : 'them';
-  const lost =
-    options.cites === undefined ? `, so no citation of a document under ${them} was looked for${options.strictTargets ? `, ${STRICT_REFUSES}` : ''}` : '';
+  // Under --strict the report and each format's findings say it as well, in
+  // the clause this line has.
+  const lost = options.cites === undefined ? unreadFamilyClause(report.unmatchedSpecs, options.strictTargets) : '';
   const unmatched = unmatchedLine(report.unmatchedSpecs, use, 'final', lost);
   if (unmatched !== null) io.stderr(unmatched);
   return report.ok ? EXIT_OK : EXIT_FAILED;
