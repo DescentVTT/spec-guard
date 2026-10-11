@@ -984,8 +984,11 @@ list.
 A directory of specs that is renamed leaves its pattern behind. Every rule in
 it stops running, and the run reports on the rest and exits 0: the green
 check that verified nothing, which ADR-0007 refuses for a `target` that is
-not there and for a scope that holds no file. ESLint, Prettier and Biome each
-fail a pattern that matches no file unless a flag says otherwise. Measured
+not there and for a scope that holds no file. ESLint and Prettier each make
+a pattern that matches no file an error unless `--no-error-on-unmatched-pattern`
+says otherwise; Biome's flag of the kind, `--no-errors-on-unmatched`, is for
+a run in which no file was processed at all, by their documentation as read
+on 2026-10-11. Measured
 through the launcher on 0.21.0 (Windows 11, Node 24.18.1), in a tree with one
 spec under `docs`. The pattern beside `docs/**/*.md` was a glob nothing fits,
 a file that is not there, a directory that is not there or a directory that
