@@ -12,6 +12,23 @@ is deprecated before it goes, is spec-core's
 
 ## Unreleased
 
+### Changed
+
+- **`cites` names a spec pattern that matches no file beside others that do,
+  and fails for it under `--strict` where it reads its families off the
+  specs.** After a directory of RFCs was renamed, its pattern was dropped
+  without a word and its family with it: a comment citing an RFC nobody
+  wrote went from exit 1 to exit 0, under `--strict` too. The pattern is now
+  named on stderr after the report, `--json` carries it as `unmatchedSpecs`,
+  and without `--strict` the exit code is what it was. Families named in
+  `cites` are found by their own globs and lose nothing, so there the
+  pattern is only named; no spec at all is answered as before
+  ([ADR-0017](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0017-citations-in-comments.md)).
+  Upgrading: remove the pattern from `specs`, or point it at where the
+  documents are now. A project that keeps a pattern for a place nothing is
+  written in yet names its documents in `cites`, where a strict check does
+  not fail for it; `cites` takes no `--allow-empty`.
+
 ### Fixed
 
 - On Windows `TERM` no longer decides whether a report's marks are drawn: it

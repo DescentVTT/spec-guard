@@ -24,7 +24,7 @@ import { createExcludeMatcher, createPathMatcher, globBase, isGlob, pathPatternE
 import { nodeIo, type Io } from './io.js';
 import { INACTIVE_STATUSES, parseStatus, parseTitle } from './parser.js';
 import { createScope, isBinary } from './scope.js';
-import { readSpecs } from './specs.js';
+import { readSpecs, unmatchedSpecs } from './specs.js';
 import { lineStarts, locate } from './text.js';
 import type { CiteFamily, CiteFamilyReport, CiteFinding, CiteGap, CitesReport, SpecStatus } from './types.js';
 
@@ -499,6 +499,18 @@ export async function findCitations(options: CitesOptions): Promise<CitesReport>
   const declared = options.families ?? (derived as { families: CiteFamily[] }).families;
   const notes = derived === null ? [] : [...derived.notes];
   const source = derived === null ? 'config' : 'derived';
+  // A pattern that matched no file beside others that did: each pattern is
+  // held to what the list is held to (ADR-0017, amended 2026-10-11). With no
+  // spec at all the check answers as it always has, in a note and under
+  // --strict as `nothingRead`, and its report is the one it was.
+  const unmatched = specs.files.length === 0 ? {} : unmatchedSpecs(specs);
+  // Read off the specs, a family kept under such a pattern is one this check
+  // no longer has, and every citation of it goes unread: after a directory
+  // of RFCs was renamed, a comment citing an RFC nobody wrote passed, under
+  // --strict too. Named in `cites`, a family is found by its own glob, which
+  // is refused below when it finds no document, so there the pattern costs
+  // the check nothing and --strict has nothing to refuse.
+  const unreadFamily = derived !== null && unmatched.unmatchedSpecs !== undefined;
 
   const families: ResolvedFamily[] = [];
   for (const family of declared) {
@@ -623,14 +635,16 @@ export async function findCitations(options: CitesOptions): Promise<CitesReport>
   const nothingRead = strict && read === 0 ? { file: specs.documents[0]?.relativeFile ?? [...cited][0] ?? '.' } : undefined;
   return {
     // Under --strict, anything short of every comment read and every citation
-    // in force fails: a stale citation, a file read in part, and a check that
-    // read nothing - which one that looked for nothing did not - since the
-    // family contract says a strict run refuses that rather than reports clean.
-    ok: ghosts === 0 && !(strict && (stale > 0 || gaps.length > 0)) && nothingRead === undefined,
+    // in force fails: a stale citation, a file read in part, a family that
+    // may have gone unread with its pattern, and a check that read nothing -
+    // which one that looked for nothing did not - since the family contract
+    // says a strict run refuses that rather than reports clean.
+    ok: ghosts === 0 && !(strict && (stale > 0 || gaps.length > 0 || unreadFamily)) && nothingRead === undefined,
     ...(nothingRead === undefined ? {} : { nothingRead }),
     root: toPosix(root),
     durationMs: performance.now() - startedAt,
     families: familyReports,
+    ...unmatched,
     summary: {
       files: read,
       citations,

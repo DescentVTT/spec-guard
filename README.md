@@ -1178,6 +1178,14 @@ in the file name:
   whose titles all begin with one id and that number (`# ADR-0007: ...` in
   `0007-x.md`), is read as a family. Anything less is not guessed at: the
   command exits 0 with a note saying to name the documents.
+- **A spec pattern that matches no file** beside others that do is named on
+  stderr, after the report, and `--json` carries it as `unmatchedSpecs`.
+  Read off the specs, a family kept under that pattern is one the check no
+  longer has: after `rfcs` was renamed, a comment citing an RFC nobody wrote
+  passed. So without `cites` the line says no citation of a document under
+  it was looked for, and `--strict` fails the check. Families `cites` names
+  are found by their own globs and lose nothing: there the pattern is only
+  named. `cites` takes no `--allow-empty`, since it refuses nothing.
 - **Comment text only**, as the comment classifier reads it: an id in a string,
   a raw string or a YAML value is not a citation. Markdown is spec-graph's and
   is not read, nor are the spec files, the project's `exclude`, and the default
@@ -1198,6 +1206,7 @@ in the file name:
 | a stale citation | 0, as a warning; 1 under `--strict` |
 | a file read in part | 0; 1 under `--strict` |
 | a check that looked for nothing or read no source file | 0; 1 under `--strict`, and every format then places it as a `nothing-read` finding, an error, with what to do |
+| a spec pattern that matched no file beside others that did | 0, and named on stderr; 1 under `--strict` where the families are read off the specs, and the line says so |
 | a family whose files match no document | 2 |
 
 `--json` (versioned by `formatVersion`), `--format sarif`, `--format github`
@@ -1349,6 +1358,11 @@ spec-guard: the pattern "old-docs" matched no spec file. Remove it from "specs" 
   says which pattern it is waiting on under each report, and each answer the
   server gives names the pattern it holds no rule from, with `unmatchedSpecs`
   in its structured content.
+- **`cites` names it and goes on**, as it goes on with no spec at all: the
+  report is written, the line follows it on stderr, and `--json` carries
+  `unmatchedSpecs`. The exit code is the report's, which is 1 under
+  `--strict` where the families were read off the specs
+  ([`cites`](#do-the-comments-cite-decisions-in-force---cites)).
 - **No spec at all is as it was**: `no spec files matched ...`, exit 2, or 0
   under `--allow-empty`. So is `docs/**/*.md`, the pattern read when none is
   given, which is alone and so matches or leaves no spec at all.
@@ -1484,7 +1498,7 @@ should be able to tell them apart, so they are 1 and 2:
 | `0` | Every assertion held |
 | `1` | An assertion failed, or a directive was malformed; under `--strict`, the specs matched state no rule in force, so no assertion was executed |
 | `1`, `prove` | A rule survived, or under `--strict` none was proved |
-| `1`, `cites` | A comment cites a document that does not exist, or under `--strict` a citation is stale, a file was read in part, or no source file was read |
+| `1`, `cites` | A comment cites a document that does not exist, or under `--strict` a citation is stale, a file was read in part, no source file was read, or a spec pattern matched no file beside others that did and the families are read off the specs |
 | `2` | spec-guard could not run, or its answer did not arrive: bad usage, an option set to something that names nothing, a root that is not a directory, a malformed configuration, no spec files matched, a spec pattern that matched none beside others that did, `--engine rg` with no ripgrep, a watch that could not start, a `cites` family whose files match no document, a stdout its reader closed before all of the output was written, as a pipeline into `head` does, said in one line on stderr, or an error spec-guard did not expect, reported on stderr as `spec-guard: unexpected error:` with its stack |
 | `130` | A `--watch` session was stopped |
 
