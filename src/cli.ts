@@ -19,6 +19,7 @@ import { CONFIG_KEYS, ConfigError, engineNamed, findConfig, type ConfigKey, type
 import { formatImpact, formatImpactJson, impactOf } from './impact.js';
 import { excludeListError, patternListError, specPatternError, toPosix } from './glob.js';
 import { nodeIo, readText, watchTree } from './io.js';
+import { literal } from './literal.js';
 import { createMcpHandler, serveStdio } from './mcp.js';
 import { formatQuery, formatQueryJson, queryRules, resolveQueryPath } from './query.js';
 import { proveSpecGuard } from './prove.js';
@@ -41,8 +42,8 @@ import {
   runAnnotations,
   shouldUseAscii,
   shouldUseColor,
-  STRICT_REFUSES,
   unmatchedClause,
+  unreadFamilyClause,
 } from './reporter.js';
 import { DEFAULT_CONCURRENCY, DEFAULT_MAX_SNIPPETS, runSpecGuard, splitList, type RunOptions } from './runner.js';
 import { createSession, runWatch } from './watch.js';
@@ -103,7 +104,7 @@ const LISTS: Readonly<Partial<Record<Command, string>>> = { query: 'rules', impa
 
 /** `a or b`, `a, b or c`: every command that takes a format has at least two. */
 function either(words: readonly string[]): string {
-  return `${words.slice(0, -1).join(', ')} or ${words[words.length - 1] as string}`;
+  return `${words.slice(0, -1).join(', ')} or ${words[words.length - 1]!}`;
 }
 
 export interface CliOptions {
@@ -497,7 +498,9 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
         options.format = 'json';
         break;
       case '--format': {
-        const value = nextValue().toLowerCase() as OutputFormat;
+        const written = nextValue().toLowerCase();
+        // Whether it is a format at all is decided just below, by the lists.
+        const value = written as OutputFormat;
         // mcp refused --format above, so every command that gets here writes one.
         const formats = FORMATS[command as Exclude<Command, 'mcp'>];
         if (!formats.includes(value)) {
@@ -793,10 +796,10 @@ function runOptionsOf(options: CliOptions): Omit<RunOptions, 'patterns' | 'root'
  * option, a query. Each is looked up by its name, where a comparison with one
  * of them read any other word as the second.
  */
-const WAY_THROUGH = {
+const WAY_THROUGH = literal({
   refused: ', or give --allow-empty where a pattern is meant to match nothing',
   final: '',
-} as const;
+});
 
 /**
  * What is said of spec patterns that matched no file beside ones that did,
@@ -1136,9 +1139,9 @@ async function runCites(options: CliOptions, io: CliIO, use: ConfigUse | undefin
   // where the families were read off the specs, since one kept under the
   // pattern was not, and the line says so. Families `cites` names are found
   // by their own globs: the pattern is named, and cost the check nothing.
-  const them = report.unmatchedSpecs?.length === 1 ? 'it' : 'them';
-  const lost =
-    options.cites === undefined ? `, so no citation of a document under ${them} was looked for${options.strictTargets ? `, ${STRICT_REFUSES}` : ''}` : '';
+  // Under --strict the report and each format's findings say it as well, in
+  // the clause this line has.
+  const lost = options.cites === undefined ? unreadFamilyClause(report.unmatchedSpecs, options.strictTargets) : '';
   const unmatched = unmatchedLine(report.unmatchedSpecs, use, 'final', lost);
   if (unmatched !== null) io.stderr(unmatched);
   return report.ok ? EXIT_OK : EXIT_FAILED;

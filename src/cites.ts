@@ -233,7 +233,7 @@ const LINKED: ReadonlySet<string> = new Set(['/', '#', '=', '?']);
 /** Whether an id is written after a `://` with no whitespace between: in a URL, whatever comes just before it. */
 function inUrl(text: string, start: number): boolean {
   let begin = start;
-  while (begin > 0 && !/\s/.test(text[begin - 1] as string)) begin -= 1;
+  while (begin > 0 && !/\s/.test(text[begin - 1]!)) begin -= 1;
   return text.slice(begin, start).includes('://');
 }
 
@@ -260,14 +260,14 @@ function inUrl(text: string, start: number): boolean {
  * built from one - neither is a document this template finds.
  */
 export function qualified(text: string, start: number): boolean {
-  if (LINKED.has(text[start - 1] as string) || inUrl(text, start)) return true;
+  if (LINKED.has(text[start - 1]!) || inUrl(text, start)) return true;
   // Neither loop needs to stop at the start of the text: before it is
   // undefined, which is no space and no character of a name.
   let end = start;
   while (text[end - 1] === ' ' || text[end - 1] === '\t') end -= 1;
   if (end === start) return false;
   let begin = end;
-  while (NAME.test(text[begin - 1] as string)) begin -= 1;
+  while (NAME.test(text[begin - 1]!)) begin -= 1;
   const word = text.slice(begin, end);
   if (/^(?:its|their)$/i.test(word)) return true;
   const possessive = /^(.*\p{L})['’]s$/u.exec(word);
@@ -406,7 +406,8 @@ export function deriveFamilies(documents: ReadonlyArray<{ file: string; title?: 
     );
     const where = directory === '' ? 'the root' : directory;
     // A series has a member, so the set has at least one entry.
-    const prefix = [...prefixes][0] as string | null;
+    const found = [...prefixes];
+    const prefix = found[0] as string | null;
     if (prefixes.size !== 1 || prefix === null) {
       notes.push(
         `${where} holds numbered specs whose titles do not all begin with one id and their own number, such as ADR-0001 in 0001-x.md, so how they are cited is not guessed; name them in "cites" to check citations of them`,
@@ -631,16 +632,27 @@ export async function findCitations(options: CitesOptions): Promise<CitesReport>
   }));
 
   // A check that read nothing is shown on the first spec, as a run that
-  // verified nothing is, or on a document it would have cited, or on the root.
-  const nothingRead = strict && read === 0 ? { file: specs.documents[0]?.relativeFile ?? [...cited][0] ?? '.' } : undefined;
+  // verified nothing is, or on a document it would have cited, or on the
+  // root. So is a family that went unread: each is about the specs, and no
+  // line of them.
+  const shown = { file: specs.documents[0]?.relativeFile ?? [...cited][0] ?? '.' };
+  const nothingRead = strict && read === 0 ? shown : undefined;
+  // What else fails a strict check, each by its own name on the report. With
+  // `ok` alone to say it, a report of a check that failed for one of them
+  // ended "every citation names a document in force", and SARIF, GitHub and
+  // GitLab had no finding to show why (ADR-0017, amended 2026-10-12).
+  const partlyRead = strict && gaps.length > 0;
+  const lostFamily = strict && unreadFamily ? shown : undefined;
   return {
     // Under --strict, anything short of every comment read and every citation
     // in force fails: a stale citation, a file read in part, a family that
     // may have gone unread with its pattern, and a check that read nothing -
     // which one that looked for nothing did not - since the family contract
     // says a strict run refuses that rather than reports clean.
-    ok: ghosts === 0 && !(strict && (stale > 0 || gaps.length > 0 || unreadFamily)) && nothingRead === undefined,
+    ok: ghosts === 0 && !(strict && stale > 0) && !partlyRead && lostFamily === undefined && nothingRead === undefined,
     ...(nothingRead === undefined ? {} : { nothingRead }),
+    ...(partlyRead ? { unreadComments: true } : {}),
+    ...(lostFamily === undefined ? {} : { unreadFamily: lostFamily }),
     root: toPosix(root),
     durationMs: performance.now() - startedAt,
     families: familyReports,

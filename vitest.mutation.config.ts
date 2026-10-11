@@ -47,7 +47,7 @@ export class QuickestFirst extends BaseSequencer {
 /**
  * Vitest configuration for mutation runs.
  *
- * The normal one, less three suites, with the order above and a shorter
+ * The normal one, less four suites, with the order above and a shorter
  * timeout. Two of the suites read the build, which a mutation run does not
  * have. The end-to-end suite spawns
  * `node bin/spec-guard.js`, which loads the *built* dist/ rather than the
@@ -62,11 +62,15 @@ export class QuickestFirst extends BaseSequencer {
  * nothing under `src/`, so it can kill no mutant, and it loads this file and
  * vitest's own sequencer with it, which every static mutant that survives
  * would wait for.
+ *
+ * The fourth, tests/mutation-unmeasured.test.ts, holds the count of what a
+ * sweep does not read. It counts in `src/` as text, where the sandbox has
+ * every mutant written at once, and it loads Stryker's instrumenter.
  */
 export default defineConfig({
   test: {
     include: ['tests/**/*.test.ts'],
-    exclude: ['tests/e2e.test.ts', 'tests/replay-scripts.test.ts', 'tests/mutation-order.test.ts', 'tests/fixtures/**', '**/node_modules/**'],
+    exclude: ['tests/e2e.test.ts', 'tests/replay-scripts.test.ts', 'tests/mutation-order.test.ts', 'tests/mutation-unmeasured.test.ts', 'tests/fixtures/**', '**/node_modules/**'],
     environment: 'node',
     testTimeout: 30_000,
     hookTimeout: 30_000,

@@ -27,6 +27,23 @@ is deprecated before it goes, is spec-core's
   `--no-ascii`, as they take `--no-color` and refuse `--color`
   ([ADR-0014](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0014-configuration-and-watch.md)).
 
+### Changed
+
+- **A `cites --strict` that fails for a file read in part, or for a family
+  that went unread with a spec pattern, says so in its report.** Each exited
+  1 under a report that ended "every citation names a document in force";
+  GitHub and GitLab showed the file as a notice, SARIF as no result, and
+  none of the three showed the family at all. The report now ends on a line
+  for each, after the line a citation has. A file read in part is an
+  `unread-comments` error, `major` in GitLab, and a result in SARIF; each
+  pattern is an `unread-family` error on the first spec's first line; and
+  `--json` has `"unreadComments": true` or `"unreadFamily": true` beside
+  `"ok": false`. No exit code changes, and nothing does without `--strict`
+  ([ADR-0017](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0017-citations-in-comments.md)).
+  Upgrading: nothing that passed fails. A script that reads the report's
+  last line, GitHub's `::error` commands, or the errors of a GitLab or SARIF
+  document now reads the failure there, for a check that was already exit 1.
+
 ## 0.23.0
 
 `cites` names a spec pattern that matches no file beside others that do, and

@@ -602,8 +602,9 @@ export interface CiteGap {
 
 export interface CitesReport {
   /**
-   * No ghost, and under `--strict` no stale citation, no file left unread and
-   * no family that may have gone unread with a spec pattern (`unmatchedSpecs`).
+   * No ghost, and under `--strict` no stale citation, no file left unread
+   * (`unreadComments`), no family that may have gone unread with a spec
+   * pattern (`unreadFamily`), and a source file read (`nothingRead`).
    */
   ok: boolean;
   root: string;
@@ -648,4 +649,17 @@ export interface CitesReport {
    * document cited, else the root. Absent otherwise. ADR-0017.
    */
   nothingRead?: { file: string };
+  /**
+   * Set when the check failed under `--strict` because a file was read in
+   * part (`gaps`). Absent otherwise: without `--strict` such a file is named
+   * and fails nothing. ADR-0017.
+   */
+  unreadComments?: true;
+  /**
+   * Set when the check failed under `--strict` because the families were
+   * read off the specs and a spec pattern matched no file (`unmatchedSpecs`),
+   * so that a family kept under it was not read, with the file its findings
+   * are shown on, chosen as `nothingRead`'s is. Absent otherwise. ADR-0017.
+   */
+  unreadFamily?: { file: string };
 }

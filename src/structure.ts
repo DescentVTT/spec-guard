@@ -206,7 +206,7 @@ export function requiredEntryIssue(entry: string): string | null {
   if (segments.slice(0, -1).some(isGlob)) {
     return `Required entry "${entry}" can use a glob only in its last segment.`;
   }
-  const unreadable = pathPatternError(segments[segments.length - 1] as string);
+  const unreadable = pathPatternError(segments[segments.length - 1]!);
   return unreadable === null ? null : `Required entry "${entry}" has an ${unreadable}.`;
 }
 

@@ -181,7 +181,10 @@ function citesIssue(value: unknown): string | null {
     for (const key of CITE_KEYS) {
       if (typeof entry[key] !== 'string') return `${which} needs "${key}" as a string, got ${describe(entry[key])}`;
     }
-    const issue = citeIdError(entry['id'] as string) ?? citeFilesError(entry['files'] as string);
+    // Both are strings: the loop above returned for one that is not.
+    const id = entry['id'];
+    const files = entry['files'];
+    const issue = citeIdError(id as string) ?? citeFilesError(files as string);
     if (issue !== null) return `${which}: ${issue}`;
   }
   return null;

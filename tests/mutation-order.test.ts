@@ -117,12 +117,13 @@ describe('this repository', () => {
     expect(unitSuite.test?.sequence).toBeUndefined();
   });
 
-  it('adds no test to a mutation run and takes none out of it but the three that can kill nothing', () => {
+  it('adds no test to a mutation run and takes none out of it but the four that can kill nothing', () => {
     expect(mutationSuite.test?.include).toEqual(unitSuite.test?.include);
     expect(mutationSuite.test?.exclude).toEqual([
       'tests/e2e.test.ts',
       'tests/replay-scripts.test.ts',
       'tests/mutation-order.test.ts',
+      'tests/mutation-unmeasured.test.ts',
       ...unitSuite.test!.exclude!,
     ]);
   });

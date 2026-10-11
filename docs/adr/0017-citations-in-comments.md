@@ -381,3 +381,93 @@ spec-guard: the pattern "rfcs/*.md" matched no spec file. Remove it from "specs"
   file read in part, folds `strict` into `ok`; `src/cli.ts` says the line.
   `tests/unmatched-specs.test.ts` holds each row beside the check that must
   still pass.
+
+## Amended 2026-10-12: a strict check that failed says so in its report
+
+The amendment of 2026-10-11 left two things as they were: the human report
+"still ends 'every citation names a document in force', of the citations it
+counted, as it does under `--strict` when a file was read in part and the
+exit code is 1", and SARIF, GitHub and GitLab "place no finding" for a family
+that went unread. Both are taken back here. A report that ends on the words
+of a check that passed is read as one, whatever the exit code says, and a
+job that is red with no annotation to show why is a job somebody reruns.
+
+Measured through the launcher on 0.23.0 (Windows 11, Node 24.18.1), over
+each way a check fails and four pairs of them, without and with `--strict`,
+in the human report, `--json`, `sarif`, `github` and `gitlab`: 24 runs. A
+ghost, a stale citation under `--strict` and a check that read nothing each
+ended on a line of its own and had a finding in every format, as the
+sections above and the amendment of 2026-09-30 have it. Two did not, and
+those two are every row that changed:
+
+| A check under `--strict` that fails for | 0.23.0 | Now |
+| --- | --- | --- |
+| a file read in part: the last line | `✔ every citation names a document in force` | `✖ 1 file could not be read in full, which --strict refuses` |
+| the same, in SARIF | no result; a notification, and `executionSuccessful: false` | an `unread-comments` result, `error`, on the file's first line, beside the notification |
+| the same, for GitHub and GitLab | `notice`, `info` | `error`, `major`, saying `which --strict refuses`, with what to do |
+| the same, in `--json` | `"ok": false`, and the file in `gaps` | the same, and `"unreadComments": true` |
+| a family that went unread with a spec pattern: the last line | `✔ every citation names a document in force` | `✖ the pattern "docs/rfc/*.md" matched no spec file, so no citation of a document under it was looked for, which --strict refuses` |
+| the same, in SARIF, for GitHub and for GitLab | nothing | an `unread-family` finding to each pattern, `error` and `major`, on the first spec's first line |
+| the same, in `--json` | `"ok": false`, and the pattern in `unmatchedSpecs` | the same, and `"unreadFamily": true` |
+| a ghost, or a stale citation, and a file read in part: the last lines | the citation's line | the citation's line, then the file's |
+
+Every exit code is what it was, and so is every run without `--strict`: a
+file read in part is named there and is a notice, a pattern that matched no
+file is named on stderr, and the report ends as the report of a check that
+passed, which it is.
+
+- **The last line is the all-clear only when the check passed.** The report
+  ends on one line for a citation, as it did - a ghost, else nothing looked
+  for or read, else a stale citation - and then a line for each of the two
+  that had none, which `--strict` alone can fail a check for. So a report
+  that failed ends on a failure, and one that failed for two things says
+  both: a ghost beside a file read in part used to say the ghost, and the
+  file was the next run's news. A ghost beside a stale citation under
+  `--strict` still ends on the ghost alone, as it always has; the count
+  line above it has both.
+- **The report says by name what failed it.** `findCitations` folded
+  `strict` into `ok` and into nothing else, so a format could not tell a
+  file read in part that failed the check from one that did not. Its report
+  now carries `unreadComments` and `unreadFamily` as it carries
+  `nothingRead`: there when the check failed for that, absent otherwise,
+  the second with the file its findings are shown on. `--json` has each as
+  `true` beside `"ok": false`, after `nothingRead` and before `root`;
+  `formatVersion` stays 1, since fields were added.
+- **A file read in part is one finding, and what `--strict` makes of it is
+  its level.** It is `unread-comments` with the identity it had, its file
+  and what stopped the read, so GitLab does not see a new finding where an
+  old one changed level: a notice and `info` without `--strict`, an error
+  and `major` with it, as a stale citation is a warning and then an error.
+  The error says `which --strict refuses`, and has a hint: make it a file
+  whose comments can all be read, or leave it out with `--exclude`. In
+  SARIF it stays a notification either way, and under `--strict` is a
+  result as well: a notification says how the run went, and code scanning
+  shows results.
+- **A family that went unread is a finding without a line, and is placed
+  where the others are.** A run that verified nothing and a check that read
+  nothing are each about the specs and no line of them, and each is shown
+  on the first spec's first line (ADR-0010 and the amendment of 2026-09-30
+  above). A spec pattern that matched no file is the same kind of fact, so
+  `unread-family` goes there too, by the rule `nothingRead` is placed by:
+  one finding to each pattern, known by the pattern, `major` as the other
+  two are. Its message is the line on stderr without its last sentence, and
+  its hint is that sentence and the other way out: remove the pattern, or
+  name the documents in `cites`. The line itself is still written, after
+  the report, in every format.
+- **One wording.** The clause "so no citation of a document under it was
+  looked for" is written once, in `src/reporter.ts`, and the command line's
+  line, the report's last line and the finding's message take it from
+  there.
+- **Not changed: `--help`.** It says when `cites` exits 1 and says nothing
+  of how a report ends or what a format places, here or for any command.
+- **A minor**, by spec-core's
+  [ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md):
+  no run that passed fails, and a script that reads the report's last line,
+  GitHub's commands, or the errors of a GitLab or SARIF document reads
+  something else for a strict check that was already exit 1.
+
+`tests/cites.test.ts` holds each of the two in every format beside the check
+that must not fail, and that no report of a check that failed ends as one
+that passed, over each way of failing and each pair; and
+`tests/unmatched-specs.test.ts` holds the rows above through the command
+line.
