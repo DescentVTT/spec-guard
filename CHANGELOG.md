@@ -10,7 +10,12 @@ what to do when upgrading; the family's policy, including how a flag or field
 is deprecated before it goes, is spec-core's
 [ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
-## Unreleased
+## 0.24.0
+
+A `cites --strict` that fails for a file read in part, or for a family that
+went unread with a spec pattern, says so in its report and in what a forge
+reads, where each ended all clear. And `--ascii` and `--no-ascii` ask for a
+report's marks outright, with `SPEC_GUARD_ASCII` for ASCII.
 
 ### Added
 

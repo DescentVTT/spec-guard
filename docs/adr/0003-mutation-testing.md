@@ -1555,6 +1555,33 @@ ran high where they were least measured: `runner.ts` and `text.ts` took 7m35s
 against 15.2 minutes, and `cli.ts` alone 8m18s against 15.1, so the next
 split starts from this run's logs rather than 398fe94's.
 
+### 0.24.0: what the casts had hidden, and seven equivalents among it
+
+CI's full sweep of 10fbfe3 (run 38166341838) came out at **99.19% over
+12,826 mutants with 102 survivors and 2 without coverage**, 206 of the
+detected by timeout; the shards took from 6m47s to 13m24s. It is the
+first for a release since nothing a mutator reads stands under an `as`
+(the amendment of 2026-10-12): it has 220 mutants more than 0.23.0's
+12,607, which are 100 that the casts had hidden, 122 that this release
+wrote, and two fewer where a cast had kept a statement's removal mutant.
+Against 0.23.0's sweep, 95 survivors and 2 without coverage:
+
+- seven survivors are new, each among those 100 and each equivalent,
+  with the reason beside the code: the `^` of `/^\.+/` where a
+  specifier is read from its start (`src/impact.ts`); `/\s+/` read as
+  `/\s/`, twice, and either `+` of `/\s+as\s+/`, where only what
+  stands before the first match is kept (`src/polyglot.ts`); and the
+  `^` of two patterns that can match nothing (`src/prove.ts`);
+- four more of the 100 survived the first sweep of that change and
+  were killed by tests before it merged, which the amendment records;
+- what this release wrote, a `cites` report that says what failed and
+  the options that ask for the marks outright, left no survivor;
+- no other survivor is new and none is gone: the rest are 0.23.0's 95.
+
+One mutant more, in `src/structure.ts`, a walk that never ends, crashed
+its runner and is counted an error, out of the score, as in one sweep
+of 2026-10-11; it times out in the others.
+
 ### 0.23.0: the same survivors
 
 CI's full sweep of 5650396 (run 38141055763) came out at **99.23% over
