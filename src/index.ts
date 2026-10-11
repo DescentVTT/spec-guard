@@ -66,6 +66,7 @@ export {
   excludeListError,
   excludePatternError,
   expandSpecPatterns,
+  expandSpecs,
   globBase,
   globPatternError,
   globToRegExp,

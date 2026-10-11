@@ -15,7 +15,7 @@
 import { toPosix } from './glob.js';
 import { formatImpact, ImpactError, impactDocument, impactOf } from './impact.js';
 import { nodeIo, readText } from './io.js';
-import { formatReport } from './reporter.js';
+import { formatReport, unmatchedClause } from './reporter.js';
 import { elapsed, runSpecGuard, type RunOptions } from './runner.js';
 import {
   answerQuery,
@@ -283,6 +283,21 @@ export function createMcpHandler(options: McpServerOptions): (message: unknown) 
         'Start the server with --spec <glob> or --root <dir> pointing at the project.',
     );
 
+  /**
+   * An answer's text, with the patterns that matched no file named under it.
+   *
+   * The server carries on where the command line refuses: the next request
+   * reads the specs again, and the file a pattern is waiting for may be there
+   * by then. But the rules of the rest read the same as every rule there is,
+   * so an answer given without a pattern's documents says so, and the
+   * structured answer carries the patterns as `unmatchedSpecs` (ADR-0014,
+   * amended 2026-10-11).
+   */
+  const noted = (text: string, unmatched: readonly string[] | undefined): string =>
+    unmatched === undefined
+      ? text
+      : `${text}\n\nNote: ${unmatchedClause(unmatched)} under ${options.root}, so this answer holds no rule from ${unmatched.length === 1 ? 'it' : 'them'}. A --spec the server was started with, or the project's "specs", names documents that are not there.`;
+
   async function getRules(args: JsonObject): Promise<ToolOutcome> {
     const unknown = unknownArguments(args, ['path', 'include_inactive']);
     if (unknown) return unknown;
@@ -296,7 +311,7 @@ export function createMcpHandler(options: McpServerOptions): (message: unknown) 
     const ruleSet = await loadRuleSet(ruleSetOptions(settings));
     if (ruleSet.specFiles.length === 0) return noSpecs(settings.patterns);
     const report = { ...answerQuery(ruleSet, [query], includeInactive), durationMs: elapsed(startedAt), config: settings.config };
-    return { text: formatQuery(report), structured: { ...report } };
+    return { text: noted(formatQuery(report), report.unmatchedSpecs), structured: { ...report } };
   }
 
   async function checkArchitecture(args: JsonObject): Promise<ToolOutcome> {
@@ -334,6 +349,7 @@ export function createMcpHandler(options: McpServerOptions): (message: unknown) 
       engine: report.engine,
       paths: paths?.map((query) => query.path) ?? null,
       rules: { inForce, checked: report.summary.total, passed: report.summary.passed, failed: report.summary.failed },
+      ...(report.unmatchedSpecs === undefined ? {} : { unmatchedSpecs: report.unmatchedSpecs }),
       failures: report.results
         .filter((result) => !result.ok)
         .map((result) => ({
@@ -368,7 +384,7 @@ export function createMcpHandler(options: McpServerOptions): (message: unknown) 
       durationMs: Math.round(report.durationMs * 1000) / 1000,
     };
     const text = `Checked ${scope}.\n\n${formatReport({ ...report, config: settings.config }, { color: false, verbose: false, ascii: true }, settings.run?.maxSnippets)}`;
-    return { text, structured };
+    return { text: noted(text, report.unmatchedSpecs), structured };
   }
 
   /**
@@ -402,13 +418,16 @@ export function createMcpHandler(options: McpServerOptions): (message: unknown) 
       })),
       config: settings.config,
     };
-    return { text: formatImpact(report), structured: { ...impactDocument(report) } };
+    // With no spec at all the report says so itself, as it always has.
+    const unmatched = report.specFiles.length === 0 ? undefined : report.unmatchedSpecs;
+    return { text: noted(formatImpact(report), unmatched), structured: { ...impactDocument(report) } };
   }
 
   function rulesResource(ruleSet: RuleSet): JsonObject {
     return {
       root: toPosix(options.root),
       specFiles: ruleSet.specFiles,
+      ...(ruleSet.unmatchedSpecs === undefined ? {} : { unmatchedSpecs: ruleSet.unmatchedSpecs }),
       rules: ruleSet.rules
         .filter(({ document }) => document.inForce)
         .map(({ assertion, document }) => viewRule(assertion, document)),

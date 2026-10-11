@@ -19,7 +19,7 @@ import { createFactCache, type FactKey, type FactPolicy, type WatchEvent } from 
 import { createImportIndex } from './imports.js';
 import { nodeIo, type Io, type TreeWatcher } from './io.js';
 import { createMemo, type Memo, type SessionMemo } from './memo.js';
-import { formatReport, type ReporterOptions } from './reporter.js';
+import { formatReport, unmatchedClause, type ReporterOptions } from './reporter.js';
 import {
   createScopeProbe,
   DEFAULT_CONCURRENCY,
@@ -368,10 +368,16 @@ export async function runWatch(options: WatchOptions): Promise<number> {
       return;
     }
     lastSignature = current;
+    // A session carries on where a run refuses: the file a pattern is
+    // waiting for may be the next thing written. It says which pattern that
+    // is, under the report of the rest, where a report alone would read as
+    // every rule there is (ADR-0014, amended 2026-10-11).
+    const waiting =
+      run.report.unmatchedSpecs === undefined ? '' : `\n\nspec-guard: ${unmatchedClause(run.report.unmatchedSpecs)}, watching for one to appear`;
     const body =
       run.report.summary.specs === 0
         ? 'spec-guard: no spec files matched, watching for one to appear'
-        : formatReport(run.report, options.reporter, run.maxSnippets);
+        : `${formatReport(run.report, options.reporter, run.maxSnippets)}${waiting}`;
     write(`${heading()}${body}\n\n${line}\n`);
   };
 

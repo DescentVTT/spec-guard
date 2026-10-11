@@ -22,6 +22,8 @@ import {
   createScopeProbe,
   elapsed,
   executeAssertion,
+  planRun,
+  reportRun,
   resolveDirective,
   runSpecGuard,
   DEFAULT_MAX_SNIPPETS,
@@ -1169,5 +1171,17 @@ describe('errors come out in file order', () => {
       'docs/a.md:2',
       'docs/b.md:1',
     ]);
+  });
+});
+
+describe('what a report carries from its plan', () => {
+  const specs = (unmatched?: string[]) => ({ files: [], documents: [], errors: [], warnings: [], masked: [], ...(unmatched === undefined ? {} : { unmatched }) });
+
+  it('names the patterns that matched no file, and has no key for them when each matched or a caller built the specs', () => {
+    const named = reportRun(planRun(specs(['gone/*.md', 'old']), '/repo', {}), [], { name: 'javascript', fallbacks: [] }, 0);
+
+    expect(named.unmatchedSpecs).toEqual(['gone/*.md', 'old']);
+    expect(reportRun(planRun(specs([]), '/repo', {}), [], { name: 'javascript', fallbacks: [] }, 0)).not.toHaveProperty('unmatchedSpecs');
+    expect(reportRun(planRun(specs(), '/repo', {}), [], { name: 'javascript', fallbacks: [] }, 0)).not.toHaveProperty('unmatchedSpecs');
   });
 });

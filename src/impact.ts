@@ -232,6 +232,8 @@ export interface ImpactPath {
 export interface ImpactReport {
   root: string;
   specFiles: string[];
+  /** The spec patterns that matched no file, as written: no rule of theirs is in the answer. Absent when each matched one. */
+  unmatchedSpecs?: string[];
   exclude: string[];
   /** The depth asked for, or null for every dependent. */
   depth: number | null;
@@ -385,6 +387,7 @@ export async function impactOf(options: ImpactOptions): Promise<ImpactReport> {
   return {
     root: toPosix(options.root),
     specFiles: ruleSet.specFiles,
+    ...(ruleSet.unmatchedSpecs === undefined ? {} : { unmatchedSpecs: ruleSet.unmatchedSpecs }),
     exclude: ruleSet.exclude,
     depth: options.depth ?? null,
     results,

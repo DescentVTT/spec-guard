@@ -496,6 +496,16 @@ export function formatBaselines(report: RunResult): string {
 }
 
 /**
+ * Spec patterns that matched no file, as a clause: `the pattern "a" matched
+ * no spec file`. One wording for the command line's refusal, a watch
+ * session's note and the MCP server's, so a person who has read one knows
+ * the others. Never given an empty list.
+ */
+export function unmatchedClause(patterns: readonly string[]): string {
+  return `the ${patterns.length === 1 ? 'pattern' : 'patterns'} ${patterns.map((pattern) => `"${pattern}"`).join(', ')} matched no spec file`;
+}
+
+/**
  * The version of a run's `--json` document. A field removed or renamed moves
  * it; a field added does not. The family contract (spec-core's ADR-0005) asks
  * it of every machine-readable output. The run's document went without one
@@ -518,6 +528,9 @@ export function formatJson(report: RunResult): string {
       durationMs: Math.round(report.durationMs * 1000) / 1000,
       summary: report.summary,
       specFiles: report.specFiles,
+      // Present only when a pattern matched no file: the document of a run
+      // whose every pattern matched is the one it was before the field.
+      ...(report.unmatchedSpecs === undefined ? {} : { unmatchedSpecs: report.unmatchedSpecs }),
       results: report.results.map((result) => ({
         ok: result.ok,
         kind: result.kind,
@@ -905,6 +918,7 @@ export function formatProveJson(report: ProveReport): string {
       durationMs: Math.round(report.durationMs * 1000) / 1000,
       summary: report.summary,
       specFiles: report.specFiles,
+      ...(report.unmatchedSpecs === undefined ? {} : { unmatchedSpecs: report.unmatchedSpecs }),
       results: report.results.map((result) => ({
         outcome: result.outcome,
         kind: result.kind,

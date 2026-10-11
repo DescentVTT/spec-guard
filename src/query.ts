@@ -17,7 +17,7 @@ import { formatOptionLines } from './reporter.js';
 import { checkProjectExcludes, elapsed, resolveDirective, specExclusions } from './runner.js';
 import { createScope } from './scope.js';
 import { governs, leftOutByOwnExclude, viewRule, within, type DocumentView, type QueryPath, type RuleView } from './rules.js';
-import { readSpecs, specPath, type DocumentMemo, type SpecDocument } from './specs.js';
+import { readSpecs, specPath, unmatchedSpecs, type DocumentMemo, type SpecDocument } from './specs.js';
 import type { Assertion, ConfigUse, DirectiveError } from './types.js';
 
 export interface RuleSetOptions {
@@ -49,6 +49,8 @@ export interface RuleSet {
   root: string;
   /** Root-relative paths of every spec file the patterns matched. */
   specFiles: string[];
+  /** The patterns that matched no file, when there is one. */
+  unmatchedSpecs?: string[];
   documents: SpecDocument[];
   rules: Array<{ assertion: Assertion; document: DocumentView }>;
   /** Unreadable specs, malformed directives and directives that do not resolve. */
@@ -103,6 +105,7 @@ export async function loadRuleSet(options: RuleSetOptions): Promise<RuleSet> {
   return {
     root: options.root,
     specFiles: specs.files.map((file) => specPath(options.root, file)),
+    ...unmatchedSpecs(specs),
     documents: specs.documents,
     rules,
     errors,
@@ -176,6 +179,8 @@ export interface PathRules {
 export interface QueryReport {
   root: string;
   specFiles: string[];
+  /** The spec patterns that matched no file, as written: no rule of theirs is in the answer. Absent when each matched one. */
+  unmatchedSpecs?: string[];
   /** The project's exclusions, from a configuration or `--exclude`, and empty when there were none. */
   exclude: string[];
   results: PathRules[];
@@ -225,6 +230,7 @@ export function answerQuery(ruleSet: RuleSet, paths: ReadonlyArray<QueryPath & {
   return {
     root: toPosix(ruleSet.root),
     specFiles: ruleSet.specFiles,
+    ...(ruleSet.unmatchedSpecs === undefined ? {} : { unmatchedSpecs: ruleSet.unmatchedSpecs }),
     exclude: ruleSet.exclude,
     results,
     documents: [...cited.values()].sort((a, b) => comparePaths(a.file, b.file)),

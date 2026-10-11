@@ -5,8 +5,9 @@
  *   0 - every assertion held
  *   1 - an assertion failed, a directive was invalid, or under --strict no
  *       assertion was executed
- *   2 - spec-guard could not run (bad usage, no spec files, missing engine),
- *       or met an error it did not expect, whose stack is on stderr
+ *   2 - spec-guard could not run (bad usage, no spec files, a spec pattern
+ *       that matched none beside others that did, missing engine), or met an
+ *       error it did not expect, whose stack is on stderr
  */
 
 import { createRequire } from 'node:module';
@@ -40,6 +41,7 @@ import {
   runAnnotations,
   shouldUseAscii,
   shouldUseColor,
+  unmatchedClause,
 } from './reporter.js';
 import { DEFAULT_CONCURRENCY, DEFAULT_MAX_SNIPPETS, runSpecGuard, splitList, type RunOptions } from './runner.js';
 import { createSession, runWatch } from './watch.js';
@@ -206,7 +208,8 @@ Options
       --max-snippets <n>  Failure snippets per assertion (default: ${DEFAULT_MAX_SNIPPETS})
       --concurrency <n>   Assertions executed in parallel, 1 or more (default: ${DEFAULT_CONCURRENCY})
       --depth <n>         impact: follow dependents at most n imports away (default: all)
-      --allow-empty       Exit 0 when no spec files matched (a run, prove or impact; not an assertion)
+      --allow-empty       Let a run, prove or impact through when no spec file matched, or when
+                          one pattern matched none beside others that did (not an assertion)
       --color/--no-color  Force colour on or off (NO_COLOR, FORCE_COLOR and TERM=dumb are honoured)
   -h, --help              Show this help
       --version           Print the version
@@ -215,6 +218,11 @@ Options
   it were not there: an empty --root or spec pattern, --exclude "," (--exclude=
   with nothing clears the list), --concurrency 0, a root that is no directory,
   and a value given to an option that takes none, as in --strict=false.
+
+  A spec pattern that matches no file, beside others that do, is refused the
+  same way and by name, since none of its rules was read: a run, prove, impact
+  and query exit 2. --allow-empty lets the first three through and still names
+  it; --watch and mcp carry on, and say which pattern it is.
 
 Configuration
   package.json in the root can hold specs, exclude, engine, strict,
@@ -745,6 +753,29 @@ function runOptionsOf(options: CliOptions): Omit<RunOptions, 'patterns' | 'root'
   };
 }
 
+/**
+ * What is said of spec patterns that matched no file beside ones that did,
+ * or null when every pattern matched.
+ *
+ * Only a pattern somebody wrote gets here. The one spec-guard reads when none
+ * is given is alone, so it matches or leaves no spec at all, which each
+ * command answers as it always has. A pattern written and matching nothing
+ * is most often a directory that was renamed: every rule in it stopped
+ * running, and the run reported on the rest as if that were all of them. So
+ * each is named, with where it was written and what to do about it, and the
+ * caller decides whether the command goes on (ADR-0014, amended 2026-10-11).
+ *
+ * `refused` is for a command `--allow-empty` would let through, `final` for
+ * one that takes no such option, and `allowed` for one it did let through.
+ */
+function unmatchedLine(unmatched: readonly string[] | undefined, use: ConfigUse | undefined, as: 'refused' | 'final' | 'allowed'): string | null {
+  if (unmatched === undefined) return null;
+  const named = `spec-guard: ${unmatchedClause(unmatched)}`;
+  if (as === 'allowed') return `${named}, which --allow-empty lets through.`;
+  const where = use?.applied.includes('specs') ? ` from "specs" in ${use.file}` : '';
+  return `${named}. Remove ${unmatched.length === 1 ? 'it' : 'them'}${where}${as === 'refused' ? ', or give --allow-empty where a pattern is meant to match nothing' : ''}.`;
+}
+
 /** The process's own streams, signals and filesystem watcher. */
 export function defaultIO(): CliIO {
   return {
@@ -845,6 +876,17 @@ async function runQuery(options: CliOptions, io: CliIO, use: ConfigUse | undefin
     return EXIT_ERROR;
   }
 
+  // The rules of a pattern that matched nothing are not in the answer, and
+  // "no rules govern this path" would read the same with them and without:
+  // refused, as no spec at all is. The document is still written for a script,
+  // with the patterns in it; a person is told in the line alone.
+  const unmatched = unmatchedLine(report.unmatchedSpecs, use, 'final');
+  if (unmatched !== null) {
+    if (options.format === 'json') io.stdout(formatQueryJson(report));
+    io.stderr(unmatched);
+    return EXIT_ERROR;
+  }
+
   io.stdout(options.format === 'json' ? formatQueryJson(report) : formatQuery(report));
   return EXIT_OK;
 }
@@ -914,6 +956,14 @@ async function runProve(options: CliOptions, io: CliIO, use: ConfigUse | undefin
     io.stderr(`spec-guard: no spec files matched ${options.patterns.map((p) => `"${p}"`).join(', ')}`);
     return options.allowEmpty ? EXIT_OK : EXIT_ERROR;
   }
+  // A pattern that matched nothing beside ones that did is refused as a run
+  // refuses it. No spec at all is answered above and below, as it was, before
+  // this line is reached: asking here whether any spec matched decides nothing.
+  const unmatched = unmatchedLine(report.unmatchedSpecs, use, options.allowEmpty ? 'allowed' : 'refused');
+  if (unmatched !== null && !options.allowEmpty && (options.format === 'human' || options.format === 'github')) {
+    io.stderr(unmatched);
+    return EXIT_ERROR;
+  }
   const written =
     options.format === 'sarif'
       ? formatProveSarif(report, { version: version() })
@@ -931,6 +981,10 @@ async function runProve(options: CliOptions, io: CliIO, use: ConfigUse | undefin
   // GitHub's commands are one per finding, and a proof with none has no line to write.
   if (written !== '') io.stdout(written);
   if (report.summary.specs === 0) return options.allowEmpty ? EXIT_OK : EXIT_ERROR;
+  if (unmatched !== null) {
+    io.stderr(unmatched);
+    if (!options.allowEmpty) return EXIT_ERROR;
+  }
   return report.ok && !(options.strictTargets && report.summary.unprovable > 0) ? EXIT_OK : EXIT_FAILED;
 }
 
@@ -961,8 +1015,16 @@ async function runImpact(options: CliOptions, io: CliIO, use: ConfigUse | undefi
   }
   const answered = { ...report, config: use };
   io.stdout(options.format === 'json' ? formatImpactJson(answered) : formatImpact(answered));
-  if (report.specFiles.length > 0) return EXIT_OK;
-  if (options.format !== 'json') io.stderr(`spec-guard: no spec files matched ${options.patterns.map((p) => `"${p}"`).join(', ')}`);
+  if (report.specFiles.length === 0) {
+    if (options.format !== 'json') io.stderr(`spec-guard: no spec files matched ${options.patterns.map((p) => `"${p}"`).join(', ')}`);
+    return options.allowEmpty ? EXIT_OK : EXIT_ERROR;
+  }
+  // The dependents are an answer whatever the specs are, and are written.
+  // The rules of a pattern that matched nothing are missing from the rest of
+  // it, which is refused as no spec at all is.
+  const unmatched = unmatchedLine(report.unmatchedSpecs, use, options.allowEmpty ? 'allowed' : 'refused');
+  if (unmatched === null) return EXIT_OK;
+  io.stderr(unmatched);
   return options.allowEmpty ? EXIT_OK : EXIT_ERROR;
 }
 
@@ -1123,11 +1185,27 @@ async function run(argv: readonly string[], io: CliIO): Promise<number> {
     return options.allowEmpty ? EXIT_OK : EXIT_ERROR;
   }
 
+  // Some specs matched, and a pattern somebody wrote matched none: its rules
+  // did not run, and "every spec assertion holds" over the rest is the green
+  // check this refuses. As with no spec at all, a document a script reads is
+  // still written, with the patterns in it where the format has a place for
+  // them, and a person is told in the line alone; `--allow-empty` lets the
+  // run through, and the line is still said, after the report.
+  const unmatched = unmatchedLine(report.unmatchedSpecs, use, options.allowEmpty ? 'allowed' : 'refused');
+  const ended = (code: number): number => {
+    if (unmatched === null) return code;
+    io.stderr(unmatched);
+    return options.allowEmpty ? code : EXIT_ERROR;
+  };
+  if (unmatched !== null && !options.allowEmpty && (options.printBaseline || options.format === 'human' || options.format === 'github')) {
+    return ended(EXIT_ERROR);
+  }
+
   if (options.printBaseline) {
     // Printed, never written. See formatBaselines for why that distinction is
     // the whole design and not a missing feature.
     io.stdout(formatBaselines(report));
-    return report.ok ? EXIT_OK : EXIT_FAILED;
+    return ended(report.ok ? EXIT_OK : EXIT_FAILED);
   }
 
   if (options.format === 'sarif') {
@@ -1153,5 +1231,5 @@ async function run(argv: readonly string[], io: CliIO): Promise<number> {
     );
   }
 
-  return report.ok ? EXIT_OK : EXIT_FAILED;
+  return ended(report.ok ? EXIT_OK : EXIT_FAILED);
 }

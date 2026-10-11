@@ -615,5 +615,6 @@ export async function proveSpecGuard(options: ProveOptions): Promise<ProveReport
     maskedDirectives: plan.masked,
     exclude: plan.exclude,
     specFiles: plan.specFiles.map((file) => specPath(root, file)),
+    ...(plan.unmatchedSpecs === undefined ? {} : { unmatchedSpecs: plan.unmatchedSpecs }),
   };
 }
