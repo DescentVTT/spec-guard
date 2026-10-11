@@ -104,6 +104,66 @@ describe('parseArgs', () => {
     expect(parseArgs([], DEMO_REPO).color).toBeUndefined();
   });
 
+  it('reads --ascii and --no-ascii as how the marks are drawn, and neither as leaving it to the environment', () => {
+    expect(parseArgs(['--ascii'], DEMO_REPO).ascii).toBe(true);
+    expect(parseArgs(['--no-ascii'], DEMO_REPO).ascii).toBe(false);
+    expect(parseArgs([], DEMO_REPO).ascii).toBeUndefined();
+    // Neither is something a configuration sets, so neither is the command line overriding one.
+    expect([...parseArgs(['--ascii'], DEMO_REPO).fromCommandLine, ...parseArgs(['--no-ascii'], DEMO_REPO).fromCommandLine]).toEqual([]);
+  });
+
+  it('refuses --ascii beside --no-ascii, in either order, where the last of the colour pair wins', () => {
+    const both = new UsageError('Option --ascii is given beside --no-ascii, and the marks are drawn one way or the other. Give one of the two.');
+    for (const command of [[], ['prove'], ['cites']]) {
+      expect(() => parseArgs([...command, '--ascii', '--no-ascii'], DEMO_REPO), command.join()).toThrow(both);
+      expect(() => parseArgs([...command, '--no-ascii', '--ascii'], DEMO_REPO), command.join()).toThrow(both);
+      expect(() => parseArgs([...command, '--no-ascii', '--strict', '--ascii'], DEMO_REPO), command.join()).toThrow(both);
+    }
+    expect(() => parseArgs(['--watch', '--ascii', '--no-ascii'], DEMO_REPO)).toThrow(both);
+    // Must-not-refuse: either alone, twice over, and the colour pair together.
+    expect(parseArgs(['--ascii', '--ascii'], DEMO_REPO).ascii).toBe(true);
+    expect(parseArgs(['--no-ascii', '--no-ascii'], DEMO_REPO).ascii).toBe(false);
+    expect(parseArgs(['--color', '--no-color'], DEMO_REPO).color).toBe(false);
+    expect(parseArgs(['--no-color', '--color'], DEMO_REPO).color).toBe(true);
+    expect(parseArgs(['--ascii', '--no-color'], DEMO_REPO)).toMatchObject({ ascii: true, color: false });
+  });
+
+  it('takes neither with a value, as any option that is on when it is given', () => {
+    for (const option of ['--ascii', '--no-ascii']) {
+      expect(() => parseArgs([`${option}=false`], DEMO_REPO), option).toThrow(
+        new UsageError(
+          `Option ${option} takes no value, got "false". Give it alone or leave it out; an option a configuration can set has an opposite that turns it off, as --no-strict is to --strict.`,
+        ),
+      );
+    }
+  });
+
+  it('takes both for a run, a watch session, prove and cites, which draw marks', () => {
+    for (const command of [[], ['--watch'], ['prove'], ['cites']]) {
+      expect(parseArgs([...command, '--ascii'], DEMO_REPO).ascii, command.join()).toBe(true);
+      expect(parseArgs([...command, '--no-ascii'], DEMO_REPO).ascii, command.join()).toBe(false);
+    }
+  });
+
+  it('takes --ascii for a query and impact, which draw no mark, and refuses --no-ascii there, as --no-color and --color', () => {
+    for (const command of ['query', 'impact']) {
+      // True of what the command writes already, and what a script passes to every command.
+      expect(parseArgs([command, 'src', '--ascii'], DEMO_REPO)).toMatchObject({ command, ascii: true });
+      expect(parseArgs([command, 'src', '--no-color'], DEMO_REPO)).toMatchObject({ command, color: false });
+      // A promise of marks the command never draws.
+      expect(() => parseArgs([command, 'src', '--no-ascii'], DEMO_REPO)).toThrow(new UsageError(`Option --no-ascii does not apply to spec-guard ${command}.`));
+      expect(() => parseArgs([command, 'src', '--color'], DEMO_REPO)).toThrow(new UsageError(`Option --color does not apply to spec-guard ${command}.`));
+      // Refused for what it is before it is refused for its company.
+      expect(() => parseArgs([command, 'src', '--ascii', '--no-ascii'], DEMO_REPO)).toThrow(new UsageError(`Option --no-ascii does not apply to spec-guard ${command}.`));
+    }
+  });
+
+  it('takes neither for the server, as it takes neither of the colour pair', () => {
+    for (const option of ['--ascii', '--no-ascii', '--color', '--no-color']) {
+      expect(() => parseArgs(['mcp', option], DEMO_REPO), option).toThrow(new UsageError(`Option ${option} does not apply to spec-guard mcp.`));
+    }
+  });
+
   it('treats everything after -- as a pattern', () => {
     expect(parseArgs(['--', '--weird-name.md'], DEMO_REPO).patterns).toEqual(['--weird-name.md']);
   });

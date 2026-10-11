@@ -1309,6 +1309,7 @@ spec-guard impact <paths...>           # the files that depend on each path, and
 | `--depth <n>` | `impact` only: follow dependents at most `n` imports away (default: all) |
 | `--allow-empty` | Let a run, `prove` or `impact` through when no spec file matched the patterns, or when one pattern matched none beside others that did, each of which is exit 2 without it; such a pattern is still named on stderr (about the run, not an assertion) |
 | `--color` / `--no-color` | Force colour on or off. Without either flag, `NO_COLOR` set to anything turns it off; otherwise `FORCE_COLOR` turns it on, and `FORCE_COLOR=0` or `FORCE_COLOR=false` off; otherwise `TERM=dumb` turns it off; otherwise a terminal has colour. `NO_COLOR` or `FORCE_COLOR` set to nothing is as unset |
+| `--ascii` / `--no-ascii` | Draw a report's marks in ASCII, or as the marks, on any platform. Either wins over the environment, and the two together are refused, exit 2. Without either, `SPEC_GUARD_ASCII` set to anything but nothing, `0` or `false` asks for ASCII; otherwise Windows decides as below |
 
 Patterns are expanded by spec-guard itself, so quoted globs behave identically
 on Windows, macOS and Linux. A directory expands to the Markdown files in it.
@@ -1322,10 +1323,21 @@ Cygwin and MSYS2 runtimes set it for whatever they start, in a console whose
 fonts hold none of the first three marks. Anywhere else the marks are always
 drawn.
 
+Either can be asked for outright. `--ascii` draws the ASCII marks and
+`--no-ascii` the others, on any platform and whatever the environment says:
+an ssh session into Windows names no terminal, and `--no-ascii` is how it
+gets the marks its own terminal draws. `SPEC_GUARD_ASCII=1` asks for ASCII
+for every run that inherits it; set to nothing, `0` or `false`, in any case,
+it asks for nothing, and it never asks for the marks. An option wins over
+the variable, and `--ascii` beside `--no-ascii` is exit 2, since one of the
+two would go unread.
+
 An option that means nothing to a command is refused rather than ignored, so
 `spec-guard query --strict` does not look like a strict query. `query` does take
 `--no-color`: its output never has colour, and scripts pass the flag to every
-command they run.
+command they run. It takes `--ascii` for the same reason, as `impact` does,
+and each refuses `--no-ascii` as it refuses `--color`: neither draws a mark.
+`mcp` takes none of the four.
 
 So is an option that is set and names nothing, which is exit 2 and a line
 that names it, never a run as if it had not been given. `--root "$DIR"` and

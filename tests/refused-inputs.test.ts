@@ -293,6 +293,106 @@ describe('ripgrep asked for, and a variable that names none', () => {
   });
 });
 
+describe('the marks of a report, asked for outright', () => {
+  // On Windows the marks follow what the terminal says of itself, and a
+  // person had no way to ask: an ssh session into Windows was drawn ASCII
+  // whatever its terminal draws, and nothing asked for ASCII anywhere else
+  // (ADR-0014, amended 2026-10-12). Each case names its terminal or its
+  // variable, so it is one answer on every platform the suite runs on.
+  const TERMINAL = { WT_SESSION: '1' };
+  const ASKED = { SPEC_GUARD_ASCII: '1' };
+  const COMMANDS: Array<[string, string[], string]> = [
+    ['a run', [], 'every spec assertion holds'],
+    ['prove', ['prove'], 'every rule in force was seen to fail'],
+    ['cites', ['cites'], 'every citation names a document in force'],
+  ];
+
+  async function marked(extra: Record<string, string> = {}): Promise<string> {
+    return tree({
+      'docs/adr/0001-kept.md': '# ADR-0001: Kept\n\n<!-- @assert-absence target="src" symbol="Removed" -->\n',
+      'src/a.ts': '// As ADR-0001 has it.\nexport const kept = 1;\n',
+      ...extra,
+    });
+  }
+
+  /** The last line a command wrote: its mark, and what it says of the run. */
+  async function last(root: string, argv: string[], env: NodeJS.ProcessEnv): Promise<string> {
+    const { io, out, err } = createIO({ cwd: root, env: { NO_COLOR: '1', ...env } });
+    expect([await main([...argv, '--root', root, '--spec', 'docs/adr/*.md'], io), err]).toEqual([EXIT_OK, []]);
+    return out.join('\n').split('\n').at(-1) as string;
+  }
+
+  it.each(COMMANDS)('--ascii draws ASCII for %s in a terminal that draws the marks, and --no-ascii the marks where ASCII was asked for', async (_name, command, says) => {
+    const root = await marked();
+    expect(await last(root, command, TERMINAL)).toBe(`✔ ${says}`);
+    expect(await last(root, [...command, '--ascii'], TERMINAL)).toBe(`+ ${says}`);
+    // The option wins over the variable, each way.
+    expect(await last(root, command, { ...TERMINAL, ...ASKED })).toBe(`+ ${says}`);
+    expect(await last(root, [...command, '--no-ascii'], { ...TERMINAL, ...ASKED })).toBe(`✔ ${says}`);
+    expect(await last(root, [...command, '--no-ascii'], ASKED)).toBe(`✔ ${says}`);
+    expect(await last(root, [...command, '--ascii'], { ...TERMINAL, SPEC_GUARD_ASCII: '0' })).toBe(`+ ${says}`);
+  });
+
+  it.each(COMMANDS)('SPEC_GUARD_ASCII set to nothing, 0 or false asks nothing of %s', async (_name, command, says) => {
+    const root = await marked();
+    for (const value of ['', '0', 'false', 'FALSE', ' ']) {
+      expect(await last(root, command, { ...TERMINAL, SPEC_GUARD_ASCII: value }), JSON.stringify(value)).toBe(`✔ ${says}`);
+    }
+    expect(await last(root, command, { ...TERMINAL, SPEC_GUARD_ASCII: 'no' })).toBe(`+ ${says}`);
+  });
+
+  it('draws every mark of a report the way that was asked, not the last line alone', async () => {
+    const root = await marked({
+      'docs/adr/0002-old.md': '# ADR-0002: Old\n\n**Status:** superseded by ADR-0001\n\n<!-- @assert-absence target="src" symbol="Gone" -->\n',
+      'docs/adr/0003-broken.md': '# ADR-0003: Broken\n\n<!-- @assert-absence target="src" symbol="kept" -->\n<!-- @assert-count target="src" symbol="x" -->\n',
+    });
+    const report = async (...flags: string[]): Promise<string> => {
+      const { io, out } = createIO({ cwd: root, env: { NO_COLOR: '1', ...TERMINAL } });
+      await main(['--root', root, '--spec', 'docs/adr/*.md', '--verbose', ...flags], io);
+      return out.join('\n');
+    };
+    const marks = (text: string): string[] => [...new Set(text.split('\n').map((line) => line.trim().split(' ')[0] as string))].filter((mark) => ['✔', '✖', '⚠', '○', '+', 'x', '!', 'o'].includes(mark));
+    expect(marks(await report()).sort()).toEqual(['○', '⚠', '✔', '✖']);
+    expect(marks(await report('--ascii')).sort()).toEqual(['!', '+', 'o', 'x']);
+    expect(marks(await report('--no-ascii')).sort()).toEqual(['○', '⚠', '✔', '✖']);
+    // The same report otherwise: the option changes the marks and nothing else.
+    const plain = (text: string): string => text.replace(/[\d.]+ms/g, '').replace(/[✔+]/g, 'P').replace(/[✖x]/g, 'F').replace(/[⚠!]/g, 'W').replace(/[○o]/g, 'S').replace(/…|\.\.\./g, 'M');
+    expect(plain(await report('--ascii'))).toBe(plain(await report()));
+  });
+
+  it('changes nothing a command with no mark writes, and nothing of a format that draws none', async () => {
+    const root = await marked();
+    const written = async (argv: string[], env: NodeJS.ProcessEnv = {}): Promise<string> => {
+      const { io, out } = createIO({ cwd: root, env });
+      expect(await main([...argv, '--root', root, '--spec', 'docs/adr/*.md'], io)).toBe(EXIT_OK);
+      return out.join('\n').replace(/[\d.]+ ?ms/g, '').replace(/"durationMs": [\d.]+/g, '');
+    };
+    expect(await written(['query', 'src/a.ts', '--ascii'])).toBe(await written(['query', 'src/a.ts']));
+    expect(await written(['impact', 'src/a.ts', '--ascii'])).toBe(await written(['impact', 'src/a.ts']));
+    expect(await written(['query', 'src/a.ts'], ASKED)).toBe(await written(['query', 'src/a.ts']));
+    for (const format of ['json', 'sarif', 'github', 'gitlab']) {
+      expect(await written(['--format', format, '--ascii']), format).toBe(await written(['--format', format]));
+      expect(await written(['--format', format, '--no-ascii']), format).toBe(await written(['--format', format]));
+    }
+  });
+
+  it('refuses the two together with exit 2 and one line, and the help names both', async () => {
+    const root = await marked();
+    for (const command of [[], ['prove'], ['cites']]) {
+      const { io, out, err } = createIO({ cwd: root });
+      expect(await main([...command, '--no-ascii', '--ascii', '--root', root], io)).toBe(EXIT_ERROR);
+      expect([out, err]).toEqual([[], ['spec-guard: Option --ascii is given beside --no-ascii, and the marks are drawn one way or the other. Give one of the two.']]);
+    }
+    expect(HELP).toContain(
+      [
+        "      --ascii/--no-ascii  Draw a report's marks as + x ! o, or as their Unicode forms, on any",
+        '                          platform; the two together are refused. Without either,',
+        '                          SPEC_GUARD_ASCII asks for ASCII unless it is empty, 0 or false',
+      ].join('\n'),
+    );
+  });
+});
+
 describe('colour, as the family reads the conventions', () => {
   const ESC = String.fromCharCode(27);
   const coloured = async (env: NodeJS.ProcessEnv, isTTY: boolean, ...flags: string[]): Promise<boolean> => {

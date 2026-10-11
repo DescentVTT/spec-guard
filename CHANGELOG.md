@@ -10,6 +10,23 @@ what to do when upgrading; the family's policy, including how a flag or field
 is deprecated before it goes, is spec-core's
 [ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
+## Unreleased
+
+### Added
+
+- **`--ascii` and `--no-ascii` ask for a report's marks outright, and
+  `SPEC_GUARD_ASCII` asks for ASCII.** On Windows the marks follow what the
+  terminal says of itself, and nothing could ask for either: an ssh session
+  into Windows was drawn `+ x ! o` whatever its terminal draws, and no run
+  anywhere else could be told to keep to ASCII. `--ascii` draws the ASCII
+  marks and `--no-ascii` the others, on any platform, for a run, a watch
+  session, `prove` and `cites`; the two together are exit 2.
+  `SPEC_GUARD_ASCII` set to anything but nothing, `0` or `false` asks for
+  ASCII, as spec-graph reads `SPEC_GRAPH_ASCII`, and an option wins over
+  it. `query` and `impact` draw no mark: they take `--ascii` and refuse
+  `--no-ascii`, as they take `--no-color` and refuse `--color`
+  ([ADR-0014](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0014-configuration-and-watch.md)).
+
 ## 0.23.0
 
 `cites` names a spec pattern that matches no file beside others that do, and

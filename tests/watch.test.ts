@@ -699,6 +699,23 @@ describe('spec-guard --watch, as the command line wires it', () => {
     expect(written[0]).toContain('\x1b[32m');
   });
 
+  it('draws its marks as --ascii or --no-ascii asks, and as SPEC_GUARD_ASCII asks without either', async () => {
+    const root = await project({ 'docs/a.md': '<!-- @assert-present file="README.md" -->\n', 'README.md': '' });
+    const first = async (flags: string[], env: NodeJS.ProcessEnv): Promise<string> => {
+      const { io, lines, stop } = driven(root, { env: { NO_COLOR: '1', ...env } });
+      const exit = main(['--watch', '--root', root, ...flags], io);
+      await until('the first report', () => lines.length > 0);
+      stop();
+      expect(await exit).toBe(130);
+      return lines[0] as string;
+    };
+    // A terminal that draws the marks is named, so each is one answer on any platform.
+    expect(await first([], { WT_SESSION: '1' })).toContain('\n✔ every spec assertion holds\n');
+    expect(await first(['--ascii'], { WT_SESSION: '1' })).toContain('\n+ every spec assertion holds\n');
+    expect(await first([], { WT_SESSION: '1', SPEC_GUARD_ASCII: '1' })).toContain('\n+ every spec assertion holds\n');
+    expect(await first(['--no-ascii'], { SPEC_GUARD_ASCII: '1' })).toContain('\n✔ every spec assertion holds\n');
+  });
+
   it('lists passing rules with --verbose', async () => {
     const root = await project({ 'docs/a.md': '<!-- @assert-present file="README.md" -->\n', 'README.md': '' });
     const { io, lines, stop } = driven(root);

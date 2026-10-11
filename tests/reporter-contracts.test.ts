@@ -309,6 +309,26 @@ describe('shouldUseAscii', () => {
     expect(shouldUseAscii({ [name]: '', [other]: 'something' }, 'win32')).toBe(false);
   });
 
+  it.each(['1', 'true', 'yes', 'no', 'off', 'ascii', '00', ' 1 '])('is true on any platform when SPEC_GUARD_ASCII is %j, whatever terminal is there', (value) => {
+    // Anything that is not one of the three ways a script writes "off" asks,
+    // `no` and `off` among them: spec-graph reads SPEC_GRAPH_ASCII so.
+    for (const platform of ['linux', 'darwin', 'win32'] as const) {
+      expect(shouldUseAscii({ SPEC_GUARD_ASCII: value }, platform), platform).toBe(true);
+      expect(shouldUseAscii({ SPEC_GUARD_ASCII: value, WT_SESSION: '1', TERM_PROGRAM: 'vscode' }, platform), platform).toBe(true);
+    }
+  });
+
+  it.each(['', '0', 'false', 'FALSE', 'False', ' ', ' 0 ', '\tfalse\n'])('asks for nothing when SPEC_GUARD_ASCII is %j, and the platform decides as without it', (value) => {
+    // Must-not-ask: set to nothing, `0` or `false`, in any case and with
+    // white space around it, is a script turning the variable off.
+    expect(shouldUseAscii({ SPEC_GUARD_ASCII: value }, 'linux')).toBe(false);
+    expect(shouldUseAscii({ SPEC_GUARD_ASCII: value }, 'darwin')).toBe(false);
+    expect(shouldUseAscii({ SPEC_GUARD_ASCII: value, WT_SESSION: '1' }, 'win32')).toBe(false);
+    // It asks for ASCII only: off is not a request for the marks, which a
+    // bare Windows console still does not get.
+    expect(shouldUseAscii({ SPEC_GUARD_ASCII: value }, 'win32')).toBe(true);
+  });
+
   it('degrades every glyph, not just the tick', () => {
     const report = fixture({
       results: [{ ...failing, warnings: ['a warning'] }],

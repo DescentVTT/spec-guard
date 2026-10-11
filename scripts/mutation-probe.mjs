@@ -604,7 +604,9 @@ async function main() {
     [{ isTTY: true }, undefined, { TERM: 'dumb' }], [{ isTTY: true }, undefined, { TERM: 'dumb', FORCE_COLOR: '1' }], [{ isTTY: true }, true, { TERM: 'dumb' }]]) {
     say('shouldUseColor', JSON.stringify([stream, flag, env]), reporter.shouldUseColor(stream, flag, env));
   }
-  for (const [env, platform] of [[{}, 'win32'], [{}, 'linux'], [{ WT_SESSION: '1' }, 'win32'], [{ TERM: 'x' }, 'win32'], [{ TERM_PROGRAM: 'x' }, 'win32']]) {
+  for (const [env, platform] of [[{}, 'win32'], [{}, 'linux'], [{ WT_SESSION: '1' }, 'win32'], [{ TERM: 'x' }, 'win32'], [{ TERM_PROGRAM: 'x' }, 'win32'],
+    [{ SPEC_GUARD_ASCII: '1' }, 'linux'], [{ SPEC_GUARD_ASCII: 'no', WT_SESSION: '1' }, 'win32'], [{ SPEC_GUARD_ASCII: '0' }, 'linux'], [{ SPEC_GUARD_ASCII: '0' }, 'win32'],
+    [{ SPEC_GUARD_ASCII: 'FALSE', WT_SESSION: '1' }, 'win32'], [{ SPEC_GUARD_ASCII: ' ' }, 'linux'], [{ SPEC_GUARD_ASCII: '' }, 'darwin']]) {
     say('shouldUseAscii', JSON.stringify([env, platform]), reporter.shouldUseAscii(env, platform));
   }
   {
@@ -680,6 +682,9 @@ async function main() {
     ['demo', ['--print-baseline']], ['demo', ['--engine', 'rg']], ['demo', ['--engine', 'js']], ['demo', ['--engine', 'auto']],
     ['demo', ['--max-snippets', '1']], ['demo', ['--concurrency', '2']], ['demo', ['--concurrency', '1']],
     ['demo', ['--color']], ['demo', ['--no-color']], ['demo', ['docs/**/*.rst']], ['demo', ['docs/**/*.rst', '--allow-empty']],
+    ['demo', ['--ascii']], ['demo', ['--no-ascii']], ['demo', ['--ascii', '--verbose']], ['demo', ['--no-ascii', '--verbose']],
+    ['demo', ['prove', '--ascii']], ['demo', ['prove', '--no-ascii']], ['demo', ['cites', '--ascii']], ['demo', ['cites', '--no-ascii']],
+    ['demo', ['query', 'src/services', '--ascii']], ['demo', ['impact', 'src/services', '--ascii']], ['demo', ['--json', '--no-ascii']],
     ['demo', ['docs/**/*.rst', '--format', 'sarif']], ['demo', ['docs/**/*.rst', '--format', 'json']], ['demo', ['docs/**/*.rst', '--format', 'gitlab']],
     ['demo', ['docs/adr/0001-passing.md'], 0], ['demo', ['docs/adr/0002-failing.md'], 1], ['demo', ['docs/adr/0003-invalid.md']], ['demo', ['docs/**/*.rst', '--format', 'github'], 2],
     ['demo', ['docs/adr/0001-passing.md', '--verbose']], ['demo', ['docs/adr/0002-failing.md', '--format', 'sarif']],
@@ -710,6 +715,7 @@ async function main() {
     ['--nonsense'], ['--format'], ['--format', 'yaml'], ['--engine', 'nope'], ['--max-snippets', '-1'], ['--max-snippets'],
     ['--root'], ['--root', '--verbose'], ['--depth', 'x'], ['--watch', '--format', 'json'], ['--spec'], ['--exclude', '!src'], ['query'], ['impact'], ['cites', '--verbose'],
     ['--root', ''], ['-r', ' '], ['--concurrency', '0'], ['--exclude', ','], ['--strict=false'], ['--default-skips=false'], ['--allow-empty=false'], ['--help=no'],
+    ['--ascii', '--no-ascii'], ['prove', '--no-ascii', '--ascii'], ['query', 'src', '--no-ascii'], ['impact', 'src', '--no-ascii'], ['mcp', '--ascii'], ['--ascii=false'],
   ];
   /** Options the help names that no invocation here passes, each with why. */
   const NOT_RUN = new Map([['--watch', 'a session runs until it is interrupted; tests/watch.test.ts drives one']]);

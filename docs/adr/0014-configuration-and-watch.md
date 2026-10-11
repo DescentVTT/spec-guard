@@ -1155,3 +1155,86 @@ agreed in every row; the row with git in it was measured for a run:
   without one, and colour reads `TERM=dumb` as it did.
 
 <!-- @assert-count target="src/reporter.ts" symbol="env['TERM']" expected="1" reason="TERM is read once, for colour, where dumb turns it off, and never for whether the marks are drawn" -->
+
+## Amended 2026-10-12: the marks can be asked for outright
+
+The amendment of 2026-10-11 ends "Nothing asks for either set outright ...
+That is left as it is." It is taken back here. Since that amendment the
+marks on Windows follow `WT_SESSION` and `TERM_PROGRAM`, and a person whose
+terminal is neither has no say: an ssh session into Windows, the case that
+amendment names as its cost, is drawn `+ x ! o` whatever the terminal at the
+other end draws. And nothing anywhere asked for ASCII, for a log a tool
+reads or a font that holds none of the marks.
+
+`--ascii` draws the ASCII marks and `--no-ascii` the others, on any
+platform, and either wins over everything the environment says.
+`SPEC_GUARD_ASCII` asks for ASCII, and an option wins over it.
+
+Through the launcher on Windows 11 build 26300, Node 24.18.1, over a tree
+with a rule that holds, one that fails, a stale citation and a ghost. A run
+with `--verbose`, `prove` and `cites` agreed in every row but the refusals,
+which are each command's own:
+
+| Asked | 0.23.0 | Now |
+| --- | --- | --- |
+| nothing, in a console that names no terminal | ASCII | ASCII |
+| nothing, `WT_SESSION` set | the marks | the marks |
+| `--ascii`, `WT_SESSION` set | exit 2, `Unknown option "--ascii"` | ASCII |
+| `--no-ascii`, in a console that names no terminal | exit 2, `Unknown option "--no-ascii"` | the marks |
+| `SPEC_GUARD_ASCII=1` or `=no`, `WT_SESSION` set | the marks | ASCII |
+| `SPEC_GUARD_ASCII` set to `0`, `false`, `FALSE`, nothing or a space, `WT_SESSION` set | the marks | the marks |
+| `SPEC_GUARD_ASCII=0`, in a console that names no terminal | ASCII | ASCII |
+| `--no-ascii`, `SPEC_GUARD_ASCII=1` | exit 2 | the marks |
+| `--ascii`, `SPEC_GUARD_ASCII=0`, `WT_SESSION` set | exit 2 | ASCII |
+| `--ascii --no-ascii`, in either order | exit 2, unknown option | exit 2: `Option --ascii is given beside --no-ascii, and the marks are drawn one way or the other. Give one of the two.` |
+| `query` or `impact` with `--ascii` | exit 2, unknown option | the answer it gives without it |
+| `query` or `impact` with `--no-ascii` | exit 2, unknown option | exit 2: `Option --no-ascii does not apply to spec-guard query.` |
+| `mcp` with either | exit 2, unknown option | exit 2: `does not apply to spec-guard mcp` |
+| a run as `--json`, `sarif`, `github` or `gitlab` with either | exit 2, unknown option | the document it writes without it |
+
+- **The order is the option, then the variable, then the terminal.**
+  `--ascii` or `--no-ascii` decides alone. Without either,
+  `SPEC_GUARD_ASCII` asks for ASCII on any platform. Without that, Windows
+  decides by `WT_SESSION` and `TERM_PROGRAM` as the amendment of 2026-10-11
+  has it, and anywhere else the marks are drawn.
+- **`SPEC_GUARD_ASCII` is read as spec-graph reads `SPEC_GRAPH_ASCII`**
+  (`shouldUseAscii` in its `src/report.ts`, at 11e2895): set to anything but
+  nothing, `0` or `false` it asks, and those three, with white space around
+  them and in any case, do not, since each is how a script writes "off". So
+  `no` and `off` ask. It asks for ASCII only: `SPEC_GUARD_ASCII=0` is not a
+  request for the marks, and a console that names no terminal is still
+  drawn ASCII under it. The marks are asked for with `--no-ascii`.
+- **The two options together are refused**, exit 2, in either order, where
+  the last of `--color` and `--no-color` wins and says nothing of the other.
+  A line that asks for both ways was not meant, and one of the two would go
+  unread; spec-brief refuses `--color` beside `--no-color` for that reason
+  (`unread` in its `src/cli.ts`, at faa9cf6). The colour pair here is left
+  as it is.
+- **A command that draws marks takes both; one that draws none is treated
+  as it is for colour.** A run, a watch session, `prove` and `cites` draw
+  them and take both. A query and `impact` draw none: `--ascii` is true of
+  what they write already and is what a script passes to every command it
+  runs, so it is taken, as `--no-color` is; `--no-ascii` would promise marks
+  neither draws, and is refused, as `--color` is. The server takes neither,
+  as it takes neither of the colour pair. So `--ascii` stands to
+  `--no-color`, and `--no-ascii` to `--color`.
+- **A format that draws no mark takes both and changes nothing**: `--json`,
+  `sarif`, `github` and `gitlab` write the document they wrote, as they do
+  with `--color`.
+- **Neither is a configuration key.** How a report is drawn is the
+  terminal's and the person's, as colour is, and `specGuard` holds what a
+  run checks.
+- **What is drawn in ASCII is the five marks**, `+`, `x`, `!`, `o` and `...`
+  for `✔`, `✖`, `⚠`, `○` and `…`. The `·` between a report's counts is no
+  mark and is written either way, as it was on a Windows console before:
+  the fonts the amendment of 2026-10-11 read each hold it.
+- **`shouldUseAscii(env, platform)` reads the variable and keeps its two
+  parameters**, since it is exported and a caller passes it an environment.
+  The command line reads its options first and asks the function only when
+  neither was given.
+
+`tests/reporter-contracts.test.ts` holds the variable's reading beside the
+values that must not ask, `tests/cli.test.ts` each command's taking and
+refusing, and `tests/refused-inputs.test.ts` and `tests/watch.test.ts` what
+each command then draws, with a terminal or the variable named in every
+case so that each is one answer on Windows and anywhere else.
