@@ -73,6 +73,14 @@ into the source, run the test files that cover it, watch one fail, restore the
 source. A test file that fails to load counts as a survivor
 ([ADR-0003](docs/adr/0003-mutation-testing.md)).
 
+Stryker makes no mutant of what stands under a TypeScript `as`, and no report
+says so. Nothing a mutator reads stands under one: put the cast on a name, or
+write `x!` for a lookup that cannot miss, `satisfies` for a value held to a
+type, `literal({ ... })` (`src/literal.ts`) for a table that needs its literal
+types. `tests/mutation-unmeasured.test.ts` fails a cast over anything else,
+and the sweep's last job does too (`scripts/mutation-unmeasured.mjs`;
+ADR-0003, amended 2026-10-12).
+
 A mutant's test files run the quickest first in a sweep
 (`vitest.mutation.config.ts`), since Stryker stops at the first test that
 fails. A static mutant that survives or times out still runs them all, so a
