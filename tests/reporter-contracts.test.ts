@@ -282,10 +282,31 @@ describe('shouldUseAscii', () => {
     expect(shouldUseAscii({}, 'win32')).toBe(true);
   });
 
-  it.each(['WT_SESSION', 'TERM', 'TERM_PROGRAM'])('is false when %s says the terminal is modern', (name) => {
-    // Three separate signals, each of which has to be read. Two of the three
+  it.each(['WT_SESSION', 'TERM_PROGRAM'])('is false when %s says a terminal that draws the marks is there', (name) => {
+    // Two separate signals, each of which has to be read. One of the two
     // could have been misspelled and every test still passed.
     expect(shouldUseAscii({ [name]: 'something' }, 'win32')).toBe(false);
+    // Beside a TERM, as mintty and a shell inside Windows Terminal have it.
+    expect(shouldUseAscii({ [name]: 'something', TERM: 'xterm-256color' }, 'win32')).toBe(false);
+  });
+
+  it.each(['xterm-256color', 'cygwin', 'xterm', 'dumb'])('is true when TERM=%s is all there is, which says nothing of what draws the output', (term) => {
+    // Git for Windows sets TERM for everything it starts, and the Cygwin and
+    // MSYS2 runtimes for every program built on them, in a console whose
+    // fonts hold no check mark, cross or warning sign: a pre-commit hook
+    // started from cmd.exe had it, and was drawn the marks (ADR-0014).
+    expect(shouldUseAscii({ TERM: term }, 'win32')).toBe(true);
+    expect(shouldUseAscii({ TERM: term, COLORTERM: 'truecolor' }, 'win32')).toBe(true);
+    // Anywhere else the marks are drawn, with a TERM as without one.
+    expect(shouldUseAscii({ TERM: term }, 'linux')).toBe(false);
+  });
+
+  it.each(['WT_SESSION', 'TERM_PROGRAM'])('reads %s set to nothing as unset', (name) => {
+    // A script clearing the variable is not a terminal announcing itself.
+    expect(shouldUseAscii({ [name]: '' }, 'win32')).toBe(true);
+    expect(shouldUseAscii({ [name]: '', TERM: 'xterm-256color' }, 'win32')).toBe(true);
+    const other = name === 'WT_SESSION' ? 'TERM_PROGRAM' : 'WT_SESSION';
+    expect(shouldUseAscii({ [name]: '', [other]: 'something' }, 'win32')).toBe(false);
   });
 
   it('degrades every glyph, not just the tick', () => {

@@ -29,6 +29,18 @@ is deprecated before it goes, is spec-core's
   written in yet names its documents in `cites`, where a strict check does
   not fail for it; `cites` takes no `--allow-empty`.
 
+### Fixed
+
+- On Windows `TERM` no longer decides whether a report's marks are drawn: it
+  is `WT_SESSION` or `TERM_PROGRAM`, set to something, that says a terminal
+  which draws them is there. Git for Windows and the Cygwin and MSYS2
+  runtimes set `TERM` for everything they start, so a pre-commit hook
+  started from cmd.exe or PowerShell was drawn `✔`, `✖` and `⚠` in a console
+  whose fonts hold none of them. Windows Terminal, VS Code's terminal and
+  mintty are drawn as before; a terminal known by `TERM` alone, an ssh
+  session into Windows among them, now gets `+`, `x` and `!`
+  ([ADR-0014](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0014-configuration-and-watch.md)).
+
 ## 0.22.0
 
 A spec pattern that matches no file, beside others that do, is refused by

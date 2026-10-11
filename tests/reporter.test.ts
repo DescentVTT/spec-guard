@@ -78,7 +78,9 @@ describe('shouldUseAscii', () => {
   it('only degrades on a bare Windows console', () => {
     expect(shouldUseAscii({}, 'win32')).toBe(true);
     expect(shouldUseAscii({ WT_SESSION: '1' }, 'win32')).toBe(false);
-    expect(shouldUseAscii({ TERM: 'xterm' }, 'win32')).toBe(false);
+    expect(shouldUseAscii({ TERM_PROGRAM: 'vscode' }, 'win32')).toBe(false);
+    // TERM is set by git and by the Cygwin runtime for whatever they start.
+    expect(shouldUseAscii({ TERM: 'xterm' }, 'win32')).toBe(true);
     expect(shouldUseAscii({}, 'linux')).toBe(false);
   });
 });

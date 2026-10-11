@@ -81,10 +81,23 @@ export function shouldUseColor(
   return Boolean(stream.isTTY);
 }
 
-/** Legacy Windows consoles render box-drawing glyphs poorly; degrade to ASCII. */
+/**
+ * Whether a report's marks are drawn in ASCII: on Windows, unless a terminal
+ * that draws them has said it is there.
+ *
+ * The fonts a Windows console is set in hold no check mark, cross or warning
+ * sign, so a terminal draws those from another font or as boxes. Windows
+ * Terminal says it is there with `WT_SESSION`, and VS Code's terminal and
+ * mintty with `TERM_PROGRAM`; either set to nothing is as unset. `TERM` was
+ * read as a third sign and is none: Git for Windows sets it for everything
+ * it starts, and the Cygwin and MSYS2 runtimes for every program built on
+ * them, by the version of Windows and not by what the output is drawn on. A
+ * pre-commit hook started from cmd.exe had it, and drew the marks in a
+ * console that has none of them (ADR-0014, amended 2026-10-11).
+ */
 export function shouldUseAscii(env: NodeJS.ProcessEnv = process.env, platform = process.platform): boolean {
   if (platform !== 'win32') return false;
-  return !env['WT_SESSION'] && !env['TERM'] && !env['TERM_PROGRAM'];
+  return !env['WT_SESSION'] && !env['TERM_PROGRAM'];
 }
 
 function symbols(ascii: boolean): { pass: string; fail: string; warn: string; skip: string; more: string } {

@@ -1478,7 +1478,8 @@ describe('a run under --strict that verified nothing', () => {
 
   async function cli(root: string, argv: string[]): Promise<{ code: number; out: string }> {
     const out: string[] = [];
-    const io: CliIO = { stdout: (text) => out.push(text), stderr: () => {}, env: { NO_COLOR: '1', TERM: 'xterm' }, cwd: root, isTTY: false };
+    // WT_SESSION, so the marks are drawn on Windows as anywhere: a TERM alone no longer says so there.
+    const io: CliIO = { stdout: (text) => out.push(text), stderr: () => {}, env: { NO_COLOR: '1', WT_SESSION: '1' }, cwd: root, isTTY: false };
     return { code: await main([...argv, '--engine', 'js'], io), out: out.join('\n') };
   }
 

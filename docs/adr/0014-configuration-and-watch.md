@@ -969,6 +969,9 @@ As before, `NO_COLOR` set to anything turns colour off and wins over
 nothing is as unset, `CI` is not read, and `--color` and `--no-color` win
 over all of them. Whether to draw glyphs on Windows is another question,
 read from `WT_SESSION`, `TERM` and `TERM_PROGRAM`, and is as it was.
+*Amended 2026-10-11*: it is read from `WT_SESSION` and `TERM_PROGRAM`, and
+no longer from `TERM`, which the amendment of that date on what `TERM` says
+has the reasons for.
 
 <!-- @assert-absence target="src/cli.ts" symbol="Math.max(1, positiveInteger" reason="a concurrency of 0 is refused, as the configuration's key refuses it, and never made 1" -->
 <!-- @assert-present file="tests/refused-inputs.test.ts" reason="each refusal is held beside the input that must still be read" -->
@@ -1083,3 +1086,72 @@ colour, `FALSE`, `no` and `true` among them. Nothing else about colour
 changes.
 
 <!-- @assert-present file="tests/unmatched-specs.test.ts" reason="each command's answer to a pattern that matches no file is held beside the run that must not be refused" -->
+
+## Amended 2026-10-11: `TERM` is no sign of a terminal that draws the marks
+
+On Windows a report's marks are drawn in ASCII - `+`, `x`, `!`, `o` and `...`
+for `✔`, `✖`, `⚠`, `○` and `…` - unless the terminal says it draws them.
+Any of `WT_SESSION`, `TERM` and `TERM_PROGRAM` was read as saying so. `TERM`
+does not say it: the programs below set it for whatever they start, by the
+version of Windows and not by what the output is drawn on. Each was read in
+its source on 2026-10-11, on the branch named.
+
+| Program | What it sets | Where it was read |
+| --- | --- | --- |
+| Git for Windows | in its own environment, which every process it starts is given: `TERM`, when it is not set, `cygwin` before Windows build 15063 and from it `xterm-256color` with `COLORTERM=truecolor` | `setup_windows_environment()` in `compat/mingw.c`, git-for-windows/git, `main` |
+| The Cygwin runtime, and MSYS2's | for every program built on it: `TERM`, when Windows' environment holds none, `xterm-256color` where `wincap.has_con_24bit_colors()`, which the build number alone decides, 15063 and later, and `cygwin` before it | `win32env_to_cygenv()` in `winsup/cygwin/environ.cc` and `wincapc::init()` in `winsup/cygwin/wincap.cc`, cygwin/cygwin, `main`; the same lines of `environ.cc` in msys2/msys2-runtime at e0c179b |
+| mintty | for the shell it starts: `TERM` from its configuration, and `TERM_PROGRAM=mintty` | `child_create()` in `src/child.c`, and `APPNAME` in `src/appinfo.h`, mintty/mintty, `master` |
+| Windows Terminal | for the program in a tab: `WT_SESSION` and `WT_PROFILE_ID`, and in that function no `TERM` and no `TERM_PROGRAM` | `ConptyConnection::_LaunchAttachedClient()` in `src/cascadia/TerminalConnection/ConptyConnection.cpp`, microsoft/terminal, `main` |
+| VS Code's terminal | for the shell it starts: `TERM_PROGRAM=vscode` and `COLORTERM=truecolor`, on every platform | `addTerminalEnvironmentKeys()` in `src/vs/workbench/contrib/terminal/common/terminalEnvironment.ts`, microsoft/vscode, `main` |
+| OpenSSH's server on Windows | for a session: `TERM`, as the client's request for a terminal named it | `session_pty_req()` and `do_setup_env()` in `session.c`, applied by `setup_session_env()` in `contrib/win32/win32compat/w32-doexec.c`, PowerShell/openssh-portable, `latestw_all` |
+
+Measured on Windows 11 build 26300 with git 2.55.0.windows.5 and Node
+24.18.1, none of the three variables set: a process PowerShell starts has
+none of them; one that git starts with no shell between, an alias written
+`!node`, has `TERM=xterm-256color`; and so has a pre-commit hook of a
+`git commit` started from cmd.exe. Neither has `WT_SESSION` or
+`TERM_PROGRAM`.
+
+The marks are not in the fonts a console is set in. Read from each font's
+character map on the same machine, Consolas 7.01, Lucida Console 5.01,
+Courier New 6.95 and Cascadia Mono 2102.025 each hold `○` (U+25CB), `…`
+(U+2026) and `·` (U+00B7), and none holds `✔` (U+2714), `✖` (U+2716) or `⚠`
+(U+26A0), which Segoe UI Symbol holds. A terminal draws those three from
+another font or not at all. The console host's GDI renderer drew text with
+`PolyTextOutW`, which substitutes no glyph a font is missing, until
+microsoft/terminal#10478 replaced the call (merged 2021-06-22); which builds
+of Windows carry that was not established, so a console that is not known to
+be one of the terminals above is taken not to draw them.
+
+Through the launcher on that machine, over a tree with a rule that holds, one
+that fails, a document not in force, a stale citation and a ghost. Between
+them a run, `prove` and `cites` drew `✔`, `✖`, `⚠` and `○` where the table
+says the marks, and `+`, `x`, `!` and `o` where it says ASCII, and the three
+agreed in every row; the row with git in it was measured for a run:
+
+| Environment | 0.22.0 | Now |
+| --- | --- | --- |
+| none of the three set | ASCII | ASCII |
+| `TERM=xterm-256color`, `TERM=cygwin` or `TERM=dumb`, alone | the marks | ASCII |
+| a run that git starts, and one in a pre-commit hook of a commit started from cmd.exe, none of the three set before git | the marks | ASCII |
+| `WT_SESSION` set | the marks | the marks |
+| `TERM_PROGRAM=vscode`; `TERM_PROGRAM=mintty` beside `TERM=xterm` | the marks | the marks |
+| `WT_SESSION` and `TERM_PROGRAM` set to nothing | ASCII | ASCII |
+| `WT_SESSION` set to nothing beside `TERM=xterm-256color` | the marks | ASCII |
+
+- **`WT_SESSION` or `TERM_PROGRAM`, set to something, draws the marks; `TERM`
+  decides nothing.** Either set to nothing is as unset, as it was. spec-graph
+  reads the same two (`shouldUseAscii` in its `src/report.ts`).
+- **What it costs is a terminal known by `TERM` alone**, which is now drawn
+  ASCII: an ssh session into Windows is the one found, whose `TERM` is the
+  client's and says what the client draws. ASCII where the marks could have
+  been drawn is a plainer report; the marks where they cannot be drawn are
+  boxes in place of what passed and what failed.
+- **Nothing asks for either set outright.** spec-guard has no option and no
+  variable of its own for it, where spec-graph has `--ascii` and
+  `SPEC_GRAPH_ASCII` for ASCII and nothing for the marks. That is left as it
+  is.
+- **Anywhere but Windows the marks are always drawn**, with a `TERM` as
+  without one, and colour reads `TERM=dumb` as it did.
+
+<!-- @assert-count target="src/reporter.ts" symbol="env['TERM']" expected="1" reason="TERM is read once, for colour, where dumb turns it off, and never for whether the marks are drawn" -->
