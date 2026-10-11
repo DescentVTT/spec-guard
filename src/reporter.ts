@@ -532,9 +532,10 @@ export function formatJson(report: RunResult): string {
       durationMs: Math.round(report.durationMs * 1000) / 1000,
       summary: report.summary,
       specFiles: report.specFiles,
-      // Present only when a pattern matched no file: the document of a run
-      // whose every pattern matched is the one it was before the field.
-      ...(report.unmatchedSpecs === undefined ? {} : { unmatchedSpecs: report.unmatchedSpecs }),
+      // Written only when a pattern matched no file, as JSON leaves out what
+      // is undefined: the document of a run whose every pattern matched is
+      // the one it was before the field.
+      unmatchedSpecs: report.unmatchedSpecs,
       results: report.results.map((result) => ({
         ok: result.ok,
         kind: result.kind,
@@ -922,7 +923,7 @@ export function formatProveJson(report: ProveReport): string {
       durationMs: Math.round(report.durationMs * 1000) / 1000,
       summary: report.summary,
       specFiles: report.specFiles,
-      ...(report.unmatchedSpecs === undefined ? {} : { unmatchedSpecs: report.unmatchedSpecs }),
+      unmatchedSpecs: report.unmatchedSpecs,
       results: report.results.map((result) => ({
         outcome: result.outcome,
         kind: result.kind,

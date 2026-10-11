@@ -427,7 +427,8 @@ export function createMcpHandler(options: McpServerOptions): (message: unknown) 
     return {
       root: toPosix(options.root),
       specFiles: ruleSet.specFiles,
-      ...(ruleSet.unmatchedSpecs === undefined ? {} : { unmatchedSpecs: ruleSet.unmatchedSpecs }),
+      // Undefined when every pattern matched, which the JSON this becomes leaves out.
+      unmatchedSpecs: ruleSet.unmatchedSpecs,
       rules: ruleSet.rules
         .filter(({ document }) => document.inForce)
         .map(({ assertion, document }) => viewRule(assertion, document)),

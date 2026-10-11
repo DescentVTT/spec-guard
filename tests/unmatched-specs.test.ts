@@ -17,8 +17,12 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { EXIT_ERROR, EXIT_FAILED, EXIT_OK, HELP, main, type CliIO } from '../src/cli.js';
 import { expandSpecPatterns, expandSpecs } from '../src/glob.js';
+import { impactOf } from '../src/impact.js';
 import type { TreeListener } from '../src/io.js';
 import { createMcpHandler, type McpServerOptions } from '../src/mcp.js';
+import { proveSpecGuard } from '../src/prove.js';
+import { queryRules } from '../src/query.js';
+import { runSpecGuard } from '../src/runner.js';
 import { createDocumentMemo, readSpecs, unmatchedSpecs } from '../src/specs.js';
 import { makeTempRepo, memoryIo, removeTempRepo } from './helpers.js';
 
@@ -501,6 +505,33 @@ describe('the MCP server with a pattern that matched no file beside one that did
     const dependents = await tool('get_dependents', { paths: ['src/b.ts'] });
     expect(dependents.content[0]?.text).toContain('no spec files matched, so no rules are shown');
     expect(dependents.content[0]?.text).not.toContain('Note:');
+  });
+});
+
+describe('the package, whose caller reads the report', () => {
+  it('names the patterns on each report, and refuses nothing', async () => {
+    const root = await tree();
+    const patterns = ['docs', 'gone', 'old/*.md'];
+    const named = ['gone', 'old/*.md'];
+
+    const run = await runSpecGuard({ patterns, root, engine: 'javascript' });
+    expect([run.ok, run.summary.specs, run.unmatchedSpecs]).toEqual([true, 1, named]);
+    const proof = await proveSpecGuard({ patterns, root });
+    expect([proof.ok, proof.summary.killed, proof.unmatchedSpecs]).toEqual([true, 1, named]);
+    const query = await queryRules({ patterns, root, paths: ['src/a.ts'] });
+    expect([query.results[0]?.rules.length, query.unmatchedSpecs]).toEqual([1, named]);
+    const impact = await impactOf({ patterns, root, paths: ['src/b.ts'] });
+    expect([impact.rules.length, impact.unmatchedSpecs]).toEqual([1, named]);
+  });
+
+  it('gives a report no key for them when each pattern matched', async () => {
+    const root = await tree();
+    const patterns = ['docs', 'docs/a.md'];
+
+    expect(await runSpecGuard({ patterns, root, engine: 'javascript' })).not.toHaveProperty('unmatchedSpecs');
+    expect(await proveSpecGuard({ patterns, root })).not.toHaveProperty('unmatchedSpecs');
+    expect(await queryRules({ patterns, root, paths: ['src/a.ts'] })).not.toHaveProperty('unmatchedSpecs');
+    expect(await impactOf({ patterns, root, paths: ['src/b.ts'] })).not.toHaveProperty('unmatchedSpecs');
   });
 });
 

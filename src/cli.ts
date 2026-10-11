@@ -754,6 +754,17 @@ function runOptionsOf(options: CliOptions): Omit<RunOptions, 'patterns' | 'root'
 }
 
 /**
+ * What a refusal offers besides removing the pattern: `refused` is a command
+ * `--allow-empty` would let through, and `final` one that takes no such
+ * option, a query. Each is looked up by its name, where a comparison with one
+ * of them read any other word as the second.
+ */
+const WAY_THROUGH = {
+  refused: ', or give --allow-empty where a pattern is meant to match nothing',
+  final: '',
+} as const;
+
+/**
  * What is said of spec patterns that matched no file beside ones that did,
  * or null when every pattern matched.
  *
@@ -765,15 +776,15 @@ function runOptionsOf(options: CliOptions): Omit<RunOptions, 'patterns' | 'root'
  * each is named, with where it was written and what to do about it, and the
  * caller decides whether the command goes on (ADR-0014, amended 2026-10-11).
  *
- * `refused` is for a command `--allow-empty` would let through, `final` for
- * one that takes no such option, and `allowed` for one it did let through.
+ * `allowed` is for a command `--allow-empty` let through, and the other two
+ * for one that refuses: see `WAY_THROUGH`.
  */
-function unmatchedLine(unmatched: readonly string[] | undefined, use: ConfigUse | undefined, as: 'refused' | 'final' | 'allowed'): string | null {
+function unmatchedLine(unmatched: readonly string[] | undefined, use: ConfigUse | undefined, as: 'allowed' | keyof typeof WAY_THROUGH): string | null {
   if (unmatched === undefined) return null;
   const named = `spec-guard: ${unmatchedClause(unmatched)}`;
   if (as === 'allowed') return `${named}, which --allow-empty lets through.`;
   const where = use?.applied.includes('specs') ? ` from "specs" in ${use.file}` : '';
-  return `${named}. Remove ${unmatched.length === 1 ? 'it' : 'them'}${where}${as === 'refused' ? ', or give --allow-empty where a pattern is meant to match nothing' : ''}.`;
+  return `${named}. Remove ${unmatched.length === 1 ? 'it' : 'them'}${where}${WAY_THROUGH[as]}.`;
 }
 
 /** The process's own streams, signals and filesystem watcher. */
