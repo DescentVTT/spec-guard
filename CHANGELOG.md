@@ -10,7 +10,13 @@ what to do when upgrading; the family's policy, including how a flag or field
 is deprecated before it goes, is spec-core's
 [ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
-## Unreleased
+## 0.22.0
+
+A spec pattern that matches no file, beside others that do, is refused by
+name, exit 2, where it was dropped without a word and the run reported on
+the rest: a directory of specs that was renamed no longer leaves a green
+check behind. `--allow-empty` lets such a pattern through, and `--watch` and
+the server carry on and say which it is.
 
 ### Changed
 

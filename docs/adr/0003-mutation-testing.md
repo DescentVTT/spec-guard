@@ -1555,6 +1555,29 @@ ran high where they were least measured: `runner.ts` and `text.ts` took 7m35s
 against 15.2 minutes, and `cli.ts` alone 8m18s against 15.1, so the next
 split starts from this run's logs rather than 398fe94's.
 
+### 0.22.0: one survivor fewer, none more, in the new order
+
+CI's full sweep of cb5e661 (run 38119829828), the first of a release with
+a mutant's quickest test files first, came out at **99.23% over 12,580
+mutants with 95 survivors and 2 without coverage**, 202 of the detected
+by timeout; the shards took from 5m21s to 13m13s. Against 0.21.0's
+sweep, 96 survivors and 2 without coverage over 12,404:
+
+- one survivor is gone: `warnings.length > 0` made false where a report
+  names the engine after a fallback (`src/runner.ts`), which the test of
+  a ripgrep that failed being said once now holds;
+- the refusal of a spec pattern that matches no file, the warning said
+  once and `FORCE_COLOR=false` added 176 mutants, and the sweep left none
+  of them;
+- no survivor is new: mutant for mutant, the 95 are among 0.21.0's 96.
+
+`target === '.'` made true in `src/impact.ts`, equivalent since 0.18.1,
+was counted killed here as in 0.19.0, by a test that ran out its 30
+seconds. Both sweeps of the new order on the branch that brought it
+(runs 38111345528 and 38115759932) ran that mutant's tests to their end
+on quicker runners and counted it a survivor, so a sweep of this source
+that reads 96 survivors has not lost a test.
+
 ### 0.21.0: six survivors fewer, and none more
 
 CI's full sweep of d6fa02a (run 37832810841) came out at **99.21% over
