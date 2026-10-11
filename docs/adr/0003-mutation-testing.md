@@ -1555,6 +1555,16 @@ ran high where they were least measured: `runner.ts` and `text.ts` took 7m35s
 against 15.2 minutes, and `cli.ts` alone 8m18s against 15.1, so the next
 split starts from this run's logs rather than 398fe94's.
 
+### 0.23.0: the same survivors
+
+CI's full sweep of 5650396 (run 38141055763) came out at **99.23% over
+12,607 mutants with 95 survivors and 2 without coverage**, 207 of the
+detected by timeout; the shards took from 5m52s to 11m53s. `cites`
+naming a spec pattern that matched no file, and the marks on Windows
+read off `WT_SESSION` and `TERM_PROGRAM` alone, added 27 mutants, and the
+sweep left none of them. No survivor is new and none is gone: mutant
+for mutant, the 95 and the 2 are 0.22.0's.
+
 ### 0.22.0: one survivor fewer, none more, in the new order
 
 CI's full sweep of cb5e661 (run 38119829828), the first of a release with

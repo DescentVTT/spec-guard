@@ -10,7 +10,13 @@ what to do when upgrading; the family's policy, including how a flag or field
 is deprecated before it goes, is spec-core's
 [ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
-## Unreleased
+## 0.23.0
+
+`cites` names a spec pattern that matches no file beside others that do, and
+under `--strict` fails for it where its families are read off the specs: a
+directory of RFCs that was renamed no longer leaves `cites` green. And on
+Windows a report's marks are drawn only where a terminal that draws them
+says it is there, which `TERM` does not.
 
 ### Changed
 
