@@ -41,6 +41,7 @@ import {
   runAnnotations,
   shouldUseAscii,
   shouldUseColor,
+  STRICT_REFUSES,
   unmatchedClause,
 } from './reporter.js';
 import { DEFAULT_CONCURRENCY, DEFAULT_MAX_SNIPPETS, runSpecGuard, splitList, type RunOptions } from './runner.js';
@@ -222,7 +223,8 @@ Options
   A spec pattern that matches no file, beside others that do, is refused the
   same way and by name, since none of its rules was read: a run, prove, impact
   and query exit 2. --allow-empty lets the first three through and still names
-  it; --watch and mcp carry on, and say which pattern it is.
+  it; --watch and mcp carry on, and say which pattern it is; cites names it
+  and goes on, and exits 1 for it under --strict (see cites, below).
 
 Configuration
   package.json in the root can hold specs, exclude, engine, strict,
@@ -259,7 +261,10 @@ cites reads comment text only - not strings, not Markdown - for ids such as
 ADR-0007, ADR-7 and ADR-007, which are one document. A ghost citation names no
 document, and exits 1; a stale one names a document superseded, deprecated,
 rejected or archived, and exits 1 under --strict. A family whose files match no
-document exits 2.
+document exits 2. A spec pattern that matches no file beside others that do is
+named on stderr. Without "cites" in the configuration the families are read off
+the specs, so one kept under that pattern was not read and no citation of it
+was looked for: exit 1 under --strict. Families "cites" names lose nothing.
 
 impact follows the import graph backwards: relative JavaScript, TypeScript and
 Python imports that name a file. Go, Rust, C# and absolute Python imports name
@@ -777,11 +782,18 @@ const WAY_THROUGH = {
  * caller decides whether the command goes on (ADR-0014, amended 2026-10-11).
  *
  * `allowed` is for a command `--allow-empty` let through, and the other two
- * for one that refuses: see `WAY_THROUGH`.
+ * for one that refuses: see `WAY_THROUGH`. `lost` is what a command that
+ * goes on says the pattern cost it, a clause that follows the naming: `cites`
+ * takes no `--allow-empty` either, and names the pattern as a query does.
  */
-function unmatchedLine(unmatched: readonly string[] | undefined, use: ConfigUse | undefined, as: 'allowed' | keyof typeof WAY_THROUGH): string | null {
+function unmatchedLine(
+  unmatched: readonly string[] | undefined,
+  use: ConfigUse | undefined,
+  as: 'allowed' | keyof typeof WAY_THROUGH,
+  lost = '',
+): string | null {
   if (unmatched === undefined) return null;
-  const named = `spec-guard: ${unmatchedClause(unmatched)}`;
+  const named = `spec-guard: ${unmatchedClause(unmatched)}${lost}`;
   if (as === 'allowed') return `${named}, which --allow-empty lets through.`;
   const where = use?.applied.includes('specs') ? ` from "specs" in ${use.file}` : '';
   return `${named}. Remove ${unmatched.length === 1 ? 'it' : 'them'}${where}${WAY_THROUGH[as]}.`;
@@ -1043,9 +1055,11 @@ async function runImpact(options: CliOptions, io: CliIO, use: ConfigUse | undefi
  * `spec-guard cites`: the specs code comments cite, and whether each is still
  * there and in force. ADR-0017.
  *
- * Exit 1 for a ghost, and under `--strict` for a stale citation or a file
- * whose comments could not all be read; 2 when the answer could not be
- * trusted - a family whose files match no document, a path outside the root.
+ * Exit 1 for a ghost, and under `--strict` for a stale citation, a file
+ * whose comments could not all be read, or a family that may have gone
+ * unread with a spec pattern that matched no file; 2 when the answer could
+ * not be trusted - a family whose files match no document, a path outside
+ * the root.
  */
 async function runCites(options: CliOptions, io: CliIO, use: ConfigUse | undefined): Promise<number> {
   let report;
@@ -1086,6 +1100,18 @@ async function runCites(options: CliOptions, io: CliIO, use: ConfigUse | undefin
                 ascii: shouldUseAscii(io.env),
               });
   if (written !== '') io.stdout(written);
+  // A spec pattern that matched no file beside others that did is named
+  // after the report, which is written as the check made it, in every
+  // format: no spec at all is exit 0 and a note here, so one such pattern is
+  // a note too, and the exit code is the report's. That is 1 under --strict
+  // where the families were read off the specs, since one kept under the
+  // pattern was not, and the line says so. Families `cites` names are found
+  // by their own globs: the pattern is named, and cost the check nothing.
+  const them = report.unmatchedSpecs?.length === 1 ? 'it' : 'them';
+  const lost =
+    options.cites === undefined ? `, so no citation of a document under ${them} was looked for${options.strictTargets ? `, ${STRICT_REFUSES}` : ''}` : '';
+  const unmatched = unmatchedLine(report.unmatchedSpecs, use, 'final', lost);
+  if (unmatched !== null) io.stderr(unmatched);
   return report.ok ? EXIT_OK : EXIT_FAILED;
 }
 

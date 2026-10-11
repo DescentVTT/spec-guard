@@ -105,9 +105,10 @@ const NOTHING_READ = 'no source file was read, so nothing was checked';
 /**
  * What `--strict` adds, where it fails a run or a proof that verified nothing
  * over the specs it matched: the family contract's "nothing measured is not
- * clean" (spec-core's ADR-0005, and ADR-0010 here).
+ * clean" (spec-core's ADR-0005, and ADR-0010 here). The command line says it
+ * in these words too, of a family `cites` could not read off a spec pattern.
  */
-const STRICT_REFUSES = 'which --strict refuses';
+export const STRICT_REFUSES = 'which --strict refuses';
 
 function formatDuration(ms: number): string {
   return ms < 1000 ? `${Math.round(ms)}ms` : `${(ms / 1000).toFixed(2)}s`;
@@ -1381,6 +1382,10 @@ export function formatCitesJson(report: CitesReport): string {
       root: report.root,
       durationMs: Math.round(report.durationMs * 1000) / 1000,
       families: report.families,
+      // After the families, which are what a pattern that matched no file
+      // leaves short. Written only when there is one to name, as JSON leaves
+      // out what is undefined.
+      unmatchedSpecs: report.unmatchedSpecs,
       summary: report.summary,
       findings: report.findings,
       gaps: report.gaps,

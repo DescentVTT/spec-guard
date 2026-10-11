@@ -15,6 +15,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { findCitations } from '../src/cites.js';
 import { EXIT_ERROR, EXIT_FAILED, EXIT_OK, HELP, main, type CliIO } from '../src/cli.js';
 import { expandSpecPatterns, expandSpecs } from '../src/glob.js';
 import { impactOf } from '../src/impact.js';
@@ -508,6 +509,166 @@ describe('the MCP server with a pattern that matched no file beside one that did
   });
 });
 
+describe('cites with a pattern that matched no file beside one that did', () => {
+  // A check of citations goes on where a run stops: with no spec at all it
+  // has always exited 0 with a note, and 1 under --strict, so one pattern
+  // among several is held to that (ADR-0017, amended 2026-10-11).
+  const SPECS = ['--spec', 'docs/**/*.md', '--spec', 'rfcs/*.md'];
+  const STRICT = ', which --strict refuses';
+  const lost = (strict = ''): string =>
+    `spec-guard: the pattern "rfcs/*.md" matched no spec file, so no citation of a document under it was looked for${strict}. Remove it.`;
+  const ADRS = { id: 'ADR-{n}', files: 'docs/adr/{n}-*.md' };
+
+  /** Two directories of numbered documents, each titled with an id, and a comment that cites one of each. */
+  async function kept(extra: Record<string, string> = {}, rfcs = 'rfcs'): Promise<string> {
+    const root = await makeTempRepo({
+      'docs/adr/0001-kept.md': '# ADR-0001: Kept\n',
+      [`${rfcs}/0001-proposed.md`]: '# RFC-0001: Proposed\n',
+      'src/a.ts': '// ADR-0001 and RFC-0001\nexport const a = 1;\n',
+      ...extra,
+    });
+    temporary.push(root);
+    return root;
+  }
+
+  /** The same after `rfcs` was renamed, and its pattern left behind. */
+  const renamed = (extra: Record<string, string> = {}): Promise<string> => kept(extra, 'proposals');
+
+  /** A comment citing an RFC nobody wrote: a ghost for as long as the RFCs are a family. */
+  const GHOST = { 'src/ghost.ts': '// RFC-0099\n' };
+
+  it('names the pattern after a report that no longer looks for its documents, where it said nothing', async () => {
+    const whole = await cli(await kept(GHOST), ['cites', ...SPECS]);
+    expect([whole.code, whole.err]).toEqual([EXIT_FAILED, []]);
+    expect(whole.out.join('\n')).toContain('src/ghost.ts:1 cites RFC-0099, which no document defines');
+
+    // The ghost is still in the code, and the family it was a ghost of is gone.
+    const left = await cli(await renamed(GHOST), ['cites', ...SPECS]);
+    expect([left.code, left.err]).toEqual([EXIT_OK, [lost()]]);
+    expect(left.out).toHaveLength(1);
+    expect(left.out[0]).toMatch(/^spec-guard cites ADR-\{n\} \(1 document matching docs\/adr\/\{n\}\*\.md, read off the specs' titles\)\n/);
+    expect(left.out[0]).toMatch(/ every citation names a document in force$/);
+  });
+
+  it('fails under --strict, in a line that says why, and passes there when every pattern matched', async () => {
+    const strict = await cli(await renamed(), ['cites', ...SPECS, '--strict']);
+    expect([strict.code, strict.err]).toEqual([EXIT_FAILED, [lost(STRICT)]]);
+    // The report of the rest is written as it is without --strict.
+    expect(strict.out[0]).toMatch(/ every citation names a document in force$/);
+
+    expect(await cli(await kept(), ['cites', ...SPECS, '--strict'])).toMatchObject({ code: EXIT_OK, err: [] });
+  });
+
+  it('leaves the exit code to what was found when --strict is not given', async () => {
+    const root = await renamed({ 'src/ghost.ts': '// ADR-0099\n' });
+
+    expect(await cli(root, ['cites', ...SPECS])).toMatchObject({ code: EXIT_FAILED, err: [lost()] });
+    expect(await cli(root, ['cites', 'src/a.ts', ...SPECS])).toMatchObject({ code: EXIT_OK, err: [lost()] });
+  });
+
+  it('names every such pattern, and says where to remove them from when a configuration wrote them', async () => {
+    const own = await renamed({ '.spec-guard.json': JSON.stringify({ specs: ['old', 'docs/**/*.md', 'rfcs/*.md'] }) });
+
+    expect((await cli(own, ['cites'])).err).toEqual([
+      'spec-guard: the patterns "old", "rfcs/*.md" matched no spec file, so no citation of a document under them was looked for. Remove them from "specs" in .spec-guard.json.',
+    ]);
+    expect((await cli(own, ['cites', '--strict'])).err).toEqual([
+      'spec-guard: the patterns "old", "rfcs/*.md" matched no spec file, so no citation of a document under them was looked for, which --strict refuses. Remove them from "specs" in .spec-guard.json.',
+    ]);
+    // Patterns on the command line replace the configuration's, and are not its to remove.
+    expect((await cli(own, ['cites', ...SPECS])).err).toEqual([lost()]);
+  });
+
+  it('still writes each document a script reads, the JSON one with the patterns in it', async () => {
+    const root = await renamed();
+
+    const json = await cli(root, ['cites', ...SPECS, '--json']);
+    expect([json.code, json.err]).toEqual([EXIT_OK, [lost()]]);
+    const report = JSON.parse(json.out.join('\n')) as Record<string, unknown>;
+    expect(report).toMatchObject({ formatVersion: 1, ok: true, families: [{ id: 'ADR-{n}', source: 'derived' }], unmatchedSpecs: ['rfcs/*.md'] });
+    // After the families, which are what the pattern left short.
+    expect(Object.keys(report).slice(4, 6)).toEqual(['families', 'unmatchedSpecs']);
+
+    const strict = await cli(root, ['cites', ...SPECS, '--json', '--strict']);
+    expect([strict.code, strict.err]).toEqual([EXIT_FAILED, [lost(STRICT)]]);
+    const refused = JSON.parse(strict.out.join('\n')) as Record<string, unknown>;
+    expect(refused).toMatchObject({ ok: false, unmatchedSpecs: ['rfcs/*.md'], findings: [], gaps: [] });
+    // A source file was read: this is not the check that read nothing.
+    expect(refused).not.toHaveProperty('nothingRead');
+
+    const sarif = await cli(root, ['cites', ...SPECS, '--format', 'sarif', '--strict']);
+    expect([sarif.code, sarif.err]).toEqual([EXIT_FAILED, [lost(STRICT)]]);
+    expect(JSON.parse(sarif.out.join('\n'))).toMatchObject({ version: '2.1.0', runs: [{ results: [] }] });
+    expect(await cli(root, ['cites', ...SPECS, '--format', 'gitlab'])).toEqual({ code: EXIT_OK, out: ['[]'], err: [lost()] });
+    expect(await cli(root, ['cites', ...SPECS, '--format', 'gitlab', '--strict'])).toEqual({ code: EXIT_FAILED, out: ['[]'], err: [lost(STRICT)] });
+    // GitHub's commands are one per finding, and there is none: the line is what the log holds.
+    expect(await cli(root, ['cites', ...SPECS, '--format', 'github', '--strict'])).toEqual({ code: EXIT_FAILED, out: [], err: [lost(STRICT)] });
+  });
+
+  it('only names the pattern where "cites" names the families, which lose nothing by it, under --strict too', async () => {
+    const named = 'spec-guard: the pattern "rfcs/*.md" matched no spec file. Remove it from "specs" in .spec-guard.json.';
+    const root = await renamed({ '.spec-guard.json': JSON.stringify({ specs: ['docs/**/*.md', 'rfcs/*.md'], cites: [ADRS] }) });
+
+    expect(await cli(root, ['cites'])).toMatchObject({ code: EXIT_OK, err: [named] });
+    const strict = await cli(root, ['cites', '--strict', '--json']);
+    expect([strict.code, strict.err]).toEqual([EXIT_OK, [named]]);
+    expect(JSON.parse(strict.out.join('\n'))).toMatchObject({ ok: true, families: [{ id: 'ADR-{n}', source: 'config' }], unmatchedSpecs: ['rfcs/*.md'] });
+
+    // A family that lost its documents to the rename is refused by its own glob, as it always was.
+    const gone = await renamed({
+      '.spec-guard.json': JSON.stringify({ specs: ['docs/**/*.md', 'rfcs/*.md'], cites: [ADRS, { id: 'RFC-{n}', files: 'rfcs/{n}-*.md' }] }),
+    });
+    expect(await cli(gone, ['cites'])).toEqual({
+      code: EXIT_ERROR,
+      out: [],
+      err: ["spec-guard: no document matches rfcs/{n}-*.md, so every citation of RFC-{n} would be reported as a ghost; check the files pattern against the documents' names"],
+    });
+  });
+
+  it('checks as it did when every pattern matched, and its document has no key for the patterns', async () => {
+    const root = await kept();
+
+    // `docs` and the file under it name one document twice, and nothing in vain.
+    const json = await cli(root, ['cites', ...SPECS, '--spec', 'docs/adr/0001-kept.md', '--json', '--strict']);
+    expect([json.code, json.err]).toEqual([EXIT_OK, []]);
+    expect(JSON.parse(json.out.join('\n'))).not.toHaveProperty('unmatchedSpecs');
+  });
+
+  it('answers no spec at all as it always has: a note, exit 1 under --strict, and no pattern named', async () => {
+    const root = await renamed();
+    const NONE = ['--spec', 'gone', '--spec', 'old/*.md'];
+
+    const none = await cli(root, ['cites', ...NONE]);
+    expect([none.code, none.err]).toEqual([EXIT_OK, []]);
+    expect(none.out[0]).toContain('nothing to look for: "cites" names no documents');
+    const json = await cli(root, ['cites', ...NONE, '--json', '--strict']);
+    expect([json.code, json.err]).toEqual([EXIT_FAILED, []]);
+    const report = JSON.parse(json.out.join('\n')) as Record<string, unknown>;
+    expect(report).toMatchObject({ ok: false, nothingRead: true, families: [] });
+    expect(report).not.toHaveProperty('unmatchedSpecs');
+    // One pattern written twice is one pattern, and matched alone it is no spec at all.
+    expect((await cli(root, ['cites', '--spec', 'gone', '--spec', 'gone'])).err).toEqual([]);
+
+    // The pattern spec-guard reads when none is given is nobody's to remove.
+    await fs.rm(path.join(root, 'docs'), { recursive: true });
+    expect(await cli(root, ['cites'])).toMatchObject({ code: EXIT_OK, err: [] });
+
+    // Families "cites" names need no spec, and a strict check of them passes without one, as it did.
+    const configured = await kept({ '.spec-guard.json': JSON.stringify({ specs: ['gone', 'old'], cites: [ADRS] }) });
+    const strict = await cli(configured, ['cites', '--strict', '--json']);
+    expect([strict.code, strict.err]).toEqual([EXIT_OK, []]);
+    expect(JSON.parse(strict.out.join('\n'))).not.toHaveProperty('unmatchedSpecs');
+  });
+
+  it('takes no --allow-empty, since it refuses nothing for that to let through', async () => {
+    expect(await cli(await renamed(), ['cites', ...SPECS, '--allow-empty'])).toEqual({
+      code: EXIT_ERROR,
+      out: [],
+      err: ['spec-guard: Option --allow-empty does not apply to spec-guard cites.'],
+    });
+  });
+});
+
 describe('the package, whose caller reads the report', () => {
   it('names the patterns on each report, and refuses nothing', async () => {
     const root = await tree();
@@ -533,6 +694,29 @@ describe('the package, whose caller reads the report', () => {
     expect(await queryRules({ patterns, root, paths: ['src/a.ts'] })).not.toHaveProperty('unmatchedSpecs');
     expect(await impactOf({ patterns, root, paths: ['src/b.ts'] })).not.toHaveProperty('unmatchedSpecs');
   });
+
+  it('names them on a check of citations, which a strict one fails for only where it read its families off the specs', async () => {
+    const root = await tree({ 'docs/adr/0001-kept.md': '# ADR-0001: Kept\n', 'src/c.ts': '// ADR-0001\n' });
+    const patterns = ['docs', 'gone', 'old/*.md'];
+    const named = ['gone', 'old/*.md'];
+    const families = [{ id: 'ADR-{n}', files: 'docs/adr/{n}-*.md' }];
+
+    const plain = await findCitations({ root, patterns });
+    expect([plain.ok, plain.summary.citations, plain.unmatchedSpecs]).toEqual([true, 1, named]);
+    const strict = await findCitations({ root, patterns, strict: true });
+    expect([strict.ok, strict.summary.citations, strict.unmatchedSpecs]).toEqual([false, 1, named]);
+    expect(strict).not.toHaveProperty('nothingRead');
+    const configured = await findCitations({ root, patterns, families, strict: true });
+    expect([configured.ok, configured.unmatchedSpecs]).toEqual([true, named]);
+
+    // Each pattern matched, and then none did: neither report has the key.
+    const whole = await findCitations({ root, patterns: ['docs', 'docs/a.md'], strict: true });
+    expect(whole.ok).toBe(true);
+    expect(whole).not.toHaveProperty('unmatchedSpecs');
+    const none = await findCitations({ root, patterns: ['gone', 'old/*.md'], families, strict: true });
+    expect(none.ok).toBe(true);
+    expect(none).not.toHaveProperty('unmatchedSpecs');
+  });
 });
 
 describe('the help', () => {
@@ -548,7 +732,16 @@ describe('the help', () => {
         '  A spec pattern that matches no file, beside others that do, is refused the',
         '  same way and by name, since none of its rules was read: a run, prove, impact',
         '  and query exit 2. --allow-empty lets the first three through and still names',
-        '  it; --watch and mcp carry on, and say which pattern it is.',
+        '  it; --watch and mcp carry on, and say which pattern it is; cites names it',
+        '  and goes on, and exits 1 for it under --strict (see cites, below).',
+      ].join('\n'),
+    );
+    expect(HELP).toContain(
+      [
+        'document exits 2. A spec pattern that matches no file beside others that do is',
+        'named on stderr. Without "cites" in the configuration the families are read off',
+        'the specs, so one kept under that pattern was not read and no citation of it',
+        'was looked for: exit 1 under --strict. Families "cites" names lose nothing.',
       ].join('\n'),
     );
   });
