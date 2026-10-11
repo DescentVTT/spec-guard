@@ -1056,6 +1056,16 @@ spec-guard: the pattern "old-docs" matched no spec file. Remove it from "specs" 
   matches still drops its family without a word: citations of it are not
   looked for. What `cites` says of such a pattern wants a decision of its
   own.
+
+  *Amended again 2026-10-11*: that decision is
+  [ADR-0017](0017-citations-in-comments.md)'s amendment of this date, and
+  `cites` is no longer as it was. It names such a pattern on stderr after
+  its report, in the words above, and its `--json` carries the patterns as
+  `unmatchedSpecs`, there only beside a spec that matched: with no spec at
+  all its document is the one it was. Held to what the list is held to, it
+  goes on, exit 0, and a strict check exits 1 where the families were read
+  off the specs. Where `cites` names them, no spec at all passes a strict
+  check, and so does one pattern that matched none.
 - **Where it is decided.** `expandSpecs` in `src/glob.ts` returns the
   patterns that matched no file beside the files, `readSpecs` carries them on
   the spec set as `unmatched`, and each report carries them as

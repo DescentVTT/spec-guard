@@ -299,3 +299,85 @@ files whose comments spec-guard reads, or check what the exclusions leave out.
 JSON carries `"nothingRead": true` beside `"ok": false`, and the human report's
 last line is a failure, `✖`, where it was a warning. The exit code does not
 change, and without `--strict` nothing does.
+
+## Amended 2026-10-11: a spec pattern that matches no file is named, and fails a strict check that read its families off the specs
+
+[ADR-0014](0014-configuration-and-watch.md)'s amendment of this date has a
+run, `prove`, `impact` and `query` refuse a spec pattern that matches no file
+beside others that do, and left `cites` as it was: a pattern that matched
+nothing was dropped without a word, and where the families are read off the
+specs, its family with it.
+
+Measured through the launcher on 0.22.0 (Windows 11, Node 24.18.1), in a tree
+with `docs/adr/0001-first.md` titled `ADR-0001`, `rfcs/0001-one.md` titled
+`RFC-0001`, the specs `docs/**/*.md` and `rfcs/*.md`, and a source file whose
+comments cite `ADR-0001`, `RFC-0001` and an `RFC-0099` no document defines;
+then with `rfcs` renamed, and with `docs` renamed too. Each row was one
+answer whether the patterns came from `--spec` or from `specs`, and in the
+human report, `--json`, `sarif`, `github` and `gitlab` alike:
+
+| The patterns | 0.22.0 | 0.22.0, `--strict` | Now | Now, `--strict` |
+| --- | --- | --- | --- | --- |
+| each matches | exit 1 for the ghost `RFC-0099` | the same | the same | the same |
+| `rfcs/*.md` matches nothing; families read off the specs | exit 0, "every citation names a document in force", and no word of the pattern | the same, exit 0 | the same report, the pattern named on stderr, exit 0 | the same report, the line, exit 1 |
+| `rfcs/*.md` matches nothing; `cites` names `ADR-{n}` | exit 0, and no word | exit 0 | the pattern named, exit 0 | the pattern named, exit 0 |
+| `rfcs/*.md` matches nothing; `cites` names `RFC-{n}` over `rfcs/{n}-*.md` | exit 2, no document matches | exit 2 | the same | the same |
+| none matches; families read off the specs | exit 0, and a note that there was nothing to look for | exit 1, a `nothing-read` finding | the same | the same |
+| none matches; `cites` names a family that has documents | exit 0 | exit 0 | the same | the same |
+
+```text
+spec-guard: the pattern "rfcs/*.md" matched no spec file, so no citation of a document under it was looked for. Remove it from "specs" in package.json.
+spec-guard: the pattern "rfcs/*.md" matched no spec file, so no citation of a document under it was looked for, which --strict refuses. Remove it from "specs" in package.json.
+spec-guard: the pattern "rfcs/*.md" matched no spec file. Remove it from "specs" in package.json.
+```
+
+- **Each pattern is held to what the list is held to**, as ADR-0014 has it
+  for the commands that refuse. With no spec at all `cites` says there was
+  nothing to look for and exits 0, and 1 under `--strict`; so one pattern
+  among several that matched none is said, and is 1 under `--strict`. That
+  is the family contract's "nothing measured is not clean" (spec-core's
+  [ADR-0005](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0005-the-family-contract.md)):
+  a check says what it did not inspect, and a strict one refuses. Without
+  `--strict` the exit code is what it was.
+- **A strict check fails only where the families are read off the specs.**
+  What the list is held to depends on where the families come from. Read
+  off the specs, a family kept under the pattern is one the check no longer
+  has, and every citation of it goes unread: the second row. Named in
+  `cites`, a family is found by its own glob, and the specs decide only
+  which files the scan leaves out; with no spec at all such a check passes
+  under `--strict`, in the last row, and failing it for one pattern of two
+  would refuse the part where the whole is let through. There the pattern
+  is named, and the exit code is as it was. A family in `cites` that lost
+  its documents to the rename is exit 2 by its own glob, as it always was,
+  which is the stronger answer and a reason to name families there.
+- **The report is written as the check made it, and the line follows it.**
+  No spec at all is a report with a note here, not a refusal, so nothing
+  gives way to the line as a run's report does: every format is written,
+  and the line is on stderr after it. It names the pattern in the words the
+  other commands use (`unmatchedClause`), then what the check lost by it,
+  then what to do, with the configuration file when `specs` wrote the
+  pattern. Under `--strict` it says `which --strict refuses`, the words the
+  report uses of a check that read nothing. The human report still ends
+  "every citation names a document in force", of the citations it counted,
+  as it does under `--strict` when a file was read in part and the exit
+  code is 1.
+- **`unmatchedSpecs` is a field added to `--json`**, after `families`: the
+  patterns as written, in the order given, each once, and `"ok": false`
+  beside it where a strict check failed for them. It is there when a
+  pattern matched no file beside others that did. With no spec at all it
+  is not, where a run's document has it: that is no refusal here, `notes`
+  and `nothingRead` have always said it, and the document is the one it
+  was. `formatVersion` stays 1.
+- **Left as it is: SARIF, GitHub and GitLab place no finding for it.** A
+  strict check that read nothing is a `nothing-read` finding in each (the
+  amendment of 2026-09-30); this one is the line and the exit code, and
+  `executionSuccessful` in SARIF where the document has notifications.
+- **No `--allow-empty`.** `cites` refuses the option, as it did: nothing
+  here is exit 2 for it to let through. A project that keeps a pattern for
+  a place nothing is written in yet, and checks citations under `--strict`,
+  names its documents in `cites`.
+- **Where it is decided.** `findCitations` in `src/cites.ts` carries the
+  patterns on its report and, as it already does for a stale citation and a
+  file read in part, folds `strict` into `ok`; `src/cli.ts` says the line.
+  `tests/unmatched-specs.test.ts` holds each row beside the check that must
+  still pass.

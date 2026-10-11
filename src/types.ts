@@ -601,11 +601,24 @@ export interface CiteGap {
 }
 
 export interface CitesReport {
-  /** No ghost, and under `--strict` no stale citation and no file left unread. */
+  /**
+   * No ghost, and under `--strict` no stale citation, no file left unread and
+   * no family that may have gone unread with a spec pattern (`unmatchedSpecs`).
+   */
   ok: boolean;
   root: string;
   durationMs: number;
   families: CiteFamilyReport[];
+  /**
+   * The spec patterns that matched no file beside others that did, as
+   * written, absent when each matched one. Absent too when none matched at
+   * all, which `notes` and `nothingRead` have always answered here, so that
+   * report is the one it was. Where the families are read off the specs,
+   * one kept under such a pattern was not read, and `--strict` fails the
+   * check for it; families `cites` names are found by their own globs, and
+   * lose nothing. ADR-0017.
+   */
+  unmatchedSpecs?: string[];
   summary: {
     /** Source files whose comments were read. */
     files: number;
