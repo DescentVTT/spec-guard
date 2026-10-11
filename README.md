@@ -1305,6 +1305,14 @@ Patterns are expanded by spec-guard itself, so quoted globs behave identically
 on Windows, macOS and Linux. A directory expands to the Markdown files in it.
 The second form of each on/off option exists to override a configuration.
 
+On Windows a report's marks are drawn in ASCII, `+`, `x`, `!`, `o` and `...`
+for `✔`, `✖`, `⚠`, `○` and `…`, unless `WT_SESSION` or `TERM_PROGRAM` is set
+to something: Windows Terminal sets the first, and VS Code's terminal and
+mintty the second. `TERM` is not read for it, since Git for Windows and the
+Cygwin and MSYS2 runtimes set it for whatever they start, in a console whose
+fonts hold none of the first three marks. Anywhere else the marks are always
+drawn.
+
 An option that means nothing to a command is refused rather than ignored, so
 `spec-guard query --strict` does not look like a strict query. `query` does take
 `--no-color`: its output never has colour, and scripts pass the flag to every
