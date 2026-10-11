@@ -393,8 +393,8 @@ of a check that passed is read as one, whatever the exit code says, and a
 job that is red with no annotation to show why is a job somebody reruns.
 
 Measured through the launcher on 0.23.0 (Windows 11, Node 24.18.1), over
-every way a check fails and each pair of them, without and with `--strict`,
-in the human report, `--json`, `sarif`, `github` and `gitlab`: 22 runs. A
+each way a check fails and four pairs of them, without and with `--strict`,
+in the human report, `--json`, `sarif`, `github` and `gitlab`: 24 runs. A
 ghost, a stale citation under `--strict` and a check that read nothing each
 ended on a line of its own and had a finding in every format, as the
 sections above and the amendment of 2026-09-30 have it. Two did not, and
