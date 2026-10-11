@@ -513,3 +513,20 @@ keep a large tree inside a job's limit, was told nothing.
   reads.
 
 <!-- @assert-count target="src/engine.ts" symbol="startsWith('ripgrep')" expected="1" reason="the probe takes a program for ripgrep by what it says of itself, not by an exit code any program gives" -->
+
+## Amended 2026-10-11: one failure, one warning
+
+The amendment above has `auto` leave a binary that cannot be used to the
+scanner, "with the engine in the report and nothing more" where the binary
+cannot be started, and with a warning where a search was handed over and
+failed. The warning was written once for each group of searches that met the
+failure. Measured through the launcher on 0.21.0, with `SPEC_GUARD_RG` naming
+`node` and four rules over four directories past the budget: `"warnings"`
+held the same line four times, and the human report printed it four times,
+at any `--concurrency`.
+
+A report now says one failure once, however many searches met it. Failures
+that differ, a program that is not ripgrep and a pattern ripgrep cannot read,
+are each said, in the order they were met. `reportRun` in `src/runner.ts`
+does it, so the engine's own list, which the package exposes as `fallbacks`,
+still holds one entry for each search group that fell back.

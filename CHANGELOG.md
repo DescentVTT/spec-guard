@@ -10,6 +10,35 @@ what to do when upgrading; the family's policy, including how a flag or field
 is deprecated before it goes, is spec-core's
 [ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
+## Unreleased
+
+### Changed
+
+- **A spec pattern that matches no file beside others that do is refused,
+  where it was dropped without a word.** A directory of specs that was
+  renamed left its pattern behind: its rules stopped running and the check
+  stayed green. A run, `prove`, `impact` and `query` now exit 2 with a line
+  that names each such pattern, from the command line or `specs`; documents a
+  script reads are still written, the JSON ones with the patterns as
+  `unmatchedSpecs`, and `--watch` and the server carry on and say which
+  pattern it is
+  ([ADR-0014](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0014-configuration-and-watch.md)).
+  Upgrading: remove the pattern, or give `--allow-empty` to a run, `prove` or
+  `impact` where a pattern is meant to match nothing yet. `query` takes no
+  such option, so until the pattern is removed spec-harness's `context`
+  packet lists no rules and says why; its guard and its hooks ask spec-guard
+  nothing and are as they were.
+
+### Fixed
+
+- A ripgrep that failed is said once in a report. Under `--engine auto`, with
+  `SPEC_GUARD_RG` naming a program that is not ripgrep, the warning that the
+  scanner had answered was repeated for every group of searches, four times
+  for four rules over four targets; failures that differ are still each said.
+- `FORCE_COLOR=false` turns colour off, as Node and `supports-color` read it,
+  where it forced colour on. Exactly `0` and `false` are off, on a terminal
+  too, and any other value still forces colour.
+
 ## 0.21.0
 
 An input that is set and names nothing is refused, exit 2, by a line that
