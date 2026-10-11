@@ -57,6 +57,13 @@ import { calculateMutationTestMetrics } from 'mutation-testing-metrics';
 // holds only small files and keeps room for them. When a shard's sweep passes
 // 20 minutes, re-measure and move files or add a shard (and add it to the
 // workflow's matrix, which the merge checks).
+//
+// The minutes beside each shard are 398fe94's. Since a mutant's quickest test
+// files run first (vitest.mutation.config.ts) the eight have taken, in two
+// sweeps of d498e24's source, 11m10s and 6m56s, 12m05s and 10m03s, 8m14s and
+// 11m42s, 6m20s and 5m28s, 7m14s and 7m49s, 8m17s and 11m07s, 9m54s and
+// 13m15s, and 3m55s and 4m28s, on runners that differ by as much as the
+// shards do. The table is as it was: ADR-0003, amended 2026-10-11.
 export const ASSIGNED = [
   ['src/runner.ts', 'src/text.ts'], // 15.2
   ['src/imports.ts', 'src/graph.ts'], // 15.1

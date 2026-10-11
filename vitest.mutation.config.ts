@@ -20,7 +20,11 @@ import { BaseSequencer, type TestSpecification } from 'vitest/node';
  * the suite's 3,968 tests on average (ADR-0003, amended 2026-10-11).
  *
  * No test leaves the run and none is added: a mutant survives when every
- * file has passed, in any order.
+ * file has passed, in any order. Two sweeps in this order left the survivors
+ * of the two before them and one more, a mutant recorded as equivalent that
+ * a test's 30-second clock had been killing, and their eight shards took 67
+ * and 71 minutes where they had taken 103 and 106: about a fifth less once
+ * the runners each drew are taken out.
  *
  * A file the worker has not run yet has no time to go by. It runs after
  * those that have, the smaller first, and has a time from then on.

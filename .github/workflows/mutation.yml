@@ -26,9 +26,10 @@ name: Mutation
 # was cancelled at 45 minutes with 7,044 of 7,763 mutants tested. Runners vary
 # by a fifth or more on identical work, so a sweep near the limit fails about as
 # often as it passes. The limit was not raised; the sweep was split. Each shard
-# mutates its own files (scripts/mutation-shards.mjs) with every test, and a
-# final job merges the reports, refuses anything that is not exactly one sweep,
-# and applies the gate to the merged score. ADR-0003 has the measurements.
+# mutates its own files (scripts/mutation-shards.mjs) with every test, a
+# mutant's quickest test files first (vitest.mutation.config.ts), and a final
+# job merges the reports, refuses anything that is not exactly one sweep, and
+# applies the gate to the merged score. ADR-0003 has the measurements.
 #
 # There is no paths filter. A dependency bump can move the score as easily as a
 # source edit can (vitest itself is pinned for exactly that reason - see
@@ -79,6 +80,8 @@ jobs:
     # was cancelled here, which is why there are eight. If shards keep passing
     # 20 minutes, move files between them or add one; the history of this
     # number (30, then 45, then a coin flip at 45) is why it is not raised.
+    # With a mutant's quickest test files first the eight took 4 to 13 minutes
+    # (runs 38111345528 and 38115759932; ADR-0003, amended 2026-10-11).
     timeout-minutes: 30
 
     strategy:

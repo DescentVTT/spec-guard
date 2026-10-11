@@ -1978,3 +1978,139 @@ of the tree under `reports/regex`, and the equivalence harness a copy of
 stopped, leaves nothing to put back.
 
 <!-- @assert-present file="tests/replay-scripts.test.ts" reason="the replay scripts stay runnable only while something runs them; see the amendment of 2026-10-08" -->
+
+## Amended 2026-10-11: a mutant's quickest test files first
+
+spec-harness found why its full sweep had slowed (its pull request 74, and
+its ADR-0010 as amended 2026-10-09): Stryker's vitest runner runs a mutant's
+test files one after another in one worker and stops at the first test that
+fails, and vitest's own order puts the file that failed in the worker's last
+run first and then the longest. A static mutant runs every file, so it waits
+for every long file ahead of the one that kills it. Whether the same order
+cost this sweep anything had not been measured.
+
+**Measured before changing anything**, on main's full sweeps of d498e24 (run
+37835345715) and of e579e6b (run 38111081056), whose source and tests are
+the same: 12,404 mutants, 2,109 of them static, 3,968 tests.
+
+- **Static mutants are a sixth of the mutants and two fifths of the time.**
+  By `scripts/mutation-timeline.mjs` over each shard's log, they took 42.3 of
+  the 96 minutes the eight shards spent on mutants in the first sweep and
+  41.7 of 100 in the second.
+- **One static mutant in seven was killed late**, only after a test file
+  other than its killer's had run to its end: 294 in the first sweep and 291
+  in the second, with 1,189 and 1,102 tests completed on average when the
+  killer was reached. 16 survived and 36 timed out, which run the whole suite
+  in any order.
+- **The files ahead of the killer are the long ones.** CI's test step
+  (run 37835345728, Ubuntu 24.04, Node 22) spent 21.2 seconds in the files a
+  mutation run has, and half of them in four: `watch-equivalence` 3.5,
+  `glob-core` 3.0, `cites` 2.4 and `impact` 1.8, which vitest's order runs
+  first. By those durations the tests a late kill had completed were about
+  13 seconds of files, in a worker beside three others.
+
+That was something to gain, and less than spec-harness had: its suite is two
+minutes and one file of it is 46 seconds, where this one is 21 seconds.
+
+**The order.** `vitest.mutation.config.ts` gives a mutation run an order of
+its own: the file that failed in the worker's last run first, as vitest has
+it, then the quickest, and a file the worker has not run yet after those it
+has, the smaller first. `npm test` keeps vitest's order, which suits a run
+that reports every failure. No test leaves a mutation run and none is added:
+a mutant survives when every file has passed, in any order, and every shard
+of every sweep below ran the same 3,968 tests.
+`tests/mutation-order.test.ts` holds the order, and holds the keys it reads
+vitest's record of the last run by to the keys vitest's own sequencer asks
+for: a key vitest stopped using would find nothing, every file would count
+as never run, and the sweep would go by size with nothing failing. It loads
+the configuration and vitest's sequencer, and no mutant is under it, so a
+mutation run leaves it out, as it leaves out the two suites that read the
+build.
+
+**The sweeps.** Two of 1b66be0, the order alone on d498e24's source, beside
+the two above. Each figure is a shard's own seconds, from Stryker's start to
+its end; in brackets is the shard's initial run of the suite, the same work
+in every sweep, which says what runner it drew.
+
+| Shard | Vitest's order, run 37835345715 | Vitest's order, run 38111081056 | The quickest first, run 38111345528 | The quickest first, run 38115759932 |
+| --- | ---: | ---: | ---: | ---: |
+| `runner.ts`, `text.ts` | 13m49s (18.0 s) | 11m02s (17.4 s) | 11m10s (19.3 s) | 6m56s (12.3 s) |
+| `imports.ts`, `graph.ts` | 14m02s (18.0 s) | 17m04s (23.5 s) | 12m05s (22.8 s) | 10m03s (18.1 s) |
+| `glob.ts`, `scope.ts`, `mcp.ts`, `structure.ts` | 9m35s (11.6 s) | 14m34s (18.5 s) | 8m14s (12.1 s) | 11m42s (18.8 s) |
+| `cli.ts` | 12m08s (18.4 s) | 9m12s (14.0 s) | 6m20s (12.7 s) | 5m28s (11.3 s) |
+| `parser.ts`, `engine.ts` | 17m11s (19.3 s) | 16m26s (18.1 s) | 7m14s (11.4 s) | 7m49s (11.5 s) |
+| `comments.ts`, `polyglot.ts`, `config.ts` | 15m39s (22.0 s) | 16m28s (22.0 s) | 8m17s (15.9 s) | 11m07s (21.6 s) |
+| `reporter.ts`, `cites.ts`, `watch.ts`, `specs.ts` | 15m12s (19.0 s) | 14m46s (18.1 s) | 9m54s (11.5 s) | 13m15s (17.0 s) |
+| the rest | 4m54s (14.2 s) | 6m44s (18.3 s) | 3m55s (11.7 s) | 4m28s (13.7 s) |
+| The eight | 102m30s | 106m16s | 67m09s | 70m48s |
+| Their jobs, setup included | 104m25s | 108m06s | 68m43s | 72m29s |
+| Static mutants | 42.3 min | 41.7 min | 21.7 min | 25.9 min |
+| The others | 54.0 min | 57.9 min | 40.2 min | 39.5 min |
+| Static mutants killed late | 294 | 291 | 273 | 268 |
+| Killed, timed out, survived, no coverage | 12,101, 205, 96, 2 | 12,100, 206, 96, 2 | 12,102, 202, 97, 2 | 12,099, 206, 97, 2 |
+| Score | 99.21% over 12,404 | 99.21% over 12,404 | 99.20% over 12,403 | 99.20% over 12,404 |
+| With every timeout lost | 97.56% | 97.55% | 97.57% | 97.54% |
+
+**What the minutes say.** The eight shards took 67 and 71 minutes where they
+had taken 103 and 106, and the slowest took 12m05s and 13m15s where it had
+taken 17m11s and 17m04s. Part of that is the runners. The two sweeps in the
+new order drew faster ones, an initial run of 14.7 and 15.5 seconds on
+average against 17.6 and 18.7. Scaled shard by shard to the runners of run
+38111081056, by the initial run, they come to 87 and 85 minutes against its
+106, and the other sweep in vitest's order to 109: about a fifth less, on
+runners that differ by more than that. Where a shard drew a runner like the
+one it had before, it says the same: `imports.ts` and `graph.ts` took 17m04s
+on a 23.5-second runner and 12m05s on a 22.8-second one, `comments.ts` and
+its two 16m28s and 11m07s on 22.0 and 21.6, and `reporter.ts` and its three
+14m46s and 13m15s on 18.1 and 17.0. `runner.ts` and `text.ts`, 69 static
+mutants in 1,702, took 11m02s and then 11m10s on a runner a tenth slower.
+Scaling is rough, since a mutant that times out waits out a clock whatever
+the runner.
+
+The mutants that are not static gained too, which the measurement before had
+not counted: one covered by tests in several files runs those files in the
+same order. The count of static mutants killed late barely moved, 268 and
+273 against 291 and 294. It is what each waits for that changed: the quick
+files, where it had been the long ones.
+
+**The verdicts.** The four reports hold the same 12,404 mutants. The two in
+vitest's order differ in three verdicts, each a mutant that hangs, killed by
+a test in one sweep and timed out in the other. Each sweep in the new order
+differs from each in vitest's order in six to eleven:
+
+- five to nine move between killed and timed out, both ways. A mutant that
+  loops is killed when a quick test fails on it before the loop is reached,
+  and which test comes first is what the order changes. They are detected
+  either way, and timeouts were 202 and 206 against 205 and 206;
+- one in the first sweep, `structure.ts`'s walk that descends for ever, took
+  its worker down twice and is scored as an error, out of both figures, as
+  in 0.9.0's second sharded sweep: 12,403. It timed out in the second;
+- one is a survivor that vitest's order did not have: `target === '.'` made
+  `true` in `src/impact.ts`. It is not new. 0.18.1 recorded it as
+  equivalent, with a comment at the code: it answers the same and only
+  takes longer. 0.19.0 saw it "counted killed this time", because
+  `tests/impact.test.ts`'s test of linear time ran past its 30 seconds under
+  it, and said a sweep on a faster runner may count it a survivor again.
+  Both sweeps in vitest's order killed it that way, by `Test timed out in
+  30000ms` and nothing else, on runners whose initial run took 14.2 and 18.3
+  seconds; both in the new order ran all 31 of its tests to the end, on 11.7
+  and 13.7. Whether the order or the runner let the test finish, these four
+  sweeps do not say. It is the clock of a test, not an assertion, that had
+  been killing it.
+
+So the survivors are 0.21.0's 96 and that one, 97, and the score reads
+99.20% where it read 99.21%. The `break` stays 97.
+
+**The table is as it was.** The shards have not come apart: the slowest took
+1.8 and 1.9 times the quickest of the seven that are listed in vitest's
+order, and 1.9 and 2.4 in the new, on runners that differ by as much, and
+none is near the 20 minutes at which `scripts/mutation-shards.mjs` says to
+measure again. `runner.ts` is still the file no table can make shorter.
+
+`scripts/mutation-timeline.mjs` prints, beside each file's minutes, how many
+of its static mutants were killed late, survived and timed out, so the next
+measurement reads them off a report. What is left of a static mutant's cost
+is the suite itself: the 16 that survive and the 36 that time out run all of
+it, and a second added to it is a second for each of them in every sweep.
+
+<!-- @assert-present file="tests/mutation-order.test.ts" reason="the sweep's order reads vitest's record of the last run by vitest's keys only while a test holds the two together; see the amendment of 2026-10-11" -->
