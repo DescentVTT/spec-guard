@@ -24,7 +24,8 @@ export default {
   // sweep runs in shards (scripts/mutation-shards.mjs), and "related" would
   // then depend on which files a shard holds: a test that reaches a file other
   // than through its imports could drop out of one shard and not the unsplit
-  // run. Coverage still narrows each mutant to the tests that reach it.
+  // run. Coverage still narrows each mutant to the tests that reach it, and
+  // the configuration runs a mutant's quickest test files first.
   vitest: { configFile: 'vitest.mutation.config.ts', related: false },
 
   // perTest is what makes this practical: ~12 relevant tests per mutant

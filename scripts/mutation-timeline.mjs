@@ -15,6 +15,12 @@
  * workers overlap a boundary. If they do not, the order has changed and the
  * minutes mean nothing.
  *
+ * A static mutant runs every test file, one after another, until a test fails,
+ * so its minutes are the files that ran before the one that killed it. The last
+ * columns count, of each file's static mutants, those killed only after another
+ * test file had run to its end, those that survived and those that timed out:
+ * the three that wait for more than one file (ADR-0003, amended 2026-10-11).
+ *
  *   gh run view <run> --job <job> --log > sweep.log
  *   node scripts/mutation-timeline.mjs <report: mutation.json or index.html> sweep.log
  *
@@ -62,6 +68,13 @@ function readReport(file) {
 }
 
 const report = readReport(reportFile);
+
+// Where each test stands in its own file: a mutant killed with no more tests
+// completed than that was killed in the first file that ran.
+const place = new Map();
+for (const entry of Object.values(report.testFiles ?? {})) entry.tests.forEach((test, index) => place.set(test.id, index + 1));
+const killedLate = (m) => m.status === 'Killed' && m.testsCompleted > (place.get(m.killedBy?.[0]) ?? Infinity);
+
 const files = Object.keys(report.files)
   .sort()
   .map((name) => {
@@ -73,6 +86,9 @@ const files = Object.keys(report.files)
       runtime: tested.filter((m) => !m.static).length,
       static: tested.filter((m) => m.static).length,
       timeouts: mutants.filter((m) => m.status === 'Timeout').length,
+      late: tested.filter((m) => m.static && killedLate(m)).length,
+      survived: tested.filter((m) => m.static && m.status === 'Survived').length,
+      timedOut: tested.filter((m) => m.static && m.status === 'Timeout').length,
     };
   });
 
@@ -125,6 +141,7 @@ const rows = files.map((file) => {
     runtime: span(runtimeCursor, runtimeCursor + file.runtime, 'seconds'),
     static: span(staticCursor, staticCursor + file.static, 'seconds'),
     timeouts: file.timeouts,
+    statics: `${file.static}: ${file.late} / ${file.survived} / ${file.timedOut}`,
     counted: (span(runtimeCursor, runtimeCursor + file.runtime, 'timeouts') ?? 0) + (span(staticCursor, staticCursor + file.static, 'timeouts') ?? 0),
   };
   runtimeCursor += file.runtime;
@@ -134,12 +151,13 @@ const rows = files.map((file) => {
 
 const minutes = (seconds) => (seconds === undefined ? '?' : (seconds / 60).toFixed(1));
 const width = Math.max(4, ...rows.map((row) => row.name.length));
-console.log(`${'file'.padEnd(width)}  mutants  minutes (runtime + static)  timeouts: report / counted`);
+console.log(`${'file'.padEnd(width)}  mutants  minutes (runtime + static)  timeouts: report / counted  static: killed late / survived / timed out`);
 for (const row of rows) {
   const sum = row.runtime === undefined || row.static === undefined ? undefined : row.runtime + row.static;
   console.log(
     `${row.name.padEnd(width)}  ${String(row.mutants).padStart(7)}  ${minutes(sum).padStart(5)} (${minutes(row.runtime)} + ${minutes(row.static)})`.padEnd(width + 38) +
-      `${String(row.timeouts).padStart(4)} / ${row.counted}`,
+      `${String(row.timeouts).padStart(4)} / ${row.counted}`.padEnd(29) +
+      row.statics,
   );
 }
 console.log(`\nthe whole sweep: ${minutes(points.at(-1).seconds - points[0].seconds)} minutes from the first progress line`);

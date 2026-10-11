@@ -73,6 +73,11 @@ into the source, run the test files that cover it, watch one fail, restore the
 source. A test file that fails to load counts as a survivor
 ([ADR-0003](docs/adr/0003-mutation-testing.md)).
 
+A mutant's test files run the quickest first in a sweep
+(`vitest.mutation.config.ts`), since Stryker stops at the first test that
+fails. A static mutant that survives or times out still runs them all, so a
+second added to the suite is a second for each of those in every sweep.
+
 Vitest is pinned to 4 by that ADR, and stays there while Stryker's runner
 runs no test against a mutant on 5: a sweep then reads a few percent, and a
 pull request's incremental sweep does not notice. Dependabot proposes no
