@@ -274,3 +274,60 @@ depth. A `use` statement that would expand past `MAX_EXPANSION` (64) paths
 produces a `truncated` note and **no** references, rather than a partial list.
 A half-read import statement is a rule that quietly covers less than it claims;
 an error message is a rule that says so.
+
+## Amended 2026-10-12: a Python file is read the same whatever ends its lines
+
+"What happens when it meets code nobody wrote for it" ran the four readers
+over CRLF and counted crashes. Nothing counted answers. A Python statement
+ends with its line, and `logicalLines` ended a line at LF alone, so every
+line of a file with CRLF endings kept its carriage return:
+
+- the pattern that reads a `from` statement takes the rest of the line and
+  then wants the end of the text, and `.` stops at a carriage return, so it
+  matched no `from` statement in the file;
+- a backslash before the carriage return was no longer the last character
+  of its line, and continued nothing.
+
+Found on 2026-10-12 by replaying the static survivors of main's sweep by
+hand (ADR-0003, amended that day): the `$` taken off that pattern read such
+files right, and no test read Python with CRLF. Measured through the
+analyser on 0.24.0, each source with LF and then with every LF made CRLF:
+
+| Source | LF | CRLF, 0.24.0 | CRLF, now |
+| --- | --- | --- | --- |
+| `from a import b` | `a` | nothing | `a` |
+| `from . import a, b` | `.a`, `.b` | nothing | `.a`, `.b` |
+| `from . import (`, `a,`, `b,`, `)` on four lines | `.a`, `.b` | nothing | `.a`, `.b` |
+| `import a, \` and `b` on the next line | `a`, `b` | `a`, and a module named `\` | `a`, `b` |
+| `from a \` and `import b` on the next line | `a` | `b` | `a` |
+| `import a`, `import b.c as d` | `a`, `b.c` | `a`, `b.c` | `a`, `b.c` |
+
+And through the launcher, with
+`@assert-import-absence target="src" module="forbidden"` over a file holding
+`from forbidden import thing`: exit 1 with LF endings, and exit 0 with CRLF,
+the rule reported as holding. `core.autocrlf` is `true` in the system
+configuration of Git for Windows 2.55.0 on the workstation this was measured
+on, and a checkout under it has every Python file that way unless a
+`.gitattributes` says otherwise: a rule that fails over an LF checkout
+passes over that one.
+
+- **A line ends where Python ends one**: at LF, at CRLF and at a lone
+  carriage return, the three its language reference gives for a physical
+  line (Lexical analysis, as read on 2026-10-12 for 3.15). The two
+  characters of a CRLF end one line; read as two, the empty second would
+  end a statement the first had continued.
+- **Where a reference is reported does not change.** A line number counts
+  LF, here as in every report, so an import in a CRLF file is on the line it
+  was on with LF. A file whose lines end in a lone carriage return is read
+  statement by statement and is one line to a report, as it was.
+- **Only Python was wrong.** Go, Rust, C#, and JavaScript and TypeScript
+  read tokens and not lines: the same sources with LF and with CRLF gave the
+  same references on the same lines, on 0.24.0 and now.
+- **It can turn a passing run red**, which is the point: an import rule
+  over Python in a CRLF checkout now sees what it saw nowhere but in an LF
+  one.
+
+`tests/python-line-endings.test.ts` holds each shape to its LF reading, on
+the same lines, and a rule to its LF answer.
+
+<!-- @assert-present file="tests/python-line-endings.test.ts" reason="a reader that was only ever shown LF read no from-import in a CRLF checkout, and nothing said so" -->

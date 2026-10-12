@@ -30,6 +30,21 @@ is deprecated before it goes, is spec-core's
   Upgrading: give one of the two. A script that adds an opposite to a line
   it was handed, to turn an option off, takes the option off the line
   instead; a configuration is overridden by the opposite alone, as before.
+- **A Python file with CRLF line endings is read as it is read with LF.**
+  A line ended at LF alone, so in a CRLF file every line kept its carriage
+  return: no `from x import y` was read from the file, and a backslash at
+  the end of a line continued nothing, so `import a, \` named a module `\`.
+  An import rule over such a file passed where the same file with LF fails
+  it, as in a Windows checkout with `core.autocrlf` on. A line now ends
+  where Python ends one, at LF, at CRLF and at a lone carriage return, and
+  each import is reported on the line it was on. Go, Rust, C#, JavaScript
+  and TypeScript were read right already
+  ([ADR-0008](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0008-polyglot-imports.md)).
+  Upgrading: an `@assert-import-absence`, `@assert-import-count`,
+  `@assert-layers` or `@assert-import-cycle` rule over Python that passed
+  in a CRLF checkout may now fail there, as it does in an LF one; mend the
+  import it names, or give the rule a `baseline`. `impact` lists the
+  dependents those imports make.
 
 ### Fixed
 

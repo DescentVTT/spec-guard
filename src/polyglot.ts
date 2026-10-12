@@ -293,6 +293,12 @@ function note(collector: Collector, kind: AnalysisNote['kind'], offset: number, 
  * A statement continues while a bracket is open or the line ends in a
  * backslash, and `from x import (\n  a,\n  b,\n)` is the shape that matters
  * here. Lines are joined with a space so two tokens cannot fuse into one.
+ *
+ * A line ends where Python ends one: at LF, at CRLF and at a lone CR. Only
+ * LF ended one here, so every line of a file with CRLF endings kept its
+ * carriage return. The pattern that reads a `from` statement cannot reach
+ * the end of such a line, and read none in the file, and a backslash before
+ * the carriage return continued nothing (ADR-0008, amended 2026-10-12).
  */
 export function logicalLines(code: string): Array<{ text: string; offset: number }> {
   const lines: Array<{ text: string; offset: number }> = [];
@@ -307,8 +313,8 @@ export function logicalLines(code: string): Array<{ text: string; offset: number
   };
 
   for (let index = 0; index <= code.length; index++) {
-    if (index < code.length && code[index] !== '\n') {
-      const char = code[index] as string;
+    const char = code[index];
+    if (index < code.length && char !== '\n' && char !== '\r') {
       if (char === '(' || char === '[' || char === '{') depth += 1;
       else if (char === ')' || char === ']' || char === '}') depth = Math.max(0, depth - 1);
       continue;
@@ -317,6 +323,9 @@ export function logicalLines(code: string): Array<{ text: string; offset: number
     if (!text) offset = start;
     text += (text ? ' ' : '') + physical.replace(/\\$/, ' ');
     if (depth === 0 && !/\\$/.test(physical)) flush();
+    // The two characters of a CRLF end one line. Read as two, the empty
+    // second would end a statement the first had continued.
+    if (char === '\r' && code[index + 1] === '\n') index += 1;
     start = index + 1;
   }
   flush();
