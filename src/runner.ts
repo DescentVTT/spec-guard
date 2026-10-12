@@ -1218,7 +1218,13 @@ async function executeStructureAssertion(
   };
 }
 
-/** The result of a search that had no files to look at, and so ran no engine. */
+/**
+ * The result of a search that had no files to look at, and so ran no engine.
+ *
+ * Its `matches` are read through the baseline, which shows a match only in a
+ * file that has a count, and no file has one here: whatever the list held,
+ * none of it would be shown. A mutant that fills it is equivalent.
+ */
 type Unsearched = Omit<SearchResult, "engine"> & { engine?: undefined };
 
 const NOTHING_SEARCHED: Unsearched = {

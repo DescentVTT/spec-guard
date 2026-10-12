@@ -272,6 +272,12 @@ const GITIGNORE: GlobOptions = { dialect: 'gitignore', caseSensitive: true };
 // A pattern with no glob syntax names exactly one path, never a directory and
 // what is beneath it: `dirs="packages"` is that directory, and `README.md` is
 // that file.
+//
+// Either word emptied is an equivalent mutant. spec-core has a case for the
+// `gitignore` dialect and one for `ripgrep`. For `path` it only goes on to
+// ask whether `literal` is `directory` or `either`, and where it is neither
+// builds what it builds for a dialect it has no case for. `file` is neither,
+// and so is `''`.
 const WHOLE: GlobOptions = { dialect: 'path', caseSensitive: true, literal: 'file' };
 
 /**
@@ -829,6 +835,8 @@ export function globBase(pattern: string): { base: string; rest: string } {
   const segments = toPosix(pattern).split('/');
   const base: string[] = [];
   let index = 0;
+  // The loop leaves at the last segment if at none before it, so its own
+  // condition never ends it, and `<=` for `<` there is an equivalent mutant.
   for (; index < segments.length; index++) {
     const segment = segments[index] as string;
     if (isGlob(segment) || index === segments.length - 1) break;
@@ -1043,6 +1051,9 @@ export async function expandSpecs(
     } else {
       const { base, absolute, written, reading, under } = readSpecGlob(pattern);
       const walkRoot = absolute ? base || path.parse(written).root : path.resolve(root, base);
+      // `spec` is the word `matcherOf` would name a pattern it refuses by, and
+      // it refuses none here: `specPatternError`, asked above, throws for each
+      // one first. Emptied, the word is an equivalent mutant.
       const matches = matcherOf(reading, 'spec', rawPattern);
 
       for await (const file of walkPaths(walkRoot, { io })) {

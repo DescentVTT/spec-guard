@@ -10,7 +10,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { lineStarts, locate, maskRanges } from '../src/text.js';
+import { CUT_MARK, lineStarts, locate, maskRanges, MAX_SNIPPET_LENGTH, wasCut } from '../src/text.js';
 
 describe('lineStarts', () => {
   it('starts at zero for an empty source', () => {
@@ -151,5 +151,29 @@ describe('maskRanges', () => {
 
     expect(masked).toBe('x  y');
     expect(masked).toHaveLength(source.length);
+  });
+});
+
+describe('wasCut', () => {
+  // What the engine cuts a long line to: the snippet's length of it, and the mark.
+  const cut = `${'x'.repeat(MAX_SNIPPET_LENGTH)}${CUT_MARK}`;
+
+  it('knows a line that was cut by its length and by the mark it ends with', () => {
+    expect(wasCut(cut)).toBe(true);
+  });
+
+  it('takes no line that fits for one, though it ends in an ellipsis somebody wrote', () => {
+    expect(wasCut(`and so on${CUT_MARK}`)).toBe(false);
+    // One short of a cut line, and exactly as long as a snippet may be.
+    expect(wasCut(`${'x'.repeat(MAX_SNIPPET_LENGTH - 1)}${CUT_MARK}`)).toBe(false);
+    expect(wasCut('')).toBe(false);
+  });
+
+  it('takes no text of that length for one unless it ends in the mark, and none that is longer', () => {
+    // A match is not always a line of a file: the runner writes an import's
+    // and a cycle's, at any length.
+    expect(wasCut('y'.repeat(MAX_SNIPPET_LENGTH + 1))).toBe(false);
+    expect(wasCut(`${CUT_MARK}${'y'.repeat(MAX_SNIPPET_LENGTH)}`)).toBe(false);
+    expect(wasCut(`${'y'.repeat(MAX_SNIPPET_LENGTH + 1)}${CUT_MARK}`)).toBe(false);
   });
 });

@@ -219,9 +219,9 @@ Options
       --allow-empty       Let a run, prove or impact through when no spec file matched, or when
                           one pattern matched none beside others that did (not an assertion)
       --color/--no-color  Force colour on or off (NO_COLOR, FORCE_COLOR and TERM=dumb are honoured)
-      --ascii/--no-ascii  Draw a report's marks as + x ! o, or as their Unicode forms, on any
-                          platform; the two together are refused. Without either,
-                          SPEC_GUARD_ASCII asks for ASCII unless it is empty, 0 or false
+      --ascii/--no-ascii  Write a report in ASCII, its marks as + x ! o, or with their Unicode
+                          forms, on any platform. Without either, SPEC_GUARD_ASCII asks for
+                          ASCII unless it is empty, 0 or false
   -h, --help              Show this help
       --version           Print the version
 
@@ -229,6 +229,11 @@ Options
   it were not there: an empty --root or spec pattern, --exclude "," (--exclude=
   with nothing clears the list), --concurrency 0, a root that is no directory,
   and a value given to an option that takes none, as in --strict=false.
+
+  An option given beside its own opposite is refused the same way, in either
+  order, since one of the two would go unread: --strict beside --no-strict,
+  --color beside --no-color, and each other pair. The same option given twice
+  is read as once.
 
   A spec pattern that matches no file, beside others that do, is refused the
   same way and by name, since none of its rules was read: a run, prove, impact
@@ -639,11 +644,20 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
     }
   }
 
-  // The last of `--color` and `--no-color` wins, and says nothing of the
-  // other. This pair is refused together: one of the two would go unread, and
-  // a line that asks for both ways of drawing the marks was not meant.
-  if (given.has('--ascii') && given.has('--no-ascii')) {
-    throw new UsageError('Option --ascii is given beside --no-ascii, and the marks are drawn one way or the other. Give one of the two.');
+  // An option beside its own opposite, in either order: one of the two would
+  // go unread, and a line that asks for both was not meant. The last of them
+  // won, with no word of the other, for every pair but the one that draws the
+  // marks (ADR-0014, amended 2026-10-12). Named by the option that turns
+  // something on, whichever came first. The same option twice asks for one
+  // thing and is read as once, and an opposite alone is what overrides a
+  // configuration.
+  for (const off of given) {
+    // `--no-strict` is `--strict` turned off. An option that begins any other
+    // way reads back as itself, and is no pair with itself.
+    const on = off.replace('--no-', '--');
+    if (on !== off && given.has(on)) {
+      throw new UsageError(`Option ${on} is given beside ${off}, and one of the two would go unread. Give one of the two.`);
+    }
   }
 
   if (options.watch) {

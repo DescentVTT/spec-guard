@@ -19,7 +19,7 @@ import { createFactCache, type FactKey, type FactPolicy, type WatchEvent } from 
 import { createImportIndex } from './imports.js';
 import { nodeIo, type Io, type TreeWatcher } from './io.js';
 import { createMemo, type Memo, type SessionMemo } from './memo.js';
-import { formatReport, unmatchedClause, type ReporterOptions } from './reporter.js';
+import { betweenCounts, formatReport, unmatchedClause, type ReporterOptions } from './reporter.js';
 import {
   createScopeProbe,
   DEFAULT_CONCURRENCY,
@@ -349,6 +349,9 @@ export async function runWatch(options: WatchOptions): Promise<number> {
   let firstQueuedAt = 0;
   let timer: unknown;
   let lastSignature: string | null = null;
+  // The session's own lines are drawn as its reports are: in ASCII where
+  // those were asked for in ASCII.
+  const between = betweenCounts(options.reporter.ascii);
 
   const status = (run: SessionRun, changes: string, startedAt: number): string =>
     [
@@ -357,7 +360,7 @@ export async function runWatch(options: WatchOptions): Promise<number> {
       `${run.executed} of ${plural(run.report.summary.total, 'rule', 'rules')} ${changes === 'first run' ? 'executed' : 're-executed'}`,
       `${Math.round(clock.now() - startedAt)} ms`,
       'Enter re-runs everything, Ctrl+C stops',
-    ].join(' · ');
+    ].join(between);
 
   const heading = (): string => (options.isTTY ? CLEAR_SCREEN : `--- ${new Date(clock.now()).toTimeString().slice(0, 8)} ---\n`);
 
@@ -413,7 +416,7 @@ export async function runWatch(options: WatchOptions): Promise<number> {
     } catch (error) {
       if (stopped) return;
       lastSignature = null;
-      write(`${heading()}spec-guard: ${error instanceof Error ? error.message : String(error)}\n\nwatching · waiting for a change · Ctrl+C stops\n`);
+      write(`${heading()}spec-guard: ${error instanceof Error ? error.message : String(error)}\n\n${['watching', 'waiting for a change', 'Ctrl+C stops'].join(between)}\n`);
     } finally {
       running = false;
     }

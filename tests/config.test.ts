@@ -383,9 +383,11 @@ describe('flags that a configuration can set', () => {
     for (const [on, off, field] of pairs) {
       expect(parseArgs([on], process.cwd())[field], on).toBe(true);
       expect(parseArgs([off], process.cwd())[field], off).toBe(false);
-      // The last one written wins, as for every other flag.
-      expect(parseArgs([on, off], process.cwd())[field]).toBe(false);
-      expect(parseArgs([off, on], process.cwd())[field]).toBe(true);
+      // Each alone, since the two together are refused: the last one written
+      // won, and nothing said the other had been given (tests/opposites.test.ts).
+      const both = new UsageError(`Option ${on} is given beside ${off}, and one of the two would go unread. Give one of the two.`);
+      expect(() => parseArgs([on, off], process.cwd()), on).toThrow(both);
+      expect(() => parseArgs([off, on], process.cwd()), off).toThrow(both);
     }
   });
 
@@ -608,7 +610,9 @@ describe('formatOptionLines', () => {
 function io(cwd: string, stdin?: PassThrough): { cli: CliIO; out: string[]; err: string[] } {
   const out: string[] = [];
   const err: string[] = [];
-  const cli: CliIO = { stdout: (text) => out.push(text), stderr: (text) => err.push(text), env: { NO_COLOR: '1' }, cwd, isTTY: false, ...(stdin ? { stdin } : {}) };
+  // A terminal that draws the marks is named, so a report is one text on
+  // every platform: a Windows console that names none is drawn in ASCII.
+  const cli: CliIO = { stdout: (text) => out.push(text), stderr: (text) => err.push(text), env: { NO_COLOR: '1', WT_SESSION: '1' }, cwd, isTTY: false, ...(stdin ? { stdin } : {}) };
   return { cli, out, err };
 }
 

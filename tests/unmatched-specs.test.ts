@@ -51,7 +51,9 @@ async function tree(extra: Record<string, string> = {}): Promise<string> {
 async function cli(root: string, argv: string[]): Promise<{ code: number; out: string[]; err: string[] }> {
   const out: string[] = [];
   const err: string[] = [];
-  const io: CliIO = { stdout: (text) => out.push(text), stderr: (text) => err.push(text), env: {}, cwd: root, isTTY: false };
+  // A terminal that draws the marks is named, so a report is one text on
+  // every platform: a Windows console that names none is drawn in ASCII.
+  const io: CliIO = { stdout: (text) => out.push(text), stderr: (text) => err.push(text), env: { WT_SESSION: '1' }, cwd: root, isTTY: false };
   return { code: await main(argv, io), out, err };
 }
 
@@ -364,7 +366,8 @@ describe('a watch session with a pattern that matched no file beside one that di
     const io: CliIO = {
       stdout: (text) => lines.push(text),
       stderr: (text) => lines.push(`stderr: ${text}`),
-      env: { NO_COLOR: '1' },
+      // A terminal is named, as in `cli` above.
+      env: { NO_COLOR: '1', WT_SESSION: '1' },
       cwd: root,
       isTTY: false,
       watch: (_root, given) => {

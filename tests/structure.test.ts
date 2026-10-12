@@ -711,6 +711,15 @@ describe('what every structure rule shares with the others', () => {
     expect(await one(root, '<!-- @assert-structure target="src" pattern="*.x" expected="1" -->')).toMatchObject({ ok: false, actual: 2, message: 'expected at most 1 misnamed file, found 2' });
   });
 
+  it('names one file without a partner in the singular, as it names one misnamed file', async () => {
+    // The bound is what the message counts, and a bound of 1 had been asked
+    // of a pattern and of a required entry and never of a partner.
+    const root = await tree({ 'src/a.ts': '', 'src/b.ts': '' });
+    const partner = '<!-- @assert-structure target="src" glob="*.ts" exclude="*.test.ts" partner="[name].test.ts"';
+    expect(await one(root, `${partner} expected="1" -->`)).toMatchObject({ ok: false, actual: 2, message: 'expected at most 1 file without a partner, found 2' });
+    expect(await one(root, `${partner} max="2" -->`)).toMatchObject({ ok: true, actual: 2, message: 'expected at most 2 files without a partner, found 2' });
+  });
+
   it('exempts what the baseline lists, fails a stale entry, and lets a one-way ratchet shrink', async () => {
     const root = await tree({ 'packages/a/x.ts': '', 'packages/b/package.json': '' });
     expect(await one(root, '<!-- @assert-structure target="packages" dirs="*" required="package.json" baseline="packages/a" -->')).toMatchObject({
