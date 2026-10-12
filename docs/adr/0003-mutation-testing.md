@@ -1555,6 +1555,29 @@ ran high where they were least measured: `runner.ts` and `text.ts` took 7m35s
 against 15.2 minutes, and `cli.ts` alone 8m18s against 15.1, so the next
 split starts from this run's logs rather than 398fe94's.
 
+### 0.25.0: four survivors fewer, and none more
+
+CI's full sweep of 3a0a1b0 (run 38197558465) came out at **99.22% over
+12,861 mutants with 98 survivors and 2 without coverage**, 204 of them
+detected by timeout; the shards took from 6m52s to 14m43s. Against
+0.24.0's sweep, 102 survivors and 2 without coverage over 12,826:
+
+- four survivors are gone, each a static mutant that the replay of
+  2026-10-12 found stating a behaviour no test held, and each killed by
+  the test written for it: a walk whose root is missing or is a file
+  reports no skip (`src/glob.ts`); one file without a partner is named
+  in the singular (`src/runner.ts`); and either anchor of the pattern
+  that reads a Python `from` statement, held now by a statement
+  Python itself refuses and by a line that holds a line separator
+  (`src/polyglot.ts`);
+- what the release changed in the source made 34 mutants more, none of
+  them a survivor;
+- no survivor is new: mutant for mutant, the 98 are among 0.24.0's 102.
+
+The mutant of `src/structure.ts` that crashed its runner in 0.24.0's
+sweep, a walk that never ends, timed out in this one and is counted
+again, which is the thirty-fifth.
+
 ### 0.24.0: what the casts had hidden, and seven equivalents among it
 
 CI's full sweep of 10fbfe3 (run 38166341838) came out at **99.19% over

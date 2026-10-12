@@ -10,7 +10,13 @@ what to do when upgrading; the family's policy, including how a flag or field
 is deprecated before it goes, is spec-core's
 [ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
-## Unreleased
+## 0.25.0
+
+A Python file with CRLF line endings is read as it is read with LF: an
+import rule over one passed in a Windows checkout where the same file
+fails it anywhere else. An option given beside its own opposite is
+refused, exit 2, where the last of the two won with no word of the other.
+And a report asked for in ASCII is ASCII.
 
 ### Changed
 
