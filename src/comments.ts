@@ -516,6 +516,10 @@ function openerAt(source: string, at: number, rules: readonly StringRule[]): Ope
 /** Where the literal ends, or where it was left open. */
 function endOfString(source: string, { rule, text, close }: Opener): Span {
   let index = text;
+  // One position past the end there is no character to be a newline or an
+  // escape, and no closer begins there: a loop that took that turn as well,
+  // `<=` for `<`, would step on and return what this one returns. It is an
+  // equivalent mutant.
   while (index < source.length) {
     if (rule.singleLine && source[index] === '\n') return { end: index, closed: false };
     if (rule.escape && source[index] === '\\') {
@@ -751,12 +755,20 @@ export function lexRanges(source: string, syntax: CommentSyntax): LexResult {
   let unterminated = false;
   let index = 0;
 
+  // `<=` for `<` is an equivalent mutant here too: past the last character
+  // nothing opens, since no token starts where the source has ended, and the
+  // turn only advances.
   while (index < source.length) {
     const start = index;
     // A character that opens nothing in this language is code, and there is
     // nothing further to ask about it. Written this way round because a
     // character outside the table's reach reads back `undefined`, which is not
     // `0`: an unknown character is asked the long questions, not skipped.
+    //
+    // The table decides how long the scan takes and never what it finds: a
+    // character it leaves out opens nothing, so the questions below would each
+    // be answered no. A mutant that asks every character, `true` for this
+    // test, is equivalent.
     if (starts[source.charCodeAt(start)] !== 0) {
       const startsWith = (token: string): boolean => source.startsWith(token, start);
 

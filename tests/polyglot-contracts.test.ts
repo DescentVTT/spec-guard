@@ -136,6 +136,15 @@ describe('python', () => {
     ['from ..\n'],
     ['from 1 import x\n'],
     ['from -\n'],
+    // Two names before `import` is no statement of Python's. Read from further
+    // along the line it would be an import of the second.
+    ['from a b import c\n'],
+    ['from .a b import c\n'],
+    // A line or paragraph separator outside a string is a character Python
+    // refuses, so the line is no statement. Read up to it, the first would be
+    // an import of `a`.
+    ['from a import b\u2028c\n'],
+    ['from . import b\u2029\n'],
   ])('says nothing about %j, which it cannot parse', (source) => {
     expect(() => specifiers(source, 'pkg/m.py')).not.toThrow();
     expect(specifiers(source, 'pkg/m.py')).toEqual([]);

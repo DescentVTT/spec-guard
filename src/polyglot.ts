@@ -325,6 +325,9 @@ export function logicalLines(code: string): Array<{ text: string; offset: number
 
 /** `import` / `from` at a statement position: line start, or after `;` or `:`. */
 const PYTHON_STATEMENT = /(?:^|[;:])[ \t]*(import|from)[ \t]+/g;
+// One blank after `import` where this has one or more is an equivalent
+// mutant: the names that follow are each trimmed before they are read, so the
+// blanks left at their head change nothing.
 const PYTHON_FROM = /^(\.*)([A-Za-z_][\w.]*)?[ \t]*import[ \t]+(.*)$/;
 const PYTHON_DYNAMIC = /\b(__import__|import_module)[ \t]*\(/g;
 

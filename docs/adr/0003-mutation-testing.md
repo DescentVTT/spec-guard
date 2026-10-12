@@ -2351,3 +2351,109 @@ that took 12.7. No shard is near the 20 minutes at which
 `scripts/mutation-shards.mjs` says to measure again.
 
 <!-- @assert-present file="scripts/mutation-unmeasured.mjs,tests/mutation-unmeasured.test.ts" reason="a cast hides what stands under it from the sweep only while nothing counts it; see the amendment of 2026-10-12" -->
+
+## Amended 2026-10-12: a survivor that is a file that did not load
+
+Stryker counts a failed test, and a test file that failed to load has none.
+The 0.5.1 section met it here first: eleven mutants of a table in
+`src/comments.ts` under which the module threw as it loaded, each reported
+as survived while every test file that imports the module failed. spec-harness
+met it again on 2026-10-12, in the function its tables are built through:
+with the body of its `literal()` emptied one test file ended "no tests" with
+a `TypeError`, and its full sweep counted a survivor where the sweep before
+had killed the same mutant through that file. A mutant of that kind runs as
+its module loads, so it is among the ones Stryker marks static, and the
+static survivors of a sweep are where to look for it.
+
+**Measured**, on main's full sweep of 10fbfe3 (run 38166341838: 12,826
+mutants, 2,183 of them static, of which 2,131 were killed, 36 timed out and
+16 survived). Each of the 16 was written into the source by hand, at the
+span the report gives, and the suite a mutation run has was run over it:
+72 files, 4,061 tests on Windows, on the development machine.
+
+| Under the mutant | Mutants |
+| --- | ---: |
+| a test failed | 0 |
+| a test file failed to load, and no test failed | 0 |
+| nothing happened: every file loaded and every test passed | 16 |
+
+None of them is a file that did not load. Two of the sixteen runs had one
+test fail by its clock and nothing else, the comparison of the two engines
+in `tests/engine.test.ts`, which starts ripgrep for every query and ran out
+its 60 seconds beside two other suites; each of the two was run again, and
+every test passed. A test that ran out of time is the 0.6.0 section's artefact,
+and is counted as nothing here.
+
+What the sixteen are, and what became of each:
+
+- **Three were called equivalent beside the code already**: `<=` for `<`
+  and `>=` for `>` where the nearest ids to a ghost are looked for
+  (`src/cites.ts`), and always reading a glob afresh (`src/glob.ts`).
+- **Nine are equivalent, and now say so beside the code.** Each was read
+  again rather than taken from the release that first recorded it:
+  - `<=` for `<` in the two loops of the comment lexer, and `true` for the
+    test that spares a character which opens nothing the long questions
+    (`src/comments.ts`). Past the end nothing opens, and the table decides
+    how long a scan takes and not what it finds;
+  - `dialect: 'path'` and `literal: 'file'`, each emptied, in the options a
+    pattern with no glob syntax is read with (`src/glob.ts`): spec-core
+    compares the first with `gitignore` and `ripgrep`, and the second with
+    `directory` and `either`, read in its copy here;
+  - `<=` for `<` in `globBase`, whose loop always leaves at the last
+    segment, and the word `spec`, emptied, that `matcherOf` would name a
+    refused pattern by, where `specPatternError` has refused each first
+    (`src/glob.ts`);
+  - one blank for one or more after `import` in the pattern that reads a
+    Python `from` statement (`src/polyglot.ts`): the names behind it are
+    trimmed. Over 400,000 random strings of the pieces such a statement is
+    made of, the mutant gave what the source's pattern gives on every one;
+  - `matches: []` filled, in the result of a search that had no file
+    (`src/runner.ts`): the list is read through the baseline, which shows a
+    match only in a file that has a count.
+- **Four are killed, each by a test that states a behaviour.**
+  - `!rootStats?.isDirectory()` made `false`, where a walk asks whether its
+    root is a directory (`src/glob.ts`). The walk then tried to list a root
+    that was missing or was a file, failed, and reported `.` as a path it
+    could not read: a hole in an answer that has none. No caller passes
+    both such a root and a callback for skips, so no report showed it.
+    `tests/glob.test.ts` holds that such a root is no skip, beside one that
+    is.
+  - `"file without a partner"` emptied (`src/runner.ts`). A bound of 1 had
+    been asked of a pattern and of a required entry and never of a
+    partner, so `expected at most 1 file without a partner` could have lost
+    its last five words. `tests/structure.test.ts` holds it.
+  - the `^` and the `$` of the pattern that reads a Python `from`
+    statement, each taken off (`src/polyglot.ts`). `from a b import c` is
+    no statement of Python's and is read as nothing; found further along
+    the line it was an import of `b`. A line that holds U+2028 or U+2029
+    outside a string is none either, and read only up to that character it
+    was an import. Python 3.11.9 refuses both, `invalid syntax` and
+    `invalid non-printable character`, and `tests/polyglot-contracts.test.ts`
+    holds that the reader says nothing of either.
+
+**What the `$` showed besides.** Over 400,000 random strings the pattern
+without its `$` differed from the source's on 8,845, and every one of them
+held a carriage return. That is every line of a Python file with CRLF line
+endings: a line ended at LF alone here, the source's pattern cannot reach
+the end of a line that keeps its carriage return, and no `from` statement
+was read from such a file. Measured through the launcher on 0.24.0, with
+`@assert-import-absence target="src" module="forbidden"` over
+`from forbidden import thing`: exit 1 with LF line endings, exit 0 with
+CRLF. The mutant read those files right and the source did not, and it
+survived because no test read Python with CRLF. That is a wrong answer and
+not a missing test, and mending it turns red a run that passes, so it is a
+change of its own with its own entry in the changelog
+([ADR-0008](0008-polyglot-imports.md)); nothing here depends on it.
+
+**The function every table is built through.** `literal()`
+(`src/literal.ts`) builds two tables, the escape codes of a report and what
+a refusal offers besides removing a pattern, and neither is read as its
+module loads. With its body emptied every one of the 72 files still loads,
+and 58 tests in 14 of them fail in their bodies: two of the four in
+`tests/literal.test.ts`, which imports the function and nothing else of
+`src`, and those that paint a report or read a refusal. The sweep's own
+killer of that mutant was a test of `tests/prove.test.ts`, the first a
+worker reached. So the test this needs was there, and an assertion now
+holds that it loads the function alone.
+
+<!-- @assert-count target="tests/literal.test.ts" symbol="from '../src/" expected="1" reason="the function every table is built through is held by a test that loads it alone: a mutant under which a module throws as it loads takes with it every test file that imports the module" -->
