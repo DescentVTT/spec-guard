@@ -185,6 +185,30 @@ describe("walkFiles", () => {
       missing.push(file);
     expect(missing).toEqual([]);
   });
+
+  it("reports no path as skipped for a root that is missing or is a file", async () => {
+    // A skip is a path the walk declined to read, which a report then counts
+    // as a hole in its answer. A root that is not there, or is no directory,
+    // is nothing the walk was given to read: its caller says so, as a target
+    // that does not exist. A walk that tried to list it reported `.` as
+    // unreadable.
+    const root = await repo({ "a.ts": "", ".git/HEAD": "" });
+    const skipped: Array<[string, string]> = [];
+    const onSkip = (relativePath: string, reason: string): void => {
+      skipped.push([relativePath, reason]);
+    };
+    for (const start of ["nope", "a.ts"]) {
+      const found = [];
+      for await (const file of walkFiles(path.join(root, start), { onSkip }))
+        found.push(file);
+      expect([start, found, skipped]).toEqual([start, [], []]);
+    }
+    // Below a root that is a directory the same callback hears what is left out.
+    const found = [];
+    for await (const file of walkFiles(root, { onSkip }))
+      found.push(file.relativePath);
+    expect([found, skipped]).toEqual([["a.ts"], [[".git", "vcs"]]]);
+  });
 });
 
 describe("globBase", () => {
