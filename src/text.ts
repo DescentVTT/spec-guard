@@ -6,7 +6,31 @@
  * needed them first. That is not tidiness: a second copy of "which line is this
  * offset on" is a second chance to be off by one, and a report that points at
  * the wrong line is worse than one that points nowhere.
+ *
+ * What a snippet of a line is cut to, and with what, is here for the same
+ * reason: the engine cuts one and the reporter has to know one that was cut.
  */
+
+/** Longest line snippet echoed back to the terminal. */
+export const MAX_SNIPPET_LENGTH = 200;
+
+/** What a snippet ends with where its line was longer than that. */
+export const CUT_MARK = '…';
+
+/**
+ * Whether a snippet is a line that was cut, which a report in ASCII draws
+ * with three dots where the mark is.
+ *
+ * Only a cut makes a line's snippet one longer than a snippet may be, and
+ * every cut ends with the mark, so a line somebody wrote with an ellipsis at
+ * its end is told apart by its length, and is left as it was written. The
+ * mark is asked for beside the length because not every match is a line of a
+ * file: an import rule's and a cycle's are written by the runner, at any
+ * length, and end as they end.
+ */
+export function wasCut(snippet: string): boolean {
+  return snippet.length === MAX_SNIPPET_LENGTH + 1 && snippet.endsWith(CUT_MARK);
+}
 
 /** Offsets at which each line begins. Index 0 is line 1. */
 export function lineStarts(source: string): number[] {

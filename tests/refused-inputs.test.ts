@@ -355,8 +355,10 @@ describe('the marks of a report, asked for outright', () => {
     expect(marks(await report()).sort()).toEqual(['○', '⚠', '✔', '✖']);
     expect(marks(await report('--ascii')).sort()).toEqual(['!', '+', 'o', 'x']);
     expect(marks(await report('--no-ascii')).sort()).toEqual(['○', '⚠', '✔', '✖']);
-    // The same report otherwise: the option changes the marks and nothing else.
-    const plain = (text: string): string => text.replace(/[\d.]+ms/g, '').replace(/[✔+]/g, 'P').replace(/[✖x]/g, 'F').replace(/[⚠!]/g, 'W').replace(/[○o]/g, 'S').replace(/…|\.\.\./g, 'M');
+    // The same report otherwise: the option changes the marks, what separates
+    // the counts of a line, and nothing else.
+    const plain = (text: string): string =>
+      text.replace(/[\d.]+ms/g, '').replace(/[✔+]/g, 'P').replace(/[✖x]/g, 'F').replace(/[⚠!]/g, 'W').replace(/[○o]/g, 'S').replace(/…|\.\.\./g, 'M').replace(/ [·-] /g, ' B ');
     expect(plain(await report('--ascii'))).toBe(plain(await report()));
   });
 
@@ -381,13 +383,13 @@ describe('the marks of a report, asked for outright', () => {
     for (const command of [[], ['prove'], ['cites']]) {
       const { io, out, err } = createIO({ cwd: root });
       expect(await main([...command, '--no-ascii', '--ascii', '--root', root], io)).toBe(EXIT_ERROR);
-      expect([out, err]).toEqual([[], ['spec-guard: Option --ascii is given beside --no-ascii, and the marks are drawn one way or the other. Give one of the two.']]);
+      expect([out, err]).toEqual([[], ['spec-guard: Option --ascii is given beside --no-ascii, and one of the two would go unread. Give one of the two.']]);
     }
     expect(HELP).toContain(
       [
-        "      --ascii/--no-ascii  Draw a report's marks as + x ! o, or as their Unicode forms, on any",
-        '                          platform; the two together are refused. Without either,',
-        '                          SPEC_GUARD_ASCII asks for ASCII unless it is empty, 0 or false',
+        '      --ascii/--no-ascii  Write a report in ASCII, its marks as + x ! o, or with their Unicode',
+        '                          forms, on any platform. Without either, SPEC_GUARD_ASCII asks for',
+        '                          ASCII unless it is empty, 0 or false',
       ].join('\n'),
     );
   });

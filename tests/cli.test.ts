@@ -112,20 +112,23 @@ describe('parseArgs', () => {
     expect([...parseArgs(['--ascii'], DEMO_REPO).fromCommandLine, ...parseArgs(['--no-ascii'], DEMO_REPO).fromCommandLine]).toEqual([]);
   });
 
-  it('refuses --ascii beside --no-ascii, in either order, where the last of the colour pair wins', () => {
-    const both = new UsageError('Option --ascii is given beside --no-ascii, and the marks are drawn one way or the other. Give one of the two.');
+  it('refuses --ascii beside --no-ascii, in either order, as it refuses every option beside its own opposite', () => {
+    const both = new UsageError('Option --ascii is given beside --no-ascii, and one of the two would go unread. Give one of the two.');
     for (const command of [[], ['prove'], ['cites']]) {
       expect(() => parseArgs([...command, '--ascii', '--no-ascii'], DEMO_REPO), command.join()).toThrow(both);
       expect(() => parseArgs([...command, '--no-ascii', '--ascii'], DEMO_REPO), command.join()).toThrow(both);
       expect(() => parseArgs([...command, '--no-ascii', '--strict', '--ascii'], DEMO_REPO), command.join()).toThrow(both);
     }
     expect(() => parseArgs(['--watch', '--ascii', '--no-ascii'], DEMO_REPO)).toThrow(both);
-    // Must-not-refuse: either alone, twice over, and the colour pair together.
+    // Must-not-refuse: either alone, twice over, and beside one of the colour pair.
     expect(parseArgs(['--ascii', '--ascii'], DEMO_REPO).ascii).toBe(true);
     expect(parseArgs(['--no-ascii', '--no-ascii'], DEMO_REPO).ascii).toBe(false);
-    expect(parseArgs(['--color', '--no-color'], DEMO_REPO).color).toBe(false);
-    expect(parseArgs(['--no-color', '--color'], DEMO_REPO).color).toBe(true);
     expect(parseArgs(['--ascii', '--no-color'], DEMO_REPO)).toMatchObject({ ascii: true, color: false });
+    // The colour pair is refused as this one is, where the last of the two
+    // won and nothing was said of the other (tests/opposites.test.ts).
+    const colour = new UsageError('Option --color is given beside --no-color, and one of the two would go unread. Give one of the two.');
+    expect(() => parseArgs(['--color', '--no-color'], DEMO_REPO)).toThrow(colour);
+    expect(() => parseArgs(['--no-color', '--color'], DEMO_REPO)).toThrow(colour);
   });
 
   it('takes neither with a value, as any option that is on when it is given', () => {

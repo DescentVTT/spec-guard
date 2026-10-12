@@ -36,7 +36,7 @@ import {
 import { nodeIo, type Io } from './io.js';
 import { NO_MEMO, type Memo } from './memo.js';
 import { isBinary, LedgerBuilder, UNCERTAIN_REASONS, type SkippedPath } from './scope.js';
-import { lineStarts, locate } from './text.js';
+import { CUT_MARK, lineStarts, locate, MAX_SNIPPET_LENGTH } from './text.js';
 import type { EngineName, MatchLocation, SearchOptions, SearchResult } from './types.js';
 
 /** Files larger than this are skipped by both engines, keeping them in sync. */
@@ -58,9 +58,6 @@ export function withinSizeLimit(size: number): boolean {
 
 /** Hard cap on collected locations; the reporter only ever shows a handful. */
 export const MAX_COLLECTED_MATCHES = 500;
-
-/** Longest line snippet echoed back to the terminal. */
-const MAX_SNIPPET_LENGTH = 200;
 
 /** Most files read at once. Enough to keep a disk busy, few enough to be polite. */
 export const MAX_CONCURRENT_READS = 16;
@@ -151,7 +148,7 @@ export function escapeRegExp(value: string): string {
  */
 export function truncate(value: string): string {
   const trimmed = value.replace(/\r$/, '');
-  return trimmed.length > MAX_SNIPPET_LENGTH ? `${trimmed.slice(0, MAX_SNIPPET_LENGTH)}…` : trimmed;
+  return trimmed.length > MAX_SNIPPET_LENGTH ? `${trimmed.slice(0, MAX_SNIPPET_LENGTH)}${CUT_MARK}` : trimmed;
 }
 
 

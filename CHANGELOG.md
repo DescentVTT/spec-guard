@@ -10,6 +10,37 @@ what to do when upgrading; the family's policy, including how a flag or field
 is deprecated before it goes, is spec-core's
 [ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
+## Unreleased
+
+### Changed
+
+- **An option given beside its own opposite is refused, where the last of
+  the two won.** `--strict --no-strict` ran as `--no-strict` alone, and
+  `--no-color --color` in colour, with no word of the option that lost: so
+  it was for the colour pair and for each on/off option a configuration can
+  set, `--strict`, `--allow-missing-targets`, `--allow-empty-scope`,
+  `--default-skips`, `--ignore-status` and `--include-specs`, on every
+  command that takes both. Each pair is now exit 2 and one line that names
+  both, in either order, as `--ascii` beside `--no-ascii` has been since
+  0.24.0; that pair's line now reads as the others do. The same option
+  given twice is read as once, an opposite alone still wins over a
+  configuration, and a command that takes only one of a pair refuses the
+  other as it did
+  ([ADR-0014](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0014-configuration-and-watch.md)).
+  Upgrading: give one of the two. A script that adds an opposite to a line
+  it was handed, to turn an option off, takes the option off the line
+  instead; a configuration is overridden by the opposite alone, as before.
+
+### Fixed
+
+- A report asked for in ASCII is ASCII. Under `--ascii`, `SPEC_GUARD_ASCII`
+  or a Windows console that names no terminal, the lines of a run, `prove`,
+  `cites` and a watch session still held `·` between their counts, and a
+  snippet whose line was cut still ended in `…`. They are ` - ` and `...`
+  now, and so in the text of the server's `check_architecture`, which asks
+  for its report in ASCII. Where the marks are drawn nothing changes, and
+  `--json` and `--format sarif` carry a cut snippet as they did.
+
 ## 0.24.0
 
 A `cites --strict` that fails for a file read in part, or for a family that

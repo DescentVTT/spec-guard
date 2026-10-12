@@ -439,7 +439,9 @@ describe.skipIf(!built)('spec-guard --watch, with a real watcher', () => {
     });
     temporary.push(root);
 
-    const child = spawn(process.execPath, [BIN, '--watch', '--root', root], { cwd: root, env: { ...process.env, NO_COLOR: '1' }, windowsHide: true });
+    // A terminal that draws the marks is named for the session and for the
+    // fresh run it is held to, so each is one text on every platform.
+    const child = spawn(process.execPath, [BIN, '--watch', '--root', root], { cwd: root, env: { ...process.env, NO_COLOR: '1', WT_SESSION: '1' }, windowsHide: true });
     let stdout = '';
     let stderr = '';
     child.stdout.setEncoding('utf8');
@@ -474,7 +476,7 @@ describe.skipIf(!built)('spec-guard --watch, with a real watcher', () => {
 
       const reports = stdout.split(/^--- \d\d:\d\d:\d\d ---$/m).filter((segment) => segment.includes('spec-guard '));
       const last = (reports.at(-1) as string).split('\n\nwatching ')[0] as string;
-      const fresh = await run(['--root', root, '--engine', 'js'], { cwd: root });
+      const fresh = await run(['--root', root, '--engine', 'js'], { cwd: root, env: { WT_SESSION: '1' } });
       expect(fresh.code).toBe(1);
       expect(untimed(last)).toBe(untimed(fresh.stdout));
     } finally {
