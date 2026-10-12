@@ -196,8 +196,10 @@ function start(script: Script[], overrides: Partial<WatchOptions> = {}, watchThr
 }
 
 const heading = (clock: Clock): string => `--- ${new Date(clock.now()).toTimeString().slice(0, 8)} ---\n`;
+// The harness asks for its reports in ASCII, and a session draws its own
+// lines as it draws its reports: `-` between the parts of a status line.
 const REPORTER = { color: false, verbose: false, ascii: true };
-const status = (parts: string[]): string => `${parts.join(' · ')} · Enter re-runs everything, Ctrl+C stops\n`;
+const status = (parts: string[]): string => `${parts.join(' - ')} - Enter re-runs everything, Ctrl+C stops\n`;
 
 describe('runWatch', () => {
   it('starts watching before the first run, then prints its report under the time and a status line', async () => {
@@ -368,7 +370,7 @@ describe('runWatch', () => {
     watch.emit({ type: 'change', filename: 'a' });
     watch.emit({ type: 'rename', filename: 'a' });
     await watch.clock.advance(QUIET_MS);
-    expect(watch.output[1]).toContain('· 1 change ·');
+    expect(watch.output[1]).toContain('- 1 change -');
     watch.interrupt();
     await watch.exit;
   });
@@ -497,10 +499,10 @@ describe('runWatch', () => {
     await settle();
     watch.emit({ type: 'change', filename: 'package.json' });
     await watch.clock.advance(QUIET_MS);
-    expect(watch.output[1]).toBe(`${heading(watch.clock)}spec-guard: --watch watches /repo, and this spec is outside it: ../elsewhere.md\n\nwatching · waiting for a change · Ctrl+C stops\n`);
+    expect(watch.output[1]).toBe(`${heading(watch.clock)}spec-guard: --watch watches /repo, and this spec is outside it: ../elsewhere.md\n\nwatching - waiting for a change - Ctrl+C stops\n`);
     watch.emit({ type: 'change', filename: 'package.json' });
     await watch.clock.advance(QUIET_MS);
-    expect(watch.output[2]).toContain('· 1 change ·');
+    expect(watch.output[2]).toContain('- 1 change -');
     watch.interrupt();
     expect(await watch.exit).toBe(130);
   });
@@ -510,7 +512,7 @@ describe('runWatch', () => {
     await settle();
     watch.emit({ type: 'change', filename: 'package.json' });
     await watch.clock.advance(QUIET_MS);
-    expect(watch.output[1]).toBe(`${heading(watch.clock)}spec-guard: package.json is not valid JSON (x), so its "specGuard" options cannot be read.\n\nwatching · waiting for a change · Ctrl+C stops\n`);
+    expect(watch.output[1]).toBe(`${heading(watch.clock)}spec-guard: package.json is not valid JSON (x), so its "specGuard" options cannot be read.\n\nwatching - waiting for a change - Ctrl+C stops\n`);
     watch.emit({ type: 'change', filename: 'package.json' });
     await watch.clock.advance(QUIET_MS);
     // The same report as before the failure is drawn again in full, since the
@@ -520,10 +522,24 @@ describe('runWatch', () => {
     expect(await watch.exit).toBe(130);
   });
 
+  it('draws its own lines as it draws its reports: · where the marks are drawn, and where nothing was asked', async () => {
+    // Every other session here asks for ASCII, and has `-` in the same places.
+    for (const reporter of [{ color: false, verbose: false, ascii: false }, { color: false, verbose: false }]) {
+      const watch = start([run(report({ passed: 2, specs: 1 })), new Error('the tree could not be read')], { reporter });
+      await settle();
+      expect(watch.output[0]).toContain('watching 1 spec · first run · 2 of 2 rules executed · 0 ms · Enter re-runs everything, Ctrl+C stops');
+      watch.emit({ type: 'change', filename: 'a' });
+      await watch.clock.advance(QUIET_MS);
+      expect(watch.output[1]).toContain('watching · waiting for a change · Ctrl+C stops');
+      watch.interrupt();
+      await watch.exit;
+    }
+  });
+
   it('says it is waiting for a spec when none matched, rather than exiting', async () => {
     const watch = start([run(report({ specs: 0, passed: 0 }))]);
     await settle();
-    expect(watch.output[0]).toContain('spec-guard: no spec files matched, watching for one to appear\n\nwatching 0 specs · first run');
+    expect(watch.output[0]).toContain('spec-guard: no spec files matched, watching for one to appear\n\nwatching 0 specs - first run');
     watch.interrupt();
     expect(await watch.exit).toBe(130);
   });
@@ -542,7 +558,9 @@ describe('spec-guard --watch', () => {
     const io: CliIO = {
       stdout: (text) => output.push(`${text}\n`),
       stderr: (text) => output.push(`stderr: ${text}\n`),
-      env: { NO_COLOR: '1' },
+      // A terminal that draws the marks is named, so a session's lines are one
+      // text on every platform: a Windows console that names none is ASCII.
+      env: { NO_COLOR: '1', WT_SESSION: '1' },
       cwd: root,
       isTTY: false,
       stdin,
@@ -654,7 +672,7 @@ describe('spec-guard --watch, as the command line wires it', () => {
     const io: CliIO = {
       stdout: (text) => lines.push(text),
       stderr: (text) => lines.push(`stderr: ${text}`),
-      env: { NO_COLOR: '1' },
+      env: { NO_COLOR: '1', WT_SESSION: '1' },
       cwd: root,
       isTTY: false,
       watch: (_root, given) => {
@@ -709,6 +727,10 @@ describe('spec-guard --watch, as the command line wires it', () => {
       expect(await exit).toBe(130);
       return lines[0] as string;
     };
+    // Its status line is drawn the way its report is.
+    expect(await first(['--ascii'], { WT_SESSION: '1' })).toContain('watching 1 spec - first run - 1 of 1 rule executed - ');
+    expect(await first([], { WT_SESSION: '1', SPEC_GUARD_ASCII: '1' })).toContain('watching 1 spec - first run - 1 of 1 rule executed - ');
+    expect(await first(['--no-ascii'], { SPEC_GUARD_ASCII: '1' })).toContain('watching 1 spec · first run · 1 of 1 rule executed · ');
     // A terminal that draws the marks is named, so each is one answer on any platform.
     expect(await first([], { WT_SESSION: '1' })).toContain('\n✔ every spec assertion holds\n');
     expect(await first(['--ascii'], { WT_SESSION: '1' })).toContain('\n+ every spec assertion holds\n');

@@ -1317,28 +1317,31 @@ spec-guard impact <paths...>           # the files that depend on each path, and
 | `--depth <n>` | `impact` only: follow dependents at most `n` imports away (default: all) |
 | `--allow-empty` | Let a run, `prove` or `impact` through when no spec file matched the patterns, or when one pattern matched none beside others that did, each of which is exit 2 without it; such a pattern is still named on stderr (about the run, not an assertion) |
 | `--color` / `--no-color` | Force colour on or off. Without either flag, `NO_COLOR` set to anything turns it off; otherwise `FORCE_COLOR` turns it on, and `FORCE_COLOR=0` or `FORCE_COLOR=false` off; otherwise `TERM=dumb` turns it off; otherwise a terminal has colour. `NO_COLOR` or `FORCE_COLOR` set to nothing is as unset |
-| `--ascii` / `--no-ascii` | Draw a report's marks in ASCII, or as the marks, on any platform. Either wins over the environment, and the two together are refused, exit 2. Without either, `SPEC_GUARD_ASCII` set to anything but nothing, `0` or `false` asks for ASCII; otherwise Windows decides as below |
+| `--ascii` / `--no-ascii` | Write a report in ASCII, or with the marks, on any platform. Either wins over the environment. Without either, `SPEC_GUARD_ASCII` set to anything but nothing, `0` or `false` asks for ASCII; otherwise Windows decides as below |
 
 Patterns are expanded by spec-guard itself, so quoted globs behave identically
 on Windows, macOS and Linux. A directory expands to the Markdown files in it.
-The second form of each on/off option exists to override a configuration.
+The second form of each on/off option exists to override a configuration;
+beside the first, on one command line, it is refused (below).
 
-On Windows a report's marks are drawn in ASCII, `+`, `x`, `!`, `o` and `...`
-for `✔`, `✖`, `⚠`, `○` and `…`, unless `WT_SESSION` or `TERM_PROGRAM` is set
-to something: Windows Terminal sets the first, and VS Code's terminal and
-mintty the second. `TERM` is not read for it, since Git for Windows and the
-Cygwin and MSYS2 runtimes set it for whatever they start, in a console whose
-fonts hold none of the first three marks. Anywhere else the marks are always
-drawn.
+On Windows a report is written in ASCII unless `WT_SESSION` or `TERM_PROGRAM`
+is set to something: Windows Terminal sets the first, and VS Code's terminal
+and mintty the second. `TERM` is not read for it, since Git for Windows and
+the Cygwin and MSYS2 runtimes set it for whatever they start, in a console
+whose fonts hold none of the first three marks. Anywhere else the marks are
+always drawn. In ASCII a report holds no character of its own beyond it:
+`+`, `x`, `!` and `o` for `✔`, `✖`, `⚠` and `○`, `...` for the `…` of what is
+left out, a cut line among it, and `-` for the `·` between the counts of a
+line. A path, a line of source or a reason is written as the project wrote
+it.
 
-Either can be asked for outright. `--ascii` draws the ASCII marks and
-`--no-ascii` the others, on any platform and whatever the environment says:
-an ssh session into Windows names no terminal, and `--no-ascii` is how it
-gets the marks its own terminal draws. `SPEC_GUARD_ASCII=1` asks for ASCII
+Either can be asked for outright. `--ascii` writes a report in ASCII and
+`--no-ascii` with the marks, on any platform and whatever the environment
+says: an ssh session into Windows names no terminal, and `--no-ascii` is how
+it gets the marks its own terminal draws. `SPEC_GUARD_ASCII=1` asks for ASCII
 for every run that inherits it; set to nothing, `0` or `false`, in any case,
 it asks for nothing, and it never asks for the marks. An option wins over
-the variable, and `--ascii` beside `--no-ascii` is exit 2, since one of the
-two would go unread.
+the variable.
 
 An option that means nothing to a command is refused rather than ignored, so
 `spec-guard query --strict` does not look like a strict query. `query` does take
@@ -1355,6 +1358,21 @@ on when it is given was on whatever followed its `=`, so `--strict=false` was
 strict and `--allow-empty=false` let an empty run through. An option a
 configuration can set has an opposite to turn it off, `--no-strict`; any
 other is left out.
+
+So is an option given beside its own opposite, in either order: `--strict`
+beside `--no-strict`, `--color` beside `--no-color`, and every other pair of
+the table. The last of the two used to win, and nothing said the other had
+been given; a line that asks for both was not meant, and one of the two would
+go unread:
+
+```text
+spec-guard: Option --strict is given beside --no-strict, and one of the two would go unread. Give one of the two.
+```
+
+The same option given twice is read as once. An opposite alone still wins
+over a configuration, which is what it is for. And where a command takes
+only one of a pair, as `query` takes `--no-color` and not `--color`, the
+other is refused for that, as it was.
 
 And so is a spec pattern that matches no file beside others that do. After
 `old-docs` was renamed, `spec-guard docs old-docs` ran the specs under `docs`

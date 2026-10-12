@@ -1209,7 +1209,9 @@ which are each command's own:
   A line that asks for both ways was not meant, and one of the two would go
   unread; spec-brief refuses `--color` beside `--no-color` for that reason
   (`unread` in its `src/cli.ts`, at faa9cf6). The colour pair here is left
-  as it is.
+  as it is. *Amended again 2026-10-12*: it is not left. Every option
+  beside its own opposite is refused, the colour pair among them, by the
+  amendment below.
 - **A command that draws marks takes both; one that draws none is treated
   as it is for colour.** A run, a watch session, `prove` and `cites` draw
   them and take both. A query and `impact` draw none: `--ascii` is true of
@@ -1227,7 +1229,9 @@ which are each command's own:
 - **What is drawn in ASCII is the five marks**, `+`, `x`, `!`, `o` and `...`
   for `✔`, `✖`, `⚠`, `○` and `…`. The `·` between a report's counts is no
   mark and is written either way, as it was on a Windows console before:
-  the fonts the amendment of 2026-10-11 read each hold it.
+  the fonts the amendment of 2026-10-11 read each hold it. *Amended again
+  2026-10-12*: a report asked for in ASCII holds neither that nor the `…`
+  of a cut snippet, by the amendment below.
 - **`shouldUseAscii(env, platform)` reads the variable and keeps its two
   parameters**, since it is exported and a caller passes it an environment.
   The command line reads its options first and asks the function only when
@@ -1238,3 +1242,125 @@ values that must not ask, `tests/cli.test.ts` each command's taking and
 refusing, and `tests/refused-inputs.test.ts` and `tests/watch.test.ts` what
 each command then draws, with a terminal or the variable named in every
 case so that each is one answer on Windows and anywhere else.
+
+## Amended 2026-10-12: an option beside its own opposite is refused, and a report asked for in ASCII is ASCII
+
+The amendment above refused `--ascii` beside `--no-ascii` and left the
+colour pair as it was. The family contract refuses two things of which one
+would go unread (spec-core's
+[ADR-0005](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0005-the-family-contract.md),
+amended 2026-10-11), and the colour pair is two such things. So is each
+on/off option this ADR gave an opposite, so that a configuration could be
+overridden either way.
+
+Measured through the launcher on 0.24.0 (Windows 11 build 26300, Node
+24.18.1): each of the eight pairs the command line has, in a tree where the
+option decides what the command answers, the two given together in each
+order to a run, a watch session, `prove`, `cites`, `query`, `impact` and
+the server. "As the later alone" is the exit code and the output of the
+later option given alone, with no word of the earlier.
+
+| Pair | Commands that take both | 0.24.0, in either order | Now, in either order |
+| --- | --- | --- | --- |
+| `--strict`, `--no-strict` | a run, `--watch`, `prove`, `cites`, `mcp` | as the later alone | exit 2 |
+| `--allow-missing-targets`, `--no-allow-missing-targets` | a run, `--watch`, `prove`, `mcp` | as the later alone | exit 2 |
+| `--allow-empty-scope`, `--no-allow-empty-scope` | a run, `--watch`, `prove`, `mcp` | as the later alone | exit 2 |
+| `--default-skips`, `--no-default-skips` | a run, `--watch`, `prove`, `cites`, `query`, `impact`, `mcp` | as the later alone | exit 2 |
+| `--ignore-status`, `--no-ignore-status` | a run, `--watch`, `prove`, `query`, `impact`, `mcp` | as the later alone | exit 2 |
+| `--include-specs`, `--no-include-specs` | a run, `--watch`, `prove`, `query`, `impact`, `mcp` | as the later alone | exit 2 |
+| `--color`, `--no-color` | a run, `--watch`, `prove`, `cites` | as the later alone | exit 2 |
+| `--ascii`, `--no-ascii` | a run, `--watch`, `prove`, `cites` | exit 2, in a line of its own | exit 2, in the line every pair has |
+
+```text
+spec-guard: Option --strict is given beside --no-strict, and one of the two would go unread. Give one of the two.
+```
+
+- **One rule, and no list of pairs.** An option whose name is another's
+  with `no-` after its dashes is that option's opposite, and the two on one
+  command line are refused. The eight pairs above are the ones there are:
+  `--no-verbose`, `--no-json`, `--no-allow-empty` and the like are unknown
+  options, as they were. A pair added later is refused without being added
+  anywhere else.
+- **The option is named before its opposite, whichever came first.**
+  `--ascii` beside `--no-ascii` said "and the marks are drawn one way or
+  the other"; it now says what the others say, since the reason is the one
+  they have.
+- **A command that takes only one of a pair refuses the other for that, as
+  it did**, before it looks at the pair. `query --no-color --color` is
+  `Option --color does not apply to spec-guard query.`, and `mcp`, which
+  takes neither of the colour pair, names whichever comes first. In the 16
+  places where a command does not take both of a pair, each order was
+  answered on this build in the line 0.24.0 wrote.
+- **The same option given twice is read as once**, as it was, for each
+  option of each pair on each command that takes it.
+- **An opposite alone still overrides a configuration**, which is what it
+  was added for. Measured for each of the six keys, set `true` and set
+  `false`, on each command: where the command reads the key the answer is
+  the option's and the report says `overridden on the command line:
+  strict`, and each of those runs answers on this build as it did on
+  0.24.0.
+- **A refused pair is refused before `--help` and `--version` are
+  answered**, as every wrong command line is here: `--bogus --help` is
+  exit 2, and so was `--ascii --no-ascii --help`. `--color --no-color
+  --help` printed the help on 0.24.0 and is refused now. spec-graph answers
+  the two first (`parseArgs` in its `src/cli.ts`, at 70bdd90).
+- **Left as they are**, each two things of which one goes unread, and
+  neither the other's opposite: `--json` beside `--format sarif` writes
+  whichever came later, `--format` given twice writes the later, and
+  `--exclude=` beside `--exclude dist` clears nothing. Whether those are
+  refused wants a decision of its own.
+
+**A report asked for in ASCII is ASCII.** The amendment above has "The `·`
+between a report's counts is no mark and is written either way". Measured
+on 0.24.0 through the launcher, over a tree that is ASCII throughout, so
+that a character beyond ASCII in an output is the report's own: every such
+character each command wrote when it was asked for ASCII.
+
+| Written by | 0.24.0, under `--ascii` | Now |
+| --- | --- | --- |
+| a run, `--verbose` | `·` (U+00B7) between the counts of its first line and of its last; `…` (U+2026) where a line longer than 200 characters is cut for a snippet | none: ` - ` and `...` |
+| `prove`, `--verbose` | `·` in the same two lines | none |
+| `cites` | `·` between its counts | none |
+| a watch session | `·` in each report, in each status line and under a run that could not be made; `…` in a cut snippet | none |
+| `query`, `impact` | none | none |
+| the text of the server's `check_architecture`, which asks for its report in ASCII | `·` and `…`, beside `+`, `x`, `!` and `o` | none |
+| `--json`, `--format sarif`, and the server's structured content | `…` at the end of a cut snippet's `text` | the same: each document is what it was |
+| `--format github`, `--format gitlab` | none | none |
+
+A run asked by `SPEC_GUARD_ASCII=1`, and one in a console that names no
+terminal, wrote what the run under `--ascii` wrote, on 0.24.0 and on this
+build.
+
+- **ASCII is one answer, whoever gave it**: the option, the variable, or a
+  Windows console that names no terminal. So the report of such a console
+  changes as well, `1 passed - 7ms` where it read `1 passed · 7ms`. The
+  fonts the amendment of 2026-10-11 read each hold `·` and `…`, and what
+  reads a report is not always a font: written to a pipe a report is
+  UTF-8, and read back in code page 950, which `chcp` names on the
+  workstation this was measured on, the two bytes of `·` are `繚`
+  (U+7E5A) and the three of `…` are no character of that page.
+- **What a project wrote is written as it wrote it**: a path, a line of
+  source in a snippet, a `reason`, a status. ASCII is asked of the report,
+  and a report that redrew a line of source would show a line the file
+  does not hold.
+- **A cut line is known by its length.** A snippet is a line cut to 200
+  characters and ended with the mark, so only a cut line's is 201 long,
+  and a line that fits and ends in an ellipsis of its own is left alone.
+  The mark is asked for as well as the length, since the matches of an
+  import rule, a layer rule, a cycle and a structure rule are written by
+  the runner, at any length. `wasCut` in `src/text.ts` is that rule,
+  beside the length and the mark the engine cuts with.
+- **`ascii` means the same to a caller of the package**: `formatReport`,
+  `formatProve` and `formatCites` given `ascii: true` write no character
+  of their own beyond ASCII.
+- **spec-graph writes `-` between its counts in ASCII too** (`glyphs` in
+  its `src/report.ts`, at 70bdd90).
+
+`tests/opposites.test.ts` holds each pair on each command that takes both,
+beside either alone, either twice and each opposite over a configuration.
+`tests/ascii-report.test.ts` holds each report to ASCII, beside the line
+that must be left as it was written.
+
+<!-- @assert-present file="tests/opposites.test.ts, tests/ascii-report.test.ts" reason="each refusal is held beside what must still be read, and each report in ASCII beside the line a project wrote" -->
+<!-- @assert-count target="src" symbol="·" expected="1" exclude="src/vendor" reason="what separates a report's counts is written once, in the table that says what stands for it in ASCII" -->
+<!-- @assert-count target="src" symbol="…" expected="1" exclude="src/vendor" reason="the mark of what a report leaves out is written once, and drawn through the same table" -->

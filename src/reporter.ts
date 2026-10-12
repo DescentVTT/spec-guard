@@ -10,6 +10,7 @@
 import { createHash } from 'node:crypto';
 
 import { literal } from './literal.js';
+import { CUT_MARK, wasCut } from './text.js';
 import { mergeLedgers, tallyLedger, type ScopeLedger } from './scope.js';
 import type {
   AssertionResult,
@@ -29,7 +30,7 @@ import type { RunResult } from './runner.js';
 export interface ReporterOptions {
   color: boolean;
   verbose: boolean;
-  /** Symbols safe for legacy Windows consoles. */
+  /** Nothing of the report's own beyond ASCII: its marks, what separates its counts, the end of a cut snippet. */
   ascii?: boolean;
 }
 
@@ -110,10 +111,29 @@ export function shouldUseAscii(env: NodeJS.ProcessEnv = process.env, platform = 
   return !env['WT_SESSION'] && !env['TERM_PROGRAM'];
 }
 
-function symbols(ascii: boolean): { pass: string; fail: string; warn: string; skip: string; more: string } {
+/**
+ * Everything of its own a report writes beyond ASCII, and what stands for
+ * each in a report asked for in ASCII: the four marks, `more` for what is
+ * left out - the matches not shown, and the rest of a line a snippet was cut
+ * from - and `between` for what separates the counts of a line.
+ *
+ * `between` was `·` either way, and the cut of a snippet `…`, so a report
+ * under `--ascii` was ASCII but for those two (ADR-0014, amended 2026-10-12).
+ * What a project wrote - a path, a line of its source, a reason, a status -
+ * is written as it wrote it, in either.
+ */
+function symbols(ascii: boolean): { pass: string; fail: string; warn: string; skip: string; more: string; between: string } {
   return ascii
-    ? { pass: '+', fail: 'x', warn: '!', skip: 'o', more: '...' }
-    : { pass: '✔', fail: '✖', warn: '⚠', skip: '○', more: '…' };
+    ? { pass: '+', fail: 'x', warn: '!', skip: 'o', more: '...', between: ' - ' }
+    : { pass: '✔', fail: '✖', warn: '⚠', skip: '○', more: CUT_MARK, between: ' · ' };
+}
+
+/**
+ * What separates the counts of a line, for a line that is not the reporter's
+ * to write: a watch session's status.
+ */
+export function betweenCounts(ascii: boolean | undefined): string {
+  return symbols(ascii ?? false).between;
 }
 
 /**
@@ -244,7 +264,10 @@ function formatFailure(
   for (const match of shown) {
     // A structure violation is a path, not a place in one; a line of 0 says so.
     const where = paint(match.line === 0 ? match.file : `${match.file}:${match.line}:${match.column}`, 'cyan');
-    lines.push(`      ${where}  ${paint(match.text.trim(), 'gray')}`);
+    // The mark that ends a cut line is the report's, where the line is the
+    // project's: drawn as the report draws what it leaves out.
+    const text = wasCut(match.text) ? `${match.text.slice(0, -CUT_MARK.length)}${glyphs.more}` : match.text;
+    lines.push(`      ${where}  ${paint(text.trim(), 'gray')}`);
   }
 
   const remaining = result.actual - shown.reduce((total, match) => total + match.count, 0);
@@ -387,7 +410,7 @@ export function formatReport(report: RunResult, options: ReporterOptions, maxSni
     countLabel(report.summary.specs, 'spec'),
     countLabel(report.summary.total, 'assertion'),
     ...(searched ? [report.engine] : []),
-  ].join(' · ');
+  ].join(glyphs.between);
   lines.push(`${paint('spec-guard', 'bold', 'blue')} ${paint(headline, 'dim')}`);
   lines.push('');
 
@@ -468,7 +491,7 @@ export function formatReport(report: RunResult, options: ReporterOptions, maxSni
     paint(formatDuration(report.durationMs), 'dim'),
   ].filter((part): part is string => part !== null);
 
-  lines.push(parts.join(paint(' · ', 'dim')));
+  lines.push(parts.join(paint(glyphs.between, 'dim')));
 
   if (report.ok) {
     // "Every assertion holds" over zero assertions is true and useless, and it
@@ -895,7 +918,7 @@ export function formatProve(report: ProveReport, options: ReporterOptions): stri
   const glyphs = symbols(options.ascii ?? false);
   const { summary } = report;
   const lines = [
-    `${paint('spec-guard prove', 'bold', 'blue')} ${paint(`${countLabel(summary.specs, 'spec')} · ${countLabel(summary.total, 'rule')}`, 'dim')}`,
+    `${paint('spec-guard prove', 'bold', 'blue')} ${paint(`${countLabel(summary.specs, 'spec')}${glyphs.between}${countLabel(summary.total, 'rule')}`, 'dim')}`,
     '',
   ];
 
@@ -926,7 +949,7 @@ export function formatProve(report: ProveReport, options: ReporterOptions): stri
     summary.inactive > 0 ? paint(`${summary.inactive} not in force`, 'dim') : null,
     paint(formatDuration(report.durationMs), 'dim'),
   ].filter((part): part is string => part !== null);
-  lines.push(parts.join(paint(' · ', 'dim')));
+  lines.push(parts.join(paint(glyphs.between, 'dim')));
 
   if (summary.survived > 0) {
     const them = summary.survived === 1 ? 'itself' : 'themselves';
@@ -1382,7 +1405,7 @@ export function formatCites(report: CitesReport, options: ReporterOptions): stri
     summary.stale > 0 ? paint(`${summary.stale} stale`, 'yellow') : null,
     paint(formatDuration(report.durationMs), 'dim'),
   ].filter((part): part is string => part !== null);
-  lines.push(parts.join(paint(' · ', 'dim')));
+  lines.push(parts.join(paint(glyphs.between, 'dim')));
 
   const names = (count: number): string => `${countLabel(count, 'citation')} ${count === 1 ? 'names' : 'name'}`;
   const ending: string[] = [];
