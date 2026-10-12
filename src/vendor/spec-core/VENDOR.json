@@ -1,22 +1,22 @@
 {
   "source": "https://github.com/DescentVTT/spec-core",
-  "commit": "5666c968618d476854e4859986bd113bb0237789",
+  "commit": "ffe9b8a59380dc9ae9225d92643c9b07bec004b5",
   "modules": {
     "jsonrpc": {
       "files": {
         "index.ts": "sha256-04a2d2f62d2ce68abc8bc1c9ccd2266daaaa178f32ee96a336883f43d6f60b28",
-        "mcp.ts": "sha256-c087d4f196488ffaf9f19c633c44860f80f239a53f2e74aa5751e7ce05f147ab"
+        "mcp.ts": "sha256-b0ee71dc4568a82f68afd21a1372de02c453a4235c06256af31d34f7a9a6686a"
       }
     },
     "markdown": {
       "files": {
-        "frontmatter.ts": "sha256-a3b6855b968f4d27a587f3680ba8aa39772abcf33bbe2cfbb2077a9abd2d9bbe",
-        "headings.ts": "sha256-6b1f88429004b64d62cc690136916fe64ddffb5df8ce7c96415e869e33bf23e2",
+        "frontmatter.ts": "sha256-e4cdf9b5ef5886b6b4b439790c4fbc4fbbd0f2dd90ee1971ab794bbdebd5af8d",
+        "headings.ts": "sha256-70c68c677556f44354204b9c00fd5a465d9051f348b41ed70c0187456bab0eb1",
         "index.ts": "sha256-6b6bbd394d85c1830be81f08492cd96f9b9ad0a92df440267db7c4040fd1c37b",
         "layout.ts": "sha256-11293f9961ce7fcc672743e72945dcaa0a1475a8adea166ea10fa9c542cd6f75",
-        "links.ts": "sha256-9905f8a62ec39f200ce67458fafc49df90c65017bed931f2aabcf9dc9e718e2a",
+        "links.ts": "sha256-d85b0cfedd2ab1f0db019681528f09faf8b1a57af4bda7faa0c04498aa8d3282",
         "lists.ts": "sha256-ac2fa8e5c35ca0b17b2727f4a3d9b52edb56ebb7392955d79aa029bc3ae11ea6",
-        "scan.ts": "sha256-2ad8b220531ad0262880523bf99174aa5490c107cc610494229730e1849a584d",
+        "scan.ts": "sha256-21bb2ce3467124a92abb0e6f3cc28f27dad987e12cbe2b9e22145270b00737b3",
         "syntax.ts": "sha256-9331a2594dfec7a2bab7194fa88ffb35c2f1c0f45676f2c442b7854594c73cc9",
         "tables.ts": "sha256-7981389b636987c95f9b610e9553bf3e1a931418fa2154bd591fd93c57e0b145",
         "types.ts": "sha256-c42a4c40b2ea1808a084204d63297528d8e62bfc04240889fbd1cf52c568b660"
@@ -30,18 +30,18 @@
     },
     "pattern": {
       "files": {
-        "automaton.ts": "sha256-83c5f0cc7c06e0e072543e0829b61e4f663da29af5cc2142d5056d0edada4b27",
-        "charset.ts": "sha256-0dff9f4eae0d29532bfa71840d560bb65e79b79fa805dcf6e9fd8e9047cb0448",
+        "automaton.ts": "sha256-219aafaa276fbbbbb3040fe78c8da14807d0bdc875e4d3dbe8bf41d117fe9a36",
+        "charset.ts": "sha256-ff1f1efd7b99884c61b74cf7427883f0ad4a5744b8b45c8bc1aeb71590b54058",
         "glob.ts": "sha256-8181d5e7d0e15d0be0015a19cab5d815c6caad2fa92327ccf41c158ac18ee9f0",
         "index.ts": "sha256-c6987c90e77de8c32e7e6470bd6c5afddd51bcbc47ed5c5ee2abc9a584b3badf",
-        "regex.ts": "sha256-be88d0d57af98e0bcbfb7cb3242d7333066e7be10664e31397d779bac0cff928"
+        "regex.ts": "sha256-cab69a112f23d5b37dd0f917f3d3a15ef9825fd2095d35850880523441e3df4e"
       }
     },
     "text": {
       "files": {
         "index.ts": "sha256-5fbee20f724e7ef28ec517dad7481d31780262430f4506a9adcaf860a8bfa71f",
-        "lines.ts": "sha256-365a4ffcca8de5a0bbc5a9150e4a3c0d49b187f128c06a30366950c9bdd899f9",
-        "width.ts": "sha256-e1dd1c4a42937f74c15476d1d657fb8b0bc82add687a70f77d2109f30d9bfa60"
+        "lines.ts": "sha256-95d4decc97351ac74c6aa621d57c2eb6b4dbc8fd926013d8eaad878546c6a115",
+        "width.ts": "sha256-61f7f9b5a2bdc9ea02e15ec30d4fa3ee27cc9bbac1eb4a95337ff98afa579c5a"
       }
     }
   }

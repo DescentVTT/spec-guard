@@ -101,7 +101,7 @@ export function acceptsIgnoringCase(set: CharSet, point: number): boolean {
  * preference. A witness is read by a person deciding whether two scopes really
  * overlap, and `src/x.ts` reads better than `src/\u0000.ts`.
  */
-const READABLE = [0x78, 0x61, 0x62, 0x30, 0x5f, 0x2d, 0x7e, 0x21, DOT, SLASH] as const;
+const READABLE: readonly number[] = [0x78, 0x61, 0x62, 0x30, 0x5f, 0x2d, 0x7e, 0x21, DOT, SLASH];
 
 /**
  * Every code point at which the answer "which of these sets accept it" can

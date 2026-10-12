@@ -130,7 +130,7 @@ export class Builder {
   /** Any one of the fragments. */
   either(options: readonly Fragment[]): Fragment {
     if (options.length === 0) throw new Error('an alternation needs at least one option');
-    let current = options[options.length - 1] as Fragment;
+    let current = options[options.length - 1]!;
     for (let i = options.length - 2; i >= 0; i -= 1) {
       const option = options[i] as Fragment;
       const split = this.add(SPLIT, null, option.start, current.start);

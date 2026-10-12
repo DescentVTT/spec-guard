@@ -93,7 +93,7 @@ export function findHeadings(layout: Layout, atx: readonly Unanchored[], tables:
   const strip = commentStripper(layout);
   for (let i = 0; i + 1 < lines.length; i += 1) {
     const above = lines[i] as ScannedLine;
-    const under = lines[i + 1] as ScannedLine;
+    const under = lines[i + 1]!;
     if (taken.has(above.line) || !paragraphLine(layout, above)) continue;
     if (!isMarkdown(under) || under.quoteDepth !== above.quoteDepth) continue;
     const mark = setextUnderline(under.content);

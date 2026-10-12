@@ -106,8 +106,8 @@ function isWide(point: number): boolean {
   let high = WIDE.length / 2;
   while (low < high) {
     const mid = (low + high) >> 1;
-    if (point < (WIDE[2 * mid] as number)) high = mid;
-    else if (point > (WIDE[2 * mid + 1] as number)) low = mid + 1;
+    if (point < WIDE[2 * mid]!) high = mid;
+    else if (point > WIDE[2 * mid + 1]!) low = mid + 1;
     else return true;
   }
   return false;

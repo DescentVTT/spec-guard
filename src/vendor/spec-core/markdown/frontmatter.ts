@@ -191,7 +191,7 @@ function belongsToBlock(line: string): boolean {
  */
 function trimBlock(lines: readonly string[], end: number): number {
   let at = end;
-  while (BLANK_OR_COMMENT.test(lines[at - 1] as string)) at -= 1;
+  while (BLANK_OR_COMMENT.test(lines[at - 1]!)) at -= 1;
   return at;
 }
 
@@ -302,7 +302,7 @@ function readBlock(reader: Reader, content: readonly number[], colon: number, to
 
   // An unsupported block is reported over all of its content lines.
   const firstText = lines[first] as string;
-  const last = content[content.length - 1] as number;
+  const last = content[content.length - 1]!;
   const whole = (value: YamlValue): Read => ({
     value,
     valueStart: (starts[first] as number) + leadIndex(firstText),
@@ -339,7 +339,7 @@ function readBlock(reader: Reader, content: readonly number[], colon: number, to
     spans.push([start, start + parsed.length]);
     items.push(parsed.value.scalar);
   }
-  return { value: { kind: 'list', items }, valueStart: (spans[0] as [number, number])[0], valueEnd: (spans[spans.length - 1] as [number, number])[1] };
+  return { value: { kind: 'list', items }, valueStart: (spans[0] as [number, number])[0], valueEnd: spans[spans.length - 1]![1] };
 }
 
 function stripLeadingComment(text: string): string {
@@ -389,7 +389,7 @@ function readInline(text: string): Parsed {
 
 /** A comment starts at a `#` after whitespace; a `#` inside a word is text. */
 function stripTrailingComment(text: string): string {
-  return (text.split(/\s#/, 1)[0] as string).trim();
+  return text.split(/\s#/, 1)[0]!.trim();
 }
 
 /** Nothing after a closing quote or bracket, or whitespace and then a comment. */
