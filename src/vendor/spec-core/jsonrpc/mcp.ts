@@ -190,7 +190,7 @@ export function unknownArguments(args: JsonObject, allowed: readonly string[]): 
       ? 'no arguments'
       : allowed.length === 1
         ? (allowed[0] as string)
-        : `${allowed.slice(0, -1).join(', ')} and ${allowed[allowed.length - 1] as string}`;
+        : `${allowed.slice(0, -1).join(', ')} and ${allowed[allowed.length - 1]!}`;
   return toolError(`Unknown argument${unknown.length === 1 ? '' : 's'} ${list}; this tool takes ${takes}.`);
 }
 
@@ -403,7 +403,7 @@ export function serveLines(
         if (isRequestId(requestId) && inFlight.has(trackingKey(requestId))) cancelled.add(trackingKey(requestId));
         return;
       }
-      const key = isObject(message) && typeof message['method'] === 'string' ? trackingKey(message['id'] as RequestId) : undefined;
+      const key = isObject(message) && typeof message['method'] === 'string' ? trackingKey((message as { id: RequestId })['id']) : undefined;
       inFlight.add(key);
       running += 1;
       void handle(message).then((response) => {

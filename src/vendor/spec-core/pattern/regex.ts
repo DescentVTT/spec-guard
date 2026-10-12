@@ -541,7 +541,7 @@ class PatternParser {
   private readHex(digits: number, start: number): number {
     const raw = this.source.slice(this.position, this.position + digits);
     if (raw.length !== digits || !/^[0-9a-fA-F]+$/.test(raw)) {
-      throw new RegexError(`expected ${digits} hex digits after "\\${this.source[start + 1] as string}"`, start);
+      throw new RegexError(`expected ${digits} hex digits after "\\${this.source[start + 1]!}"`, start);
     }
     this.position += digits;
     return Number.parseInt(raw, 16);
@@ -651,7 +651,7 @@ class Compiler {
           ends.push(this.add({ op: 'jump', to: 0 }));
           split.y = this.here;
         }
-        this.compile(node.options[node.options.length - 1] as Node);
+        this.compile(node.options[node.options.length - 1]!);
         for (const end of ends) end.to = this.here;
         return;
       }
@@ -888,7 +888,7 @@ class Machine {
     let top = 0;
     stack[top++] = start;
     while (top > 0) {
-      const pc = stack[--top] as number;
+      const pc = stack[--top]!;
       if (visited[pc] === position) continue;
       visited[pc] = position;
       switch (ops[pc]) {

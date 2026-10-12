@@ -63,10 +63,10 @@ export function createLineIndex(text: string): LineIndex {
   // Each clamp, here and in `positionAt`, answers the bound itself at the
   // bound, so `<=` and `>=` for `<` and `>` give the same answers.
   const clamp = (line: number): number => (line < 1 ? 1 : line > lineCount ? lineCount : line);
-  const startOf = (line: number): number => starts[clamp(line) - 1] as number;
+  const startOf = (line: number): number => starts[clamp(line) - 1]!;
   const endOf = (line: number): number => {
     const index = clamp(line);
-    const start = starts[index - 1] as number;
+    const start = starts[index - 1]!;
     let end = index === lineCount ? text.length : (starts[index] as number);
     // At most two terminator characters, and never past the line's own start.
     // With the table `lineStarts` builds, `end > start` never decides: a line

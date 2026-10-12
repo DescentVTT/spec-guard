@@ -106,7 +106,7 @@ function readDefinitions(layout: Layout, headings: readonly Heading[], definitio
     // Under a definition the paragraph holds nothing else yet. `continues`
     // holds no first line, so there is a line above whenever it is asked about.
     const follows = out[out.length - 1]?.line === line.line - 1;
-    if (!follows && continues.has(line.line) && paragraphOpen(lines[line.line - 2] as ScannedLine, closed)) continue;
+    if (!follows && continues.has(line.line) && paragraphOpen(lines[line.line - 2]!, closed)) continue;
     const between = (match[1] as string).length;
     const start = line.contentStart + match[0].indexOf('[');
     const label = text.slice(start + 1, start + 1 + between).trim();
@@ -135,7 +135,7 @@ function closingLines(layout: Layout, headings: readonly Heading[]): Set<number>
   const closed = new Set<number>();
   for (const heading of headings) closed.add(heading.endLine);
   for (const comment of layout.comments) {
-    const opened = layout.lines[comment.line - 1] as ScannedLine;
+    const opened = layout.lines[comment.line - 1]!;
     if (opened.indent <= 3 && comment.start === leadOffset(opened)) closed.add(layout.index.positionAt(comment.end).line);
   }
   return closed;
@@ -253,17 +253,17 @@ function endsOf(structure: string, from: number, to: number): Ends {
     const at = from + x;
     const ch = structure.charCodeAt(at);
     const plain = escaped[x] === 0;
-    ends.space[x] = ch <= 32 || ch === 127 ? at : (ends.space[x + 1] as number);
+    ends.space[x] = ch <= 32 || ch === 127 ? at : ends.space[x + 1]!;
     // From a `(`, the first unmatched `)` is the first one after the `)` that
     // closes it, which is the first unmatched `)` after the `(`.
-    const unmatched = ends.paren[x + 1] as number;
+    const unmatched = ends.paren[x + 1]!;
     if (plain && ch === CLOSE_PAREN) ends.paren[x] = at;
-    else if (plain && ch === OPEN_PAREN) ends.paren[x] = ends.paren[unmatched + 1 - from] as number;
+    else if (plain && ch === OPEN_PAREN) ends.paren[x] = ends.paren[unmatched + 1 - from]!;
     else ends.paren[x] = unmatched;
-    ends.doubleQuote[x] = plain && ch === DOUBLE_QUOTE ? at : (ends.doubleQuote[x + 1] as number);
-    ends.singleQuote[x] = plain && ch === SINGLE_QUOTE ? at : (ends.singleQuote[x + 1] as number);
-    ends.closeParen[x] = plain && ch === CLOSE_PAREN ? at : (ends.closeParen[x + 1] as number);
-    ends.openParen[x] = plain && ch === OPEN_PAREN ? at : (ends.openParen[x + 1] as number);
+    ends.doubleQuote[x] = plain && ch === DOUBLE_QUOTE ? at : ends.doubleQuote[x + 1]!;
+    ends.singleQuote[x] = plain && ch === SINGLE_QUOTE ? at : ends.singleQuote[x + 1]!;
+    ends.closeParen[x] = plain && ch === CLOSE_PAREN ? at : ends.closeParen[x + 1]!;
+    ends.openParen[x] = plain && ch === OPEN_PAREN ? at : ends.openParen[x + 1]!;
   }
   return ends;
 }
@@ -349,8 +349,8 @@ function readBrackets(layout: Layout, definitions: ReadonlyMap<string, Definitio
         after = close + 1;
       } else {
         ends ??= endsOf(structure, from, to);
-        const space = ends.space[at - from] as number;
-        const paren = ends.paren[at - from] as number;
+        const space = ends.space[at - from]!;
+        const paren = ends.paren[at - from]!;
         targetStart = at;
         // The two are equal only when neither is found, at `to`.
         targetEnd = paren < space ? paren : space;
@@ -438,7 +438,7 @@ function readBrackets(layout: Layout, definitions: ReadonlyMap<string, Definitio
       return { form: 'shortcut', image, text: label(), label: label(), start, end: close + 1, line: line.line, ...found };
     };
 
-    const lineAt = (at: number): ScannedLine => lines[layout.index.positionAt(at).line - 1] as ScannedLine;
+    const lineAt = (at: number): ScannedLine => lines[layout.index.positionAt(at).line - 1]!;
 
     // CommonMark reads each pair at its `]`, so the pairs inside a `[` are
     // read before it, and a link among them makes it text, and every `[`
@@ -453,7 +453,7 @@ function readBrackets(layout: Layout, definitions: ReadonlyMap<string, Definitio
       const image = brackets.images.has(at);
       const passed = (reach[brackets.before.get(at) as number] as number) > at;
       const link = passed ? null : bracket(at, at, image, line);
-      reach.push(Math.max(reach[reach.length - 1] as number, link === null ? from : link.end));
+      reach.push(Math.max(reach[reach.length - 1]!, link === null ? from : link.end));
       const around = brackets.outer.get(at);
       // `holding` is asked only about offsets, so the first test only
       // narrows the type.

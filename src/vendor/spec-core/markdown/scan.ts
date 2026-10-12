@@ -238,7 +238,7 @@ function scanCore(text: string, index: LineIndex, frontLines: number): Core {
       (previous !== undefined && q.depth > previous.depth);
     shapes.push({ contentStart: q.contentStart, depth: q.depth, indent, blank, atx, interrupts });
   }
-  const shapeOf = (i: number): Shape => shapes[i - frontLines] as Shape;
+  const shapeOf = (i: number): Shape => shapes[i - frontLines]!;
 
   // A line continues the paragraph above it when it is not blank, opens
   // nothing of its own, and the line above is not a one-line heading. After a
@@ -250,7 +250,7 @@ function scanCore(text: string, index: LineIndex, frontLines: number): Core {
     const shape = shapeOf(i);
     const above = shapes[i - frontLines - 1];
     if (above !== undefined && !above.atx && !shape.blank && !shape.interrupts) continues.add(i + 1);
-    stops.set(i, continues.has(i + 2) ? (stops.get(i + 1) as number) : index.lineEnd(i + 1));
+    stops.set(i, continues.has(i + 2) ? stops.get(i + 1)! : index.lineEnd(i + 1));
   }
 
   /* ------------------------------------------------------------ inline sweep */
@@ -424,7 +424,7 @@ function scanCore(text: string, index: LineIndex, frontLines: number): Core {
 
     // After a blank line, a line left of an item's content is outside it.
     if (!shape.blank && previousBlank) {
-      while (items.length > 0 && (items[items.length - 1] as number) > shape.indent) items.pop();
+      while (items.length > 0 && items[items.length - 1]! > shape.indent) items.pop();
     }
     // Indented code: four columns past the item the line is in, or past the
     // margin outside a list, and never interrupting a paragraph. Four columns
@@ -466,7 +466,7 @@ function scanCore(text: string, index: LineIndex, frontLines: number): Core {
     const marker = listMarker(content);
     if (marker !== null) {
       // A marker left of an item's content starts a sibling or an outer item.
-      while (items.length > 0 && (items[items.length - 1] as number) > shape.indent) items.pop();
+      while (items.length > 0 && items[items.length - 1]! > shape.indent) items.pop();
       items.push(itemColumn(shape.indent, marker));
     }
     // A heading ends a list whatever its indentation.
