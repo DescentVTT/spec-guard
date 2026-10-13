@@ -1555,6 +1555,28 @@ ran high where they were least measured: `runner.ts` and `text.ts` took 7m35s
 against 15.2 minutes, and `cli.ts` alone 8m18s against 15.1, so the next
 split starts from this run's logs rather than 398fe94's.
 
+### 0.26.0: the patterns that read Python went, and their survivors with them
+
+CI's full sweep of bad7780 (run 38475810370) came out at **99.26% over
+12,993 mutants with 94 survivors and 2 without coverage**, 211 of them
+detected by timeout; the shards took from 7m05s to 15m30s. Against
+0.25.0's sweep, 98 survivors and 2 without coverage over 12,861:
+
+- four survivors are gone, and not by a test: they stood in the two
+  patterns that read a Python `import` and `from` statement and in the
+  lines that split what those matched, the run of blanks after `import`,
+  the white space a name was split at, in two places, and the check that
+  a name was read. A tokenizer and Python's own grammar read the
+  statement now (ADR-0008, amended 2026-10-14), and the code that held
+  the four is no longer there;
+- the release has 132 mutants more, 103 in `src/polyglot.ts` and 29 in
+  `src/cli.ts`, for the reader and for the refusal of two values, and
+  none of them is a survivor;
+- no survivor is new: mutant for mutant, the 94 are among 0.25.0's 98.
+
+Each of the two pull requests was swept incrementally before it merged,
+and read the same: no mutant of what either wrote survived.
+
 ### 0.25.0: four survivors fewer, and none more
 
 CI's full sweep of 3a0a1b0 (run 38197558465) came out at **99.22% over

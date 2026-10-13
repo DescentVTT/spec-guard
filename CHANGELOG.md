@@ -10,7 +10,13 @@ what to do when upgrading; the family's policy, including how a flag or field
 is deprecated before it goes, is spec-core's
 [ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
-## Unreleased
+## 0.26.0
+
+An option that takes one value is refused given two, exit 2, and so is
+`--json` beside a `--format` that names another format, where the later
+was read with no word of the earlier. And a Python import statement is
+read as Python reads it: `from a import(b)` was read as no import, and an
+import rule passed over it.
 
 ### Changed
 
