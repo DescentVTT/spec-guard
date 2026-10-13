@@ -334,7 +334,8 @@ the same lines, and a rule to its LF answer.
 
 ## Amended 2026-10-14: a Python import statement is read as Python reads it
 
-Until 0.25.0 a Python statement was read by two patterns. One found `import`
+Up to 0.25.0, that release among them, a Python statement was read by two
+patterns. One found `import`
 or `from` where a statement may start and wanted a blank or a tab after it;
 the other read a `from` statement, wanted a blank or a tab after its
 `import`, and took whatever followed. `from a import(b)`, with no blank
