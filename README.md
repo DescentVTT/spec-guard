@@ -1301,8 +1301,8 @@ spec-guard impact <paths...>           # the files that depend on each path, and
 | `-v, --verbose` | Print passing assertions too |
 | `--watch` | Report, then report again as the tree changes, until Ctrl+C |
 | `--fail-fast` | Stop at the first failing assertion |
-| `--json` | Machine-readable report on stdout (same as `--format json`), versioned by `formatVersion` |
-| `--format <human\|json\|sarif\|github\|gitlab>` | Output format. `sarif` uploads to GitHub code scanning, `github` annotates a pull request from the job's log, `gitlab` is a GitLab Code Quality report |
+| `--json` | Machine-readable report on stdout (same as `--format json`), versioned by `formatVersion`. Beside a `--format` that names another format it is refused (below) |
+| `--format <human\|json\|sarif\|github\|gitlab>` | Output format. `sarif` uploads to GitHub code scanning, `github` annotates a pull request from the job's log, `gitlab` is a GitLab Code Quality report. Given twice with two formats it is refused, as every option that takes one value is (below) |
 | `--engine <auto\|rg\|js>` | Search engine (default `auto`: scanner for small trees, ripgrep for big ones). ripgrep is `rg` on `PATH`, or the program `SPEC_GUARD_RG` names; `rg` with no ripgrep that runs is exit 2 ([below](#ci-integration)) |
 | `--strict` / `--no-strict` | Treat analysis that could not be completed as a failure, and a run that executed no assertion: its specs matched and state no rule in force |
 | `--allow-missing-targets` / `--no-allow-missing-targets` | Warn instead of failing when a `target` path does not exist |
@@ -1373,6 +1373,25 @@ The same option given twice is read as once. An opposite alone still wins
 over a configuration, which is what it is for. And where a command takes
 only one of a pair, as `query` takes `--no-color` and not `--color`, the
 other is refused for that, as it was.
+
+So is an option that takes one value and is given two: `--root`, `--format`,
+`--engine`, `--max-snippets`, `--concurrency` and `--depth`. The later of the
+two used to be read, and nothing said the earlier had been given. And so is
+`--json` beside a `--format` that names another format, since `--json` is
+`--format json`: `--json --format sarif` wrote SARIF, and
+`--format sarif --json` wrote JSON. Each is named as it was written, in the
+order the two were given:
+
+```text
+spec-guard: Option --json is given beside --format "sarif", and one of the two would go unread. Give one of the two.
+```
+
+The same value given twice is read as once, however it is spelled: `--root .`
+beside `--root ./`, `--format JSON` beside `--format json`, and `--json`
+beside `--format json`. `--spec` and `--exclude` are lists, and each use adds
+to its list; `--exclude=` adds nothing to it, and the configuration's list is
+replaced either way. `--help` and `--version` are answered before a line is
+refused for this.
 
 And so is a spec pattern that matches no file beside others that do. After
 `old-docs` was renamed, `spec-guard docs old-docs` ran the specs under `docs`

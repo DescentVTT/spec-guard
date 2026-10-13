@@ -1308,7 +1308,8 @@ spec-guard: Option --strict is given beside --no-strict, and one of the two woul
   neither the other's opposite: `--json` beside `--format sarif` writes
   whichever came later, `--format` given twice writes the later, and
   `--exclude=` beside `--exclude dist` clears nothing. Whether those are
-  refused wants a decision of its own.
+  refused wants a decision of its own. *Amended 2026-10-14*: the first two
+  are refused, and the third is taken, by the amendment of that date below.
 
 **A report asked for in ASCII is ASCII.** The amendment above has "The `·`
 between a report's counts is no mark and is written either way". Measured
@@ -1364,3 +1365,100 @@ that must be left as it was written.
 <!-- @assert-present file="tests/opposites.test.ts, tests/ascii-report.test.ts" reason="each refusal is held beside what must still be read, and each report in ASCII beside the line a project wrote" -->
 <!-- @assert-count target="src" symbol="·" expected="1" exclude="src/vendor" reason="what separates a report's counts is written once, in the table that says what stands for it in ASCII" -->
 <!-- @assert-count target="src" symbol="…" expected="1" exclude="src/vendor" reason="the mark of what a report leaves out is written once, and drawn through the same table" -->
+
+## Amended 2026-10-14: an option given two values is refused, and so are two formats asked for at once
+
+The amendment above left three things as they were, each two things of
+which one goes unread, and said that refusing them wanted a decision of its
+own. This is that decision, for those three and for every option like them.
+The family contract refuses two things of which one would go unread
+(spec-core's
+[ADR-0005](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0005-the-family-contract.md),
+amended 2026-10-11). An option that takes one value and is given two is
+that: the later was read, and no word was said of the earlier.
+
+Measured through the launcher on 0.25.0 (Windows 11 build 26300, Node
+24.18.1), over a tree with a rule that holds and one that fails, beside a
+tree whose one rule holds: each option of each command given twice with one
+value, twice with two, and beside each option that asks for the same thing
+another way, the two in each order. "As the later alone" is the exit code
+and the output of the later given alone, with no word of the earlier.
+
+| Given | To | 0.25.0, in either order | Now |
+| --- | --- | --- | --- |
+| `--format` twice, with two formats | a run, `prove` and `cites`; `query` and `impact`, which write two | as the later alone | exit 2 |
+| `--json` beside `--format sarif`, `github`, `gitlab` or `human` | the same commands | as the later alone: `--json --format sarif` wrote SARIF, and `--format sarif --json` wrote JSON | exit 2 |
+| `--root` twice, or `-r` beside it, with two directories | a run, a watch session, `prove`, `cites`, `query`, `impact` and the server | as the later alone: the rules of the later root, and nothing read of the earlier | exit 2 |
+| `--engine` twice, with two engines | a run | as the later alone, by the `engine` of its JSON | exit 2 |
+| `--max-snippets` twice, with two numbers | a run | as the later alone | exit 2 |
+| `--depth` twice, with two numbers | `impact` | as the later alone | exit 2 |
+| `--concurrency` twice, with two numbers | a run | the report of either alone, which shows no concurrency | exit 2 |
+| the same value twice, however it is spelled: `--format JSON --format json`, `--root t --root t/`, `--max-snippets 3 --max-snippets 03` | each command that takes the option | as once | as once |
+| `--json` beside `--format json`, and `--json` twice | a run, `prove`, `cites`, `query`, `impact` | JSON | JSON |
+| `--spec` twice, and a pattern beside `--spec` | a run, `prove`, `query` | every pattern read | the same |
+| `--exclude` twice | a run | both lists, and `exclude (src, src)` where one path is given twice | the same |
+| `--exclude=` beside `--exclude src`, over `"exclude": ["gen"]` in the configuration | a run | as `--exclude src` alone, in either order | the same |
+| an option that takes no value given twice, and `-v` beside `--verbose` | a run | as once | as once |
+
+Where no output shows the value, `--concurrency` anywhere and `--engine` and
+`--max-snippets` given to the server, what 0.25.0 read is what its
+`parseArgs` returns: the later.
+
+```text
+spec-guard: Option --json is given beside --format "sarif", and one of the two would go unread. Give one of the two.
+```
+
+- **What is compared is what was read.** `--root .` and `--root ./` name
+  one directory, `--format JSON` is `json`, `--engine js` and `--engine
+  node` are one engine, and `03` is 3: each asks for one thing twice and is
+  taken, as the same option given twice is. Nothing is asked of the disk
+  before a line is refused, so two spellings that resolve to two paths are
+  two values, `--root Docs` beside `--root docs` among them where the file
+  system ignores case.
+- **Each is named as it was written, in the order the two were given**, the
+  value in quotes as JSON writes it, where a blank in it can be seen. An
+  option beside its own opposite is named option first, whichever came
+  first; of two values neither is the one that turns something on.
+- **`--json` is `--format json`**, as the option table has had it since
+  `--format` was added. Beside `--format json` it is one thing asked twice,
+  and is taken. Beside another format it is two formats, of which a script
+  was handed the later.
+- **A list stays a list.** `--spec`, a pattern and `--exclude` each add to
+  what was given before, and a pattern or a path given twice is in its list
+  twice, which changes no answer. `--exclude=` beside `--exclude dist`,
+  which the amendment above counted among the things that go unread, is
+  taken, since neither does: the configuration's list is replaced, which is
+  what `--exclude=` asks, and `dist` is left out, which is what the other
+  asks.
+- **A line is refused for what is wrong with one option before what is
+  wrong between two.** A value refused by itself (`--format yaml`,
+  `--concurrency 0`), an unknown option and an option the command does not
+  take are refused where they stand, as they were; then an option beside
+  its own opposite; then two values; then what a watch session does not
+  take.
+- **`--help` and `--version` are answered first.** A line that asks what the
+  options are is asking how to write them: `--json --format sarif --help`
+  printed the help on 0.25.0 and prints it now. spec-graph answers the two
+  before it refuses a pair (`parseArgs` in its `src/cli.ts`, at b9da6ab).
+  An option beside its own opposite is still refused before them, as the
+  amendment above has it, so `--strict --no-strict --help` is exit 2 as it
+  was on 0.25.0. The two refusals differ there. Bringing the pair to this
+  one would take that amendment's bullet back, and wants a decision of its
+  own.
+- **Left as they are**, each measured on 0.25.0 and on this build, and each
+  one thing that goes unread beside another that is no second value for it.
+  `--help` beside `--version` prints the help, in either order, and no
+  version. `--verbose` beside `--json` or `--format github` writes the
+  document either writes without it. And `--print-baseline` beside `--json`
+  or a `--format` prints the baselines and no document, with no word of the
+  format, and where no spec matched the document and no baseline:
+  `tests/unmatched-specs.test.ts` has held since 0.22.0 that a baseline is
+  text to paste whatever format the run was asked for, and refusing the two
+  together would take that back. `--verbose` and `--max-snippets` change
+  nothing `--print-baseline` prints either.
+
+`tests/two-values.test.ts` holds each refusal on each command that takes the
+option, beside the same value given twice, one thing spelled two ways, each
+list, and `--help` and `--version`.
+
+<!-- @assert-present file="tests/two-values.test.ts" reason="each refusal is held beside the value given twice, the list and the help that must still be read" -->

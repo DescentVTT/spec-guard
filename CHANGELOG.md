@@ -10,6 +10,25 @@ what to do when upgrading; the family's policy, including how a flag or field
 is deprecated before it goes, is spec-core's
 [ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
+## Unreleased
+
+### Changed
+
+- **An option that takes one value is refused where it is given two, and
+  `--json` beside a `--format` that names another format.** `--json
+  --format sarif` wrote SARIF and `--format sarif --json` wrote JSON, with
+  no word of the one that lost; and so it was for `--format`, `--root`,
+  `--engine`, `--max-snippets`, `--concurrency` and `--depth` given twice
+  with two values, on every command that takes them. Each is now exit 2 and
+  one line that names both as they were written. The same value given twice
+  is read as once, however it is spelled, and so is `--json` beside
+  `--format json`; `--spec` and `--exclude` are lists, as they were; and
+  `--help` and `--version` are answered first
+  ([ADR-0014](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0014-configuration-and-watch.md)).
+  Upgrading: give the option once. A script that adds `--format` or `--root`
+  to a line it was handed, to override the one already there, takes that
+  one off the line instead.
+
 ## 0.25.0
 
 A Python file with CRLF line endings is read as it is read with LF: an
