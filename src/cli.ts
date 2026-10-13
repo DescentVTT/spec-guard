@@ -235,6 +235,13 @@ Options
   --color beside --no-color, and each other pair. The same option given twice
   is read as once.
 
+  So is an option that takes one value and is given two, since the first of
+  them would go unread: --root a --root b, --format json --format sarif, and
+  --json beside a --format that names another format. The same value given
+  twice is read as once, as --json beside --format json is. --spec and
+  --exclude are lists, and each use adds to its list. Such a line is refused
+  with --help or --version on it too, as a line with a pair is.
+
   A spec pattern that matches no file, beside others that do, is refused the
   same way and by name, since none of its rules was read: a run, prove, impact
   and query exit 2. --allow-empty lets the first three through and still names
@@ -413,7 +420,7 @@ const NOT_WITH_WATCH: ReadonlyArray<[option: string, reason: string]> = [
 ];
 
 /** The long name of an option, whichever way it was spelled. */
-const LONG_NAMES: Readonly<Record<string, string>> = { '-v': '--verbose' };
+const LONG_NAMES: Readonly<Record<string, string>> = { '-v': '--verbose', '-r': '--root' };
 
 /** Minimal, dependency-free argv parser. Supports `--flag value` and `--flag=value`. */
 export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
@@ -448,6 +455,14 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
   const set = options.fromCommandLine;
   /** Every option given, by its long name, for the refusals that depend on another option. */
   const given = new Set<string>();
+  /**
+   * What each thing that is one value was first asked to be: as the option
+   * stood on the command line, for the refusal, and as it was read, since
+   * `--root .` and `--root ./` name one directory and ask for one thing.
+   */
+  const asked = new Map<string, { written: string; read: string | number }>();
+  /** The first two options that ask for one thing as two values, as each was written. */
+  let unread: [first: string, second: string] | undefined;
 
   let onlyPositional = false;
 
@@ -475,10 +490,21 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
       return requireValue(name, argv[index]);
     };
 
-    if (command !== 'check' && NOT_FOR[command].has(LONG_NAMES[name] ?? name)) {
+    const long = LONG_NAMES[name] ?? name;
+    if (command !== 'check' && NOT_FOR[command].has(long)) {
       throw new UsageError(`Option ${name} does not apply to spec-guard ${command}.`);
     }
-    given.add(LONG_NAMES[name] ?? name);
+    given.add(long);
+    // Called by an option that takes one value, with what it read: the same
+    // thing asked twice is asked once, and a second value is kept for the
+    // refusal below. An option is the thing it asks for, by its long name;
+    // `--json` asks for a format.
+    const asks = (read: string | number, value?: string, thing = long): void => {
+      const written = value === undefined ? name : `${name} ${JSON.stringify(value)}`;
+      const first = asked.get(thing);
+      if (first === undefined) asked.set(thing, { written, read });
+      else if (first.read !== read) unread ??= [first.written, written];
+    };
 
     switch (name) {
       case '-h':
@@ -501,9 +527,11 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
       case '--json':
         options.json = true;
         options.format = 'json';
+        asks('json', undefined, '--format');
         break;
       case '--format': {
-        const written = nextValue().toLowerCase();
+        const raw = nextValue();
+        const written = raw.toLowerCase();
         // Whether it is a format at all is decided just below, by the lists.
         const value = written as OutputFormat;
         // mcp refused --format above, so every command that gets here writes one.
@@ -519,6 +547,7 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
         }
         options.format = value;
         options.json = value === 'json';
+        asks(value, raw);
         break;
       }
       case '--strict':
@@ -596,39 +625,49 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
           throw new UsageError(`Option ${name} expects a directory, got ${JSON.stringify(value)}. Name one, or leave the option out to run in the working directory.`);
         }
         options.root = path.resolve(cwd, value);
+        asks(options.root, value);
         break;
       }
       case '--spec':
         specs.push(nextValue());
         break;
       case '--engine': {
-        const value = nextValue().toLowerCase();
+        const raw = nextValue();
+        const value = raw.toLowerCase();
         try {
           options.engine = engineNamed(value);
         } catch (error) {
           throw new UsageError((error as ConfigError).message);
         }
         set.add('engine');
+        asks(options.engine, raw);
         break;
       }
-      case '--max-snippets':
-        options.maxSnippets = positiveInteger(name, nextValue());
+      case '--max-snippets': {
+        const value = nextValue();
+        options.maxSnippets = positiveInteger(name, value);
         set.add('maxSnippets');
+        asks(options.maxSnippets, value);
         break;
+      }
       case '--concurrency': {
         // Refused as the configuration's key refuses it. Made 1, it was a run
         // somebody had asked something else of.
-        const concurrency = positiveInteger(name, nextValue());
+        const value = nextValue();
+        const concurrency = positiveInteger(name, value);
         if (concurrency === 0) throw new UsageError('Option --concurrency expects 1 or more: a concurrency of 0 would run no search.');
         options.concurrency = concurrency;
         set.add('concurrency');
+        asks(concurrency, value);
         break;
       }
       case '--depth': {
         if (command !== 'impact') throw new UsageError('Option --depth applies only to spec-guard impact.');
-        const depth = positiveInteger(name, nextValue());
+        const value = nextValue();
+        const depth = positiveInteger(name, value);
         if (depth === 0) throw new UsageError('Option --depth expects 1 or more: a depth of 0 would follow no import.');
         options.depth = depth;
+        asks(depth, value);
         break;
       }
       default:
@@ -658,6 +697,17 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
     if (on !== off && given.has(on)) {
       throw new UsageError(`Option ${on} is given beside ${off}, and one of the two would go unread. Give one of the two.`);
     }
+  }
+
+  // Two values for a thing that is one: the later was read and the earlier
+  // went unread, with no word of it, for each option that takes one value and
+  // for `--json` beside a `--format` that names another format (ADR-0014,
+  // amended 2026-10-14). Named in the order they were given, each as it was
+  // written. Refused with `--help` or `--version` on the line too, as the
+  // pair above is: both are a wrong command line, and one tool does not
+  // answer the two first for some wrong lines and after others.
+  if (unread !== undefined) {
+    throw new UsageError(`Option ${unread[0]} is given beside ${unread[1]}, and one of the two would go unread. Give one of the two.`);
   }
 
   if (options.watch) {

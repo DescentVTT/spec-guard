@@ -290,7 +290,12 @@ export function verdict(measured, left = LEFT, report = undefined) {
   return { passed, lines, message };
 }
 
-export async function main(argv) {
+/**
+ * `io` is what a run reads and writes besides the console, so that a test
+ * can hand it a report and take the summary without a file on disk.
+ */
+export async function main(argv, io = {}) {
+  const { read = (file) => readFileSync(file, 'utf8'), append = appendFileSync } = io;
   if (argv.length > 1 || argv[0]?.startsWith('-')) {
     console.error('usage: node scripts/mutation-unmeasured.mjs [the merged report of a sweep, reports/mutation/mutation.json]');
     return 2;
@@ -302,7 +307,7 @@ export async function main(argv) {
       const { default: config } = await import(pathToFileURL(path.resolve('stryker.config.mjs')).href);
       result = verdict(measure(treeSources(config.mutate), parse));
     } else {
-      const report = JSON.parse(readFileSync(argv[0], 'utf8'));
+      const report = JSON.parse(read(argv[0]));
       const sources = Object.fromEntries(Object.entries(report.files).map(([file, entry]) => [file, entry.source]));
       result = verdict(measure(sources, parse), LEFT, report);
     }
@@ -315,7 +320,7 @@ export async function main(argv) {
   if (result.passed) console.log(result.message);
   else console.error(`${process.env.GITHUB_ACTIONS === 'true' ? '::error::' : ''}${result.message}`);
   if (process.env.GITHUB_STEP_SUMMARY) {
-    appendFileSync(process.env.GITHUB_STEP_SUMMARY, `What the sweep does not read: ${result.message}\n\n`);
+    append(process.env.GITHUB_STEP_SUMMARY,`What the sweep does not read: ${result.message}\n\n`);
   }
   return result.passed ? 0 : 1;
 }
