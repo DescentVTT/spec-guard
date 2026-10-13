@@ -331,3 +331,138 @@ passes over that one.
 the same lines, and a rule to its LF answer.
 
 <!-- @assert-present file="tests/python-line-endings.test.ts" reason="a reader that was only ever shown LF read no from-import in a CRLF checkout, and nothing said so" -->
+
+## Amended 2026-10-14: a Python import statement is read as Python reads it
+
+Up to 0.25.0, that release among them, a Python statement was read by two
+patterns. One found `import`
+or `from` where a statement may start and wanted a blank or a tab after it;
+the other read a `from` statement, wanted a blank or a tab after its
+`import`, and took whatever followed. `from a import(b)`, with no blank
+before the parenthesis, is an import to Python and was none here
+(DescentVTT/spec-guard#59 found it and left it). It was not the only one.
+
+Measured on 2026-10-14 against Python itself: 322 sources, every spelling of
+the statement around parentheses, a star, white space, comments, line
+continuations and a trailing comma, where a statement may stand, and names
+beyond ASCII, each parsed and compiled by Python 3.11.9 (`ast.parse` and
+`compile`, Windows 11) and read by the analyser of 0.25.0 and of this build.
+Python reads 197 of them and refuses 125.
+
+| | 0.25.0 | Now |
+| --- | --- | --- |
+| of the 197 Python reads: an import not read, or read under another name | 52 | 0 |
+| of the 197: every import read, one of them on another line than Python's | 7 | 0 |
+| of the 125 Python refuses: read as holding an import | 78 | 25 |
+
+Some of each, with what Python 3.11.9 reads:
+
+| Source | Python | 0.25.0 | Now |
+| --- | --- | --- | --- |
+| `from a import(b)`, and the same with two names, over several lines, with comments or with a trailing comma | `a` | nothing | `a` |
+| `from . import(a, b)` | `.a`, `.b` | nothing | `.a`, `.b` |
+| `from a import*` | `a` | nothing | `a` |
+| `from.a import b`, `from . a import b` | `.a` | nothing | `.a` |
+| `from . . import a`, `from .. . import a` | `..a`, `...a` | nothing | `..a`, `...a` |
+| `from a . b import c` | `a.b` | nothing | `a.b` |
+| `import a . b`, and `import a\` with `.b` on the next line | `a.b` | `a` | `a.b` |
+| a form feed where a blank may stand: `import`, a form feed, `a` | `a` | nothing | `a` |
+| `from módulo import x` | `módulo` | nothing | `módulo` |
+| `import ﬁle`, written with the ligature U+FB01 | `file` | `ﬁle` | `file` |
+| `x = (1,` and on the next line `2); import a` | `a`, on line 2 | `a`, on line 1 | `a`, on line 2 |
+| `from a import b,`, `from a import ()`, `from a import (b`, `from a import b c`, `import a,`, `import a b` | refused | `a` | nothing |
+| `import (a, b)` | refused | two modules, `(a` and `b)` | nothing |
+| `import os, , sys` | refused | `os`, `sys` | nothing |
+| `from a importb`, `importa`, `froma import b` | refused | nothing | nothing |
+
+And over real code: the `Lib` directory of that Python 3.11.9, the standard
+library and what is installed beside it, 4,341 files that parse, in which
+`ast` finds 32,777 imports. 0.25.0 read every one of them, on Python's line,
+and nothing else; so does this build. The spellings above are ones the
+grammar takes and that code does not use, which is why no trial had met
+them.
+
+- **A statement is read by Python's grammar, token by token.** The language
+  reference gives the import statement as a keyword and then names: for
+  `import`, modules written as dotted names, each with an `as` or without,
+  between commas; for `from`, dots, a dotted name or both, then `import`,
+  then a star, or names each with an `as` or without, bare or in
+  parentheses, where only the parentheses take a comma after the last name
+  (The Python Language Reference for 3.15, section 7.11, "The import
+  statement", and the rules `import_name` to `dotted_name` of its section
+  10, "Full Grammar specification", both as read on 2026-10-14). The
+  statement is cut into names and the marks `.`, `,`, `(`, `)` and `*`, and
+  read by that grammar and no other: an import Python reads is read, and a
+  statement Python refuses is read as nothing.
+- **What separates two tokens is a blank, a tab or a form feed**, and
+  nothing need separate two that cannot be read as one, so `from.a
+  import(b)` is five tokens (the same reference, section 2.1.9, "Whitespace
+  between tokens", read on 2026-10-14). A form feed may also stand at the
+  head of a line (section 2.1.8, "Indentation").
+- **A name is what Python takes for one**: a letter, an underscore or a
+  character beyond ASCII that Unicode lets start an identifier, and then
+  those and digits (section 2.3, "Names", and 2.3.4, "Non-ASCII characters in
+  names", read on 2026-10-14). The page has Python read a name in its NFKC
+  form, so `import ﬁle` is `file` to a rule, as Python 3.11.9 gives it.
+  What follows from the page and is not on it: the two sets are Unicode's
+  `XID_Start` and `XID_Continue` as the Node that runs spec-guard has them,
+  which is a later Unicode than an older Python's.
+- **`lazy import` and `lazy from ... import` are read as the imports they
+  are.** They are Python 3.15's (section 7.11.1, "Lazy imports", of the page
+  for 3.15.0, read on 2026-10-14): `lazy` is a keyword only where it stands
+  straight before `import` or `from`, and before a star import the page has
+  it a syntax error, so that one is read as nothing. Python 3.11.9 refuses
+  every one of them, and no Python on the workstation takes them, so these
+  are held to the page and to no measurement. It follows from the page, and
+  is not on it, that reading one costs a tree written for an older Python
+  nothing: the statement is one that Python refuses, in a file it would not
+  run. Anywhere else `lazy` is a name, and `lazy = 1`, `lazy(x)` and `lazy;
+  import a` are read as 3.11.9 reads them. The `__lazy_modules__` list of
+  the same page changes when a module is loaded and not what is imported,
+  and nothing reads it.
+- **A statement Python refuses stays unread, by its own grammar and no
+  further.** 78 of the 125 refused sources were read on 0.25.0, by the
+  pattern that took whatever followed `import`. 25 still are, each measured
+  on both builds, and none is asked more of:
+  - what scope a statement stands in, where Python refuses a star import
+    inside a function and an indent at the head of a file, and where 3.15,
+    by the page above, refuses a lazy import inside a function;
+  - the rest of its line and of its file: `import a;;`, a backslash on the
+    last line of a file, and `f = lambda: import a`, where the colon is
+    read as one that a statement may follow;
+  - whether a name is one of Python's keywords, in eleven: `import if`,
+    `from a import in`, and `import pkg.async`. `async` and `await` were
+    names until Python 3.7 made them keywords (What's New In Python 3.7,
+    "Summary - Release Highlights", read on 2026-10-14), a tree written for
+    an older Python has modules so called, and reading a keyword as a name
+    costs nothing where Python refuses the file;
+  - and the eight `lazy` forms above, which 3.11.9 refuses and 3.15 reads.
+- **A statement is reported on the line its first word stands on**, which
+  is the line Python's `ast` gives it. It was the line its logical line
+  began on, which is another where a statement follows a `;` or a `:` after
+  one that ran over several lines, or after a backslash. A statement that
+  runs over several lines is on its first, as it was, and each is reported
+  at the head of its line, as it was. `logicalLines`, which the package
+  exports, says where each physical line of a logical one begins, as
+  `starts`.
+- **It can turn a passing run red**, which is the point: an import rule over
+  a file that writes an import one of those ways now sees it. And it can
+  turn a failing one green, only over a statement Python refuses:
+  `import os, , sys` was an import of two modules and is none.
+- **Left as they are.** A statement that is refused is passed over with no
+  note, as one the old patterns could not read was. `from . import *` names
+  no module, here as before. And the same question was asked of the other
+  four languages only to record the answers, through the analyser on this
+  build: JavaScript and TypeScript (twelve spellings with no blank or with
+  line breaks, `import{a}from'x'` among them) and Go (eight, `import"fmt"`
+  among them) were each read; in Rust `use a :: b;`, which rustc 1.97.1
+  compiles, is read as a module named `a :: b`, blanks and all, and `use
+  r#mod::d;` as `r#mod::d`; and in C# `using System . Text;`, `using T =
+  System . Text . Json;` and `using @System.IO;`, which the compiler of the
+  .NET SDK 10.0.401 compiles, are each read as nothing.
+
+`tests/python-statements.test.ts` holds each source Python reads to
+Python's answer, with LF and with CRLF line endings, each source Python
+refuses to nothing, the lazy forms to the page, and an import rule to both.
+
+<!-- @assert-present file="tests/python-statements.test.ts" reason="the reader is held to what Python itself reads of each spelling, and to nothing for what Python refuses" -->

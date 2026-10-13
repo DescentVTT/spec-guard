@@ -296,20 +296,27 @@ function note(collector: Collector, kind: AnalysisNote['kind'], offset: number, 
  *
  * A line ends where Python ends one: at LF, at CRLF and at a lone CR. Only
  * LF ended one here, so every line of a file with CRLF endings kept its
- * carriage return. The pattern that reads a `from` statement cannot reach
+ * carriage return. The pattern that read a `from` statement could not reach
  * the end of such a line, and read none in the file, and a backslash before
  * the carriage return continued nothing (ADR-0008, amended 2026-10-12).
+ *
+ * `starts` is where each physical line begins, in the text and in the
+ * source. A statement after a `;` stands on a line of its own where the
+ * statement before it ran over several, and is reported there (ADR-0008,
+ * amended 2026-10-14).
  */
-export function logicalLines(code: string): Array<{ text: string; offset: number }> {
-  const lines: Array<{ text: string; offset: number }> = [];
+export function logicalLines(code: string): Array<{ text: string; offset: number; starts: Array<[at: number, offset: number]> }> {
+  const lines: Array<{ text: string; offset: number; starts: Array<[at: number, offset: number]> }> = [];
   let text = '';
   let offset = 0;
+  let starts: Array<[at: number, offset: number]> = [];
   let depth = 0;
   let start = 0;
 
   const flush = (): void => {
-    if (text.trim()) lines.push({ text, offset });
+    if (text.trim()) lines.push({ text, offset, starts });
     text = '';
+    starts = [];
   };
 
   for (let index = 0; index <= code.length; index++) {
@@ -321,7 +328,9 @@ export function logicalLines(code: string): Array<{ text: string; offset: number
     }
     const physical = code.slice(start, index);
     if (!text) offset = start;
-    text += (text ? ' ' : '') + physical.replace(/\\$/, ' ');
+    else text += ' ';
+    starts.push([text.length, start]);
+    text += physical.replace(/\\$/, ' ');
     if (depth === 0 && !/\\$/.test(physical)) flush();
     // The two characters of a CRLF end one line. Read as two, the empty
     // second would end a statement the first had continued.
@@ -332,12 +341,113 @@ export function logicalLines(code: string): Array<{ text: string; offset: number
   return lines;
 }
 
-/** `import` / `from` at a statement position: line start, or after `;` or `:`. */
-const PYTHON_STATEMENT = /(?:^|[;:])[ \t]*(import|from)[ \t]+/g;
-// One blank after `import` where this has one or more is an equivalent
-// mutant: the names that follow are each trimmed before they are read, so the
-// blanks left at their head change nothing.
-const PYTHON_FROM = /^(\.*)([A-Za-z_][\w.]*)?[ \t]*import[ \t]+(.*)$/;
+/**
+ * Where an import statement may start: at the head of a logical line, or
+ * after `;` or `:`. What separates tokens is a blank, a tab or a form feed,
+ * as Python has it, and `lazy` before the keyword is Python 3.15's lazy
+ * import. The keyword is a whole word, and nothing need follow it but its
+ * next token: `from.a import(b)` is an import Python reads.
+ */
+const PYTHON_STATEMENT = /(^|[;:])([ \t\f]*)(lazy[ \t\f]+)?(import|from)(?!\p{XID_Continue})/gu;
+/** One token of an import statement, after any blanks: a name, one of its marks, or its end at a `;` or at the end of the line. */
+const PYTHON_TOKEN = /[ \t\f]*(?:([\p{XID_Start}_]\p{XID_Continue}*)|([.,()*])|;|$)/uy;
+/** What is no name: the marks of an import statement, and the `;` that ends it. */
+const PYTHON_MARKS = '.,()*;';
+
+/**
+ * The tokens of the statement that goes on from `from`, with `;` for its
+ * end whichever way it ended, or null where a character is no part of an
+ * import statement.
+ */
+function pythonTokens(text: string, from: number): string[] | null {
+  const tokens: string[] = [];
+  PYTHON_TOKEN.lastIndex = from;
+  for (;;) {
+    const match = PYTHON_TOKEN.exec(text);
+    if (match === null) return null;
+    const token = match[1] ?? match[2];
+    if (token === undefined) return [...tokens, ';'];
+    tokens.push(token);
+  }
+}
+
+/**
+ * The modules one import statement names, read as Python's grammar has it,
+ * or null for a statement Python refuses: an import it reads is read here,
+ * and what it refuses stays unread (ADR-0008, amended 2026-10-14).
+ *
+ *   import a.b as c, d
+ *   from ..a.b import c as d, e      from . import (a, b,)      from a import *
+ *
+ * A name is not held to Python's keywords, and a statement to nothing but
+ * its own grammar: what scope it stands in, and whether the rest of its file
+ * parses, are not asked.
+ */
+function pythonImports(tokens: readonly string[], from: boolean, lazy: boolean): string[] | null {
+  let at = 0;
+  const eat = (mark: string): boolean => {
+    if (tokens[at] !== mark) return false;
+    at += 1;
+    return true;
+  };
+  // A name, or nothing where a mark stands. The place is never past the `;`
+  // a statement ends with, which is a mark too.
+  const name = (): string => {
+    const token = tokens[at]!;
+    if (PYTHON_MARKS.includes(token)) return '';
+    at += 1;
+    return token;
+  };
+  const dotted = (): string => {
+    const parts: string[] = [];
+    do {
+      const part = name();
+      if (part === '') return '';
+      parts.push(part);
+    } while (eat('.'));
+    return parts.join('.');
+  };
+  // `as` and the name after it, where there is one.
+  const renamed = (): boolean => !eat('as') || name() !== '';
+
+  if (!from) {
+    const modules: string[] = [];
+    do {
+      const module = dotted();
+      if (module === '' || !renamed()) return null;
+      modules.push(module);
+    } while (eat(','));
+    return eat(';') ? modules : null;
+  }
+
+  let dots = '';
+  while (eat('.')) dots += '.';
+  // Dots, a module or both stand before `import`. A module that is no name
+  // leaves the place at what it could not read, which is not `import`.
+  const module = tokens[at] === 'import' ? '' : dotted();
+  if (`${dots}${module}` === '' || !eat('import')) return null;
+  const names: string[] = [];
+  if (eat('*')) {
+    // Python 3.15 refuses a star import that is lazy.
+    if (lazy) return null;
+  } else {
+    const open = eat('(');
+    do {
+      const imported = name();
+      if (imported === '' || !renamed()) return null;
+      names.push(imported);
+      // A comma before `)` is the last, which only parentheses take: where
+      // none was opened the `)` is left standing, and ends no statement.
+    } while (eat(',') && tokens[at] !== ')');
+    if (open && !eat(')')) return null;
+  }
+  if (!eat(';')) return null;
+  if (module !== '') return [`${dots}${module}`];
+  // `from . import a, b` - here the imported names are themselves modules,
+  // which `from .pkg import name` cannot assume.
+  return names.slice(0, MAX_EXPANSION).map((imported) => `${dots}${imported}`);
+}
+
 const PYTHON_DYNAMIC = /\b(__import__|import_module)[ \t]*\(/g;
 
 function readPython(collector: Collector): void {
@@ -347,35 +457,15 @@ function readPython(collector: Collector): void {
     PYTHON_STATEMENT.lastIndex = 0;
     let match: RegExpExecArray | null;
     while ((match = PYTHON_STATEMENT.exec(line.text)) !== null) {
-      const rest = line.text.slice(match.index + match[0].length).split(';')[0]!;
-
-      if (match[1] === 'import') {
-        // `import a.b as x, c.d` - one statement, two dependencies. A name is
-        // what stands before the first white space, which is the same text
-        // whether the split takes that one character or the run it begins:
-        // `/\s/` is an equivalent mutant here, and for `from . import` below.
-        for (const clause of rest.split(',')) {
-          const name = clause.trim().split(/\s+/)[0];
-          if (name) emit(collector, name, 'import', line.offset);
-        }
-        continue;
-      }
-
-      const from = PYTHON_FROM.exec(rest);
-      if (!from) continue;
-      const dots = from[1] as string;
-      const module = from[2] ?? '';
-      if (module || !dots) {
-        emit(collector, `${dots}${module}`, 'import', line.offset);
-        continue;
-      }
-      // `from . import a, b` - here the imported names are themselves modules,
-      // which `from .pkg import name` cannot assume.
-      const names = (from[3] as string).replace(/[()]/g, '');
-      for (const clause of names.split(',').slice(0, MAX_EXPANSION)) {
-        const name = clause.trim().split(/\s+/)[0];
-        if (name && name !== '*') emit(collector, `${dots}${name}`, 'import', line.offset);
-      }
+      const tokens = pythonTokens(line.text, PYTHON_STATEMENT.lastIndex);
+      const modules = tokens === null ? null : pythonImports(tokens, match[4] === 'from', match[3] !== undefined);
+      if (modules === null) continue;
+      // Reported on the line its first word stands on, at that line's head,
+      // as an import at the head of a logical line always was.
+      const first = match.index + match[1]!.length + match[2]!.length;
+      const [, offset] = line.starts.findLast(([at]) => at <= first)!;
+      // Python reads a name in the form NFKC gives it.
+      for (const module of modules) emit(collector, module.normalize('NFKC'), 'import', offset);
     }
   }
 

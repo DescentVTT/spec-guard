@@ -120,18 +120,17 @@ describe('matchingClose', () => {
 
 describe('python', () => {
   it('reads a from-import written with more than one space', () => {
-    // `[ \t]+` after the keyword. With a single space the rest of the line
-    // starts with whitespace, `from` no longer matches, and the dependency
-    // disappears without a note.
+    // Any run of blanks stands between two tokens. Read as one blank, the
+    // second left the module unread, and the dependency disappeared without
+    // a note.
     expect(specifiers('from  a.b import c\n', 'a.py')).toEqual(['a.b']);
     expect(specifiers('import   a.b\n', 'a.py')).toEqual(['a.b']);
   });
 
   it.each([
     ['from import x\n'],
-    // The ones that really defeat the pattern. `from import x` looks broken but
-    // still matches, with an empty module name; these do not match at all, and
-    // reading group 1 off a null match is a crash rather than a bad answer.
+    // A `from` with no `import` after it, or with what is no name before it:
+    // each ends a read early, which is to say nothing and not to throw.
     ['from .\n'],
     ['from ..\n'],
     ['from 1 import x\n'],

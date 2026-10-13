@@ -191,8 +191,8 @@ describe('logicalLines', () => {
 
   it('records the offset of each line', () => {
     expect(logicalLines('ab\ncd')).toEqual([
-      { text: 'ab', offset: 0 },
-      { text: 'cd', offset: 3 },
+      { text: 'ab', offset: 0, starts: [[0, 0]] },
+      { text: 'cd', offset: 3, starts: [[0, 3]] },
     ]);
   });
 
@@ -325,11 +325,13 @@ describe('python statement shapes', () => {
     expect(specifiers('from . import *\n', 'app/a.py')).toEqual([]);
   });
 
-  it('ignores an empty clause in a comma list', () => {
-    expect(specifiers('import os, , sys\n', 'a.py')).toEqual(['os', 'sys']);
+  it('reads nothing of a comma list with an empty clause, which Python refuses', () => {
+    // Read clause by clause it was an import of the two that are there.
+    expect(specifiers('import os, , sys\n', 'a.py')).toEqual([]);
+    expect(specifiers('import os, sys\n', 'a.py')).toEqual(['os', 'sys']);
   });
 
-  it('needs whitespace after the keyword', () => {
+  it('reads no keyword out of the head of a longer name', () => {
     expect(specifiers('importos\nfromos import x\n', 'a.py')).toEqual([]);
   });
 
