@@ -231,7 +231,7 @@ These read the dependency rather than the text, in **five languages**:
 | Language | Extensions | Reads |
 | --- | --- | --- |
 | JavaScript / TypeScript | `.js .mjs .cjs .jsx .ts .mts .cts .tsx` | `import`, `export ... from`, `require()`, `import()` |
-| Python | `.py .pyi` | `import a.b`, `from .rel import x`, `importlib.import_module("x")` |
+| Python | `.py .pyi` | `import a.b` and `from .rel import x` in every spelling Python's grammar takes, and `importlib.import_module("x")` |
 | Go | `.go` | `import "x"` and grouped `import ( ... )`, including aliases and `_` |
 | Rust | `.rs` | `use a::{b, c}` with nested groups, `pub use`, `extern crate` |
 | C# | `.cs .csx` | `using`, `using static`, `global using`, `using X = A.B`, `global::` and extern-alias qualifiers, and a using relative to its namespace |

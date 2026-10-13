@@ -10,6 +10,33 @@ what to do when upgrading; the family's policy, including how a flag or field
 is deprecated before it goes, is spec-core's
 [ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
+## Unreleased
+
+### Changed
+
+- **A Python import statement is read as Python reads it.** `from a
+  import(b)`, with no blank before the parenthesis, was read as no import,
+  and so were `from a import*`, `from.a import b`, `from . a import b`, a
+  dotted name with blanks about its dots, a form feed between two words,
+  and a `from` statement whose module has a letter beyond ASCII: an import
+  rule passed over each. A statement is now read by Python's own grammar,
+  token by token, and reported on the line it stands on, which was another
+  for a statement after a `;` that followed one of several lines. And a
+  statement Python refuses is read as nothing, where
+  `from a import b,`, `import (a)`, `import a b` and `import os, , sys`
+  were each read as an import. Of 322 spellings given to Python 3.11.9 and
+  to spec-guard, 0.25.0 read 59 otherwise than Python does and found an
+  import in 78 that Python refuses; over the 4,341 files of that Python's
+  own library both read all 32,777 imports alike
+  ([ADR-0008](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0008-polyglot-imports.md)).
+  Upgrading: an `@assert-import-absence`, `@assert-import-count`,
+  `@assert-layers` or `@assert-import-cycle` rule over Python that passed
+  may now fail for an import written one of those ways; mend the import it
+  names, or give the rule a `baseline`. A rule that failed only for a
+  statement Python refuses now passes over it. `impact` lists the
+  dependents those imports make, and `logicalLines`, from the package, also
+  says where each physical line of a statement begins, as `starts`.
+
 ## 0.25.0
 
 A Python file with CRLF line endings is read as it is read with LF: an
