@@ -22,8 +22,10 @@ is deprecated before it goes, is spec-core's
   with two values, on every command that takes them. Each is now exit 2 and
   one line that names both as they were written. The same value given twice
   is read as once, however it is spelled, and so is `--json` beside
-  `--format json`; `--spec` and `--exclude` are lists, as they were; and
-  `--help` and `--version` are answered first
+  `--format json`; and `--spec` and `--exclude` are lists, as they were.
+  Such a line is refused with `--help` or `--version` on it too, as a line
+  with a pair has been since 0.25.0: `--json --format sarif --help` printed
+  the help and is exit 2
   ([ADR-0014](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0014-configuration-and-watch.md)).
   Upgrading: give the option once. A script that adds `--format` or `--root`
   to a line it was handed, to override the one already there, takes that

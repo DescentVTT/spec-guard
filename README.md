@@ -1390,8 +1390,8 @@ The same value given twice is read as once, however it is spelled: `--root .`
 beside `--root ./`, `--format JSON` beside `--format json`, and `--json`
 beside `--format json`. `--spec` and `--exclude` are lists, and each use adds
 to its list; `--exclude=` adds nothing to it, and the configuration's list is
-replaced either way. `--help` and `--version` are answered before a line is
-refused for this.
+replaced either way. Such a line is refused with `--help` or `--version` on
+it too, as a line with a pair is.
 
 And so is a spec pattern that matches no file beside others that do. After
 `old-docs` was renamed, `spec-guard docs old-docs` ran the specs under `docs`

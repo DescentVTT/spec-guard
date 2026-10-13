@@ -1436,29 +1436,30 @@ spec-guard: Option --json is given beside --format "sarif", and one of the two w
   take are refused where they stand, as they were; then an option beside
   its own opposite; then two values; then what a watch session does not
   take.
-- **`--help` and `--version` are answered first.** A line that asks what the
-  options are is asking how to write them: `--json --format sarif --help`
-  printed the help on 0.25.0 and prints it now. spec-graph answers the two
-  before it refuses a pair (`parseArgs` in its `src/cli.ts`, at b9da6ab).
-  An option beside its own opposite is still refused before them, as the
-  amendment above has it, so `--strict --no-strict --help` is exit 2 as it
-  was on 0.25.0. The two refusals differ there. Bringing the pair to this
-  one would take that amendment's bullet back, and wants a decision of its
-  own.
+- **A line with two values is refused before `--help` and `--version` are
+  answered, as a line with a pair is**, by the amendment above: the two
+  refusals are one rule, since each is a wrong command line, and one tool
+  does not answer the two first for some wrong lines and after others. So
+  `--json --format sarif --help` printed the help on 0.25.0 and is exit 2,
+  and a line that asks one thing twice, which is no wrong line, is still
+  answered with the help.
+- **`--print-baseline` beside `--json` or a `--format` is taken, as 0.22.0
+  decided.** A script passes a run's format to every command it runs, and
+  an option that asks a command for what it never does is taken (spec-core's
+  ADR-0005); `tests/unmatched-specs.test.ts` has held since 0.22.0 that a
+  baseline is text to paste whatever format the run was asked for. So the
+  baselines are printed and no document, as on 0.25.0, and where no spec
+  matched the document is written and no baseline.
 - **Left as they are**, each measured on 0.25.0 and on this build, and each
   one thing that goes unread beside another that is no second value for it.
   `--help` beside `--version` prints the help, in either order, and no
   version. `--verbose` beside `--json` or `--format github` writes the
-  document either writes without it. And `--print-baseline` beside `--json`
-  or a `--format` prints the baselines and no document, with no word of the
-  format, and where no spec matched the document and no baseline:
-  `tests/unmatched-specs.test.ts` has held since 0.22.0 that a baseline is
-  text to paste whatever format the run was asked for, and refusing the two
-  together would take that back. `--verbose` and `--max-snippets` change
-  nothing `--print-baseline` prints either.
+  document either writes without it, and `--verbose` and `--max-snippets`
+  change nothing `--print-baseline` prints.
 
 `tests/two-values.test.ts` holds each refusal on each command that takes the
-option, beside the same value given twice, one thing spelled two ways, each
-list, and `--help` and `--version`.
+option, beside the same value given twice, one thing spelled two ways and
+each list, and holds a line with two values, and one with a pair, to its
+refusal with `--help` or `--version` on it.
 
 <!-- @assert-present file="tests/two-values.test.ts" reason="each refusal is held beside the value given twice, the list and the help that must still be read" -->

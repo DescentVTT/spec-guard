@@ -12,8 +12,9 @@
  * 2026-10-14).
  *
  * Beside each refusal is what must still be read: the same value twice, one
- * thing spelled two ways, `--json` beside `--format json`, a list given
- * twice, and `--help` and `--version`, which are answered first.
+ * thing spelled two ways, `--json` beside `--format json` and a list given
+ * twice. `--help` and `--version` are no way round a refusal: a line with
+ * two values is refused with either on it, as a line with a pair is.
  */
 
 import { afterEach, describe, expect, it } from 'vitest';
@@ -286,17 +287,46 @@ describe('a line with two values, run', () => {
 });
 
 describe('--help and --version beside a line with two values', () => {
-  const LINES: Array<[command: string[], options: string[]]> = [
-    [[], ['--json', '--format', 'sarif']],
-    [['prove'], ['--format', 'json', '--format', 'sarif']],
-    [['cites'], ['--root', 'here', '--root', 'there']],
-    [['impact', 'src'], ['--depth', '1', '--depth', '2']],
+  const LINES: Array<[command: string[], options: string[], first: string, second: string]> = [
+    [[], ['--json', '--format', 'sarif'], '--json', '--format "sarif"'],
+    [['prove'], ['--format', 'json', '--format', 'sarif'], '--format "json"', '--format "sarif"'],
+    [['cites'], ['--root', 'here', '--root', 'there'], '--root "here"', '--root "there"'],
+    [['impact', 'src'], ['--depth', '1', '--depth', '2'], '--depth "1"', '--depth "2"'],
   ];
 
-  it('are answered first, wherever on the line they stand', async () => {
-    for (const [command, options] of LINES) {
-      for (const [asked, answer] of [['--help', HELP], ['-h', HELP], ['--version', version()]] as const) {
+  it('are not answered: the line is refused first, wherever on it they stand', async () => {
+    for (const [command, options, first, second] of LINES) {
+      for (const asked of ['--help', '-h', '--version']) {
         for (const argv of [[...command, ...options, asked], [...command, asked, ...options]]) {
+          const { io, out, err } = createIO();
+          expect(await main(argv, io), argv.join(' ')).toBe(EXIT_ERROR);
+          expect([out, err], argv.join(' ')).toEqual([[], [`spec-guard: ${refusal(first, second)}`]]);
+        }
+      }
+    }
+  });
+
+  it('are refused the same way beside a pair: one rule for every wrong command line', async () => {
+    const pair = 'spec-guard: Option --strict is given beside --no-strict, and one of the two would go unread. Give one of the two.';
+    for (const asked of ['--help', '-h', '--version']) {
+      for (const argv of [['--strict', '--no-strict', asked], [asked, '--no-strict', '--strict']]) {
+        const { io, out, err } = createIO();
+        expect(await main(argv, io), argv.join(' ')).toBe(EXIT_ERROR);
+        expect([out, err], argv.join(' ')).toEqual([[], [pair]]);
+      }
+    }
+  });
+
+  it('are answered for a line that asks one thing twice, which is no wrong line', async () => {
+    const lines = [
+      ['--json', '--format', 'json'],
+      ['--format', 'sarif', '--format', 'SARIF'],
+      ['--root', 'here', '--root', 'here'],
+      ['--spec', 'docs', '--spec', 'docs'],
+    ];
+    for (const line of lines) {
+      for (const [asked, answer] of [['--help', HELP], ['-h', HELP], ['--version', version()]] as const) {
+        for (const argv of [[...line, asked], [asked, ...line]]) {
           const { io, out, err } = createIO();
           expect(await main(argv, io), argv.join(' ')).toBe(EXIT_OK);
           expect([out, err], argv.join(' ')).toEqual([[answer], []]);
@@ -305,7 +335,7 @@ describe('--help and --version beside a line with two values', () => {
     }
   });
 
-  it('do not answer for a line refused for anything else', () => {
+  it('are not answered for a line refused for anything else', () => {
     expect(() => parseArgs(['--format', 'json', '--format', 'yaml', '--help'], DEMO_REPO)).toThrow(/^Unknown format "yaml"\./);
     expect(() => parseArgs(['--version', '--concurrency', '1', '--concurrency', '0'], DEMO_REPO)).toThrow(/^Option --concurrency expects 1 or more/);
   });
@@ -319,8 +349,8 @@ describe('the help', () => {
         '  them would go unread: --root a --root b, --format json --format sarif, and',
         '  --json beside a --format that names another format. The same value given',
         '  twice is read as once, as --json beside --format json is. --spec and',
-        '  --exclude are lists, and each use adds to its list. --help and --version',
-        '  are answered before a line is refused for this.',
+        '  --exclude are lists, and each use adds to its list. Such a line is refused',
+        '  with --help or --version on it too, as a line with a pair is.',
       ].join('\n'),
     );
   });

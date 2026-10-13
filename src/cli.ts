@@ -239,8 +239,8 @@ Options
   them would go unread: --root a --root b, --format json --format sarif, and
   --json beside a --format that names another format. The same value given
   twice is read as once, as --json beside --format json is. --spec and
-  --exclude are lists, and each use adds to its list. --help and --version
-  are answered before a line is refused for this.
+  --exclude are lists, and each use adds to its list. Such a line is refused
+  with --help or --version on it too, as a line with a pair is.
 
   A spec pattern that matches no file, beside others that do, is refused the
   same way and by name, since none of its rules was read: a run, prove, impact
@@ -703,10 +703,10 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
   // went unread, with no word of it, for each option that takes one value and
   // for `--json` beside a `--format` that names another format (ADR-0014,
   // amended 2026-10-14). Named in the order they were given, each as it was
-  // written. `--help` and `--version` are answered first: a line that asks
-  // what the options are is asking how to write them. The pair above is
-  // refused before the two, as 0.25.0 decided it.
-  if (unread !== undefined && !options.help && !options.version) {
+  // written. Refused with `--help` or `--version` on the line too, as the
+  // pair above is: both are a wrong command line, and one tool does not
+  // answer the two first for some wrong lines and after others.
+  if (unread !== undefined) {
     throw new UsageError(`Option ${unread[0]} is given beside ${unread[1]}, and one of the two would go unread. Give one of the two.`);
   }
 
