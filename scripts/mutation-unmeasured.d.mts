@@ -21,6 +21,12 @@ export interface Measured {
   sites: number;
 }
 
+/** What a run reads a report with and appends the job summary with, the disk's by default. */
+export interface Io {
+  read?: (file: string) => string;
+  append?: (file: string, text: string) => void;
+}
+
 export declare const LEFT: number;
 export declare class UnmeasuredError extends Error {}
 export declare function loadParser(from?: string): Promise<Parse>;
@@ -28,4 +34,4 @@ export declare function unmeasured(source: string, parse: Parse): { expressions:
 export declare function treeSources(patterns: string[], root?: string): Record<string, string>;
 export declare function measure(sources: Record<string, string>, parse: Parse): Measured;
 export declare function verdict(measured: Measured, left?: number, report?: Report): { passed: boolean; lines: string[]; message: string };
-export declare function main(argv: string[]): Promise<number>;
+export declare function main(argv: string[], io?: Io): Promise<number>;
