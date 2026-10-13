@@ -13,8 +13,9 @@
  * The two tables are Python's own answers. Each source was parsed and
  * compiled by Python 3.11.9 on 2026-10-14, and what its `ast` gave is what
  * is asserted: every import by the name spec-guard gives it and the line
- * Python puts it on, or that the source was refused (ADR-0008, amended
- * 2026-10-14).
+ * Python puts it on, or that the source was refused. A `lazy` import is
+ * Python 3.15's, which 3.11.9 refuses, and is held to the language reference
+ * as read that day (ADR-0008, amended 2026-10-14).
  */
 
 import path from 'node:path';
@@ -362,9 +363,63 @@ describe('a statement Python refuses', () => {
   });
 });
 
+describe("Python 3.15's lazy imports", () => {
+  // The grammar its language reference gives the import statement, as read
+  // on 2026-10-14: `lazy` may stand before `import` and before `from`, and
+  // not before a star import. Python 3.11.9 refuses each of these.
+  const LAZY: Array<[source: string, imports: Array<[string, number]>]> = [
+    ['lazy import a\n', [['a', 1]]],
+    ['lazy import a.b as c, d\n', [['a.b', 1], ['d', 1]]],
+    ['lazy from a import b\n', [['a', 1]]],
+    ['lazy from a import(b)\n', [['a', 1]]],
+    ['lazy from . import a, b\n', [['.a', 1], ['.b', 1]]],
+    ['lazy from .pkg import (\n    a,\n)\n', [['.pkg', 1]]],
+    ['lazy\timport a\n', [['a', 1]]],
+    ['lazy\fimport a\n', [['a', 1]]],
+    ['\flazy import a\n', [['a', 1]]],
+    ['lazy  import a\n', [['a', 1]]],
+    ['x = 1; lazy import a\n', [['a', 1]]],
+    ['x = 1;lazy from a import b\n', [['a', 1]]],
+    ['if x: lazy import a\n', [['a', 1]]],
+  ];
+
+  it.each(LAZY)('%j is read as the import it is', (source, imports) => {
+    expect(read(source)).toEqual(imports);
+  });
+
+  it('is no import before a star, which the reference has Python refuse', () => {
+    expect(read('lazy from a import *\n')).toEqual([]);
+    expect(read('from a import *\n')).toEqual([['a', 1]]);
+  });
+
+  it('is reported on the line `lazy` stands on', () => {
+    expect(read('lazy \\\n    import a\n')).toEqual([['a', 1]]);
+    expect(read('x = (1,\n     2); lazy import a\n')).toEqual([['a', 2]]);
+  });
+
+  // Anywhere else `lazy` is a name, and Python 3.11.9 reads each of these so.
+  const A_NAME: Array<[source: string, imports: Array<[string, number]>]> = [
+    ['lazy = 1\nimport a\n', [['a', 2]]],
+    ['lazy\nimport a\n', [['a', 2]]],
+    ['lazy; import a\n', [['a', 1]]],
+    ['lazy(import_a)\n', []],
+    ['lazy.import_a\n', []],
+    ['lazyimport a\n', []],
+    ['lazy lazy import a\n', []],
+    ['eager import a\n', []],
+    ['x.lazy import a\n', []],
+    ['lazy_import a\n', []],
+  ];
+
+  it.each(A_NAME)('%j is read as Python 3.11.9 reads it', (source, imports) => {
+    expect(read(source)).toEqual(imports);
+  });
+});
+
 describe('what is not asked of a statement', () => {
-  it('is the scope it stands in, where Python refuses a star import', () => {
+  it('is the scope it stands in, where Python refuses a star import and a lazy one', () => {
     expect(read('def f():\n    from a import *\n')).toEqual([['a', 2]]);
+    expect(read('def f():\n    lazy import a\n')).toEqual([['a', 2]]);
     // An indent Python refuses at the head of a file.
     expect(read(' import a\n')).toEqual([['a', 1]]);
   });
@@ -442,7 +497,7 @@ describe('an import rule over Python', () => {
   it('fails for an import written with no blank before its parenthesis, as for one written with it', async () => {
     const spaced = await report('import os\nfrom forbidden import (thing)\n');
     expect([spaced.ok, spaced.results[0]?.actual]).toEqual([false, 1]);
-    for (const source of ['import os\nfrom forbidden import(thing)\n', 'import os\nfrom forbidden import*\n']) {
+    for (const source of ['import os\nfrom forbidden import(thing)\n', 'import os\nfrom forbidden import*\n', 'import os\nlazy import forbidden\n']) {
       const tight = await report(source);
       expect([tight.ok, tight.results[0]?.actual], source).toEqual([false, 1]);
       expect(tight.results[0]?.matches.map(({ file, line }) => [file, line]), source).toEqual([['src/a.py', 2]]);

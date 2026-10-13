@@ -344,10 +344,11 @@ export function logicalLines(code: string): Array<{ text: string; offset: number
 /**
  * Where an import statement may start: at the head of a logical line, or
  * after `;` or `:`. What separates tokens is a blank, a tab or a form feed,
- * as Python has it. The keyword is a whole word, and nothing need follow it
- * but its next token: `from.a import(b)` is an import Python reads.
+ * as Python has it, and `lazy` before the keyword is Python 3.15's lazy
+ * import. The keyword is a whole word, and nothing need follow it but its
+ * next token: `from.a import(b)` is an import Python reads.
  */
-const PYTHON_STATEMENT = /(^|[;:])([ \t\f]*)(import|from)(?!\p{XID_Continue})/gu;
+const PYTHON_STATEMENT = /(^|[;:])([ \t\f]*)(lazy[ \t\f]+)?(import|from)(?!\p{XID_Continue})/gu;
 /** One token of an import statement, after any blanks: a name, one of its marks, or its end at a `;` or at the end of the line. */
 const PYTHON_TOKEN = /[ \t\f]*(?:([\p{XID_Start}_]\p{XID_Continue}*)|([.,()*])|;|$)/uy;
 /** What is no name: the marks of an import statement, and the `;` that ends it. */
@@ -382,7 +383,7 @@ function pythonTokens(text: string, from: number): string[] | null {
  * its own grammar: what scope it stands in, and whether the rest of its file
  * parses, are not asked.
  */
-function pythonImports(tokens: readonly string[], from: boolean): string[] | null {
+function pythonImports(tokens: readonly string[], from: boolean, lazy: boolean): string[] | null {
   let at = 0;
   const eat = (mark: string): boolean => {
     if (tokens[at] !== mark) return false;
@@ -426,7 +427,10 @@ function pythonImports(tokens: readonly string[], from: boolean): string[] | nul
   const module = tokens[at] === 'import' ? '' : dotted();
   if (`${dots}${module}` === '' || !eat('import')) return null;
   const names: string[] = [];
-  if (!eat('*')) {
+  if (eat('*')) {
+    // Python 3.15 refuses a star import that is lazy.
+    if (lazy) return null;
+  } else {
     const open = eat('(');
     do {
       const imported = name();
@@ -454,7 +458,7 @@ function readPython(collector: Collector): void {
     let match: RegExpExecArray | null;
     while ((match = PYTHON_STATEMENT.exec(line.text)) !== null) {
       const tokens = pythonTokens(line.text, PYTHON_STATEMENT.lastIndex);
-      const modules = tokens === null ? null : pythonImports(tokens, match[3] === 'from');
+      const modules = tokens === null ? null : pythonImports(tokens, match[4] === 'from', match[3] !== undefined);
       if (modules === null) continue;
       // Reported on the line its first word stands on, at that line's head,
       // as an import at the head of a logical line always was.

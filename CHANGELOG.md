@@ -21,8 +21,9 @@ is deprecated before it goes, is spec-core's
   and a `from` statement whose module has a letter beyond ASCII: an import
   rule passed over each. A statement is now read by Python's own grammar,
   token by token, and reported on the line it stands on, which was another
-  for a statement after a `;` that followed one of several lines. And a
-  statement Python refuses is read as nothing, where
+  for a statement after a `;` that followed one of several lines. Python
+  3.15's `lazy import` and `lazy from ... import` are read as the imports
+  they are. And a statement Python refuses is read as nothing, where
   `from a import b,`, `import (a)`, `import a b` and `import os, , sys`
   were each read as an import. Of 322 spellings given to Python 3.11.9 and
   to spec-guard, 0.25.0 read 59 otherwise than Python does and found an

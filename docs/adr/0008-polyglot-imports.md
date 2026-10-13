@@ -352,7 +352,7 @@ Python reads 197 of them and refuses 125.
 | --- | --- | --- |
 | of the 197 Python reads: an import not read, or read under another name | 52 | 0 |
 | of the 197: every import read, one of them on another line than Python's | 7 | 0 |
-| of the 125 Python refuses: read as holding an import | 78 | 17 |
+| of the 125 Python refuses: read as holding an import | 78 | 25 |
 
 Some of each, with what Python 3.11.9 reads:
 
@@ -406,12 +406,26 @@ them.
   What follows from the page and is not on it: the two sets are Unicode's
   `XID_Start` and `XID_Continue` as the Node that runs spec-guard has them,
   which is a later Unicode than an older Python's.
+- **`lazy import` and `lazy from ... import` are read as the imports they
+  are.** They are Python 3.15's (section 7.11.1, "Lazy imports", of the page
+  for 3.15.0, read on 2026-10-14): `lazy` is a keyword only where it stands
+  straight before `import` or `from`, and before a star import the page has
+  it a syntax error, so that one is read as nothing. Python 3.11.9 refuses
+  every one of them, and no Python on the workstation takes them, so these
+  are held to the page and to no measurement. It follows from the page, and
+  is not on it, that reading one costs a tree written for an older Python
+  nothing: the statement is one that Python refuses, in a file it would not
+  run. Anywhere else `lazy` is a name, and `lazy = 1`, `lazy(x)` and `lazy;
+  import a` are read as 3.11.9 reads them. The `__lazy_modules__` list of
+  the same page changes when a module is loaded and not what is imported,
+  and nothing reads it.
 - **A statement Python refuses stays unread, by its own grammar and no
   further.** 78 of the 125 refused sources were read on 0.25.0, by the
-  pattern that took whatever followed `import`. 17 still are, each measured
+  pattern that took whatever followed `import`. 25 still are, each measured
   on both builds, and none is asked more of:
   - what scope a statement stands in, where Python refuses a star import
-    inside a function and an indent at the head of a file;
+    inside a function and an indent at the head of a file, and where 3.15,
+    by the page above, refuses a lazy import inside a function;
   - the rest of its line and of its file: `import a;;`, a backslash on the
     last line of a file, and `f = lambda: import a`, where the colon is
     read as one that a statement may follow;
@@ -420,7 +434,8 @@ them.
     names until Python 3.7 made them keywords (What's New In Python 3.7,
     "Summary - Release Highlights", read on 2026-10-14), a tree written for
     an older Python has modules so called, and reading a keyword as a name
-    costs nothing where Python refuses the file.
+    costs nothing where Python refuses the file;
+  - and the eight `lazy` forms above, which 3.11.9 refuses and 3.15 reads.
 - **A statement is reported on the line its first word stands on**, which
   is the line Python's `ast` gives it. It was the line its logical line
   began on, which is another where a statement follows a `;` or a `:` after
@@ -447,6 +462,6 @@ them.
 
 `tests/python-statements.test.ts` holds each source Python reads to
 Python's answer, with LF and with CRLF line endings, each source Python
-refuses to nothing, and an import rule to both.
+refuses to nothing, the lazy forms to the page, and an import rule to both.
 
 <!-- @assert-present file="tests/python-statements.test.ts" reason="the reader is held to what Python itself reads of each spelling, and to nothing for what Python refuses" -->
