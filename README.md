@@ -1391,7 +1391,8 @@ beside `--root ./`, `--format JSON` beside `--format json`, and `--json`
 beside `--format json`. `--spec` and `--exclude` are lists, and each use adds
 to its list; `--exclude=` adds nothing to it, and the configuration's list is
 replaced either way. Such a line is refused with `--help` or `--version` on
-it too, as a line with a pair is.
+it too, as a line with a pair is. And `--help` beside `--version` is refused
+the same way, in either order: they ask for two answers, and a line gets one.
 
 And so is a spec pattern that matches no file beside others that do. After
 `old-docs` was renamed, `spec-guard docs old-docs` ran the specs under `docs`
