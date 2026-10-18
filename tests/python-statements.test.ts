@@ -16,6 +16,11 @@
  * Python puts it on, or that the source was refused. A `lazy` import is
  * Python 3.15's, which 3.11.9 refuses, and is held to the language reference
  * as read that day (ADR-0008, amended 2026-10-14).
+ *
+ * A statement that starts as an import and that Python refuses names no
+ * module, and on 0.26.0 nothing said so, under --strict either. Each is now
+ * a note on its line, as everything an import rule could not read is
+ * (ADR-0008, amended 2026-10-18).
  */
 
 import path from 'node:path';
@@ -33,6 +38,25 @@ const CRLF = `${CR}\n`;
 function read(source: string): Array<[string, number]> {
   return analyzeSource(source, 'pkg/m.py').references.map((reference) => [reference.specifier, reference.line]);
 }
+
+/** The line of each statement a source starts as an import and Python refuses. */
+function said(source: string): number[] {
+  return analyzeSource(source, 'pkg/m.py').notes.filter((note) => note.kind === 'refused').map((note) => note.line);
+}
+
+/** Of the sources Python refuses, those in which no statement starts with an import's keyword. */
+const NO_STATEMENT = new Set([
+  'froma import b\n',
+  'Import a\n',
+  'FROM a IMPORT b\n',
+  'import\u00e9 a\n',
+  'from\u00e9 a import b\n',
+  'import_ a\n',
+  'from_ a import b\n',
+  'im\\\nport a\n',
+  'x = 1 import a\n',
+  'x = import a\n',
+]);
 
 /** What Python 3.11.9 reads of each source: every import, by the name spec-guard gives it, and its line. */
 const READ: Array<[source: string, imports: Array<[string, number]>]> = [
@@ -354,12 +378,33 @@ describe('an import statement Python reads', () => {
     expect(read(source)).toEqual(imports);
     // Python reads a line that ends in CRLF as it reads one that ends in LF.
     expect(read(source.replaceAll('\n', CRLF))).toEqual(imports);
+    expect(said(source)).toEqual([]);
   });
 });
 
 describe('a statement Python refuses', () => {
   it.each(REFUSED)('%j is read as no import', (source) => {
     expect(read(source)).toEqual([]);
+  });
+
+  it.each(REFUSED.filter((source) => !NO_STATEMENT.has(source)))('%j, which starts as an import, is said on its line', (source) => {
+    expect(said(source)).toEqual([1]);
+    expect(said(source.replaceAll('\n', CRLF))).toEqual([1]);
+  });
+
+  it.each([...NO_STATEMENT])('%j, where no statement starts as an import, is said nowhere', (source) => {
+    expect(said(source)).toEqual([]);
+  });
+
+  it('is said on the line its first word stands on, and with its file', () => {
+    const notes = analyzeSource('import os\nx = (1,\n     2); from a import b,\n', 'pkg/m.py').notes;
+    expect(notes.map(({ kind, file, line, column }) => [kind, file, line, column])).toEqual([['refused', 'pkg/m.py', 3, 1]]);
+    expect(notes[0]?.detail).toBe('a statement that starts as an import is one Python refuses, and no module is read from it');
+  });
+
+  it('is said once a statement, and the statement after it is read', () => {
+    expect(said('from a import b,; import c\nimport d e\nimport f\n')).toEqual([1, 2]);
+    expect(read('from a import b,; import c\nimport d e\nimport f\n')).toEqual([['c', 1], ['f', 3]]);
   });
 });
 
@@ -389,6 +434,7 @@ describe("Python 3.15's lazy imports", () => {
 
   it('is no import before a star, which the reference has Python refuse', () => {
     expect(read('lazy from a import *\n')).toEqual([]);
+    expect(said('lazy from a import *\n')).toEqual([1]);
     expect(read('from a import *\n')).toEqual([['a', 1]]);
   });
 
@@ -509,5 +555,29 @@ describe('an import rule over Python', () => {
       const refused = await report(source);
       expect([refused.ok, refused.results[0]?.actual], source).toEqual([true, 0]);
     }
+  });
+
+  it('says such a statement, and fails for it under --strict, as for every note of what could not be read', async () => {
+    const io = memoryIo(root, {
+      'docs/a.md': '<!-- @assert-import-absence target="src" module="forbidden" -->\n',
+      'src/a.py': 'import os\nfrom forbidden import thing,\n',
+    });
+    const lenient = await runSpecGuard({ root, patterns: ['docs/a.md'], io });
+    expect([lenient.ok, lenient.results[0]?.message, lenient.results[0]?.warnings]).toEqual([
+      true,
+      'expected no matches, found 0',
+      ['1 module reference could not be resolved statically', '  src/a.py:2 a statement that starts as an import is one Python refuses, and no module is read from it'],
+    ]);
+    const strict = await runSpecGuard({ root, patterns: ['docs/a.md'], io, strictTargets: true });
+    expect([strict.ok, strict.results[0]?.message]).toEqual([false, 'expected no matches, found 0; 1 reference could not be resolved']);
+  });
+
+  it('passes under --strict over statements Python reads, with nothing said', async () => {
+    const io = memoryIo(root, {
+      'docs/a.md': '<!-- @assert-import-absence target="src" module="forbidden" -->\n',
+      'src/a.py': 'import os\nfrom allowed import(thing,)\nlazy import later\n',
+    });
+    const strict = await runSpecGuard({ root, patterns: ['docs/a.md'], io, strictTargets: true });
+    expect([strict.ok, strict.results[0]?.warnings]).toEqual([true, []]);
   });
 });

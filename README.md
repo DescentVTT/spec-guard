@@ -289,6 +289,9 @@ stops it being mistaken for a complete answer.
 - **A passing rule prints it** without `--verbose` too, since a green run is
   when it would otherwise go unread.
 - **`--strict` turns those warnings into failures.**
+- **A Python statement that starts as an import and that Python refuses is
+  one of them**, `from a import b,` among them: it names no module, and the
+  rule says so on its file and line.
 - **Files in scope in a language whose imports spec-guard cannot read are
   counted and reported**, so a rule pointed at the wrong tree says "analysed 2
   of 3 files; 1 is in a language whose imports spec-guard cannot read (.razor)"
@@ -1391,7 +1394,8 @@ beside `--root ./`, `--format JSON` beside `--format json`, and `--json`
 beside `--format json`. `--spec` and `--exclude` are lists, and each use adds
 to its list; `--exclude=` adds nothing to it, and the configuration's list is
 replaced either way. Such a line is refused with `--help` or `--version` on
-it too, as a line with a pair is.
+it too, as a line with a pair is. And `--help` beside `--version` is refused
+the same way, in either order: they ask for two answers, and a line gets one.
 
 And so is a spec pattern that matches no file beside others that do. After
 `old-docs` was renamed, `spec-guard docs old-docs` ran the specs under `docs`
@@ -1578,7 +1582,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '22'
       - run: npm ci
@@ -1652,7 +1656,7 @@ comment on the offending line:
     steps:
       # ...checkout, setup-node and npm ci as above
       - run: npx --no-install @descent-vtt/spec-guard "docs/**/*.md" --format sarif > spec-guard.sarif || true
-      - uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+      - uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
         with:
           sarif_file: spec-guard.sarif
           category: spec-guard

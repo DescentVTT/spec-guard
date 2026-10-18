@@ -1453,7 +1453,7 @@ spec-guard: Option --json is given beside --format "sarif", and one of the two w
 - **Left as they are**, each measured on 0.25.0 and on this build, and each
   one thing that goes unread beside another that is no second value for it.
   `--help` beside `--version` prints the help, in either order, and no
-  version. `--verbose` beside `--json` or `--format github` writes the
+  version. *Amended 2026-10-18*: it is refused, by the amendment below. `--verbose` beside `--json` or `--format github` writes the
   document either writes without it, and `--verbose` and `--max-snippets`
   change nothing `--print-baseline` prints.
 
@@ -1463,3 +1463,41 @@ each list, and holds a line with two values, and one with a pair, to its
 refusal with `--help` or `--version` on it.
 
 <!-- @assert-present file="tests/two-values.test.ts" reason="each refusal is held beside the value given twice, the list and the help that must still be read" -->
+
+## Amended 2026-10-18: `--help` beside `--version` is refused
+
+The amendment above left `--help` beside `--version` as it was. The family
+contract, amended on this date, decides it: the two ask for two answers of
+which one would go unread, and the line is refused, exit 2, with a line that
+names both (spec-core's
+[ADR-0005](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0005-the-family-contract.md),
+*Runs*, amended 2026-10-18).
+
+Measured through the launcher on 0.26.0 (Windows 11 build 26300, Node
+24.18.1), in a tree of one spec that holds:
+
+| Given | 0.26.0 | Now |
+| --- | --- | --- |
+| `--help --version`, `--version --help`, `-h --version` or `--version -h`, to a run, a watch session, `prove`, `cites`, `query`, `impact` and the server | the help, exit 0 | exit 2 and one line, the two named as they were written, in the order given |
+| the same beside `--json`, or beside a `--root` that is not there | the help, exit 0 | the same refusal |
+| `--help` or `--version` alone, given twice, or `-h` beside `--help` | its answer, exit 0 | the same |
+| beside an unknown option, or an option beside its own opposite | the line for that | the same |
+| beside `--root a --root b` | the line for `--root` | the line for whichever of the two came first |
+
+```text
+spec-guard: Option --help is given beside --version, and one of the two would go unread. Give one of the two.
+```
+
+- **The two are one thing asked for, the line's answer**, and are read as the
+  two values of an option that takes one, by the same code: given twice, or
+  `-h` beside `--help`, the one answer is asked for once, and given. So the
+  line is refused after what is wrong with one option and after a pair, in
+  the place two values are, and before what a watch session does not take;
+  and of two such things on one line, the first is named.
+- **Either alone is answered as before**: before the root is looked at and
+  before the configuration is read, wherever on the line it stands.
+- spec-graph printed the help, and spec-brief and spec-harness the version,
+  by the contract's measurement.
+
+`tests/two-values.test.ts` holds each order on each command, beside each
+alone, twice, and beside its other spelling.
