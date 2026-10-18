@@ -460,7 +460,9 @@ them.
   compiles, is read as a module named `a :: b`, blanks and all, and `use
   r#mod::d;` as `r#mod::d`; and in C# `using System . Text;`, `using T =
   System . Text . Json;` and `using @System.IO;`, which the compiler of the
-  .NET SDK 10.0.401 compiles, are each read as nothing.
+  .NET SDK 10.0.401 compiles, are each read as nothing. *Amended
+  2026-10-18*: Rust and C# are not left, and each of these is read, by the
+  amendment below.
 
 `tests/python-statements.test.ts` holds each source Python reads to
 Python's answer, with LF and with CRLF line endings, each source Python
@@ -515,3 +517,168 @@ holds `import os` and `from forbidden import thing,`:
 `tests/python-statements.test.ts` holds each source Python refuses to its
 note, or to none where no statement starts as an import, each source Python
 reads to no note, and a rule to both, under `--strict` and not.
+
+## Amended 2026-10-18: a Rust use declaration and a C# using directive are read as their compilers read them
+
+The amendment of 2026-10-14 left the other languages as they were and
+recorded what
+it found of them: in Rust `use a :: b;` was read as a module named `a :: b`,
+and `use r#mod::d;` as `r#mod::d`; in C# `using System . Text;`, `using T =
+System . Text . Json;` and `using @System.IO;` were each read as nothing.
+A Rust declaration was the text between `use` and its `;`, cut at braces,
+commas and ` as `, and a C# directive was read by a cursor that took no
+blank and no comment inside a name, no `@` and no escape.
+
+Measured on 2026-10-18 against the compilers on the workstation: 144 Rust
+sources, every spelling of a use declaration and of an extern crate around
+white space, comments, raw identifiers, aliases, globs, `self`, `crate` and
+nested groups, each compiled by rustc 1.97.1 (edition 2021); and 132 C#
+sources, every spelling of a using directive around white space, comments,
+`@`, escapes, names beyond ASCII, `static`, `unsafe`, `global`, `::` and
+aliases, and of the namespace one stands in, each compiled by the compiler
+of the .NET SDK 10.0.401 (`-langversion:latest`). Each was compiled beside
+the modules and namespaces its names resolve to, with code that compiles
+only if each import binds what it is said to, so a source refused is refused
+for how it is written. And each was read by the analyser of 0.26.0 and of
+this build. rustc compiles 90 and refuses 54; the C# compiler compiles 97 and
+refuses 35.
+
+| | 0.26.0 | Now |
+| --- | --- | --- |
+| Rust, of the 78 rustc compiles that import something: an import not read, or read under another name | 29 | 0 |
+| Rust, of the 9 it compiles that import nothing: read as holding an import | 5 | 0 |
+| Rust, of the 54 it refuses: read as holding an import | 51 | 10 |
+| C#, of the 83 the compiler compiles that hold a using directive: one not read, or read under another name | 52 | 0 |
+| C#, of the 12 it compiles that hold none: read as holding one | 3 | 0 |
+| C#, of the 35 it refuses: read as holding one | 7 | 2 |
+
+The other three Rust sources rustc compiles are macro definitions, and the
+other two C# sources alias `int` and a tuple; each is read as 0.26.0 read
+it. Some of each, with what the compiler reads:
+
+| Source | Compiler | 0.26.0 | Now |
+| --- | --- | --- | --- |
+| `use a :: b;`, and `use a::b;` with a tab, a newline, a form feed, a next line, a line separator or a comment between two tokens | `a::b` | a module named `a :: b`, the blanks in it | `a::b` |
+| `use r#mod::d;`, `use a::r#b;` | `mod::d`, `a::b` | `r#mod::d`, `a::r#b` | `mod::d`, `a::b` |
+| `use ::serde::{Deserialize};` | `serde::Deserialize` | `::serde::Deserialize`, which no rule on `serde` matched | `serde::Deserialize` |
+| `use a::b::self;` | `a::b` | `a::b::self` | `a::b` |
+| `use a::café;`, the `é` an `e` and a combining accent | `a::café`, in its NFC form | as written | `a::café` |
+| `use a::{};` | an import of `a`, which its lint for unused imports names | nothing | `a` |
+| `mod r#use { pub const LIMIT: u8 = 1; }`, `let r#use = 1;`, `struct K { r#use: u8 }` | no import | modules named `pub const LIMIT: u8 = 1`, `= 1` and `: u8` | nothing |
+| `use a::b c;`, `use a::{b, , c};`, `use a: :b;`, `use r#crate::a;`, and `use a::b` at the end of a file with no `;` | refused | `a::b c`; `a::b` and `a::c`; `a: :b`; `r#crate::a`; `a::b` | nothing |
+| `using System . Text;`, a newline or a comment between two tokens, `using T = System . Text . Json;` | `System.Text`, `System.Text.Json` | nothing | `System.Text`, `System.Text.Json` |
+| `using @System.IO;`, `using System.@IO;`, a letter written as an escape, `using Café;` | `System.IO`, the name the escape spells, `Café` | nothing | the same names |
+| `using static unsafe A.B.S;`, `using static G.L<int>;` | `A.B.S`, `G.L` | nothing | `A.B.S`, `G.L` |
+| `using T = A.B.V[];`, `using T = A.B.V?;`, `using unsafe T = A.B.V*;` | `A.B.V` | nothing | `A.B.V` |
+| `namespace A . B { using C; }` | `C`, looked up in `A.B` first | `C` in no namespace, and no namespace declared | `C` in `A.B` |
+| `#region using A.B;`, `static object @using = A.B.C;`, `@using field;` beside `class @using { }` | no directive | `A.B`, `A.B.C`, `field` | nothing |
+| `using A.;`, `using A.B::C;`, `using A.B = C;` | refused | `A`, `C`, `C` | nothing |
+
+And over real code. The 31,343 Rust files of the crates in the
+workstation's cargo registry, 282,412 references on 0.26.0: on 177 lines a
+reference is read under its canonical name, 155 of them a path under a
+leading `::` in a group, 20 a raw identifier and 2 a path written with
+blanks about its `::`, in a formatter's test input; on 4 lines an import is
+read that 0.26.0 lost, each after an `impl Trait + use<'a>` bound, which
+says what a return type captures, whose read had run on through it; and
+on 294 lines nothing is read where 0.26.0 read a module, none of them an
+import rustc reads there: 117 such bounds, 129 interpolations of `quote!`
+in a procedural macro, `use #name::...`, 14 repetitions of a macro, and 34
+arms of a macro that matches the word `use`. The 4,067 C# files of a .NET
+repository on the workstation: the same 15,648 references on both builds,
+on the same lines, and the same namespaces. The spellings in the tables are
+ones that code does not use, as Python's were.
+
+What 0.26.0 could not come back from: a use group nested 20,000 deep, and
+500,000 characters of groups that never close, each ran it out of stack, the
+second after 86 seconds; 500,000 characters of C# alias type arguments that
+never close took it 50 seconds, on this workstation. Each comes back in
+under a fifth of a second now.
+
+- **A declaration is read by its language's grammar, token by token.** A
+  Rust use declaration as the Rust Reference has it: `use`, a use tree, `;`,
+  the tree a path and an `as` or none, a path and a glob, or a path and a
+  group of trees, nested (Items, "Use declarations", and Paths, "Simple
+  paths"); an extern crate as `extern crate`, a name or `self`, an `as` or
+  none, `;` (Items, "Extern crate declarations"). A C# using directive as the
+  C# specification has it: `using static`, `unsafe` or not, and a type;
+  `using`, `unsafe` or not, an alias, `=` and a namespace or a type; or
+  `using` and a namespace; `global` before any of them (14.5, "Global using
+  directives", and 14.6, "Using directives"); and a namespace declaration as
+  `namespace` and names between dots (14.3). Each was read on 2026-10-18,
+  the Reference at doc.rust-lang.org and the specification's chapters
+  "Namespaces" and "Lexical structure" on Microsoft Learn, dated 2026-09-22.
+  An import the compiler reads is read; what it refuses is read as nothing.
+- **What separates two tokens is the language's white space, and a
+  comment.** Rust's is Unicode's Pattern_White_Space (Lexical structure,
+  "Whitespace"); C#'s is a character of the class Zs, a tab, a vertical tab
+  or a form feed, and what ends a line (6.3.4 and 6.3.2). Nothing need
+  separate two tokens that cannot be read as one.
+- **A name is read as the compiler compares two.** In Rust, `r#` is no part
+  of an identifier, `r#_`, `r#crate`, `r#self`, `r#Self` and `r#super` are
+  refused, and two names are one where their NFC forms are (Lexical
+  structure, "Identifiers"). In C#, two identifiers are one after the `@` is
+  taken off, each escape is made the character it writes and each
+  formatting character is taken out (6.4.3). The C# page has a conforming
+  program write its names in NFC and leaves another form to the compiler;
+  the compiler of the SDK refused `using` of a name in NFD beside a
+  namespace in NFC, so a C# name is read as written, and not normalised.
+- **A path's own end is read.** `self` at the end of a path names what is
+  before it, as the Reference has `P::self` equivalent to `P::{self}`; a
+  leading `::` is no part of the name, in a group as outside one; a group
+  with nothing in it names the path before it, which rustc reads as an
+  import; and a glob of nothing names no module. In C#, a type argument
+  list is passed over after a name in `using static` and in an alias, where
+  a type may stand, and an alias's type may end in the marks of an array, a
+  nullable and a pointer; a namespace takes neither. No type argument is a
+  pointer, which the compiler refuses there, and none is read as one.
+- **What is no declaration is read as none.** A keyword is a whole word, so
+  neither the identifier `r#use` nor `@using` and `@namespace` starts one. A
+  C# pre-processing directive takes its whole line (6.5.1), and nothing on
+  it is code, its braces included. A byte order mark at the head of a C#
+  file is no character of its text, as the compiler reads it.
+- **A declaration left open is never read on into the next.** No segment of
+  a Rust path is `use` or `extern` unless written raw, and no C# identifier
+  is `using` or `namespace`: each is a keyword in every edition and version,
+  so reading stops where the next declaration starts, and it is read.
+- **Left as they are, each measured: what the compiler refuses beyond its
+  grammar.** 10 of the 54 Rust sources rustc refuses and 2 of the 35 C# ones
+  are still read, and nothing more is asked of them:
+  - whether a name is a keyword, `use mod::d;`, `use a::fn;` and `using
+    class.N;`, as of a Python statement in the amendment above. Rust's
+    `async`, `await` and `dyn` are keywords from the 2018 edition on and
+    `gen` from 2024, and the edition is in `Cargo.toml`, which the reader
+    does not open;
+  - where `self`, `super` and `crate` stand in a path, which rustc refuses
+    in the middle of one, and the restrictions the Reference adds to the
+    grammar: `use crate;`, `use self;` and `extern crate self;`, each with no
+    `as`;
+  - whether a comment between two tokens is a doc comment, which rustc reads
+    as an attribute and refuses there: the mask makes every comment blanks;
+  - whether `$crate`, or another name that starts with `$`, stands in a
+    macro, where rustc reads it as the macro is expanded: 0.26.0 read both,
+    and `use crate::utils::$name::Thing;` is a dependency on `crate::utils`
+    in every expansion;
+  - and a C# name in another normal form than the namespace it means, which
+    names another namespace, read as written.
+- **Where a reference is reported does not change**: on the line of its
+  `use`, its `extern` or its `using`, and a declaration that runs over
+  several lines on its first, as a Python statement is. rustc's own
+  diagnostics point at each path of a group.
+- **The cap holds depth too.** A group nested deeper than `MAX_EXPANSION`
+  (64) is reported with the same note as one that expands past it, and no
+  reference, where 0.26.0 ran out of stack; the note says both.
+- **For a caller of the package**, `expandUsePath` reads a use tree as a
+  declaration's is read, with its `;` or without, and names nothing of text
+  that is no tree; `Reader` keeps what the Go reader and Python's dynamic
+  imports read with, and its `eat`, `keyword`, `dotted` and
+  `skipGenerics`, which only the C# reader called, are gone.
+- **It can turn a passing run red**, which is the point: a rule over Rust or
+  C# now sees an import written one of those ways. It turns a failing one
+  green only over text the compiler refuses, or that is no import.
+
+`tests/rust-and-csharp-statements.test.ts` holds each source rustc and the
+C# compiler read to what they read, each one they refuse to nothing, what is
+left as it is to what is read of it, and an import rule to both.
+
+<!-- @assert-present file="tests/rust-and-csharp-statements.test.ts" reason="the readers are held to what rustc and the C# compiler read of each spelling, and to nothing for what they refuse" -->

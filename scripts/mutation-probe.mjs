@@ -455,7 +455,8 @@ async function main() {
   /* ------------------------------------------------------- 9. polyglot parts */
 
   for (const input of ['std::fmt;', 'std::fmt as f;', 'std::fmt ;', 'a::b c;', '::std::fmt;', 'std::{fmt, io};',
-    'a::{b::{c, d}, e};', '  a :: {b};', ';', '', 'a::{', 'a::{b}; use c::d;']) {
+    'a::{b::{c, d}, e};', '  a :: {b};', ';', '', 'a::{', 'a::{b}; use c::d;', 'a :: b;', 'r#mod::d;', 'a::b::self;',
+    'a::{};', '{*, a::*}', 'a::{b,};', '$crate::a as $x;']) {
     say('expandUsePath', JSON.stringify(input), polyglot.expandUsePath(input));
   }
   for (const input of ['a\n\n   \nb', 'from a import (\n b,\n c,\n)\nnext\n', 'import a, \\\n b\n', ')\nimport a\n', '', 'x']) {
@@ -476,12 +477,11 @@ async function main() {
   say('polyglot.syntaxNames', '-', polyglot.SYNTAX_NAMES);
   say('polyglot.maxExpansion', '-', polyglot.MAX_EXPANSION);
   {
-    const reader = new polyglot.Reader('  a.b<c<d>> ; rest');
+    const reader = new polyglot.Reader('  a1_b.c ; rest');
     reader.skipSpace();
-    const dotted = reader.dotted();
+    const word = reader.identifier();
     reader.skipSpace();
-    reader.skipGenerics();
-    say('Reader', '-', `${dotted}|${reader.index}|${reader.peek()}`);
+    say('Reader', '-', `${word}|${reader.index}|${reader.peek()}|${reader.identifier()}`);
   }
 
   /* ---------------------------------------------------- 10. directive resolve */

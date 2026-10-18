@@ -246,10 +246,13 @@ describe('rust', () => {
     expect(analysis.notes[0]?.kind).toBe('truncated');
   });
 
-  it('caps a deeply nested expansion instead of exhausting memory', () => {
-    let source = 'x';
-    for (let depth = 0; depth < 8; depth++) source = `{${source}::a, ${source}::b}`;
-    expect(expandUsePath(source)).toBeNull();
+  it('caps a deeply nested group instead of exhausting the stack', () => {
+    // Each group is read by a call of its own, and 0.26.0 ran out of stack on
+    // twenty thousand of them.
+    const nested = (depth: number): string => `${'a::{'.repeat(depth)}b${'}'.repeat(depth)}`;
+    expect(expandUsePath(nested(MAX_EXPANSION))).toEqual([`${'a::'.repeat(MAX_EXPANSION)}b`]);
+    expect(expandUsePath(nested(MAX_EXPANSION + 1))).toBeNull();
+    expect(expandUsePath(nested(20_000))).toBeNull();
   });
 
   // The shape of the trial file, with its names changed: a plugin crate whose

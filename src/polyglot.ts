@@ -154,11 +154,12 @@ export function literalValue(raw: string): string {
 const IDENTIFIER = /[A-Za-z_][A-Za-z0-9_]*/y;
 
 /**
- * Whitespace-skipping cursor over masked code.
+ * Whitespace-skipping cursor over masked code, which a Go import and a Python
+ * dynamic import are read with.
  *
  * Exported so its edges can be pinned directly. Reaching "what does peek() do
- * at the end of the file" through a C# source string is possible but says
- * nothing about C#.
+ * at the end of the file" through a Go source string is possible but says
+ * nothing about Go.
  */
 export class Reader {
   index = 0;
@@ -180,71 +181,12 @@ export class Reader {
     return this.text[this.index] ?? '';
   }
 
-  eat(token: string): boolean {
-    if (!this.text.startsWith(token, this.index)) return false;
-    this.index += token.length;
-    return true;
-  }
-
-  /**
-   * Eats a word only when it really is the whole word.
-   *
-   * `eat('static')` also matches the first six characters of a namespace called
-   * `staticfiles`, and would then read the dependency as `files`.
-   */
-  keyword(word: string): boolean {
-    if (!this.text.startsWith(word, this.index)) return false;
-    if (/[A-Za-z0-9_]/.test(this.text[this.index + word.length] ?? '')) return false;
-    this.index += word.length;
-    return true;
-  }
-
   identifier(): string {
     IDENTIFIER.lastIndex = this.index;
     const match = IDENTIFIER.exec(this.text);
     if (!match) return '';
     this.index += match[0].length;
     return match[0];
-  }
-
-  /**
-   * Reads `a.b.c`, leaving out a C# alias qualifier.
-   *
-   * `global::A.B` and `Legacy::A.B` both name the namespace `A.B`: what comes
-   * before `::` says where to look it up - the global namespace, or the
-   * assembly an extern alias names - and is not part of the name. Until 0.10.2
-   * this read `global.A.B`, and no pattern written for `A.B` matched it.
-   */
-  dotted(): string {
-    let parts: string[] = [];
-    for (;;) {
-      const part = this.identifier();
-      if (!part) break;
-      parts.push(part);
-      if (this.eat('::')) parts = [];
-      else if (!this.eat('.')) break;
-    }
-    return parts.join('.');
-  }
-
-  /**
-   * Skips a generic argument list, so an alias target's `<...>` does not end
-   * the read.
-   *
-   * No bracket counting. A `using` directive ends at the first `;` or newline
-   * whatever is nested inside its angle brackets, and the caller's only
-   * question is whether the next non-space character is that `;` - so `A<B>`
-   * and `A<B<C>>` are both passed over by the same rule. The depth counter
-   * that used to be here could not change an answer for any input C# accepts,
-   * which is another way of saying no test could hold it in place.
-   */
-  skipGenerics(): void {
-    if (this.peek() !== '<') return;
-    while (this.index < this.text.length) {
-      const char = this.text[this.index] as string;
-      if (char === ';' || char === '\n') return;
-      this.index += 1;
-    }
   }
 }
 
@@ -522,58 +464,158 @@ function readGo(collector: Collector): void {
 
 /* --------------------------------------------------------------------- rust */
 
-const RUST_USE = /\b(?:use|extern[ \t\r\n]+crate)\b/g;
+/** Rust's white space, Unicode's Pattern_White_Space, which a masked comment is too. */
+const RUST_SPACE = String.raw`\t\n\v\f\r \u{85}\u{200e}\u{200f}\u{2028}\u{2029}`;
 
 /**
- * Expands one `use` path into the module paths it actually names.
+ * Where a use declaration or an extern crate starts. The keyword is a whole
+ * word, so not the tail of `r#use`, a raw identifier.
+ */
+const RUST_USE = new RegExp(String.raw`(?<![\p{XID_Continue}#])(?:use|extern[${RUST_SPACE}]+crate)(?!\p{XID_Continue})`, 'gu');
+
+/**
+ * One token of a use declaration, after any white space: a name, raw or not,
+ * `$crate` or another of a macro's names, or a mark. Nothing need separate two
+ * tokens that cannot be read as one.
+ */
+const RUST_TOKEN = new RegExp(String.raw`[${RUST_SPACE}]*(?:(r#)?([\p{XID_Start}_]\p{XID_Continue}*)|(\$[\p{XID_Start}_]\p{XID_Continue}*|::|[{},*;]))`, 'uy');
+
+/** Nothing but white space, to the end of the text. */
+const RUST_BLANK = new RegExp(String.raw`^[${RUST_SPACE}]*$`, 'u');
+
+/** What `r#` cannot make a raw identifier of. */
+const RUST_NOT_RAW: ReadonlySet<string> = new Set(['_', 'crate', 'self', 'Self', 'super']);
+
+/** What no segment of a path is unless written raw: `_`, and the keywords a declaration starts with. */
+const RUST_NOT_SEGMENT: ReadonlySet<string> = new Set(['_', 'use', 'extern']);
+
+interface RustToken {
+  /** A name as rustc compares two, in its NFC form and with no `r#`; or a mark. */
+  text: string;
+  name: boolean;
+  raw: boolean;
+  /** Where the text goes on after it. */
+  end: number;
+}
+
+/** The token at `index`, or null where none starts. */
+function rustToken(text: string, index: number): RustToken | null {
+  RUST_TOKEN.lastIndex = index;
+  const match = RUST_TOKEN.exec(text);
+  if (match === null) return null;
+  const [, raw, word, mark] = match;
+  // `r#` stands only before a name.
+  if (raw !== undefined && RUST_NOT_RAW.has(word!)) return null;
+  return { text: word?.normalize('NFC') ?? mark!, name: word !== undefined, raw: raw !== undefined, end: RUST_TOKEN.lastIndex };
+}
+
+/**
+ * The paths one use tree names, segment by segment, read as the Rust
+ * Reference's grammar has it:
  *
- * `a::{b, c::{d, e}}` is three dependencies written as one statement, and a
- * rule about `a::c` has to see them. Returns null when the expansion would
- * exceed MAX_EXPANSION, which the caller reports rather than truncating.
+ *   (path ::)? *    (path ::)? { tree, ... }    path (as name)?
+ *
+ * `refused` where rustc would refuse the text, and `overflow` past
+ * MAX_EXPANSION paths or groups nested that deep. `end` is where reading
+ * stopped, past the tree or at the token it could not read.
+ */
+function readUseTree(text: string, from: number): { paths: string[][] | 'refused' | 'overflow'; end: number } {
+  let index = from;
+  const take = (accept: (token: RustToken) => boolean): RustToken | null => {
+    const token = rustToken(text, index);
+    if (token === null || !accept(token)) return null;
+    index = token.end;
+    return token;
+  };
+  // No name is written as a mark is.
+  const mark = (text: string): boolean => take((token) => token.text === text) !== null;
+  // A name, or `$crate` or another name of a macro's, which rustc reads
+  // where the macro is expanded.
+  const named = (token: RustToken): boolean => token.name || token.text.startsWith('$');
+  // `_` is a token of its own, and stands in a path only after `as`. A
+  // segment is never the keyword a declaration starts with, so that a
+  // declaration left open is never read on into the next.
+  const segment = (): string | null => take((token) => named(token) && (token.raw || !RUST_NOT_SEGMENT.has(token.text)))?.text ?? null;
+
+  const paths: string[][] = [];
+  const tree = (head: readonly string[], depth: number): 'read' | 'refused' | 'overflow' => {
+    if (depth > MAX_EXPANSION) return 'overflow';
+    const path = [...head];
+    mark('::');
+    for (let name = segment(); name !== null; name = segment()) {
+      path.push(name);
+      if (mark('::')) continue;
+      if (take((token) => !token.raw && token.text === 'as') !== null && take(named) === null) return 'refused';
+      paths.push(path);
+      return 'read';
+    }
+    // A separator was the last token read, or nothing was.
+    if (mark('*')) {
+      paths.push([...path, '*']);
+      return 'read';
+    }
+    if (!mark('{')) return 'refused';
+    if (mark('}')) {
+      // An empty group imports nothing, and rustc still reads the path before
+      // it as an import: its lint names `use a::{};` an unused one.
+      paths.push(path);
+      return 'read';
+    }
+    do {
+      const read = tree(path, depth + 1);
+      if (read !== 'read') return read;
+      if (paths.length > MAX_EXPANSION) return 'overflow';
+    } while (mark(',') && rustToken(text, index)?.text !== '}');
+    return mark('}') ? 'read' : 'refused';
+  };
+
+  const read = tree([], 0);
+  return { paths: read === 'read' ? paths : read, end: index };
+}
+
+/** The module a path of a use tree names, in the notation a rule writes, or nothing. */
+function usePath(segments: readonly string[]): string {
+  // `a::b::self` names `a::b`, as `a::{self}` names `a`. A glob of nothing,
+  // the one path a `*` starts, names no module.
+  const named = segments.length > 1 && segments.at(-1) === 'self' ? segments.slice(0, -1) : segments;
+  return named[0] === '*' ? '' : named.join('::');
+}
+
+/**
+ * Expands one use tree, with its `;` or without, into the module paths it
+ * names.
+ *
+ * `a::{b, c::{d, e}}` is three dependencies written as one declaration, and a
+ * rule about `a::c` has to see them. A tree is read as rustc reads it: white
+ * space and comments between its tokens, a raw identifier without its `r#`, a
+ * name in its NFC form, and `self` at the end of a path naming what is before
+ * it. Text that is no use tree, which rustc refuses, names nothing (ADR-0008,
+ * amended 2026-10-18). Returns null when the tree would name more than
+ * MAX_EXPANSION paths, or nest its groups deeper than that, which the caller
+ * reports rather than truncating.
  */
 export function expandUsePath(input: string): string[] | null {
-  const text = input.trim();
-  const open = text.indexOf('{');
-  if (open === -1) {
-    // `a::b as c` and `a::b;` both name `a::b`. Only what stands before the
-    // alias is read, and white space left at its end is taken off on the next
-    // line: one space on either side of `as` splits at a place that reads the
-    // same, so the pattern without either `+` is an equivalent mutant.
-    const leaf = text.split(/\s+as\s+/)[0]!;
-    const trimmed = leaf.replace(/[;\s]+$/, '').replace(/^::/, '');
-    return trimmed ? [trimmed] : [];
-  }
+  const { paths, end } = readUseTree(input, 0);
+  if (paths === 'overflow') return null;
+  const semicolon = rustToken(input, end);
+  const rest = input.slice(semicolon?.text === ';' ? semicolon.end : end);
+  return paths !== 'refused' && RUST_BLANK.test(rest) ? paths.map(usePath).filter((path) => path !== '') : [];
+}
 
-  const close = matchingClose(text, open, '{', '}');
-  const prefix = text.slice(0, open).replace(/::\s*$/, '').trim();
-  const inner = text.slice(open + 1, close);
-
-  const parts: string[] = [];
-  let depth = 0;
-  let current = '';
-  for (const char of inner) {
-    if (char === '{') depth += 1;
-    if (char === '}') depth -= 1;
-    if (char === ',' && depth === 0) {
-      parts.push(current);
-      current = '';
-      continue;
-    }
-    current += char;
+/**
+ * The crate an extern crate declaration names, read from after `crate`, or
+ * null where rustc refuses it: `extern crate name (as alias)? ;`, the name an
+ * identifier or `self`.
+ */
+function externCrate(text: string, from: number): string | null {
+  const crate = rustToken(text, from);
+  if (crate === null || !crate.name || crate.text === '_') return null;
+  let next = rustToken(text, crate.end);
+  if (next !== null && !next.raw && next.text === 'as') {
+    const alias = rustToken(text, next.end);
+    next = alias !== null && alias.name ? rustToken(text, alias.end) : null;
   }
-  parts.push(current);
-
-  const results: string[] = [];
-  for (const part of parts) {
-    const expanded = expandUsePath(part);
-    if (expanded === null) return null;
-    for (const item of expanded) {
-      // `use a::{self, b}` names `a` itself alongside `a::b`.
-      results.push(item === 'self' || !prefix ? prefix || item : `${prefix}::${item}`);
-      if (results.length > MAX_EXPANSION) return null;
-    }
-  }
-  return results;
+  return next?.text === ';' ? crate.text : null;
 }
 
 function readRust(collector: Collector): void {
@@ -583,37 +625,202 @@ function readRust(collector: Collector): void {
 
   while ((match = RUST_USE.exec(code)) !== null) {
     const start = match.index + match[0].length;
-    let end = start;
-    let depth = 0;
-    while (end < code.length) {
-      const char = code[end] as string;
-      if (char === '{') depth += 1;
-      else if (char === '}') {
-        if (depth === 0) break;
-        depth -= 1;
-      } else if (char === ';' && depth === 0) break;
-      end += 1;
+    if (match[0] !== 'use') {
+      const crate = externCrate(code, start);
+      if (crate !== null) emit(collector, crate, 'use', match.index);
+      continue;
     }
-
-    const expanded = expandUsePath(code.slice(start, end));
-    if (expanded === null) {
-      note(
-        collector,
-        'truncated',
-        match.index,
-        `a use declaration expands to more than ${MAX_EXPANSION} module paths`,
-      );
-    } else {
-      for (const specifier of expanded) emit(collector, specifier, 'use', match.index);
+    const { paths, end } = readUseTree(code, start);
+    if (paths === 'overflow') {
+      note(collector, 'truncated', match.index, `a use declaration expands to more than ${MAX_EXPANSION} module paths, or nests its groups deeper than that`);
+    } else if (paths !== 'refused' && rustToken(code, end)?.text === ';') {
+      for (const path of paths) emit(collector, usePath(path), 'use', match.index);
     }
+    // On from where reading stopped, past the tree or at the token rustc
+    // would refuse, so that no token is read twice. No segment is `use` or
+    // `extern`, so no declaration is read into the next.
     RUST_USE.lastIndex = end;
   }
 }
 
 /* -------------------------------------------------------------------- c-sharp */
 
-/** Everything the C# reader stops at: a using, a namespace, or a brace. */
-const CSHARP_TOKEN = /\b(?:using|namespace)\b|[{}]/g;
+/** What C# lets continue an identifier beside a letter: a mark, a digit, a connector, a formatting character. */
+const CSHARP_PART = String.raw`\p{L}\p{Nl}\p{Mn}\p{Mc}\p{Nd}\p{Pc}\p{Cf}`;
+/** C#'s white space, and what ends a line. */
+const CSHARP_BLANK = String.raw`\p{Zs}\t\v\f`;
+const CSHARP_BREAK = String.raw`\r\n\u{85}\u{2028}\u{2029}`;
+
+/**
+ * Everything the C# reader stops at: a using, a namespace, or a brace. Each
+ * keyword is a whole word, so neither the identifier `@using` nor a word an
+ * escape goes on with.
+ */
+const CSHARP_TOKEN = new RegExp(String.raw`(?<![${CSHARP_PART}@\\])(?:using|namespace)(?![${CSHARP_PART}\\])|[{}]`, 'gu');
+
+/**
+ * A pre-processing directive, which takes the whole of its line, so that the
+ * message of a `#region` is no code.
+ */
+const CSHARP_DIRECTIVE = new RegExp(String.raw`^[${CSHARP_BLANK}]*#[^${CSHARP_BREAK}]*`, 'gmu');
+
+/**
+ * One token of a using directive or a namespace declaration, after any white
+ * space or end of a line, which a masked comment is too: a word, as an
+ * identifier and a keyword are both written, or a mark.
+ */
+const CSHARP_WORD = new RegExp(
+  String.raw`[${CSHARP_BLANK}${CSHARP_BREAK}]*(?:(@?(?:[${CSHARP_PART}]|\\u[\dA-Fa-f]{4}|\\U[\dA-Fa-f]{8})+)|(::|[.;=<>,?*\[\](){}]))`,
+  'uy',
+);
+
+const CSHARP_ESCAPE = /\\u([\dA-Fa-f]{4})|\\U([\dA-Fa-f]{8})/g;
+const CSHARP_IDENTIFIER = new RegExp(String.raw`^[\p{L}\p{Nl}_][${CSHARP_PART}]*$`, 'u');
+
+/**
+ * The identifier a word is, as C# compares two: with no `@`, each escape the
+ * character it stands for, and no formatting character. Null for a word that
+ * is no identifier: a digit first, or an escape of what no identifier holds.
+ */
+function csharpIdentifier(word: string): string | null {
+  // A word holds an `@` only as its first character.
+  const decoded = word.replace('@', '').replace(CSHARP_ESCAPE, (_, short: string | undefined, long: string | undefined) => {
+    try {
+      return String.fromCodePoint(Number.parseInt(short ?? long!, 16));
+    } catch {
+      // \U can write a number no character has. A dot is no part of a name.
+      return '.';
+    }
+  });
+  return CSHARP_IDENTIFIER.test(decoded) ? decoded.replace(/\p{Cf}/gu, '') : null;
+}
+
+/** What a type argument list holds beside names and angle brackets: no pointer, which no type argument is. */
+const TYPE_MARKS = ['.', ',', '?', '[', ']', '(', ')', '::'];
+
+/** A cursor over the tokens of one directive or declaration. */
+class CsharpTokens {
+  constructor(
+    private readonly text: string,
+    public index: number,
+  ) {}
+
+  private next(): { word?: string; mark?: string; end: number } | null {
+    CSHARP_WORD.lastIndex = this.index;
+    const match = CSHARP_WORD.exec(this.text);
+    return match === null ? null : { word: match[1], mark: match[2], end: CSHARP_WORD.lastIndex };
+  }
+
+  mark(mark: string): boolean {
+    const token = this.next();
+    if (token?.mark !== mark) return false;
+    this.index = token.end;
+    return true;
+  }
+
+  /** A keyword, as it is written: `@static`, and `static` with an escape in it, are identifiers. */
+  keyword(word: string): boolean {
+    const token = this.next();
+    if (token?.word !== word) return false;
+    this.index = token.end;
+    return true;
+  }
+
+  /**
+   * An identifier, which is never the keyword `using` or `namespace`: so a
+   * directive left open is never read on into the next.
+   */
+  identifier(): string | null {
+    const token = this.next();
+    const name = token?.word === undefined || token.word === 'using' || token.word === 'namespace' ? null : csharpIdentifier(token.word);
+    if (name !== null) this.index = token!.end;
+    return name;
+  }
+
+  /** `name (. name)*`, the name of a namespace declaration. */
+  qualified(): string | null {
+    const parts: string[] = [];
+    for (let part = this.identifier(); part !== null; part = this.identifier()) {
+      parts.push(part);
+      if (!this.mark('.')) return parts.join('.');
+    }
+    return null;
+  }
+
+  /**
+   * A namespace or type name, `(alias ::)? name (. name)*`, or null. What
+   * stands before `::` says where to look the name up, the global namespace
+   * or an extern alias, and is no part of it. Where `generic` allows them, a
+   * type argument list after a name is passed over.
+   */
+  name(generic: boolean): string | null {
+    let part = this.identifier();
+    if (part !== null && this.mark('::')) part = this.identifier();
+    const parts: string[] = [];
+    for (; part !== null; part = this.identifier()) {
+      parts.push(part);
+      if (generic && !this.typeArguments()) return null;
+      if (!this.mark('.')) return parts.join('.');
+    }
+    return null;
+  }
+
+  /**
+   * Passes over a type argument list, `<` to the `>` that closes it, and is
+   * false where something no type holds comes first. Token by token, so it
+   * never reads past a `;`, a brace or the next directive.
+   */
+  private typeArguments(): boolean {
+    if (!this.mark('<')) return true;
+    for (let depth = 1; depth > 0; ) {
+      if (this.mark('<')) depth += 1;
+      else if (this.mark('>')) depth -= 1;
+      else if (this.identifier() === null && !TYPE_MARKS.some((mark) => this.mark(mark))) return false;
+    }
+    return true;
+  }
+
+  /** The array, nullable and pointer marks after a type, `[]`, `[,]`, `?` and `*`, and false for `[` left open. */
+  suffixes(): boolean {
+    for (;;) {
+      if (this.mark('?') || this.mark('*')) continue;
+      if (!this.mark('[')) return true;
+      while (this.mark(',')) continue;
+      if (!this.mark(']')) return false;
+    }
+  }
+}
+
+/**
+ * The namespace or type a using directive names, read from after `using`,
+ * or null where C# would refuse it:
+ *
+ *   using static unsafe? type ;    using unsafe? alias = name-or-type ;    using namespace ;
+ *
+ * `global` before `using` changes nothing of it. A using statement and a
+ * using declaration are none of these, and are read as nothing.
+ */
+function usingDirective(tokens: CsharpTokens): string | null {
+  let target: string | null;
+  if (tokens.keyword('static')) {
+    tokens.keyword('unsafe');
+    target = tokens.name(true);
+  } else {
+    const unsafe = tokens.keyword('unsafe');
+    const start = tokens.index;
+    if (tokens.identifier() !== null && tokens.mark('=')) {
+      target = tokens.name(true);
+      // An alias may name an array, a nullable or a pointer of a type.
+      if (!tokens.suffixes()) return null;
+    } else if (unsafe) {
+      return null;
+    } else {
+      tokens.index = start;
+      target = tokens.name(false);
+    }
+  }
+  return tokens.mark(';') ? target : null;
+}
 
 /** A block namespace not yet closed, and the brace depth of its body. */
 interface OpenNamespace {
@@ -634,10 +841,17 @@ interface OpenNamespace {
  * the brace depth falls below its body's, so nothing here compares an offset
  * with the offset of a delimiter - which no keyword can ever sit on, and which
  * would leave `<` and `<=` meaning the same thing to every test. The code is
- * masked, so no brace in a string or a comment counts.
+ * masked, so no brace in a string, a comment or a pre-processing directive
+ * counts.
+ *
+ * A directive and a declaration are read token by token, as the C#
+ * specification has them (ADR-0008, amended 2026-10-18): white space and
+ * comments between the tokens, an identifier as C# compares two, and what
+ * C# refuses read as nothing.
  */
 function readCsharp(collector: Collector): void {
-  const { code } = collector.masked;
+  // A byte order mark at the head of a file is no character of its text.
+  const code = collector.masked.code.replace(/^\u{feff}/u, ' ').replace(CSHARP_DIRECTIVE, (line) => ' '.repeat(line.length));
   const declared = new Set<string>();
   const open: OpenNamespace[] = [];
   let fileScoped: string | undefined;
@@ -657,51 +871,29 @@ function readCsharp(collector: Collector): void {
       continue;
     }
 
-    const reader = new Reader(code);
-    reader.index = match.index + token.length;
-    reader.skipSpace();
-
+    const tokens = new CsharpTokens(code, CSHARP_TOKEN.lastIndex);
     if (token === 'namespace') {
-      // `@namespace` is an identifier rather than the keyword, and no name
-      // follows it.
-      const name = reader.dotted();
-      if (name === '') continue;
-      reader.skipSpace();
-      const outer = open.at(-1);
-      const full = outer === undefined ? name : `${outer.name}.${name}`;
-      // A file-scoped namespace covers the rest of the file, and C# allows
-      // neither a second one nor a block beside it.
-      if (reader.peek() === ';') fileScoped = full;
-      else if (reader.peek() === '{') open.push({ name: full, depth: depth + 1 });
-      else continue;
-      declared.add(full);
-      continue;
+      const name = tokens.qualified();
+      if (name !== null) {
+        const scoped = tokens.mark(';');
+        if (scoped || tokens.mark('{')) {
+          const outer = open.at(-1);
+          const full = outer === undefined ? name : `${outer.name}.${name}`;
+          // A file-scoped namespace covers the rest of the file, and C# allows
+          // neither a second one nor a block beside it. A block's brace is
+          // read here, and counted.
+          if (scoped) fileScoped = full;
+          else open.push({ name: full, depth: (depth += 1) });
+          declared.add(full);
+        }
+      }
+    } else {
+      const target = usingDirective(tokens);
+      if (target !== null) emit(collector, target, 'using', match.index, open.at(-1)?.name ?? fileScoped);
     }
-
-    if (reader.keyword('static')) reader.skipSpace();
-
-    let target = reader.dotted();
-    reader.skipSpace();
-
-    // `using Alias = System.Text.Json;` - the dependency is the right-hand side.
-    if (reader.eat('=')) {
-      reader.skipSpace();
-      target = reader.dotted();
-      reader.skipSpace();
-      reader.skipGenerics();
-      reader.skipSpace();
-    }
-
-    // The whole of what separates a directive from a resource statement, and
-    // it is one condition on purpose. `using (var s = ...)` reads no name at
-    // all and stops on `(`; `using var s = ...` reads `var` and then finds `s`
-    // where a terminator has to be. Earlier versions guarded those two shapes
-    // explicitly, and a third time against an empty name - none of the three
-    // changed an outcome, which mutation testing established by leaving the
-    // tests green with each of them defeated. `emit` refuses an empty
-    // specifier, so this line is the only check that has to be right.
-    if (reader.peek() !== ';') continue;
-    emit(collector, target, 'using', match.index, open.at(-1)?.name ?? fileScoped);
+    // On from where reading stopped, so that no token is read twice. No name
+    // is `using` or `namespace`, so no directive is read into the next.
+    CSHARP_TOKEN.lastIndex = tokens.index;
   }
   collector.namespaces = [...declared];
 }
