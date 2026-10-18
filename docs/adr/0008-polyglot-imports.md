@@ -482,7 +482,7 @@ blank and no comment inside a name, no `@` and no escape.
 Measured on 2026-10-18 against the compilers on the workstation: 144 Rust
 sources, every spelling of a use declaration and of an extern crate around
 white space, comments, raw identifiers, aliases, globs, `self`, `crate` and
-nested groups, each compiled by rustc 1.97.1 (edition 2021); and 131 C#
+nested groups, each compiled by rustc 1.97.1 (edition 2021); and 132 C#
 sources, every spelling of a using directive around white space, comments,
 `@`, escapes, names beyond ASCII, `static`, `unsafe`, `global`, `::` and
 aliases, and of the namespace one stands in, each compiled by the compiler
@@ -491,7 +491,7 @@ the modules and namespaces its names resolve to, with code that compiles
 only if each import binds what it is said to, so a source refused is refused
 for how it is written. And each was read by the analyser of 0.26.0 and of
 this build. rustc compiles 90 and refuses 54; the C# compiler compiles 97 and
-refuses 34.
+refuses 35.
 
 | | 0.26.0 | Now |
 | --- | --- | --- |
@@ -500,7 +500,7 @@ refuses 34.
 | Rust, of the 54 it refuses: read as holding an import | 51 | 10 |
 | C#, of the 83 the compiler compiles that hold a using directive: one not read, or read under another name | 52 | 0 |
 | C#, of the 12 it compiles that hold none: read as holding one | 3 | 0 |
-| C#, of the 34 it refuses: read as holding one | 7 | 2 |
+| C#, of the 35 it refuses: read as holding one | 7 | 2 |
 
 The other three Rust sources rustc compiles are macro definitions, and the
 other two C# sources alias `int` and a tuple; each is read as 0.26.0 read
@@ -592,7 +592,7 @@ under a fifth of a second now.
   is `using` or `namespace`: each is a keyword in every edition and version,
   so reading stops where the next declaration starts, and it is read.
 - **Left as they are, each measured: what the compiler refuses beyond its
-  grammar.** 10 of the 54 Rust sources rustc refuses and 2 of the 34 C# ones
+  grammar.** 10 of the 54 Rust sources rustc refuses and 2 of the 35 C# ones
   are still read, and nothing more is asked of them:
   - whether a name is a keyword, `use mod::d;`, `use a::fn;` and `using
     class.N;`, as of a Python statement in the amendment above. Rust's

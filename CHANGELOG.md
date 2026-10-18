@@ -28,7 +28,7 @@ is deprecated before it goes, is spec-core's
   compiler refuses is read as nothing, where `use a::b c;` and `using A.;`
   were each read as an import; and so were `let r#use = 1;`, a `#region`
   line and `static object @using = A.B;`, which hold none. Of 144 Rust
-  sources given to rustc 1.97.1 and 131 C# ones given to the compiler of the
+  sources given to rustc 1.97.1 and 132 C# ones given to the compiler of the
   .NET SDK 10.0.401, 0.26.0 read 29 of the 78 rustc compiles with an import,
   and 52 of the 83 such C# ones, otherwise than the compiler does; over the
   31,343 Rust files of a cargo registry it read 294 lines as imports that

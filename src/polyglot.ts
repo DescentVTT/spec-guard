@@ -458,23 +458,23 @@ function readGo(collector: Collector): void {
 /* --------------------------------------------------------------------- rust */
 
 /** Rust's white space, Unicode's Pattern_White_Space, which a masked comment is too. */
-const RUST_SPACE = String.raw`[\t\n\v\f\r \u{85}\u{200e}\u{200f}\u{2028}\u{2029}]`;
+const RUST_SPACE = String.raw`\t\n\v\f\r \u{85}\u{200e}\u{200f}\u{2028}\u{2029}`;
 
 /**
  * Where a use declaration or an extern crate starts. The keyword is a whole
  * word, so not the tail of `r#use`, a raw identifier.
  */
-const RUST_USE = new RegExp(String.raw`(?<![\p{XID_Continue}#])(?:use|extern${RUST_SPACE}+crate)(?!\p{XID_Continue})`, 'gu');
+const RUST_USE = new RegExp(String.raw`(?<![\p{XID_Continue}#])(?:use|extern[${RUST_SPACE}]+crate)(?!\p{XID_Continue})`, 'gu');
 
 /**
  * One token of a use declaration, after any white space: a name, raw or not,
  * `$crate` or another of a macro's names, or a mark. Nothing need separate two
  * tokens that cannot be read as one.
  */
-const RUST_TOKEN = new RegExp(String.raw`${RUST_SPACE}*(?:(r#)?([\p{XID_Start}_]\p{XID_Continue}*)|(\$[\p{XID_Start}_]\p{XID_Continue}*|::|[{},*;]))`, 'uy');
+const RUST_TOKEN = new RegExp(String.raw`[${RUST_SPACE}]*(?:(r#)?([\p{XID_Start}_]\p{XID_Continue}*)|(\$[\p{XID_Start}_]\p{XID_Continue}*|::|[{},*;]))`, 'uy');
 
 /** Nothing but white space, to the end of the text. */
-const RUST_BLANK = new RegExp(String.raw`^${RUST_SPACE}*$`, 'u');
+const RUST_BLANK = new RegExp(String.raw`^[${RUST_SPACE}]*$`, 'u');
 
 /** What `r#` cannot make a raw identifier of. */
 const RUST_NOT_RAW: ReadonlySet<string> = new Set(['_', 'crate', 'self', 'Self', 'super']);
@@ -497,10 +497,9 @@ function rustToken(text: string, index: number): RustToken | null {
   const match = RUST_TOKEN.exec(text);
   if (match === null) return null;
   const [, raw, word, mark] = match;
-  const end = RUST_TOKEN.lastIndex;
-  if (word === undefined) return { text: mark!, name: false, raw: false, end };
-  if (raw !== undefined && RUST_NOT_RAW.has(word)) return null;
-  return { text: word.normalize('NFC'), name: true, raw: raw !== undefined, end };
+  // `r#` stands only before a name.
+  if (raw !== undefined && RUST_NOT_RAW.has(word!)) return null;
+  return { text: word?.normalize('NFC') ?? mark!, name: word !== undefined, raw: raw !== undefined, end: RUST_TOKEN.lastIndex };
 }
 
 /**
@@ -813,7 +812,7 @@ function usingDirective(tokens: CsharpTokens): string | null {
       target = tokens.name(false);
     }
   }
-  return target !== null && tokens.mark(';') ? target : null;
+  return tokens.mark(';') ? target : null;
 }
 
 /** A block namespace not yet closed, and the brace depth of its body. */

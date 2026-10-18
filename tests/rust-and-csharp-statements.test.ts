@@ -310,6 +310,7 @@ const CSHARP_REFUSED: string[] = [
   'using unsafe static N1.N2.S;', // c-unsafe-before-static-refused: error CS9133: 'static' modifier must precede 'unsafe' modifier.
   'using static T = N1.N2.S;', // c-static-alias-refused: error CS8085: A 'using static' directive cannot be used to declare an alias
   'using unsafe N1.N2;', // c-unsafe-namespace-refused: error CS9131: Only a 'using static' or 'using alias' can be 'unsafe'.
+  'using unsafe N1;', // c-unsafe-single-name-refused: error CS9131: Only a 'using static' or 'using alias' can be 'unsafe'.
   'using G.L<int>;', // c-namespace-generic-refused: error CS0138: A 'using namespace' directive can only be applied to namespaces; '
   'using global : : N1.N2;', // c-qualified-split-refused: error CS1002: ; expected
   'using global::;', // c-qualified-nothing-refused: error CS1001: Identifier expected
@@ -386,6 +387,11 @@ describe('a C# using directive', () => {
     expect([scoped.namespaces, scoped.references.map(({ namespace }) => namespace)]).toEqual([['N1.Q'], ['N1.Q']]);
   });
 
+  it('ends no file-scoped namespace at a brace that closes nothing, since it covers the rest of the file', () => {
+    const analysis = analyzeSource('namespace Shop;\n}\nusing Db;\n', 'src/Shop.cs');
+    expect([analysis.namespaces, analysis.references.map(({ specifier, namespace }) => [specifier, namespace])]).toEqual([['Shop'], [['Db', 'Shop']]]);
+  });
+
   it('declares no namespace whose name C# refuses, and reads the using after it outside any', () => {
     for (const declared of ['N1.', 'N1 Q', '@ N1', 'N1::Q']) {
       const analysis = analyzeSource(`namespace ${declared} { }\nusing N2;\n`, 'src/Shop.cs');
@@ -415,6 +421,7 @@ describe('a C# using directive', () => {
 
   it('reads past a byte order mark at the head of a file, which is no character of its text', () => {
     expect(csharp('\u{feff}using Shop.Db;\n')).toEqual([['Shop.Db', 1]]);
+    expect(analyzeSource('\u{feff}// head\nusing Shop.Db;\n', 'src/Shop.cs').references.map(({ line, column }) => [line, column])).toEqual([[2, 1]]);
     expect(analyzeSource('\u{feff}namespace Shop.Db;\n', 'src/Shop.cs').namespaces).toEqual(['Shop.Db']);
     expect(csharp('\u{feff}#region using Shop.Db;\n#endregion\n')).toEqual([]);
     // Anywhere else it is a formatting character, which continues a name.
@@ -528,6 +535,9 @@ describe('expandUsePath', () => {
     expect(expandUsePath('a::b;;')).toEqual([]);
     expect(expandUsePath('a::b\u{a0}')).toEqual([]);
     expect(expandUsePath('a::')).toEqual([]);
+    expect(expandUsePath('a::b as;')).toEqual([]);
+    expect(expandUsePath('a::{b as}')).toEqual([]);
+    expect(expandUsePath('a::{b,')).toEqual([]);
   });
 
   it('names no module for a glob of nothing, and the module for a glob of one', () => {
@@ -565,6 +575,11 @@ describe('an import rule over Rust and C#', () => {
       expect([result.ok, result.results[0]?.actual], source).toEqual([false, 1]);
       expect(result.results[0]?.matches.map(({ line }) => line), source).toEqual([1]);
     }
+  });
+
+  it('reports an extern crate by the verb of a use', async () => {
+    const result = await report('core', 'src/lib.rs', 'extern crate core as k;\n');
+    expect([result.ok, result.results[0]?.matches.map(({ text }) => text)]).toEqual([false, ['use core']]);
   });
 
   it('holds over a declaration the compiler refuses, and over text that is none', async () => {
