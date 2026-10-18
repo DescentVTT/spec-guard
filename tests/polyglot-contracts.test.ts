@@ -216,11 +216,10 @@ describe('expandUsePath', () => {
     expect(expandUsePath('std::fmt as f;')).toEqual(['std::fmt']);
   });
 
-  it('strips a terminator that is separated from the path', () => {
-    // The trailing-run pattern is anchored. Unanchored it strips the first run
-    // of semicolons or spaces anywhere, which joins two words into one path.
+  it('reads a terminator that is separated from the path, and nothing of two words, which rustc refuses', () => {
+    // `a::b c` was one module of that name, blanks and all.
     expect(expandUsePath('std::fmt ;')).toEqual(['std::fmt']);
-    expect(expandUsePath('a::b c;')).toEqual(['a::b c']);
+    expect(expandUsePath('a::b c;')).toEqual([]);
   });
 
   it('strips a leading separator', () => {

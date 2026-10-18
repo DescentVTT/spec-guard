@@ -233,8 +233,8 @@ These read the dependency rather than the text, in **five languages**:
 | JavaScript / TypeScript | `.js .mjs .cjs .jsx .ts .mts .cts .tsx` | `import`, `export ... from`, `require()`, `import()` |
 | Python | `.py .pyi` | `import a.b` and `from .rel import x` in every spelling Python's grammar takes, 3.15's `lazy import` among them, and `importlib.import_module("x")` |
 | Go | `.go` | `import "x"` and grouped `import ( ... )`, including aliases and `_` |
-| Rust | `.rs` | `use a::{b, c}` with nested groups, `pub use`, `extern crate` |
-| C# | `.cs .csx` | `using`, `using static`, `global using`, `using X = A.B`, `global::` and extern-alias qualifiers, and a using relative to its namespace |
+| Rust | `.rs` | `use a::{b, c}` with nested groups, `pub use` and `extern crate`, in every spelling rustc's grammar takes: white space and comments between the tokens, a raw identifier, `self` at the end of a path |
+| C# | `.cs .csx` | `using`, `using static`, `global using`, `using X = A.B`, `global::` and extern-alias qualifiers, and a using relative to its namespace, in every spelling the C# grammar takes: white space and comments between the tokens, a name written with `@` or an escape, `using static unsafe` and a generic type |
 
 No parser and no new dependency. JavaScript gets a full tokenizer because a
 module reference can appear anywhere in an expression; the other four are read

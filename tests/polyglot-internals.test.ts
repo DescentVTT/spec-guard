@@ -72,94 +72,6 @@ describe('Reader', () => {
   it('does not start an identifier with a digit', () => {
     expect(new Reader('9abc').identifier()).toBe('');
   });
-
-  it('reads a dotted path and stops at the first non-separator', () => {
-    const reader = new Reader('a.b.c;');
-    expect(reader.dotted()).toBe('a.b.c');
-    expect(reader.peek()).toBe(';');
-  });
-
-  it('leaves out an alias qualifier, which says where to look a name up and is not part of it', () => {
-    // It used to read `global.System.Text`, which no pattern for System.Text matched.
-    expect(new Reader('global::System.Text;').dotted()).toBe('System.Text');
-    expect(new Reader('Legacy::Shop.Orders;').dotted()).toBe('Shop.Orders');
-  });
-
-  it('reads nothing after a qualifier that is followed by no name', () => {
-    expect(new Reader('global::;').dotted()).toBe('');
-  });
-
-  it('stops a dotted path at a trailing separator', () => {
-    expect(new Reader('a.b.').dotted()).toBe('a.b');
-  });
-
-  it('returns nothing for a dotted path that never starts', () => {
-    expect(new Reader('(x)').dotted()).toBe('');
-  });
-
-  describe('eat and keyword', () => {
-    it('eat matches a prefix; keyword does not', () => {
-      expect(new Reader('staticfiles').eat('static')).toBe(true);
-      expect(new Reader('staticfiles').keyword('static')).toBe(false);
-    });
-
-    it('keyword matches at the very end of the text', () => {
-      expect(new Reader('static').keyword('static')).toBe(true);
-    });
-
-    it.each([' ', '.', ';', '\t'])('keyword matches before %j', (next) => {
-      expect(new Reader(`static${next}x`).keyword('static')).toBe(true);
-    });
-
-    it.each(['s', '9', '_'])('keyword does not match before %j', (next) => {
-      expect(new Reader(`static${next}`).keyword('static')).toBe(false);
-    });
-
-    it('neither advances on a miss', () => {
-      const reader = new Reader('dynamic');
-      expect(reader.eat('static')).toBe(false);
-      expect(reader.keyword('static')).toBe(false);
-      expect(reader.index).toBe(0);
-    });
-  });
-
-  describe('skipGenerics', () => {
-    it('does nothing when there is no generic', () => {
-      const reader = new Reader('X;');
-      reader.skipGenerics();
-      expect(reader.index).toBe(0);
-    });
-
-    it('skips a balanced generic', () => {
-      const reader = new Reader('<int>;');
-      reader.skipGenerics();
-      expect(reader.peek()).toBe(';');
-    });
-
-    it('skips a nested generic', () => {
-      const reader = new Reader('<List<int>>;');
-      reader.skipGenerics();
-      expect(reader.peek()).toBe(';');
-    });
-
-    it('gives up at a terminator rather than swallowing the file', () => {
-      const reader = new Reader('<int; more');
-      reader.skipGenerics();
-      expect(reader.peek()).toBe(';');
-    });
-
-    it('gives up at a newline', () => {
-      const reader = new Reader('<int\nmore');
-      reader.skipGenerics();
-      expect(reader.peek()).toBe('\n');
-    });
-
-    it('stops at the end of an unclosed generic', () => {
-      const reader = new Reader('<int');
-      reader.skipGenerics();
-      expect(reader.peek()).toBe('');
-    });
-  });
 });
 
 describe('matchingClose', () => {
@@ -269,8 +181,9 @@ describe('expandUsePath boundaries', () => {
     expect(expandUsePath('a::b;')).toEqual(['a::b']);
   });
 
-  it('keeps a group that never closes', () => {
-    expect(expandUsePath('a::{b, c')).toEqual(['a::b', 'a::c']);
+  it('names nothing of a group that never closes, which rustc refuses', () => {
+    expect(expandUsePath('a::{b, c')).toEqual([]);
+    expect(expandUsePath('a::{b, c}')).toEqual(['a::b', 'a::c']);
   });
 });
 
@@ -283,12 +196,14 @@ describe('reading at the edges of a file', () => {
     expect(specifiers('using static', 'a.cs')).toEqual([]);
   });
 
-  it('reads a rust use that runs to the end without a semicolon', () => {
-    expect(specifiers('use crate::db', 'a.rs')).toEqual(['crate::db']);
+  it('reads nothing of a rust use that runs to the end without its semicolon, which rustc refuses', () => {
+    expect(specifiers('use crate::db', 'a.rs')).toEqual([]);
+    expect(specifiers('use crate::db;', 'a.rs')).toEqual(['crate::db']);
   });
 
-  it('stops a rust use at a closing brace', () => {
-    expect(specifiers('fn f() { use crate::db }\n', 'a.rs')).toEqual(['crate::db']);
+  it('reads nothing of a rust use that a closing brace ends, which rustc refuses', () => {
+    expect(specifiers('fn f() { use crate::db }\n', 'a.rs')).toEqual([]);
+    expect(specifiers('fn f() { use crate::db; }\n', 'a.rs')).toEqual(['crate::db']);
   });
 
   it('reads a go import with no literal after it', () => {
@@ -362,7 +277,7 @@ describe('rust statement shapes', () => {
   it('reports the truncation with the cap in the message', () => {
     const wide = `use a::{${Array.from({ length: MAX_EXPANSION + 1 }, (_, i) => `m${i}`).join(', ')}};\n`;
     expect(analyzeSource(wide, 'a.rs').notes[0]?.detail).toBe(
-      `a use declaration expands to more than ${MAX_EXPANSION} module paths`,
+      `a use declaration expands to more than ${MAX_EXPANSION} module paths, or nests its groups deeper than that`,
     );
   });
 });

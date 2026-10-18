@@ -10,6 +10,40 @@ what to do when upgrading; the family's policy, including how a flag or field
 is deprecated before it goes, is spec-core's
 [ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
+## Unreleased
+
+### Changed
+
+- **A Rust use declaration and a C# using directive are read as their
+  compilers read them.** `use a :: b;`, which rustc compiles, was read as a
+  module named `a :: b`, blanks and all, and `use r#mod::d;` as
+  `r#mod::d`, so a rule on `a::b` or on `mod` passed over each; and
+  `use ::serde::{Deserialize};` was `::serde::Deserialize`, which no rule on
+  `serde` matched. `using System . Text;`, `using T = System . Text .
+  Json;`, `using @System.IO;`, a name written with an escape or with a
+  letter beyond ASCII, `using static unsafe` and `using static` of a
+  generic type were each read as nothing. A declaration is now read by its
+  language's grammar, token by token, with white space and comments between
+  its tokens and each name as the compiler compares two, and what the
+  compiler refuses is read as nothing, where `use a::b c;` and `using A.;`
+  were each read as an import; and so were `let r#use = 1;`, a `#region`
+  line and `static object @using = A.B;`, which hold none. Of 144 Rust
+  sources given to rustc 1.97.1 and 131 C# ones given to the compiler of the
+  .NET SDK 10.0.401, 0.26.0 read 29 of the 78 rustc compiles with an import,
+  and 52 of the 83 such C# ones, otherwise than the compiler does; over the
+  31,343 Rust files of a cargo registry it read 294 lines as imports that
+  hold none, and lost 4 that do
+  ([ADR-0008](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0008-polyglot-imports.md)).
+  Upgrading: an `@assert-import-absence`, `@assert-import-count` or
+  `@assert-layers` rule over Rust or C# that passed may now fail for an
+  import written one of those ways; mend the import it names, or give the
+  rule a `baseline`. A rule that failed only for a declaration the compiler
+  refuses, or for text that is no import, now passes over it. A use group
+  nested more than 64 deep is reported as truncated, where 0.26.0 ran out of
+  stack. From the package, `expandUsePath` names nothing of text that is no
+  use tree, and `Reader`'s `eat`, `keyword`, `dotted` and
+  `skipGenerics`, which only the C# reader called, are gone.
+
 ## 0.26.0
 
 An option that takes one value is refused given two, exit 2, and so is
