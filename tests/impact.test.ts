@@ -116,6 +116,16 @@ describe('the graph, read backwards', () => {
     expect(graph.gaps.map(({ file }) => file)).toEqual(['lost.ts']);
   });
 
+  it('names a Python file with a statement that starts as an import and that Python refuses', async () => {
+    const graph = await buildReverseGraph({
+      root: ROOT,
+      exclude: [],
+      defaultSkips: true,
+      io: memoryIo(ROOT, { 'pkg/a.py': 'from . import b,\n', 'pkg/b.py': 'import os\n' }),
+    });
+    expect(graph.gaps).toEqual([{ file: 'pkg/a.py', detail: 'a statement that starts as an import is one Python refuses, and no module is read from it' }]);
+  });
+
   it('reads only the languages it can read, follows only Python relative imports among the rest, and lists a relative Python import that names nothing', async () => {
     const graph = await buildReverseGraph({
       root: ROOT,

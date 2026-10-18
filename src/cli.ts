@@ -240,7 +240,8 @@ Options
   --json beside a --format that names another format. The same value given
   twice is read as once, as --json beside --format json is. --spec and
   --exclude are lists, and each use adds to its list. Such a line is refused
-  with --help or --version on it too, as a line with a pair is.
+  with --help or --version on it too, as a line with a pair is. And --help
+  beside --version is refused, in either order: a line gets one answer.
 
   A spec pattern that matches no file, beside others that do, is refused the
   same way and by name, since none of its rules was read: a run, prove, impact
@@ -420,7 +421,7 @@ const NOT_WITH_WATCH: ReadonlyArray<[option: string, reason: string]> = [
 ];
 
 /** The long name of an option, whichever way it was spelled. */
-const LONG_NAMES: Readonly<Record<string, string>> = { '-v': '--verbose', '-r': '--root' };
+const LONG_NAMES: Readonly<Record<string, string>> = { '-v': '--verbose', '-r': '--root', '-h': '--help' };
 
 /** Minimal, dependency-free argv parser. Supports `--flag value` and `--flag=value`. */
 export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
@@ -507,12 +508,16 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
     };
 
     switch (name) {
+      // A line gets one answer, and each of these asks for one: given both,
+      // in either order, one would go unread (ADR-0014, amended 2026-10-18).
       case '-h':
       case '--help':
         options.help = true;
+        asks(long, undefined, 'an answer');
         break;
       case '--version':
         options.version = true;
+        asks(long, undefined, 'an answer');
         break;
       case '-v':
       case '--verbose':
@@ -702,9 +707,10 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
   // Two values for a thing that is one: the later was read and the earlier
   // went unread, with no word of it, for each option that takes one value and
   // for `--json` beside a `--format` that names another format (ADR-0014,
-  // amended 2026-10-14). Named in the order they were given, each as it was
-  // written. Refused with `--help` or `--version` on the line too, as the
-  // pair above is: both are a wrong command line, and one tool does not
+  // amended 2026-10-14), and the help was printed for `--help` beside
+  // `--version` (amended 2026-10-18). Named in the order they were given, each
+  // as it was written. Refused with `--help` or `--version` on the line too,
+  // as the pair above is: both are a wrong command line, and one tool does not
   // answer the two first for some wrong lines and after others.
   if (unread !== undefined) {
     throw new UsageError(`Option ${unread[0]} is given beside ${unread[1]}, and one of the two would go unread. Give one of the two.`);

@@ -289,6 +289,9 @@ stops it being mistaken for a complete answer.
 - **A passing rule prints it** without `--verbose` too, since a green run is
   when it would otherwise go unread.
 - **`--strict` turns those warnings into failures.**
+- **A Python statement that starts as an import and that Python refuses is
+  one of them**, `from a import b,` among them: it names no module, and the
+  rule says so on its file and line.
 - **Files in scope in a language whose imports spec-guard cannot read are
   counted and reported**, so a rule pointed at the wrong tree says "analysed 2
   of 3 files; 1 is in a language whose imports spec-guard cannot read (.razor)"
@@ -1391,7 +1394,8 @@ beside `--root ./`, `--format JSON` beside `--format json`, and `--json`
 beside `--format json`. `--spec` and `--exclude` are lists, and each use adds
 to its list; `--exclude=` adds nothing to it, and the configuration's list is
 replaced either way. Such a line is refused with `--help` or `--version` on
-it too, as a line with a pair is.
+it too, as a line with a pair is. And `--help` beside `--version` is refused
+the same way, in either order: they ask for two answers, and a line gets one.
 
 And so is a spec pattern that matches no file beside others that do. After
 `old-docs` was renamed, `spec-guard docs old-docs` ran the specs under `docs`

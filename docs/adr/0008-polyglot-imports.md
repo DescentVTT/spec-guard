@@ -450,7 +450,8 @@ them.
   turn a failing one green, only over a statement Python refuses:
   `import os, , sys` was an import of two modules and is none.
 - **Left as they are.** A statement that is refused is passed over with no
-  note, as one the old patterns could not read was. `from . import *` names
+  note, as one the old patterns could not read was. *Amended 2026-10-18*: it
+  is noted, by the amendment below. `from . import *` names
   no module, here as before. And the same question was asked of the other
   four languages only to record the answers, through the analyser on this
   build: JavaScript and TypeScript (twelve spellings with no blank or with
@@ -466,3 +467,51 @@ Python's answer, with LF and with CRLF line endings, each source Python
 refuses to nothing, the lazy forms to the page, and an import rule to both.
 
 <!-- @assert-present file="tests/python-statements.test.ts" reason="the reader is held to what Python itself reads of each spelling, and to nothing for what Python refuses" -->
+
+## Amended 2026-10-18: a Python statement read as no import is said
+
+The amendment above has a statement Python refuses read as nothing, and
+passed over with no note: `from a import b,` names no module, and an import
+rule over it passed, under `--strict` too. Measured through the launcher on
+0.26.0 (Windows 11 build 26300, Node 24.18.1), with
+`@assert-import-absence target="src" module="forbidden"` over a file that
+holds `import os` and `from forbidden import thing,`:
+
+| Run | 0.26.0 | Now |
+| --- | --- | --- |
+| a run | exit 0, and no word of the statement | exit 0, and the note under the rule |
+| `--strict` | exit 0 | exit 1: `expected no matches, found 0; 1 reference could not be resolved` |
+| `--json --strict` | `ok`, and no warning | not `ok`, the note among the result's `warnings` |
+
+```text
+! docs/a.md:3  1 module reference could not be resolved statically
+!   src/a.py:2 a statement that starts as an import is one Python refuses, and no module is read from it
+```
+
+- **Each statement that starts as an import and that Python refuses is a
+  note**, of the kind `refused`, on the line its first word stands on, as an
+  import would be reported. A statement starts as an import where the
+  reader looks for one: `import`, `from` or `lazy` before either, as a
+  whole word, at the head of a logical line or after a `;` or a `:`. Of the
+  95 sources Python refuses that the test of the amendment above holds to
+  nothing, 85 are each one note;
+  the other 10 start no statement so, `froma import b`, `Import a` and
+  `x = import a` among them, and are said nowhere, as they were read as
+  nothing.
+- **It is treated as every note of what could not be read is**, which is
+  what `--strict` already read: the rule says it under its count, a passing
+  rule as well as a failing one, and under `--strict` the rule fails for it
+  (ADR-0005, Q4). `impact` lists the file among those whose imports could
+  not all be read, as it lists one whose scan was lost.
+- **No import Python reads is among the notes.** Over the 4,341 files of the
+  `Lib` of Python 3.11.9 that the amendment above measured, every one of
+  which Python parses, this build reads the same 32,777 imports, on the same
+  lines, and makes no note of the kind; nor does any of the 192 sources
+  that test holds to what Python reads.
+- **It can turn a passing run red**, under `--strict`, over a file that
+  Python would refuse. `NoteKind`, from the package, has `refused` beside
+  `dynamic`, `unreadable` and `truncated`.
+
+`tests/python-statements.test.ts` holds each source Python refuses to its
+note, or to none where no statement starts as an import, each source Python
+reads to no note, and a rule to both, under `--strict` and not.

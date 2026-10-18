@@ -15,6 +15,10 @@
  * thing spelled two ways, `--json` beside `--format json` and a list given
  * twice. `--help` and `--version` are no way round a refusal: a line with
  * two values is refused with either on it, as a line with a pair is.
+ *
+ * And `--help` beside `--version` asks for two answers to a line that gets
+ * one. On 0.26.0 each order printed the help, on every command; each is now
+ * refused the same way (ADR-0014, amended 2026-10-18).
  */
 
 import { afterEach, describe, expect, it } from 'vitest';
@@ -341,6 +345,55 @@ describe('--help and --version beside a line with two values', () => {
   });
 });
 
+describe('--help beside --version', () => {
+  const COMMANDS = [[], ['--watch'], ['prove'], ['cites'], ['query', 'src'], ['impact', 'src'], ['mcp']];
+  const PAIRS = [
+    ['--help', '--version'],
+    ['--version', '--help'],
+    ['-h', '--version'],
+    ['--version', '-h'],
+  ];
+
+  it('is refused, in either order, on every command and wherever on the line the two stand', async () => {
+    for (const command of COMMANDS) {
+      for (const [first, second] of PAIRS) {
+        for (const argv of [
+          [...command, first!, second!],
+          [...command, first!, '--root', DEMO_REPO, second!],
+          [...command, '--root', DEMO_REPO, first!, second!],
+        ]) {
+          const { io, out, err } = createIO();
+          expect(await main(argv, io), argv.join(' ')).toBe(EXIT_ERROR);
+          expect([out, err], argv.join(' ')).toEqual([[], [`spec-guard: ${refusal(first!, second!)}`]]);
+        }
+      }
+    }
+  });
+
+  it('answers either alone, given twice, or beside its other spelling', async () => {
+    for (const [argv, answer] of [
+      [['--help'], HELP],
+      [['--help', '--help'], HELP],
+      [['-h', '--help'], HELP],
+      [['--version'], version()],
+      [['--version', '--version'], version()],
+      [['query', '--version', 'src', '--version'], version()],
+    ] as const) {
+      const { io, out, err } = createIO();
+      expect(await main(argv, io), argv.join(' ')).toBe(EXIT_OK);
+      expect([out, err], argv.join(' ')).toEqual([[answer], []]);
+    }
+  });
+
+  it('is refused after what is wrong with one option and after a pair, and named where it comes first of two values', () => {
+    expect(() => parseArgs(['--help', '--version', '--bogus'], DEMO_REPO)).toThrow(/^Unknown option "--bogus"\./);
+    expect(() => parseArgs(['--help', '--version', '--strict', '--no-strict'], DEMO_REPO)).toThrow(refused('--strict', '--no-strict'));
+    expect(() => parseArgs(['--root', 'a', '--root', 'b', '--help', '--version'], DEMO_REPO)).toThrow(refused('--root "a"', '--root "b"'));
+    expect(() => parseArgs(['--help', '--version', '--root', 'a', '--root', 'b'], DEMO_REPO)).toThrow(refused('--help', '--version'));
+    expect(() => parseArgs(['--watch', '--json', '--help', '--version'], DEMO_REPO)).toThrow(refused('--help', '--version'));
+  });
+});
+
 describe('the help', () => {
   it('says it beside the other inputs that are refused', () => {
     expect(HELP).toContain(
@@ -350,7 +403,8 @@ describe('the help', () => {
         '  --json beside a --format that names another format. The same value given',
         '  twice is read as once, as --json beside --format json is. --spec and',
         '  --exclude are lists, and each use adds to its list. Such a line is refused',
-        '  with --help or --version on it too, as a line with a pair is.',
+        '  with --help or --version on it too, as a line with a pair is. And --help',
+        '  beside --version is refused, in either order: a line gets one answer.',
       ].join('\n'),
     );
   });

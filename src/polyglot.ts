@@ -459,11 +459,18 @@ function readPython(collector: Collector): void {
     while ((match = PYTHON_STATEMENT.exec(line.text)) !== null) {
       const tokens = pythonTokens(line.text, PYTHON_STATEMENT.lastIndex);
       const modules = tokens === null ? null : pythonImports(tokens, match[4] === 'from', match[3] !== undefined);
-      if (modules === null) continue;
       // Reported on the line its first word stands on, at that line's head,
       // as an import at the head of a logical line always was.
       const first = match.index + match[1]!.length + match[2]!.length;
       const [, offset] = line.starts.findLast(([at]) => at <= first)!;
+      // A statement that starts as an import and that Python refuses names no
+      // module, and is said, as everything that could not be read is: a rule
+      // that passes over it under --strict fails (ADR-0008, amended
+      // 2026-10-18).
+      if (modules === null) {
+        note(collector, 'refused', offset, 'a statement that starts as an import is one Python refuses, and no module is read from it');
+        continue;
+      }
       // Python reads a name in the form NFKC gives it.
       for (const module of modules) emit(collector, module.normalize('NFKC'), 'import', offset);
     }

@@ -70,7 +70,7 @@ export interface ModuleReference {
   namespace?: string;
 }
 
-export type NoteKind = 'dynamic' | 'unreadable' | 'truncated';
+export type NoteKind = 'dynamic' | 'unreadable' | 'truncated' | 'refused';
 
 export interface AnalysisNote {
   kind: NoteKind;
