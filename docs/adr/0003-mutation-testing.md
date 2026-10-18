@@ -1555,6 +1555,29 @@ ran high where they were least measured: `runner.ts` and `text.ts` took 7m35s
 against 15.2 minutes, and `cli.ts` alone 8m18s against 15.1, so the next
 split starts from this run's logs rather than 398fe94's.
 
+### 0.27.0: the Rust and C# readers rewritten, and eight survivors fewer
+
+CI's full sweep of 2d588e3 (run 39132619565) came out at **99.33% over
+13,242 mutants with 87 survivors and 2 without coverage**, 213 of them
+detected by timeout; the shards took from 7m03s to 15m53s. Against the
+sweep of 0.26.0's release commit, 1dad0f9 (run 38478402121), 95
+survivors and 2 without coverage over 12,993:
+
+- seven survivors are gone: they stood in the Rust and C# readers, which
+  were rewritten to read a declaration as each language's reference and
+  compiler read it (ADR-0008, amended 2026-10-18);
+- one more, `target === '.'` made `true` in `src/impact.ts`, is the
+  equivalent mutant its comment names, detected by timeout in this sweep
+  and not in the last;
+- the release has 249 mutants more, 246 in `src/polyglot.ts` and 3 in
+  `src/cli.ts`, for the readers, the note for a Python statement read as
+  no import and the refusal of `--help` beside `--version`, and none of
+  them is a survivor;
+- no survivor is new: mutant for mutant, the 87 are among those 95.
+
+Each of the two pull requests was swept incrementally before it merged,
+and read the same: no mutant of what either wrote survived.
+
 ### 0.26.0: the patterns that read Python went, and their survivors with them
 
 CI's full sweep of bad7780 (run 38475810370) came out at **99.26% over

@@ -10,7 +10,13 @@ what to do when upgrading; the family's policy, including how a flag or field
 is deprecated before it goes, is spec-core's
 [ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
-## Unreleased
+## 0.27.0
+
+A Rust use declaration and a C# using directive are read as their
+compilers read them: `use a :: b;` was read as a module named `a :: b`,
+and `using System . Text;` as nothing. A Python statement that starts as
+an import and that Python refuses is said, where it was passed over with
+no word. And `--help` beside `--version` is refused, exit 2.
 
 ### Changed
 
