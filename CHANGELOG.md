@@ -19,6 +19,18 @@ is deprecated before it goes, is spec-core's
   and the version went unread
   ([ADR-0014](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0014-configuration-and-watch.md)).
   Upgrading: give one of the two.
+- **A Python statement that starts as an import and that Python refuses is
+  said, as a note under each import rule over its file**, where it was
+  passed over with no word: `from a import b,` names no module, and a rule
+  over it passed under `--strict` too. The note is one of those a rule
+  could not read, so under `--strict` the rule fails for it, exit 1; over
+  the 4,341 files of Python 3.11.9's own library, which Python parses, no
+  such note is made
+  ([ADR-0008](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0008-polyglot-imports.md)).
+  Upgrading: a `--strict` run over a Python file that Python would refuse
+  may now fail; mend the statement the note names. From the package,
+  `NoteKind` has `refused` beside the other three, and `impact` lists such
+  a file among those whose imports could not all be read.
 
 ## 0.26.0
 
