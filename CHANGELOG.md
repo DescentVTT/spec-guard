@@ -58,6 +58,24 @@ is deprecated before it goes, is spec-core's
   dependency written one of those ways; mend the import it names, or give
   the rule a `baseline`. From the package, `Reader.identifier` reads a
   name as Go has one.
+- **`^` and `$` in a regex rule read a line, with either engine**, where
+  they read only a file's two ends: `symbol="^\s*-?\s*uses:"` passed over a
+  workflow with `uses:` on its fourth line, under `--engine js` and
+  `--engine rg` alike. A line ends at LF, at CRLF and at a lone CR, as
+  ripgrep reads one with `--crlf`, and ripgrep is asked with `--crlf` and
+  `--multiline`, so the files it names hold every one the scanner counts in:
+  `foo\s+bar` over two lines was counted by `--engine js` and passed by
+  `--engine rg`. A pattern with `\n` is read by ripgrep now, where its search
+  fell back to the scanner with a warning. `prove` shows a regular
+  expression's maximum its text below a line of its own too, and its
+  `--json` holds that second probe before the one for a minimum
+  ([ADR-0007](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0007-search-scope.md),
+  [ADR-0016](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0016-rules-seen-to-fail.md)).
+  Upgrading: a regex rule with `^` or `$` whose match is not on a file's
+  first or last line may now fail; mend the line it names, or give the rule
+  a `baseline`. A rule that failed only on a match after a file's last line
+  end or in an empty file, as `\s+$` did over every file that ends with a
+  line end, now passes; `[ \t]+$` reads only the blanks a line ends with.
 
 ### Fixed
 
