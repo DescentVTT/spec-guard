@@ -285,6 +285,10 @@ describe('a C# type cut short', () => {
     // nothing after its comma (CS1031).
     expect(csharp('using T = (N1.X;')).toEqual([]);
     expect(csharp('using T = (N1.X, ;')).toEqual([]);
+    // An argument list and a function pointer's parameters left open after a
+    // name (CS1031).
+    expect(csharp('using T = G.L<;')).toEqual([]);
+    expect(csharp('using unsafe T = delegate*<N1.X, ;')).toEqual([]);
     // An argument list left empty at the depth is cut short there too.
     const deep = analyzeSource(`using T = ${'G.L<'.repeat(MAX_EXPANSION)}${'>'.repeat(MAX_EXPANSION)};\n`, 'src/Shop.cs');
     expect([deep.references, deep.notes.map(({ kind, detail }) => [kind, detail])]).toEqual([[], [['truncated', `a using directive nests its types deeper than ${MAX_EXPANSION}`]]]);
