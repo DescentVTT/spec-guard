@@ -321,6 +321,29 @@ describe('resolveEngine', () => {
     expect(result.engine).toBe('javascript');
   });
 
+  it('leaves no error to end the process when ripgrep cannot start on a big tree', async () => {
+    // The search and the listing of work trees beside it are two processes,
+    // and each reports that it could not start. A report heard by nobody is
+    // thrown outside every promise, though the other's has had the scanner
+    // answer: a run of the launcher ends there, exit 2 with a stack. Vitest
+    // takes such an error as its own and passes the test it came in, so the
+    // test listens for it.
+    const unheard: unknown[] = [];
+    const hear = (error: unknown): void => {
+      unheard.push(error);
+    };
+    process.on('uncaughtException', hear);
+    try {
+      process.env.SPEC_GUARD_RG = path.join(DEMO_REPO, 'definitely-not-ripgrep');
+      const root = await makeBigRepo();
+      const result = await (await resolveEngine('auto')).search(bigRepoRequest(root));
+      expect(result.engine).toBe('javascript');
+    } finally {
+      process.off('uncaughtException', hear);
+    }
+    expect(unheard).toEqual([]);
+  });
+
   it.runIf(rgPath)('agrees with both engines on a tree that crosses the budget', async () => {
     const root = await makeBigRepo();
     const query = bigRepoRequest(root, 'Needle');
