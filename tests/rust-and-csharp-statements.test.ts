@@ -618,6 +618,7 @@ describe('a declaration the compiler refuses, where it starts as one', () => {
     ['a module of its own with no name given with `as`', ['use crate;', 'use self;', 'use super;', 'use {self};', 'use {crate};', 'use crate::self;', 'use crate::{self};', 'use self::{self};', 'use self::super;', 'use super::super;', 'use super::{self};', 'extern crate self;']],
     ['a `$` name, outside a macro', ['use $crate::a;', 'use $crate as x;', 'use $x;']],
     ['a `::` inside a group', ['use a::{::b};']],
+    ['`crate`, `self` or `super` first in a group after a leading `::`', ['use ::{crate::a as z};', 'use ::{self::a as z};', 'mod m { use ::{super::a as z}; }']],
   ])('is said where it has %s', (_kind, sources) => {
     for (const source of sources) expect(rustSaid(source), source).toEqual([[], REFUSED]);
   });
@@ -646,6 +647,7 @@ describe('a declaration the compiler refuses, where it starts as one', () => {
     expect(csharpSaid('extern alias X;\nusing N1.;')).toEqual([[], [['refused', 2]]]);
     expect(csharpSaid('#if NEVER\n#endif\nusing N1.;')).toEqual([[], [['refused', 3]]]);
     expect(csharpSaid('#region r\nusing N1.;\n#endregion')).toEqual([[], [['refused', 2]]]);
+    expect(csharpSaid('namespace A { }\nusing N1.;')).toEqual([[], [['refused', 2]]]);
   });
 
   it('is said once, and the declaration after it is read, where a keyword leaves it open', () => {
@@ -674,6 +676,7 @@ describe('what the compiler compiles, or reads as no declaration, is not said', 
       expect(rustSaid(source), source).toEqual([[['a::b', 1]], []]);
     }
     expect(rustSaid('/// c\nuse a::b;')).toEqual([[['a::b', 2]], []]);
+    expect(rustSaid('use a::b;/// c\nfn f() {}')).toEqual([[['a::b', 1]], []]);
   });
 
   it('where self, super and crate stand as rustc takes them', () => {
@@ -696,6 +699,7 @@ describe('what the compiler compiles, or reads as no declaration, is not said', 
       ['use self::{self as m3};', 'self'],
       ['use crate::self as r;', 'crate'],
       ['extern crate self as me;', 'self'],
+      ['extern crate r#fn as f;', 'fn'],
     ];
     for (const [source, name] of read) expect(rustSaid(source), source).toEqual([[[name, 1]], []]);
     // The crate root in the 2015 edition, refused from 2018, which the
@@ -703,6 +707,11 @@ describe('what the compiler compiles, or reads as no declaration, is not said', 
     expect(rustSaid('use ::{self as root};')).toEqual([[['self', 1]], []]);
     expect(rustSaid('use {};')).toEqual([[], []]);
     expect(rustSaid('use ::{};')).toEqual([[], []]);
+    // An empty group binds nothing, so the module before it needs no name.
+    expect(rustSaid('use crate::{};')).toEqual([[['crate', 1]], []]);
+    expect(rustSaid('use self::{};')).toEqual([[['self', 1]], []]);
+    expect(rustSaid('mod m { use super::{}; }')).toEqual([[['super', 1]], []]);
+    expect(rustSaid('mod m { mod n { use super::super::{}; } }')).toEqual([[['super::super', 1]], []]);
   });
 
   it('where `use` is no declaration: a bound, a postfix, a closure', () => {
@@ -721,6 +730,15 @@ describe('what the compiler compiles, or reads as no declaration, is not said', 
     // What is read there is read as it always was.
     expect(rustSaid('macro_rules! k { ($p:path) => { use $p; }; }')).toEqual([[['$p', 1]], []]);
     expect(rustSaid('macro_rules! k { () => { use $crate::a::b; }; }')).toEqual([[['$crate::a::b', 1]], []]);
+    // What rustc refuses where the macro is expanded is read as nothing there.
+    expect(rustSaid('macro_rules! k { () => { use a::$crate::b; }; }')).toEqual([[], []]);
+    expect(rustSaid('macro_rules! k { () => { use $crate; }; }')).toEqual([[], []]);
+    expect(rustSaid('macro_rules! k { () => { use $crate as c; }; }')).toEqual([[['$crate', 1]], []]);
+    // An attribute holds tokens too, and a group a macro is followed by is none of its own.
+    expect(rustSaid('#[my(x; use a::b c)] fn f() {}')).toEqual([[], []]);
+    expect(rustSaid('#![my(x; use a::b c)]')).toEqual([[], []]);
+    expect(rustSaid('fn f() { if m!(x) { use a::b c; } }')).toEqual([[], REFUSED]);
+    expect(rustSaid('m!(x)use a::b c;')).toEqual([[], REFUSED]);
     // And after one, a declaration is said again.
     expect(rustSaid(`${tokens}m! { use a::b c; }\nuse a::b c;`)).toEqual([[], [['refused', 3]]]);
   });
@@ -760,6 +778,8 @@ describe('what the compiler compiles, or reads as no declaration, is not said', 
       'using unsafe T = delegate*<int*, void>;',
       'using unsafe T = delegate*<void>*;',
       'using unsafe T = delegate*<void>[];',
+      'using unsafe T = delegate* managed<int, void>;',
+      'using unsafe T = delegate*<in int, out int, ref readonly int, void>;',
     ]) {
       expect(csharpSaid(source), source).toEqual([[], []]);
     }
@@ -783,6 +803,9 @@ describe('what the compiler compiles, or reads as no declaration, is not said', 
   it('where a C# directive stands in a section an #if may leave out, which the compiler then never reads', () => {
     expect(csharpSaid('#if NEVER\nusing N1.;\n#endif')).toEqual([[], []]);
     expect(csharpSaid('#if NEVER\n#if ALSO\n#endif\nusing N1.;\n#endif')).toEqual([[], []]);
+    expect(csharpSaid('#if NEVER\nusing N1.;\n#if ALSO\n#endif\n#endif')).toEqual([[], []]);
+    // An `#endif` that closes nothing, which the compiler refuses, ends no section.
+    expect(csharpSaid('#endif\n#if NEVER\nusing N1.;\n#endif')).toEqual([[], []]);
     expect(csharpSaid('#if NEVER\nusing N1.;\n#else\nusing N1.N2;\n#endif')).toEqual([[['N1.N2', 4]], []]);
     // One left open runs to the end of the file.
     expect(csharpSaid('#if NEVER\nusing N1.;\n')).toEqual([[], []]);

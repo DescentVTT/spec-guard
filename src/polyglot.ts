@@ -535,8 +535,8 @@ interface UsePath {
   segments: string[];
   /** Written after a leading `::`, which names the extern prelude, or the crate root in the 2015 edition. */
   global: boolean;
-  /** Given a name of its own with `as`. */
-  renamed: boolean;
+  /** Binding what it names under that name: no `as`, no glob and no empty group. */
+  bare: boolean;
 }
 
 /**
@@ -546,7 +546,7 @@ interface UsePath {
  * declarations, "Restrictions"), each as read on 2026-10-19, and each held
  * to rustc 1.97.1 in every edition.
  */
-function rustPathRefused({ segments, global, renamed }: UsePath): boolean {
+function rustPathRefused({ segments, global, bare }: UsePath): boolean {
   const last = segments.length - 1;
   const misplaced = segments.some((segment, at) => {
     // First, and not after a `::`.
@@ -555,15 +555,17 @@ function rustPathRefused({ segments, global, renamed }: UsePath): boolean {
     // `::{self as root}` imports the crate root in the 2015 edition and is
     // refused from 2018, which the reader cannot tell apart, so it is read.
     if (segment === 'self') return at < last && (at > 0 || global);
-    // Only after other `super`s, or after a first `self`.
-    if (segment === 'super') return global || !segments.slice(0, at).every((before, k) => before === 'super' || (k === 0 && before === 'self'));
+    // Only after other `super`s, or after a first `self`: a `self` anywhere
+    // else before it is refused where it stands.
+    if (segment === 'super') return global || !segments.slice(0, at).every((before) => before === 'super' || before === 'self');
     return false;
   });
   // `use crate;`, `use self;`, `use super::super;` and `use a::{self}` with
   // `a` one of them: the module is bound only under a name given with `as`.
-  // `use {};`, which names nothing, is no such import.
-  const named = last > 0 && segments[last] === 'self' ? segments.slice(0, last) : segments;
-  return misplaced || (!renamed && named.length > 0 && named.every((segment) => RUST_PATH_KEYWORDS.has(segment)));
+  // `use crate::{};` binds nothing, and rustc takes it. `use self;` names
+  // nothing here, and is refused alike.
+  const named = segments[last] === 'self' ? segments.slice(0, last) : segments;
+  return misplaced || (bare && named.every((segment) => RUST_PATH_KEYWORDS.has(segment)));
 }
 
 /**
@@ -608,19 +610,21 @@ function readUseTree(text: string, from: number): { paths: UsePath[] | 'refused'
       if (mark('::')) continue;
       const renamed = take((token) => !token.raw && token.text === 'as') !== null;
       if (renamed && take(alias) === null) return 'refused';
-      paths.push({ segments: path, global, renamed });
+      paths.push({ segments: path, global, bare: !renamed });
       return 'read';
     }
     // A separator was the last token read, or nothing was.
     if (mark('*')) {
-      paths.push({ segments: [...path, '*'], global, renamed: false });
+      // A glob binds no module of its own; its `*` is no word a path starts
+      // with either, so `bare` is never what decides it.
+      paths.push({ segments: [...path, '*'], global, bare: false });
       return 'read';
     }
     if (!mark('{')) return 'refused';
     if (mark('}')) {
       // An empty group imports nothing, and rustc still reads the path before
       // it as an import: its lint names `use a::{};` an unused one.
-      paths.push({ segments: path, global, renamed: false });
+      paths.push({ segments: path, global, bare: false });
       return 'read';
     }
     do {
@@ -749,6 +753,9 @@ function readRust(collector: Collector): void {
   while ((match = RUST_USE.exec(code)) !== null) {
     const at = match.index;
     while (macro < macros.length && macros[macro]![1] <= at) macro += 1;
+    // A range starts at a macro's name or an attribute's `#`, never where a
+    // `use` does, so `<` for `<=` is an equivalent mutant; and no comment
+    // starts where a `use` does, so `<=` for the `<` after it is one too.
     const inMacro = macro < macros.length && macros[macro]![0] <= at;
     while (comment < comments.length && comments[comment]![0] < at) comment += 1;
     // A doc comment between `use` and the end of the declaration, which rustc
@@ -1196,6 +1203,9 @@ function readCsharp(collector: Collector): void {
       }
     } else {
       const target = usingDirective(tokens);
+      // A section starts at the head of its `#if` line and ends at its
+      // `#endif` line's end, where no `using` starts: `<` for either `<=`
+      // is an equivalent mutant.
       while (condition < conditions.length && conditions[condition]![1] <= match.index) condition += 1;
       const conditional = condition < conditions.length && conditions[condition]![0] <= match.index;
       if (target !== null) {

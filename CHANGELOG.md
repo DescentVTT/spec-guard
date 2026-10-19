@@ -23,10 +23,10 @@ is deprecated before it goes, is spec-core's
   `use a::fn;`) or a C# keyword written plain (`using class.N;`), a doc
   comment between two tokens, `self`, `super` or `crate` where rustc
   refuses them, `use crate;` with no `as`, and a `$` name outside a macro
-  are each read as nothing and said. Of 158 Rust sources rustc 1.97.1
+  are each read as nothing and said. Of 159 Rust sources rustc 1.97.1
   refuses in every edition 155 are said, of 63 C# ones the compiler of the
-  .NET SDK 10.0.401 refuses 52, and none of the 288 the two compile; over
-  31,176 Rust files of a cargo registry and 1,995 C# files no note is made
+  .NET SDK 10.0.401 refuses 52, and none of the 292 the two compile; over
+  31,176 Rust files of a cargo registry and 1,985 C# files no note is made
   but 61 in Visual Studio's project templates
   ([ADR-0008](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0008-polyglot-imports.md)).
   Upgrading: a `--strict` run over a Rust or C# file the compiler would

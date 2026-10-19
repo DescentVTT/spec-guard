@@ -714,20 +714,20 @@ holds `use std::fmt;` and `use forbidden::thing c;`, and one that holds
 ```
 
 Measured on 2026-10-19 against the compilers on the workstation: the 144
-Rust and 132 C# sources of the amendment above, and 159 Rust and 74 C# ones
+Rust and 132 C# sources of the amendment above, and 164 Rust and 74 C# ones
 more, of where a declaration stands, of keywords of each edition, of `self`,
 `super` and `crate`, doc comments, macros, top-level statements, aliases of
 any type and `#if`. Each Rust source was compiled by rustc 1.97.1 in the
 2015, 2018, 2021 and 2024 editions, and each C# one by the compiler of the
 .NET SDK 10.0.401 as a library and as a program, beside the modules and
-namespaces its names resolve to. rustc refuses 158 of the 303 in every
+namespaces its names resolve to. rustc refuses 159 of the 308 in every
 edition and the C# compiler 63 of the 206 as both.
 
 | | 0.27.0 | Now |
 | --- | --- | --- |
-| Rust, of the 158 rustc refuses in every edition: said | 0 | 155 |
-| Rust, of those: read as holding an import, with no word | 100 | 0 |
-| Rust, of the 145 rustc compiles in one edition or more: said | 0 | 0 |
+| Rust, of the 159 rustc refuses in every edition: said | 0 | 155 |
+| Rust, of those: read as holding an import, with no word | 101 | 1 |
+| Rust, of the 149 rustc compiles in one edition or more: said | 0 | 0 |
 | C#, of the 63 the compiler refuses as a library and as a program: said | 0 | 52 |
 | C#, of those: read as holding a using, with no word | 14 | 5 |
 | C#, of the 143 it compiles as either: said | 0 | 0 |
@@ -738,8 +738,8 @@ which starts the next, as `use a::` before a line of its own always did.
 
 And over real code. The 31,176 Rust files of the workstation's cargo
 registry, every one a crate's: the same 280,990 references on both builds,
-on the same lines, and no note of the kind. The 862 C# files of a .NET
-repository on the workstation and the 49 of its NuGet cache: the same 2,187
+on the same lines, and no note of the kind. The 852 C# files of a .NET
+repository on the workstation and the 49 of its NuGet cache: the same 2,147
 references, and no note. The 1,084 C# files of its Visual Studio
 installation: the same 5,342 references, and 61 notes, every one in a
 project template, `using $safeprojectname$.Models;` and the like, which no
@@ -802,10 +802,11 @@ compiler reads until the template is filled in.
   nowhere: rustc takes it in a module of a 2015 crate, as the crate root's
   items, and refuses it at the root and from 2018, and the reader can tell
   neither the edition nor the module. `use ::{self as root};` is read, the
-  crate root in the 2015 edition and refused from 2018. A C# directive among
-  a namespace's members or in a type's body, which the compiler refuses
-  there, is read as it was; and a directive in a skipped section, refused or
-  not.
+  crate root in the 2015 edition and refused from 2018. `use crate::*;` is
+  read as before: rustc refuses a glob of a module into itself, at the root,
+  and takes it in a module below it. A C# directive among a namespace's
+  members or in a type's body, which the compiler refuses there, is read as
+  it was; and a directive in a skipped section, refused or not.
 - **Reading changes only where the compiler refuses, and at three places it
   compiles**: an alias of a type that is a keyword, `using T = int;`, `using
   T = string;` and `using unsafe T = void*;`, names no namespace and is read
