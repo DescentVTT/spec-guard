@@ -278,3 +278,21 @@ describe('a C# alias the compiler refuses, which names nothing', () => {
     expect(csharp('using unsafe T = delegate*<N1.X*, void>;')).toEqual(['N1.X']);
   });
 });
+
+describe('a C# type cut short', () => {
+  it('names nothing, where what was read of it holds a name', () => {
+    // Refused by the compiler: a tuple of one left open (CS8124) and one with
+    // nothing after its comma (CS1031).
+    expect(csharp('using T = (N1.X;')).toEqual([]);
+    expect(csharp('using T = (N1.X, ;')).toEqual([]);
+    // An argument list left empty at the depth is cut short there too.
+    const deep = analyzeSource(`using T = ${'G.L<'.repeat(MAX_EXPANSION)}${'>'.repeat(MAX_EXPANSION)};\n`, 'src/Shop.cs');
+    expect([deep.references, deep.notes.map(({ kind, detail }) => [kind, detail])]).toEqual([[], [['truncated', `a using directive nests its types deeper than ${MAX_EXPANSION}`]]]);
+  });
+
+  it('names a nested type and what a function pointer of two conventions takes', () => {
+    // Each compiled on 2026-10-19.
+    expect(csharp('using T = G.L<int>.Nested;')).toEqual(['G.L.Nested']);
+    expect(csharp('using unsafe T = delegate* unmanaged[Cdecl, SuppressGCTransition]<N1.X, void>;')).toEqual(['N1.X']);
+  });
+});
