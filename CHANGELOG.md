@@ -14,6 +14,34 @@ is deprecated before it goes, is spec-core's
 
 ### Changed
 
+- **A Rust use declaration and a C# using directive that the compiler
+  refuses are said, as a note under each import rule over the file**, as a
+  Python statement Python refuses is: `use forbidden::thing c;` and `using
+  forbidden.;` name no module, and a rule over them passed under `--strict`
+  too. And what 0.27.0 read though the compiler refuses it is decided by
+  the compiler: a keyword of every edition for a segment (`use mod::d;`,
+  `use a::fn;`) or a C# keyword written plain (`using class.N;`), a doc
+  comment between two tokens, `self`, `super` or `crate` where rustc
+  refuses them, `use crate;` with no `as`, and a `$` name outside a macro
+  are each read as nothing and said. Of 159 Rust sources rustc 1.97.1
+  refuses in every edition 155 are said, of 63 C# ones the compiler of the
+  .NET SDK 10.0.401 refuses 52, and none of the 292 the two compile; over
+  31,176 Rust files of a cargo registry and 1,985 C# files no note is made
+  but 61 in Visual Studio's project templates
+  ([ADR-0008](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0008-polyglot-imports.md)).
+  Upgrading: a `--strict` run over a Rust or C# file the compiler would
+  refuse may now fail; mend the declaration the note names. A rule that
+  failed only for such a declaration, `use forbidden::fn;`, now passes with
+  the note under it. A C# alias of a keyword type, `using T = int;`, names
+  nothing, where `int` was read, and a C# using whose types nest deeper
+  than 64 is reported as truncated.
+- **`impact` names a file whose imports could not all be read on the line
+  of each note**, `src/a.rs:2 a declaration that ...`, where it named the
+  file alone, and counts a file with two notes once
+  ([ADR-0018](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0018-impact.md)).
+  Upgrading: each entry of `gaps` in `impact --json` and in
+  `get_dependents` has `line` beside `file` and `detail`; `formatVersion`
+  stays 1, and the package exports `ImpactGap`.
 - **`^` and `$` in a regex rule read a line, with either engine**, where
   they read only a file's two ends: `symbol="^\s*-?\s*uses:"` passed over a
   workflow with `uses:` on its fourth line, under `--engine js` and
@@ -32,6 +60,16 @@ is deprecated before it goes, is spec-core's
   a `baseline`. A rule that failed only on a match after a file's last line
   end or in an empty file, as `\s+$` did over every file that ends with a
   line end, now passes; `[ \t]+$` reads only the blanks a line ends with.
+
+### Fixed
+
+- **On Windows a drive letter names its volume in either case**, so
+  `--root C:\x` beside `--root c:\x` is one root, in either order and on
+  every command. It was refused, exit 2, as two values. The rest of a
+  path is compared as it resolves, as before, so `--root C:\x` beside
+  `--root C:\X` is still refused, and off Windows the two letters are
+  two names and refused as they were
+  ([ADR-0014](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0014-configuration-and-watch.md)).
 
 ## 0.27.0
 

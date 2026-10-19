@@ -21,9 +21,10 @@
  * refused the same way (ADR-0014, amended 2026-10-18).
  */
 
+import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { EXIT_ERROR, EXIT_OK, HELP, main, parseArgs, UsageError, version, type CliIO } from '../src/cli.js';
+import { comparedRoot, EXIT_ERROR, EXIT_OK, HELP, main, parseArgs, UsageError, version, type CliIO } from '../src/cli.js';
 import { DEMO_REPO, makeTempRepo, removeTempRepo } from './helpers.js';
 
 const temporary: string[] = [];
@@ -401,11 +402,60 @@ describe('the help', () => {
         '  So is an option that takes one value and is given two, since the first of',
         '  them would go unread: --root a --root b, --format json --format sarif, and',
         '  --json beside a --format that names another format. The same value given',
-        '  twice is read as once, as --json beside --format json is. --spec and',
-        '  --exclude are lists, and each use adds to its list. Such a line is refused',
-        '  with --help or --version on it too, as a line with a pair is. And --help',
-        '  beside --version is refused, in either order: a line gets one answer.',
+        '  twice is read as once, as --json beside --format json is, and on Windows',
+        '  a drive letter names its volume in either case, so --root C:\\x beside',
+        '  --root c:\\x is one root. --spec and --exclude are lists, and each use adds',
+        '  to its list. Such a line is refused with --help or --version on it too, as',
+        '  a line with a pair is. And --help beside --version is refused, in either',
+        '  order: a line gets one answer.',
       ].join('\n'),
     );
+  });
+});
+
+describe('a drive letter', () => {
+  // A Windows path, on whichever host the suite runs.
+  const windows = (drive: string, ...names: string[]): string => path.win32.join(`${drive}:${path.win32.sep}`, ...names);
+  /** The same path with its drive letter in the other case. */
+  const otherCase = (root: string): string => `${root[0] === root[0]!.toUpperCase() ? root[0]!.toLowerCase() : root[0]!.toUpperCase()}${root.slice(1)}`;
+  const FILES = {
+    'docs/adr/0001-kept.md': '# ADR-0001: Kept\n\n<!-- @assert-absence target="src" symbol="Removed" -->\n',
+    'src/a.ts': 'export const kept = 1;\n',
+  };
+
+  it('names its volume in either case, and the rest of the path is compared as it resolves', () => {
+    // spec-core's ADR-0005, amended 2026-10-19, from Microsoft's Naming
+    // Files, Paths, and Namespaces: D:\ and d:\ name one volume, and NTFS
+    // can be made to tell other names apart by case.
+    expect(comparedRoot(windows('C', 'x'))).toBe(comparedRoot(windows('c', 'x')));
+    expect(comparedRoot(windows('C', 'x'))).not.toBe(comparedRoot(windows('C', 'X')));
+    expect(comparedRoot(windows('c', 'x'))).not.toBe(comparedRoot(windows('d', 'x')));
+    expect(comparedRoot('/srv/x')).not.toBe(comparedRoot('/srv/X'));
+  });
+
+  it.runIf(process.platform === 'win32')('takes a root named with its drive letter in each case as one root, in either order, on every command', async () => {
+    const root = await tree(FILES);
+    const other = otherCase(root);
+    for (const command of [[], ['prove'], ['cites'], ['query', 'src/a.ts'], ['impact', 'src/a.ts']]) {
+      for (const [first, second] of [
+        [root, other],
+        [other, root],
+      ]) {
+        const { io, err } = createIO({ cwd: root });
+        expect(await main([...command, '--root', first!, '--root', second!], io), command.join(' ')).toBe(EXIT_OK);
+        expect(err, command.join(' ')).toEqual([]);
+      }
+    }
+    expect(parseArgs(['--root', windows('C', 'x'), '--root', windows('c', 'x')], DEMO_REPO)).toMatchObject({ root: windows('c', 'x') });
+    // Two directories, and one written with the rest of its path in another
+    // case, are refused as they were.
+    const second = (written: string) => `--root ${JSON.stringify(written)}`;
+    expect(() => parseArgs(['--root', windows('C', 'x'), '--root', windows('C', 'X')], DEMO_REPO)).toThrow(refused(second(windows('C', 'x')), second(windows('C', 'X'))));
+    expect(() => parseArgs(['--root', windows('C', 'x'), '--root', windows('d', 'x')], DEMO_REPO)).toThrow(refused(second(windows('C', 'x')), second(windows('d', 'x'))));
+  });
+
+  it.runIf(process.platform !== 'win32')('is no drive letter elsewhere, where the two are two names in the working directory', () => {
+    const second = (written: string) => `--root ${JSON.stringify(written)}`;
+    expect(() => parseArgs(['--root', windows('C', 'x'), '--root', windows('c', 'x')], DEMO_REPO)).toThrow(refused(second(windows('C', 'x')), second(windows('c', 'x'))));
   });
 });
