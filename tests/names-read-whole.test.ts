@@ -300,3 +300,14 @@ describe('a C# type cut short', () => {
     expect(csharp('using unsafe T = delegate* unmanaged[Cdecl, SuppressGCTransition]<N1.X, void>;')).toEqual(['N1.X']);
   });
 });
+
+describe('a C# directive the compiler refuses, in this reader', () => {
+  it('is read as nothing and makes no note, at the end of a file too', () => {
+    // A note is made only of a type that nests too deep; what is refused for
+    // anything else is passed over, as it was.
+    for (const source of ['using A.;', 'using T = void;', 'using unsafe N1.N2;', 'using T =', 'using static', 'using T = G.L<']) {
+      const analysis = analyzeSource(source, 'src/Shop.cs');
+      expect([analysis.references, analysis.notes], source).toEqual([[], []]);
+    }
+  });
+});
