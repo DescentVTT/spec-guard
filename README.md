@@ -579,7 +579,7 @@ Passes when every listed path exists relative to `--root`. Directories count.
 | `min` / `max` | count (`max` on all but present) | Inclusive bounds |
 | `glob` | absence, count, structure | Include-only file filters, e.g. `*.ts,*.tsx` (ripgrep `-g` semantics) |
 | `exclude` | all but present | Paths to leave out, gitignore-style: `src/config/**`, `tests`, `*.test.ts` |
-| `regex` | absence, count | Treat `symbol` as a regular expression |
+| `regex` | absence, count | Treat `symbol` as a regular expression, JavaScript's, where `^` and `$` match at each line's start and end |
 | `word` | absence, count | Require word boundaries, so `Primary` does not match `PrimaryButton` |
 | `ignore-case` | absence, count | Case-insensitive matching |
 | `comments` | absence, count | `ignore` (default) or `include` for matches inside comments |
@@ -599,6 +599,15 @@ Passes when every listed path exists relative to `--root`. Directories count.
 Unknown attributes are an error, not a shrug: `expct="1"` fails the run instead
 of silently asserting nothing. A spec tool whose typos assert nothing is worse
 than no spec tool.
+
+A `regex` is read against each file's whole text, so a match may cross a
+line end. `^` and `$` match at the start and the end of every line, a line
+ending at LF, at CRLF or at a lone CR, as ripgrep reads one with `--crlf`;
+U+2028 and U+2029 end none, and no line follows a file's last line end.
+`symbol="^\s*-?\s*uses:"` meets `uses:` on any line, with either engine
+([ADR-0007](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0007-search-scope.md)).
+`\s` matches a line end too, so `\s+$` also meets a line followed by an
+empty one; `[ \t]+$` reads only the blanks a line ends with.
 
 ### `exclude` - everywhere except
 
@@ -1124,11 +1133,13 @@ spec-guard prove 3 specs · 12 rules
 
 Each rule is **killed** (it failed on the violation), **survived** (it still
 passed, and the violation is shown), or **unprovable** (no violation could be
-made, and the reason is given). Both bounds of a count are probed. `prove`
-exits 1 when a rule survived, and under `--strict` when one is unprovable. It
-takes the run's `--root`, `--spec`, `--exclude`, `--ignore-status`, `--json`
-and `--format sarif|github|gitlab`, and the configuration's specs, exclusions
-and strictness.
+made, and the reason is given). Both bounds of a count are probed, and a
+regular expression's maximum twice: with its text at a file's start, and
+below a line of prove's own, so a pattern whose `^` or `$` met only a file's
+ends survives. `prove` exits 1 when a rule survived, and under `--strict`
+when one is unprovable. It takes the run's `--root`, `--spec`, `--exclude`,
+`--ignore-status`, `--json` and `--format sarif|github|gitlab`, and the
+configuration's specs, exclusions and strictness.
 
 A kill means the rule can fail, not that it catches the way the code is
 written: `module="src/db.ts"` is killed by `import 'src/db.ts'` though every

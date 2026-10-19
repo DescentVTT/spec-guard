@@ -122,7 +122,7 @@ describe('a text rule', () => {
 
   it('empties a file whose match spans lines, since taking out lines leaves it', async () => {
     const result = await one('<!-- @assert-count target="src/m.ts" symbol="a\\nb" regex="true" expected="1" -->', { 'src/m.ts': 'a\nb\n' });
-    expect(result.probes[1]?.message).toBe('expected exactly 1 match, found 0');
+    expect(result.probes.find((probe) => probe.claim === 'min')?.message).toBe('expected exactly 1 match, found 0');
     expect(result.outcome).toBe('killed');
   });
 
@@ -142,6 +142,50 @@ describe('a text rule', () => {
     // already count: a word nothing holds shows what the boundaries keep.
     const result = await one('<!-- @assert-absence target="src" symbol="Legacy" word="true" -->');
     expect(result.outcome).toBe('killed');
+  });
+
+  it('shows a regular expression its text on a line below one of its own as well, where ^ and $ meet a line that is not the first', async () => {
+    // Text at a file's start could not tell a pattern that reads a line from
+    // one that reads the file, and a rule that met only a file's first line
+    // was seen to fail by it.
+    expect(said(await one('<!-- @assert-absence target="src" symbol="^Legacy$" regex="true" -->')).probes).toEqual([
+      ['max', 'killed', `added src/${PROVE_NAME}.ts holding "Legacy"`, 'expected no matches, found 1', [{ path: `src/${PROVE_NAME}.ts`, change: 'added', bytes: 6 }]],
+      [
+        'max',
+        'killed',
+        `added src/${PROVE_NAME}.ts holding "Legacy", below a line holding ${PROVE_NAME}`,
+        'expected no matches, found 1',
+        // spec-guard-prove, Legacy and spec-guard-prove, a line each.
+        [{ path: `src/${PROVE_NAME}.ts`, change: 'added', bytes: 40 }],
+      ],
+    ]);
+  });
+
+  it('puts the text below a line of its own at the top of a file it reads', async () => {
+    expect(said(await one('<!-- @assert-absence target="src/b.ts" symbol="^Legacy" regex="true" -->')).probes).toEqual([
+      ['max', 'killed', 'put "Legacy" at the top of src/b.ts', 'expected no matches, found 1', [{ path: 'src/b.ts', change: 'replaced', bytes: 27 }]],
+      [
+        'max',
+        'killed',
+        `put "Legacy" at the top of src/b.ts, below a line holding ${PROVE_NAME}`,
+        'expected no matches, found 1',
+        [{ path: 'src/b.ts', change: 'replaced', bytes: 44 }],
+      ],
+    ]);
+  });
+
+  it('goes under a regular expression\'s minimum once, since taking lines out is the same on every line', async () => {
+    const result = await one('<!-- @assert-count target="src" symbol="^export" regex="true" min="1" max="5" -->');
+    expect(result.probes.map((probe) => [probe.claim, probe.outcome])).toEqual([
+      ['max', 'killed'],
+      ['max', 'killed'],
+      ['min', 'killed'],
+    ]);
+  });
+
+  it('shows a literal its text once, at a file\'s start, since a literal holds no anchor', async () => {
+    const result = await one('<!-- @assert-absence target="src" symbol="^Legacy$" -->');
+    expect(result.probes.map((probe) => probe.violation)).toEqual([`added src/${PROVE_NAME}.ts holding "^Legacy$"`]);
   });
 });
 
