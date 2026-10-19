@@ -620,6 +620,12 @@ const LINE_END = `(?:$(?![${SEPARATORS}])(?!(?<=\\r)\\n)(?!(?<![^\\n\\r])(?![\\s
  * named group's name and a reference to one (a name may hold a `$`), and a
  * character class, which in JavaScript ends at its first unescaped `]`. A
  * regex rule is read without the `u` flag, where nothing else does.
+ *
+ * Outside a class, an escape taken as a backslash before anything but white
+ * space (`\\[\S\S]`) reads every pattern the same: a backslash before
+ * white space escapes no `^`, `$`, `[`, `(` or backslash, so left untaken it
+ * leaves each token where it was. That mutant is equivalent; inside a class it
+ * is not, and `[\ $]` holds it.
  */
 const NOT_ANCHORS = /\\k<[^>]*>|\\[\s\S]|\(\?<(?![=!])[^>]*>|\[(?:\\[\s\S]|[^\\\]])*\]|[$^]/g;
 

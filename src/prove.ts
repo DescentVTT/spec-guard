@@ -274,15 +274,12 @@ function forbidden(assertion: Assertion): { text: string } | { reason: string } 
   };
 }
 
-/** The line of its file a violation's text goes on: the first, or one below a line of prove's own. */
-type Line = 'first' | 'second';
-
 async function textViolations(
   assertion: Assertion,
   claim: ProveClaim,
   now: AssertionResult,
   context: Context,
-  line: Line,
+  below: boolean,
 ): Promise<Violation[] | string> {
   const symbol = assertion.symbol as string;
   if (claim === 'min') {
@@ -323,12 +320,11 @@ async function textViolations(
   const times = need === 1 ? '' : ` ${need} times`;
   // Below a line of prove's own and above another, where the line the text is
   // on starts and ends at line ends that are not the file's.
-  const second = line === 'second';
-  const above = second ? `${PROVE_NAME}\n` : '';
-  const below = second ? `, below a line holding ${PROVE_NAME}` : '';
-  const added = second ? `${above}${lines}\n${PROVE_NAME}` : lines;
+  const above = below ? `${PROVE_NAME}\n` : '';
+  const where = below ? `, below a line holding ${PROVE_NAME}` : '';
+  const added = below ? `${above}${lines}\n${PROVE_NAME}` : lines;
   const violations = besides(assertion, places, context, 1, () => added, '').map((write) => ({
-    violation: `added ${[...write.keys()][0]} holding "${text.text}"${times}${below}${unread(assertion, places)}`,
+    violation: `added ${[...write.keys()][0]} holding "${text.text}"${times}${where}${unread(assertion, places)}`,
     edit: edit(write),
   }));
   if (!places.read) return violations;
@@ -339,7 +335,7 @@ async function textViolations(
   const source = await readText(context.io, path.resolve(context.root, first));
   return [
     ...violations,
-    { violation: `put "${text.text}"${times} at the top of ${first}${below}`, edit: edit(new Map([[first, `${above}${lines}\n${source}`]])) },
+    { violation: `put "${text.text}"${times} at the top of ${first}${where}`, edit: edit(new Map([[first, `${above}${lines}\n${source}`]])) },
   ];
 }
 
@@ -511,7 +507,7 @@ function claimsOf(assertion: Assertion): ProveClaim[] {
 }
 
 /**
- * The lines a violation's text goes on, each its own probe of the claim.
+ * Whether each probe of the claim puts its text below a line of prove's own.
  *
  * A regular expression's maximum is shown its text on its file's first line
  * and on its second. `^` and `$` read a line, and a violation at a file's start
@@ -519,11 +515,13 @@ function claimsOf(assertion: Assertion): ProveClaim[] {
  * rule `^\s*-?\s*uses:` met only a file's first line, and was seen to fail
  * by its text at the top of one. ADR-0016, amended 2026-10-19.
  */
-function linesOf(assertion: Assertion, claim: ProveClaim): Line[] {
-  return claim === 'max' && assertion.search?.regex === true ? ['first', 'second'] : ['first'];
+function placesOf(assertion: Assertion, claim: ProveClaim): boolean[] {
+  // Every rule a maximum is a claim of has search options; `@assert-present`,
+  // the one without, claims only that its files are there.
+  return claim === 'max' && assertion.search!.regex ? [false, true] : [false];
 }
 
-function violationsFor(assertion: Assertion, claim: ProveClaim, now: AssertionResult, context: Context, line: Line): Promise<Violation[] | string> {
+function violationsFor(assertion: Assertion, claim: ProveClaim, now: AssertionResult, context: Context, below: boolean): Promise<Violation[] | string> {
   switch (assertion.kind) {
     case 'assert-present': {
       const [file] = assertion.files as [string];
@@ -539,7 +537,7 @@ function violationsFor(assertion: Assertion, claim: ProveClaim, now: AssertionRe
     case 'assert-structure':
       return structureViolations(assertion, now, context);
     default:
-      return textViolations(assertion, claim, now, context, line);
+      return textViolations(assertion, claim, now, context, below);
   }
 }
 
@@ -560,8 +558,8 @@ async function changesOf(change: TreeEdit, context: Context): Promise<TreeChange
  * The first that does is the probe. When none does, the first is: it is the
  * most direct violation of the claim, and the one a reader should look at.
  */
-async function probe(assertion: Assertion, claim: ProveClaim, now: AssertionResult, context: Context, line: Line): Promise<ProveProbe | string> {
-  const violations = await violationsFor(assertion, claim, now, context, line);
+async function probe(assertion: Assertion, claim: ProveClaim, now: AssertionResult, context: Context, below: boolean): Promise<ProveProbe | string> {
+  const violations = await violationsFor(assertion, claim, now, context, below);
   if (typeof violations === 'string') return violations;
   if (violations.length === 0) return 'every place a violation could go is one the rule does not read, or holds a file already';
   let first: ProveProbe | undefined;
@@ -599,8 +597,8 @@ async function proveAssertion(assertion: Assertion, context: Context): Promise<P
   const probes: ProveProbe[] = [];
   let unprovable: string | undefined;
   for (const claim of claimsOf(assertion)) {
-    for (const line of linesOf(assertion, claim)) {
-      const found = await probe(assertion, claim, now, context, line);
+    for (const below of placesOf(assertion, claim)) {
+      const found = await probe(assertion, claim, now, context, below);
       if (typeof found === 'string') unprovable = found;
       else probes.push(found);
     }

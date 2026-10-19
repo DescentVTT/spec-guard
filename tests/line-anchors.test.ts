@@ -108,6 +108,8 @@ describe('what is no anchor', () => {
     // [ too: [^] is any character, and the $ after it an anchor.
     expect(read('[^]$', 'ab\ncd\n')).toEqual({ count: 2, lines: [1, 2] });
     expect(read('[\\]$]x', 'a$x\n]x\n')).toEqual({ count: 2, lines: [1, 2] });
+    // An escaped space in a class is the class's too, and the $ beside it.
+    expect(read('[\\ $]x', 'a x\nb$x\nc\n')).toEqual({ count: 2, lines: [1, 2] });
   });
 
   it('leaves a group name and a reference to it, which may hold a $', () => {
