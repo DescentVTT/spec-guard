@@ -38,6 +38,9 @@ const ROOT = path.resolve('/virtual/checkout');
 const NUL = String.fromCharCode(0);
 /** The default scope, but walking other work trees: what tells the two apart in a key. */
 const WALKING: ScopePolicy = { skippedDirectories: DEFAULT_SCOPE.skippedDirectories, otherWorkTrees: 'walk' };
+/** One that skips no name, but leaves out other work trees: what tells the names apart in a key. */
+const NAMING_NONE: ScopePolicy = { skippedDirectories: new Map(), otherWorkTrees: 'skip' };
+const ESC = String.fromCharCode(27);
 
 /** A checkout with one of each kind of work tree below it, and a `.git` directory that is no repository. */
 const TREE: Record<string, string> = {
@@ -178,6 +181,17 @@ describe('a key', () => {
     expect((await index.walk('.', DEFAULT_SCOPE)).files).toHaveLength(2);
     expect((await index.walk('.', WALKING)).files).toHaveLength(7);
   });
+
+  it('tells two scopes apart by the names they skip, where both leave out other work trees', async () => {
+    const files = { ...TREE, 'node_modules/pkg/m.ts': 'export const Marker = 6;\n' };
+    const engine = createCachedEngine(createJavaScriptEngine(memoryIo(ROOT, files)));
+    const request = (scope: ScopePolicy): SearchRequest => ({ root: ROOT, symbol: 'Marker', targets: ['.'], options: searchOptions({ scope }) });
+    expect((await engine.search(request(DEFAULT_SCOPE))).count).toBe(2);
+    expect((await engine.search(request(NAMING_NONE))).count).toBe(3);
+    const index = createTreeIndex(ROOT, memoryIo(ROOT, files));
+    expect((await index.walk('.', DEFAULT_SCOPE)).files).toHaveLength(2);
+    expect((await index.walk('.', NAMING_NONE)).files).toEqual(['fixtures/not-a-repo/.git/config', 'fixtures/not-a-repo/f.ts', 'node_modules/pkg/m.ts', 'src/a.ts']);
+  });
 });
 
 const rgPath = findTestRipgrep();
@@ -281,6 +295,15 @@ describe('a run', () => {
     expect(formatReport(report, { color: false, ascii: true, verbose: true })).not.toContain('work tree');
   });
 
+  it('says nothing of work trees beside a gap, which it says', async () => {
+    const tree = { 'docs/rules.md': `# Rules\n\n${RULES}\n`, 'src/a.ts': 'export const Marker = 1;\n', 'src/locked/b.ts': '' };
+    const report = await runSpecGuard({ root: ROOT, patterns: ['docs/rules.md'], io: locked(tree, 'src/locked') });
+    expect(report.ok).toBe(true);
+    const said = formatReport(report, { color: false, ascii: true, verbose: false });
+    expect(said).toContain('1 path could not be read: src/locked');
+    expect(said).not.toContain('work tree');
+  });
+
   it('passes a structure rule over them under --strict, where only a gap fails it', async () => {
     const tree = { ...TREE, 'docs/rules.md': '<!-- @assert-structure target="." glob="*.ts" pattern="*.ts" -->\n' };
     const report = await runSpecGuard({ root: ROOT, patterns: ['docs/rules.md'], io: memoryIo(ROOT, tree), strictTargets: true });
@@ -368,6 +391,14 @@ describe('cites', () => {
     expect(twice.workTrees).toEqual(['.claude/worktrees/feature', 'modules/sub']);
     expect(formatCites(report, { color: false, ascii: true, verbose: false })).toContain('2 other git work trees not read: .claude/worktrees/feature, modules/sub');
     expect(JSON.parse(formatCitesJson(report)).workTrees).toEqual(['.claude/worktrees/feature', 'modules/sub']);
+  });
+
+  it('paints the line dim, as it paints what else it did not read, with a blank line after it', async () => {
+    const report = await findCitations({ root: ROOT, patterns: ['docs/**/*.md'], exclude: ['reports'], io: io() });
+    const lines = formatCites(report, { color: true, ascii: true, verbose: false }).split('\n');
+    const at = lines.findIndex((line) => line.includes('other git work trees not read'));
+    expect(lines[at]).toBe(`${ESC}[2mo 2 other git work trees not read: .claude/worktrees/feature, modules/sub${ESC}[0m`);
+    expect(lines[at + 1]).toBe('');
   });
 
   it('names a work tree below a path it was given, from the root', async () => {

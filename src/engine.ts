@@ -446,9 +446,10 @@ function namesWorkTree(options: SearchOptions): (top: string) => boolean {
  *
  * The globs that leave out a `.git` directory's own directories and the
  * scope's names save ripgrep a walk and change no answer:
- * `parseWorkTreeTops` drops a top under any of those names, so without
- * them, or with the `!== '.git'` below always false, the tops are the same.
- * Each is an equivalent mutant.
+ * `parseWorkTreeTops` drops a top under any of those names. With any of them
+ * emptied or left out, the loop that adds the names emptied, or the
+ * `!== '.git'` below always false, the tops are the same: each such mutant
+ * is equivalent.
  */
 export function buildWorkTreeArgs(scope: ScopePolicy, target: string): string[] {
   const args = ['--files', '--null', '--no-config', '--hidden', '--no-ignore', '--glob', '**/.git', '--glob', '**/.git/HEAD', '--glob', '!**/.git/*/'];
@@ -472,7 +473,8 @@ export function compareWalkOrder(a: string, b: string): number {
   const left = a.split('/');
   const right = b.split('/');
   // Past the shorter one a segment is undefined and compares as equal, so
-  // the lengths decide either way: `Math.max` here is an equivalent mutant.
+  // the lengths decide either way: `Math.max` here, and `<=` for `<`, are
+  // equivalent mutants.
   for (let index = 0; index < Math.min(left.length, right.length); index++) {
     const order = comparePaths(left[index]!, right[index]!);
     if (order !== 0) return order;
@@ -596,7 +598,9 @@ class RipgrepEngine implements Engine {
         if (scope.otherWorkTrees === 'walk') return { start, tops: [] };
         const key = JSON.stringify([request.root, target, [...scope.skippedDirectories.keys()]]);
         // Kept for the run, since a listing is a process: listed again each
-        // time, the tops are the same, so `if (true)` is an equivalent mutant.
+        // time, the tops are the same, so `if (true)` and the `set` left out
+        // are equivalent mutants. A run has one scope, so the names in the key
+        // tell no two of its listings apart: emptied, they are one too.
         let listing = this.listings.get(key);
         if (!listing) {
           listing = this.list(request.root, target, scope);
@@ -618,6 +622,9 @@ class RipgrepEngine implements Engine {
       const child = spawn(this.binary, buildWorkTreeArgs(scope, target), { cwd: root, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
       const stdout: Buffer[] = [];
       child.stdout.on('data', (chunk: Buffer) => stdout.push(chunk));
+      // Without a listener, a listing ripgrep could not start throws from the
+      // event, outside every promise, and the run ends on an unhandled error
+      // whatever its searches answered: the sweep counts that mutant an error.
       child.once('error', reject);
       // Whatever it exits with. 1 is a listing of nothing, and 2 one that met
       // a directory it could not read: a `.git` whose `HEAD` the walk cannot
