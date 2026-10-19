@@ -10,6 +10,16 @@ what to do when upgrading; the family's policy, including how a flag or field
 is deprecated before it goes, is spec-core's
 [ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
+## Unreleased
+
+### Fixed
+
+- **A file two targets that overlap both reach is counted once under
+  ripgrep**, as under the scanner. ripgrep given `.` and `src` named each
+  file in `src` under both, and each match there was counted twice, so
+  `target=".,src"` with a bound could fail under `--engine rg`, and under
+  `auto` past its budget, and pass under `--engine js`.
+
 ## 0.27.0
 
 A Rust use declaration and a C# using directive are read as their

@@ -543,7 +543,10 @@ export function parseRipgrepFiles(
   root: string,
   excludeFiles: ReadonlySet<string>,
 ): CandidateFile[] {
-  const files: CandidateFile[] = [];
+  // By path: ripgrep given two targets that overlap names a file under both
+  // twice, `src/a.ts` and `./src/a.ts` for `src` beside `.`, and each was
+  // counted, where the walk reads the file once.
+  const files = new Map<string, CandidateFile>();
   // --null separates paths with NUL, which is the only separator a file name
   // cannot contain. Splitting on newlines loses files whose names contain one.
   for (const entry of stdout.split('\0')) {
@@ -551,9 +554,9 @@ export function parseRipgrepFiles(
     if (entry.length === 0) continue;
     const absolutePath = path.resolve(root, entry);
     if (excludeFiles.has(absolutePath)) continue;
-    files.push({ absolutePath, relativePath: toPosix(path.relative(root, absolutePath)) });
+    files.set(absolutePath, { absolutePath, relativePath: toPosix(path.relative(root, absolutePath)) });
   }
-  return files.sort((a, b) => comparePaths(a.relativePath, b.relativePath));
+  return [...files.values()].sort((a, b) => comparePaths(a.relativePath, b.relativePath));
 }
 
 /**
