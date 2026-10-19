@@ -10,6 +10,29 @@ what to do when upgrading; the family's policy, including how a flag or field
 is deprecated before it goes, is spec-core's
 [ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
+## Unreleased
+
+### Changed
+
+- **A Go package name and the types of a C# alias are read whole.** `import
+  名 "fmt"`, `import café "fmt"` and `import _x "fmt"` were read as no
+  import, so a rule on the package passed over each; a package name is now
+  read as the Go specification has an identifier, a keyword is none, and a
+  name at the end of its line, which Go ends the import at, imports
+  nothing. `using T = G.L<N1.X>;` named `G.L` alone and `using T = (N1.X,
+  N2.Y);` nothing; each type an alias or a `using static` holds is now a
+  reference, its type arguments and the elements of a tuple among them,
+  and a keyword that names a type, `using T = int;`, names nothing, where
+  it named a namespace called `int`. Of 29 Go sources held to the
+  specification, 0.27.0 read 13 otherwise than it does, and of 23 C# ones
+  compiled by the .NET SDK 10.0.401, 19 otherwise than the compiler
+  ([ADR-0008](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0008-polyglot-imports.md)).
+  Upgrading: an import rule over Go or C# that passed may now fail for a
+  dependency written one of those ways; mend the import it names, or give
+  the rule a `baseline`. A C# using whose types nest deeper than 64 is
+  reported as truncated. From the package, `Reader.identifier` reads a
+  name as Go has one.
+
 ## 0.27.0
 
 A Rust use declaration and a C# using directive are read as their

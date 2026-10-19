@@ -682,3 +682,93 @@ C# compiler read to what they read, each one they refuse to nothing, what is
 left as it is to what is read of it, and an import rule to both.
 
 <!-- @assert-present file="tests/rust-and-csharp-statements.test.ts" reason="the readers are held to what rustc and the C# compiler read of each spelling, and to nothing for what they refuse" -->
+
+## Amended 2026-10-19: names and aliases read whole
+
+A Go package name was read as ASCII: `import 名 "fmt"` and `import café
+"fmt"` were read as no import, and so was `import _x "fmt"`, whose `_` was
+taken for the blank identifier and the rest left over. And a C# alias or
+`using static` was read by the name its type starts with: `using T =
+G.L<N1.X>;` named `G.L` and not `N1.X`, `using T = (N1.X, N2.Y);` named
+nothing, and `using T = int;` a namespace called `int`. Measured through the
+launcher on 0.27.0 and on this build (Windows 11 build 26300, Node 24.18.1),
+one `@assert-import-absence` over one file:
+
+| Source | Rule's `module` | 0.27.0 | Now |
+| --- | --- | --- | --- |
+| `import 名 "forbidden/db"`, `import café "forbidden/db"`, `import _x "forbidden/db"` | `forbidden/**` | exit 0, nothing found | exit 1, the import found |
+| `import db` and `"forbidden/db"` on the next line, which Go refuses | `forbidden/**` | exit 1 | exit 0 |
+| `using Pool = System.Collections.Generic.Dictionary<Shop.Db.Key, int>;`, `using Pair = (Shop.Db.Key, int);`, `using static Shop.Ui.Views<Shop.Db.Key>;` | `Shop.Db` | exit 0, nothing found | exit 1, the using found |
+| `using T = int;` | `int` | exit 1 | exit 0 |
+
+No Go compiler is on the workstation, so the measure for Go is The Go
+Programming Language Specification, go1.27, as read on 2026-10-19
+("Characters", "Letters and digits", "Identifiers", "Keywords",
+"Semicolons", "Comments" and "Import declarations"): 29 sources, each a
+single import or a group with a package name, held to the import the page
+has it make or to none. 0.27.0 read 16 of them as the page does, and lost
+8 imports: names of the categories Lo, Ll, Lt and Lm, a name that starts
+with `_`, one with a digit beyond ASCII, a name with no blank before the
+path, and a raw string after a name. It read 5 the page refuses: a keyword
+for the name, and a name at the end of its line. This build reads all 29 as
+the page does. For C#, 23 sources were compiled by the compiler of the .NET
+SDK 10.0.401 beside every type they may name, and then once without each
+type they are said to name, which each failed to compile without: 0.27.0
+read 4 of them as naming what the compiler has them depend on, and this
+build all 23. Over 1,985 C# files on the workstation, those of a .NET
+repository, of its NuGet cache and of its Visual Studio installation, both
+builds read the same references: none of them writes a type argument or a
+tuple in an alias.
+
+- **A Go package name is an identifier as the specification has one**: a
+  letter, `_` or a character of the categories Lu, Ll, Lt, Lm or Lo, then
+  letters and decimal digits, Nd. A mark is no letter, so `cafe` followed
+  by a combining accent is no name, and nor is a letter number such as `Ⅰ`
+  or a formatting character; and the text is not normalised. The page has
+  the categories of Unicode 8.0; it follows from the page, and is not on it,
+  that a later Unicode's letters, which the Node that runs spec-guard has,
+  are read as letters.
+- **No keyword is a package name**, so `import func "fmt"` is read as no
+  import, and an `import` written where a name stands starts no second one.
+- **A name at the end of its line ends the import**: Go puts a semicolon
+  after an identifier there, and a line comment or a general comment that
+  holds a line break ends the line too, so `import db` with its path on the
+  next line is refused and read as nothing. `import .` and `import` itself
+  put none, and are read across the line, as before. The paths of a group
+  are read as before, every literal between its parentheses.
+- **A C# type is read whole**, as the specification writes one (Types,
+  8; Unsafe code, 24.3; Namespaces, 14.6.2 and 14.6.4, on Microsoft Learn,
+  dated 2026-09-22): its name, then each type its arguments name, each
+  element of a tuple, and each parameter and the return of a function
+  pointer, each a reference on the line of its `using`, in the namespace the
+  directive stands in, the type's own name first. A type named twice,
+  `G.L<G.L<int>>`, is one reference.
+- **What names no type is read as nothing**: a keyword that names one,
+  `int`, `string`, `object`, `void*`; a tuple element's own name; the
+  alias; a calling convention, `unmanaged[Cdecl]`; and a type the compiler
+  refuses, `void`, a pointer outside `unsafe`, a tuple of fewer than two, an
+  unbound `G.L<>` and a pointer for a type argument.
+- **A contextual keyword where a type stands is read as the name it may
+  be**: `nint` and `nuint` name a type the program declares where type
+  resolution finds one so named, and the native integers otherwise (Types,
+  8.3.1), which the reader cannot tell; `dynamic`, a contextual keyword as
+  well (6.4.4), is read as a name as it always was. So `using T =
+  G.L<dynamic>;` names `G.L` and `dynamic`, as `using T = dynamic;` named
+  `dynamic`.
+- **A type is held to a depth, as a Rust group is**: a using directive
+  whose types nest deeper than `MAX_EXPANSION` (64) is reported with the
+  note `truncated`, and no reference, where a reader of a type by its
+  grammar would run out of stack.
+- **For a caller of the package**, `Reader.identifier` reads a name as Go
+  has one.
+- **It can turn a passing run red**, which is the point: a rule over a Go
+  file whose package name is beyond ASCII, or over a C# alias that holds a
+  type as an argument or an element, now sees it. It turns a failing one
+  green over a Go import the specification refuses, and over `using T =
+  int;` and its kind, which name no namespace.
+
+`tests/names-read-whole.test.ts` holds each Go source to the
+specification's import or to none, and each C# source to the types the
+compiler has it depend on, and an import rule to both.
+
+<!-- @assert-present file="tests/names-read-whole.test.ts" reason="a Go package name and a C# alias's type are held to what the specification and the compiler read of each" -->

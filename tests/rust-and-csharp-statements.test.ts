@@ -230,14 +230,14 @@ const CSHARP_READ: Array<[source: string, imports: Array<[string, number]>]> = [
   ['using T = G.L<int[]>;', [['G.L', 1]]], // c-alias-generic-array
   ['using T = G.L<int[,]>;', [['G.L', 1]]], // c-alias-generic-array-ranks
   ['using T = G.L<(int, int)>;', [['G.L', 1]]], // c-alias-generic-tuple
-  ['using T = G.L<global::N1.At_N1>;', [['G.L', 1]]], // c-alias-generic-qualified
+  ['using T = G.L<global::N1.At_N1>;', [['G.L', 1], ['N1.At_N1', 1]]], // c-alias-generic-qualified
   ['using static N1.N2.S;', [['N1.N2.S', 1]]], // c-static
   ['using static  N1 . N2 . S;', [['N1.N2.S', 1]]], // c-static-spaced
   ['using/* c */static/* d */N1.N2.S;', [['N1.N2.S', 1]]], // c-static-comment
   ['using static unsafe N1.N2.S;', [['N1.N2.S', 1]]], // c-static-unsafe
   ['using static G.L<int>;', [['G.L', 1]]], // c-static-generic
   ['using static G . L < int >;', [['G.L', 1]]], // c-static-generic-spaced
-  ['using static G.L<N1.At_N1>;', [['G.L', 1]]], // c-static-generic-of-a-type
+  ['using static G.L<N1.At_N1>;', [['G.L', 1], ['N1.At_N1', 1]]], // c-static-generic-of-a-type
   ['using static global::N1.N2.S;', [['N1.N2.S', 1]]], // c-static-global
   ['using staticN1.N2;', [['staticN1.N2', 1]]], // c-static-glued
   ['using static G.L<int>.Nested;', [['G.L.Nested', 1]]], // c-static-generic-then-name
