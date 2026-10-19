@@ -1414,7 +1414,9 @@ spec-guard: Option --json is given beside --format "sarif", and one of the two w
   taken, as the same option given twice is. Nothing is asked of the disk
   before a line is refused, so two spellings that resolve to two paths are
   two values, `--root Docs` beside `--root docs` among them where the file
-  system ignores case.
+  system ignores case. *Amended 2026-10-19*: on Windows a drive letter is
+  folded first, so `--root C:\x` beside `--root c:\x` is one root, by the
+  amendment of that date, *a drive letter names its volume in either case*.
 - **Each is named as it was written, in the order the two were given**, the
   value in quotes as JSON writes it, where a blank in it can be seen. An
   option beside its own opposite is named option first, whichever came
@@ -1501,3 +1503,40 @@ spec-guard: Option --help is given beside --version, and one of the two would go
 
 `tests/two-values.test.ts` holds each order on each command, beside each
 alone, twice, and beside its other spelling.
+
+## Amended 2026-10-19: a drive letter names its volume in either case
+
+The amendment of 2026-10-14 compares two values of `--root` as each
+resolves, without asking the disk, and Node's `path.resolve` keeps a drive
+letter in the case it was written in. So on Windows `--root C:\x` beside
+`--root c:\x` was refused as two directories, though they are one. The
+family contract, amended on this date, has each tool fold the case of a
+drive letter before it compares two such values (spec-core's
+[ADR-0005](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0005-the-family-contract.md),
+*Runs*, amended 2026-10-19), from Microsoft's *Naming Files, Paths, and
+Namespaces* (learn.microsoft.com, *Naming Conventions*, read 2026-10-19),
+which has a drive letter name the same volume in either case.
+
+Measured through the launcher on 0.27.0 and on this build (Windows 11 build
+26300, Node 24.18.1), in a tree of one rule that holds:
+
+| Given | 0.27.0 | Now |
+| --- | --- | --- |
+| `--root C:\x --root c:\x`, in either order, to a run, `prove`, `cites`, `query` and `impact` | exit 2, and the line for two values | the answer for one root, exit 0 |
+| the same to a watch session and to the server | exit 2 | the session, and the server |
+| `--root C:\x --root C:\x` | as once | as once |
+| `--root C:\x --root C:\X` | exit 2 | exit 2 |
+| `--root C:\x` beside `--root C:\other` | exit 2 | exit 2 |
+
+- **Only the drive letter is folded.** The rest of a path is compared as it
+  resolves, as before: the same page has NTFS able to tell names apart by
+  case, so whether `C:\x` and `C:\X` are one directory is the disk's to
+  say, and the two are two values.
+- **Off Windows there is no drive letter.** `C:\x` and `c:\x` are two names
+  in the working directory there, and are refused as two, as they were.
+- **The root is the later of the two**, as for any value given twice, and
+  the report and the `root` of its JSON keep the case it was written in.
+
+`tests/two-values.test.ts` holds both orders on each command on Windows,
+another letter and the rest of a path in another case refused there as
+before, and the two letters refused elsewhere.

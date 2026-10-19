@@ -14,6 +14,34 @@ is deprecated before it goes, is spec-core's
 
 ### Changed
 
+- **A Rust use declaration and a C# using directive that the compiler
+  refuses are said, as a note under each import rule over the file**, as a
+  Python statement Python refuses is: `use forbidden::thing c;` and `using
+  forbidden.;` name no module, and a rule over them passed under `--strict`
+  too. And what 0.27.0 read though the compiler refuses it is decided by
+  the compiler: a keyword of every edition for a segment (`use mod::d;`,
+  `use a::fn;`) or a C# keyword written plain (`using class.N;`), a doc
+  comment between two tokens, `self`, `super` or `crate` where rustc
+  refuses them, `use crate;` with no `as`, and a `$` name outside a macro
+  are each read as nothing and said. Of 159 Rust sources rustc 1.97.1
+  refuses in every edition 155 are said, of 63 C# ones the compiler of the
+  .NET SDK 10.0.401 refuses 52, and none of the 292 the two compile; over
+  31,176 Rust files of a cargo registry and 1,985 C# files no note is made
+  but 61 in Visual Studio's project templates
+  ([ADR-0008](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0008-polyglot-imports.md)).
+  Upgrading: a `--strict` run over a Rust or C# file the compiler would
+  refuse may now fail; mend the declaration the note names. A rule that
+  failed only for such a declaration, `use forbidden::fn;`, now passes with
+  the note under it. A C# alias of a keyword type, `using T = int;`, names
+  nothing, where `int` was read, and a C# using whose types nest deeper
+  than 64 is reported as truncated.
+- **`impact` names a file whose imports could not all be read on the line
+  of each note**, `src/a.rs:2 a declaration that ...`, where it named the
+  file alone, and counts a file with two notes once
+  ([ADR-0018](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0018-impact.md)).
+  Upgrading: each entry of `gaps` in `impact --json` and in
+  `get_dependents` has `line` beside `file` and `detail`; `formatVersion`
+  stays 1, and the package exports `ImpactGap`.
 - **A Go package name and the types of a C# alias are read whole.** `import
   名 "fmt"`, `import café "fmt"` and `import _x "fmt"` were read as no
   import, so a rule on the package passed over each; a package name is now
@@ -21,17 +49,25 @@ is deprecated before it goes, is spec-core's
   name at the end of its line, which Go ends the import at, imports
   nothing. `using T = G.L<N1.X>;` named `G.L` alone and `using T = (N1.X,
   N2.Y);` nothing; each type an alias or a `using static` holds is now a
-  reference, its type arguments and the elements of a tuple among them,
-  and a keyword that names a type, `using T = int;`, names nothing, where
-  it named a namespace called `int`. Of 29 Go sources held to the
-  specification, 0.27.0 read 13 otherwise than it does, and of 23 C# ones
-  compiled by the .NET SDK 10.0.401, 19 otherwise than the compiler
+  reference, its type arguments and the elements of a tuple among them.
+  Of 29 Go sources held to the specification, 0.27.0 read 13 otherwise
+  than it does, and of 23 C# ones compiled by the .NET SDK 10.0.401, 19
+  otherwise than the compiler
   ([ADR-0008](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0008-polyglot-imports.md)).
   Upgrading: an import rule over Go or C# that passed may now fail for a
   dependency written one of those ways; mend the import it names, or give
-  the rule a `baseline`. A C# using whose types nest deeper than 64 is
-  reported as truncated. From the package, `Reader.identifier` reads a
+  the rule a `baseline`. From the package, `Reader.identifier` reads a
   name as Go has one.
+
+### Fixed
+
+- **On Windows a drive letter names its volume in either case**, so
+  `--root C:\x` beside `--root c:\x` is one root, in either order and on
+  every command. It was refused, exit 2, as two values. The rest of a
+  path is compared as it resolves, as before, so `--root C:\x` beside
+  `--root C:\X` is still refused, and off Windows the two letters are
+  two names and refused as they were
+  ([ADR-0014](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0014-configuration-and-watch.md)).
 
 ## 0.27.0
 

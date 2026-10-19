@@ -108,7 +108,7 @@ export {
 export type { Citation, CitedDocument, CitesOptions, FilesTemplate, IdTemplate, ResolvedFamily } from './cites.js';
 
 export { buildReverseGraph, dependentsOf, formatImpact, formatImpactJson, impactDocument, impactOf, resolvePython, ImpactError, IMPACT_FORMAT_VERSION } from './impact.js';
-export type { ImpactDependent, ImpactOptions, ImpactPath, ImpactReport, ImpactUnresolved, ReverseGraph } from './impact.js';
+export type { ImpactDependent, ImpactGap, ImpactOptions, ImpactPath, ImpactReport, ImpactUnresolved, ReverseGraph } from './impact.js';
 export type { ProveOptions } from './prove.js';
 
 export { contentHash, createMemo, NO_MEMO } from './memo.js';

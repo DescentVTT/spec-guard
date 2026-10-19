@@ -301,13 +301,12 @@ describe('a C# type cut short', () => {
   });
 });
 
-describe('a C# directive the compiler refuses, in this reader', () => {
-  it('is read as nothing and makes no note, at the end of a file too', () => {
-    // A note is made only of a type that nests too deep; what is refused for
-    // anything else is passed over, as it was.
+describe('a C# directive the compiler refuses', () => {
+  it('is read as nothing and said refused, and no truncated, at the end of a file too', () => {
+    // A truncated note is made only of a type that nests too deep.
     for (const source of ['using A.;', 'using T = void;', 'using unsafe N1.N2;', 'using T =', 'using static', 'using T = G.L<']) {
       const analysis = analyzeSource(source, 'src/Shop.cs');
-      expect([analysis.references, analysis.notes], source).toEqual([[], []]);
+      expect([analysis.references, analysis.notes.map(({ kind }) => kind)], source).toEqual([[], ['refused']]);
     }
   });
 });

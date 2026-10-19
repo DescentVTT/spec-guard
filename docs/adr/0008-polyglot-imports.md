@@ -643,7 +643,10 @@ under a fifth of a second now.
   so reading stops where the next declaration starts, and it is read.
 - **Left as they are, each measured: what the compiler refuses beyond its
   grammar.** 10 of the 54 Rust sources rustc refuses and 2 of the 35 C# ones
-  are still read, and nothing more is asked of them:
+  are still read, and nothing more is asked of them. *Amended 2026-10-19*:
+  each is decided, and all but the C# name in another normal form are
+  refused and said, by the amendment of that date, *a Rust or C#
+  declaration its compiler refuses is said*:
   - whether a name is a keyword, `use mod::d;`, `use a::fn;` and `using
     class.N;`, as of a Python statement in the amendment above. Rust's
     `async`, `await` and `dyn` are keywords from the 2018 edition on and
@@ -682,6 +685,154 @@ C# compiler read to what they read, each one they refuse to nothing, what is
 left as it is to what is read of it, and an import rule to both.
 
 <!-- @assert-present file="tests/rust-and-csharp-statements.test.ts" reason="the readers are held to what rustc and the C# compiler read of each spelling, and to nothing for what they refuse" -->
+
+## Amended 2026-10-19: a Rust or C# declaration its compiler refuses is said
+
+The amendment above reads a Rust use declaration and a C# using directive
+by their grammars, and reads what the compiler refuses as nothing; it left
+10 Rust sources and 2 C# ones read though refused, and made no note of any.
+A Python statement Python refuses is a note, by the amendment before it. A
+Rust or C# declaration was passed over with no word: `use forbidden::thing
+c;` and `using forbidden.;` name no module, and an import rule over them
+passed, under `--strict` too. Measured through the launcher on 0.27.0 and
+on this build (Windows 11 build 26300, Node 24.18.1), with
+`@assert-import-absence target="src" module="forbidden"` over a file that
+holds `use std::fmt;` and `use forbidden::thing c;`, and one that holds
+`using System;` and `using forbidden.;`:
+
+| Run | 0.27.0 | Now |
+| --- | --- | --- |
+| a run | exit 0, and no word of either | exit 0, and a note of each under the rule |
+| `--strict` | exit 0 | exit 1: `expected no matches, found 0; 2 references could not be resolved` |
+| `--json --strict` | `ok`, and no warning | not `ok`, the two notes among the result's `warnings` |
+| `impact` | neither file named | each named with its line, as below |
+
+```text
+! docs/a.md:3  2 module references could not be resolved statically
+!   src/a.rs:2 a declaration that starts as a use or an extern crate is one rustc refuses, and no module is read from it
+!   src/b.cs:2 a directive that starts as a using is one the C# compiler refuses, and no namespace is read from it
+```
+
+Measured on 2026-10-19 against the compilers on the workstation: the 144
+Rust and 132 C# sources of the amendment above, and 164 Rust and 74 C# ones
+more, of where a declaration stands, of keywords of each edition, of `self`,
+`super` and `crate`, doc comments, macros, top-level statements, aliases of
+any type and `#if`. Each Rust source was compiled by rustc 1.97.1 in the
+2015, 2018, 2021 and 2024 editions, and each C# one by the compiler of the
+.NET SDK 10.0.401 as a library and as a program, beside the modules and
+namespaces its names resolve to. rustc refuses 159 of the 308 in every
+edition and the C# compiler 63 of the 206 as both.
+
+| | 0.27.0 | Now |
+| --- | --- | --- |
+| Rust, of the 159 rustc refuses in every edition: said | 0 | 155 |
+| Rust, of those: read as holding an import, with no word | 101 | 1 |
+| Rust, of the 149 rustc compiles in one edition or more: said | 0 | 0 |
+| C#, of the 63 the compiler refuses as a library and as a program: said | 0 | 52 |
+| C#, of those: read as holding a using, with no word | 14 | 5 |
+| C#, of the 143 it compiles as either: said | 0 | 0 |
+
+Three of the Rust sources said also hold a declaration that is read, and
+it is: `use a::b as use a::c;` leaves the first open at its second `use`,
+which starts the next, as `use a::` before a line of its own always did.
+
+And over real code. The 31,176 Rust files of the workstation's cargo
+registry, every one a crate's: the same 280,990 references on both builds,
+on the same lines, and no note of the kind. The 852 C# files of a .NET
+repository on the workstation and the 49 of its NuGet cache: the same 2,147
+references, and no note. The 1,084 C# files of its Visual Studio
+installation: the same 5,342 references, and 61 notes, every one in a
+project template, `using $safeprojectname$.Models;` and the like, which no
+compiler reads until the template is filled in.
+
+- **Each declaration that starts as one and that the compiler refuses is a
+  note**, of the kind `refused`, on the line of its `use`, its `extern` or
+  its `using`, and nothing is read from it. It is treated as every note of
+  what could not be read is, as a Python statement's is: the rule says it
+  under its count, and under `--strict` the rule fails for it.
+- **A Rust declaration starts as one** where an item or a statement may
+  start: at the head of the file, or after `;`, a brace, an attribute's `]`,
+  or `pub` and its `(...)`. So `impl Sized + use<'a>`, which rustc compiles,
+  is none, and nor are `x.use` and `use || 1`, the ergonomic clones that
+  rustc 1.97.1 refuses as experimental. And none starts among a macro's
+  tokens: the group of an invocation, `m!(...)`, `path::m![...]` and `m!
+  {...}`, of a definition, `macro_rules! m {...}` and `macro m(...) {...}`,
+  and of an attribute, `#[...]`. rustc reads those as tokens and refuses
+  none of them for not being a declaration (Macros, "Macro invocation", read
+  on 2026-10-19): a matcher holds the word `use`, and `quote!` writes `use
+  #name::Thing;`. Within them a declaration is read as anywhere, as it was.
+- **A C# directive starts as one** in no brace but a namespace's body, at
+  the head of the file or after `;`, a brace or `global`, and where no
+  statement starts: top-level statements may hold `using var d = ...;`,
+  `using N.D? d = null;` and `using (...)`, and the compiler reads `using
+  N1 N2;` as a declaration of a local, and refuses it as one. And none
+  starts in a section an `#if` may leave out, to its `#endif`: the compiler
+  reads no token of a skipped section, which may be lexically incorrect
+  (6.5.5), and which section is skipped is the build's to say.
+- **The ten Rust sources and the two C# ones are decided**, each as the
+  compiler decides it in every edition and kind:
+  - a keyword of every edition, strict or reserved, for a segment, an alias
+    or a crate (Keywords, read on 2026-10-19): `use mod::d;`, `use a::fn;`,
+    `use a::Self;`, `use a::b as fn;`, `extern crate fn;`. And in C#, a
+    keyword written plain for a name: `using class.N;`, `using N1.int;`
+    (6.4.4). `async`, `await`, `dyn` and `try` are keywords from the 2018
+    edition on and `gen` from 2024, and rustc 1.97.1 compiles each as a name
+    in the 2015 edition, `gen` up to 2021: the edition is in `Cargo.toml`,
+    which the reader does not open, so each is read, as before. A contextual
+    keyword of C#, `var`, `global`, `dynamic`, `nint`, is a name;
+  - a doc comment between two tokens, which rustc reads as an attribute
+    where none may stand (Comments, "Doc comments"): `///` but not `////`,
+    `//!`, `/**` but not `/***` or `/**/`, and `/*!`;
+  - `self`, `super`, `crate` and `$crate` where the Reference has them
+    refused (Paths, "Path qualifiers"): `self` neither first nor last after
+    `::`, `super` after anything but other `super`s or a first `self`,
+    `crate` and `$crate` after a first segment or after a leading `::`, and a
+    `::` inside a group, `use a::{::b};`;
+  - a path that imports a crate, a module or a parent of one with no name of
+    its own (Use declarations, "Restrictions"): `use crate;`, `use self;`,
+    `use super;`, `use self::super;`, `use super::super;`, `use
+    crate::{self};` and `extern crate self;`, each with no `as`;
+  - a `$` name outside a macro's tokens, `use $crate::a;`, where rustc reads
+    one only as a macro is expanded;
+  - and the C# name in another normal form than the namespace it means,
+    which is left: the compiler refuses it for naming no namespace, and a
+    namespace so named would be read, so it is read as written, and said
+    nowhere, as a using of a namespace that does not exist is.
+- **Left as they are, each measured.** `use *;` is read as nothing and said
+  nowhere: rustc takes it in a module of a 2015 crate, as the crate root's
+  items, and refuses it at the root and from 2018, and the reader can tell
+  neither the edition nor the module. `use ::{self as root};` is read, the
+  crate root in the 2015 edition and refused from 2018. `use crate::*;` is
+  read as before: rustc refuses a glob of a module into itself, at the root,
+  and takes it in a module below it. A C# directive among a namespace's
+  members or in a type's body, which the compiler refuses there, is read as
+  it was; and a directive in a skipped section, refused or not.
+- **Reading changes only where the compiler refuses, and at three places it
+  compiles**: an alias of a type that is a keyword, `using T = int;`, `using
+  T = string;` and `using unsafe T = void*;`, names no namespace and is read
+  as nothing, where 0.27.0 read `int`, `string` and `void`; an alias of any
+  type C# 12 takes, a tuple, a function pointer, a pointer of either, is read
+  as nothing, as it was, and is no refusal; and in a macro's body a path the
+  Reference refuses, `use crate::fn;` or `use $crate;`, is read as nothing,
+  as rustc would refuse it where the macro is expanded. *Amended
+  2026-10-19*: what such an alias holds, a tuple's elements and a function
+  pointer's parameters and return, is read, each type whole, by the
+  amendment below, *names and aliases read whole*; it is still no refusal.
+- **A C# type is held to a depth, as a Rust group is**: a using directive
+  whose types nest deeper than `MAX_EXPANSION` (64) is reported with the
+  note `truncated`, and no reference, where the reader that reads a type by
+  its grammar would run out of stack at 20,000.
+- **`impact` names each such file on the line of each note**, by the
+  amendment of this date to [ADR-0018](0018-impact.md).
+- **It can turn a passing run red**, under `--strict`, over a file the
+  compiler would refuse. It turns a failing rule green only over a
+  declaration the compiler refuses, `use forbidden::fn;` among them, and the
+  note is under the rule.
+
+`tests/rust-and-csharp-statements.test.ts` holds each source the compilers
+refuse to its note, or to none where it starts no declaration, each source
+they compile to no note, and an import rule to both, under `--strict` and
+not.
 
 ## Amended 2026-10-19: names and aliases read whole
 
@@ -755,17 +906,13 @@ tuple in an alias.
   well (6.4.4), is read as a name as it always was. So `using T =
   G.L<dynamic>;` names `G.L` and `dynamic`, as `using T = dynamic;` named
   `dynamic`.
-- **A type is held to a depth, as a Rust group is**: a using directive
-  whose types nest deeper than `MAX_EXPANSION` (64) is reported with the
-  note `truncated`, and no reference, where a reader of a type by its
-  grammar would run out of stack.
 - **For a caller of the package**, `Reader.identifier` reads a name as Go
   has one.
 - **It can turn a passing run red**, which is the point: a rule over a Go
   file whose package name is beyond ASCII, or over a C# alias that holds a
   type as an argument or an element, now sees it. It turns a failing one
-  green over a Go import the specification refuses, and over `using T =
-  int;` and its kind, which name no namespace.
+  green over a Go import the specification refuses, and the amendment above
+  does over `using T = int;` and its kind, which name no namespace.
 
 `tests/names-read-whole.test.ts` holds each Go source to the
 specification's import or to none, and each C# source to the types the
