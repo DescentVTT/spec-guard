@@ -617,7 +617,8 @@ describe('a declaration the compiler refuses, where it starts as one', () => {
     ['`crate` after the first segment, or after `::`', ['use a::crate::b;', 'use ::crate::a;', 'use a::{crate::b};']],
     ['a module of its own with no name given with `as`', ['use crate;', 'use self;', 'use super;', 'use {self};', 'use {crate};', 'use crate::self;', 'use crate::{self};', 'use self::{self};', 'use self::super;', 'use super::super;', 'use super::{self};', 'extern crate self;']],
     ['a `$` name, outside a macro', ['use $crate::a;', 'use $crate as x;', 'use $x;']],
-    ['a `::` inside a group', ['use a::{::b};']],
+    ['a `::` inside a group', ['use a::{::b};', 'use a::{::;']],
+    ['one path of a group refused', ['use a::{b, crate::c};', 'use a::{$x, b};']],
     ['`crate`, `self` or `super` first in a group after a leading `::`', ['use ::{crate::a as z};', 'use ::{self::a as z};', 'mod m { use ::{super::a as z}; }']],
   ])('is said where it has %s', (_kind, sources) => {
     for (const source of sources) expect(rustSaid(source), source).toEqual([[], REFUSED]);
@@ -625,13 +626,13 @@ describe('a declaration the compiler refuses, where it starts as one', () => {
 
   it.each([
     ['a keyword, written plain', ['using class.N;', 'using N1.int;', 'using int;', 'using class = N1.N2;', 'using static int;']],
-    ['a type an alias cannot name', ['using T = void;', 'using T = int*;', 'using T = (int);', 'using T = ();', 'using T = G.L<>;', 'using unsafe T = G.L<delegate*<void>>;', 'using unsafe T = (delegate*<void>, int);', 'using static (int, int);']],
+    ['a type an alias cannot name', ['using T = G.L<;', 'using unsafe T = delegate* unmanaged[;', 'using unsafe T = delegate* unmanaged[Cdecl;', 'using unsafe T = delegate*;', 'using unsafe T = delegate*<;', 'using T = (;','using T = (int;', 'using unsafe T = delegate* unmanaged[1]<void>;', 'using unsafe T = delegate* unmanaged[Cdecl<void>;', 'using unsafe T = delegate* void;', 'using unsafe T = delegate*<(int), void>;', 'using T = void;', 'using T = int*;', 'using T = (int);', 'using T = ();', 'using T = G.L<>;', 'using unsafe T = G.L<delegate*<void>>;', 'using unsafe T = (delegate*<void>, int);', 'using static (int, int);']],
   ])('is said where it has %s', (_kind, sources) => {
     for (const source of sources) expect(csharpSaid(source), source).toEqual([[], REFUSED]);
   });
 
   it('is said where an item or a statement may start, and where a directive may', () => {
-    for (const source of ['pub(crate) use a::b c;', 'pub(in crate) use a::{,};', 'pub use a::b c;', '#[allow(unused)] use a::b c;', '#[cfg(any())] use a::b c;']) {
+    for (const source of ['pub(crate) use a::b c;', 'pub(in crate) use a::{,};', 'pub use a::b c;', 'struct S; pub use a::b c;', '#[allow(unused)] use a::b c;', '#[cfg(any())] use a::b c;']) {
       expect(rustSaid(source), source).toEqual([[], REFUSED]);
     }
     for (const source of ['fn f() { let x = 1; use a::b c; }', 'fn f() { use a::b c; }', '#[cfg(any())] mod m { use a::b c; }']) {
@@ -714,6 +715,11 @@ describe('what the compiler compiles, or reads as no declaration, is not said', 
     expect(rustSaid('mod m { mod n { use super::super::{}; } }')).toEqual([[['super::super', 1]], []]);
   });
 
+  it('where `use` follows a word that ends in pub, which is no `pub`', () => {
+    expect(rustSaid('pubx use a::b c;')).toEqual([[], []]);
+    expect(rustSaid('xpub use a::b c;')).toEqual([[], []]);
+  });
+
   it('where `use` is no declaration: a bound, a postfix, a closure', () => {
     // rustc 1.97.1 compiles the bounds, and refuses the other two as
     // ergonomic clones, which are experimental: they start no declaration.
@@ -739,6 +745,12 @@ describe('what the compiler compiles, or reads as no declaration, is not said', 
     expect(rustSaid('#![my(x; use a::b c)]')).toEqual([[], []]);
     expect(rustSaid('fn f() { if m!(x) { use a::b c; } }')).toEqual([[], REFUSED]);
     expect(rustSaid('m!(x)use a::b c;')).toEqual([[], REFUSED]);
+    // A declaration before a macro's tokens is no part of them.
+    expect(rustSaid('use a::b c;\nm!(x);')).toEqual([[], REFUSED]);
+    // A `macro` definition's tokens end with its body, and a definition with
+    // none ends with its parameters.
+    expect(rustSaid('macro m($x:ident) { use a::b c; }\nuse a::b c;')).toEqual([[], [['refused', 2]]]);
+    expect(rustSaid('macro m($x:ident);\nfn f() { use a::b c; }')).toEqual([[], [['refused', 2]]]);
     // And after one, a declaration is said again.
     expect(rustSaid(`${tokens}m! { use a::b c; }\nuse a::b c;`)).toEqual([[], [['refused', 3]]]);
   });
@@ -755,6 +767,8 @@ describe('what the compiler compiles, or reads as no declaration, is not said', 
     }
     // And those the compiler reads as a declaration, and refuses as one.
     for (const source of CSHARP_REFUSED_AS_A_STATEMENT) expect(csharpSaid(source), source).toEqual([[], []]);
+    // A declaration of a pointer, which the compiler refuses outside unsafe code, is one too.
+    expect(csharpSaid('using N1.N2.V* p = null;')).toEqual([[], []]);
   });
 
   it('where a C# alias names any type the compiler takes, a tuple, a keyword or a function pointer', () => {
@@ -779,6 +793,7 @@ describe('what the compiler compiles, or reads as no declaration, is not said', 
       'using unsafe T = delegate*<void>*;',
       'using unsafe T = delegate*<void>[];',
       'using unsafe T = delegate* managed<int, void>;',
+      'using unsafe T = delegate* unmanaged[Cdecl, SuppressGCTransition]<int, void>;',
       'using unsafe T = delegate*<in int, out int, ref readonly int, void>;',
     ]) {
       expect(csharpSaid(source), source).toEqual([[], []]);
@@ -790,6 +805,7 @@ describe('what the compiler compiles, or reads as no declaration, is not said', 
       ['using T = dynamic;', 'dynamic'],
       ['using T = nint;', 'nint'],
       ['using static G.L<(int, int)>;', 'G.L'],
+      ['using T = G.L<int>.Nested;', 'G.L.Nested'],
       ['using unsafe T = G.L<int>*;', 'G.L'],
       ['using \\u0063lass.N;', 'class.N'],
       ['using @class.N;', 'class.N'],
@@ -807,12 +823,20 @@ describe('what the compiler compiles, or reads as no declaration, is not said', 
     // An `#endif` that closes nothing, which the compiler refuses, ends no section.
     expect(csharpSaid('#endif\n#if NEVER\nusing N1.;\n#endif')).toEqual([[], []]);
     expect(csharpSaid('#if NEVER\nusing N1.;\n#else\nusing N1.N2;\n#endif')).toEqual([[['N1.N2', 4]], []]);
-    // One left open runs to the end of the file.
+    // One left open runs to the end of the file, and one ends with its
+    // `#endif` line, whatever that line holds.
     expect(csharpSaid('#if NEVER\nusing N1.;\n')).toEqual([[], []]);
+    expect(csharpSaid('#if NEVER\nusing N1.;\n#endif // the end of a long section')).toEqual([[], []]);
+    // Before a section, and after an `#ifdef`, which is no `#if`, it is said.
+    expect(csharpSaid('using N1.;\n#if X\n#endif')).toEqual([[], REFUSED]);
+    expect(csharpSaid('#ifdef X\nusing N1.;\n#endif')).toEqual([[], [['refused', 2]]]);
+    expect(csharpSaid('#ifx X\nusing N1.;\n#endif')).toEqual([[], [['refused', 2]]]);
   });
 
   it('where a C# directive stands in a brace that is no namespace', () => {
     expect(csharpSaid('class K { using N1.; }')).toEqual([[], []]);
+    // And after a word that ends in global, which is no `global`.
+    expect(csharpSaid('xglobal using N1.;')).toEqual([[], []]);
   });
 });
 
@@ -915,6 +939,9 @@ describe('how deep a C# type may nest', () => {
   it('is MAX_EXPANSION types, and one deeper is reported, with no name read, as twenty thousand are', () => {
     expect(csharpSaid(nested(MAX_EXPANSION - 1))).toEqual([[['G.L', 1], ['Ui', 2]], []]);
     for (const depth of [MAX_EXPANSION, 20_000]) expect(csharpSaid(nested(depth)), String(depth)).toEqual([[['Ui', 2]], [['truncated', 1]]]);
+    expect(analyzeSource(nested(MAX_EXPANSION), 'src/Shop.cs').notes.map(({ detail }) => detail)).toEqual([`a using directive nests its types deeper than ${MAX_EXPANSION}`]);
+    // An argument list left empty at the depth is cut short there too.
+    expect(csharpSaid(`using T = ${'G.L<'.repeat(MAX_EXPANSION)}${'>'.repeat(MAX_EXPANSION)};\n`)).toEqual([[], [['truncated', 1]]]);
     expect(csharpSaid(`using T = ${'('.repeat(20_000)}int, int${', int)'.repeat(20_000)};\n`)).toEqual([[], [['truncated', 1]]]);
     expect(csharpSaid(`using T = ${'G.L<'.repeat(125_000)}\nusing Ui;\n`)).toEqual([[['Ui', 2]], [['truncated', 1]]]);
   });

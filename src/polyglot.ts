@@ -562,10 +562,9 @@ function rustPathRefused({ segments, global, bare }: UsePath): boolean {
   });
   // `use crate;`, `use self;`, `use super::super;` and `use a::{self}` with
   // `a` one of them: the module is bound only under a name given with `as`.
-  // `use crate::{};` binds nothing, and rustc takes it. `use self;` names
-  // nothing here, and is refused alike.
-  const named = segments[last] === 'self' ? segments.slice(0, last) : segments;
-  return misplaced || (bare && named.every((segment) => RUST_PATH_KEYWORDS.has(segment)));
+  // `use crate::{};` binds nothing, and rustc takes it. A trailing `self`
+  // is one of those words too, so `use crate::self;` is refused alike.
+  return misplaced || (bare && segments.every((segment) => RUST_PATH_KEYWORDS.has(segment)));
 }
 
 /**
@@ -684,8 +683,8 @@ function externCrate(text: string, from: number): { crate: string; end: number }
   if (crate === null || !(name(crate) || crate.text === 'self')) return null;
   let next = rustToken(text, crate.end);
   const renamed = next !== null && !next.raw && next.text === 'as';
-  if (next !== null && renamed) {
-    const alias = rustToken(text, next.end);
+  if (renamed) {
+    const alias = rustToken(text, next!.end);
     next = alias !== null && (name(alias) || alias.text === '_') ? rustToken(text, alias.end) : null;
   }
   return next?.text === ';' && (renamed || crate.text !== 'self') ? { crate: crate.text, end: next.end } : null;
@@ -716,6 +715,8 @@ function macroRanges(code: string): Array<[number, number]> {
   while ((match = RUST_MACRO.exec(code)) !== null) {
     const opener = match[2]!;
     let end = matchingClose(code, RUST_MACRO.lastIndex - 1, opener, RUST_CLOSERS[opener]!) + 1;
+    // The body ends at its `}`, and `- 1` for its `+ 1` is an equivalent
+    // mutant: no `use` starts in the body's last two characters.
     RUST_BODY.lastIndex = end;
     if (match[1] !== undefined && RUST_BODY.test(code)) end = matchingClose(code, RUST_BODY.lastIndex - 1, '{', '}') + 1;
     ranges.push([match.index, end]);
@@ -730,7 +731,7 @@ const RUST_SPACE_CHARACTER = new RegExp(`[${RUST_SPACE}]`, 'u');
 /** Whether `at` is where an item or a statement may start: at the head of the file, or after `;`, a brace, an attribute's `]`, `pub` or its `(...)`. */
 function startsAnItem(code: string, at: number): boolean {
   let before = at;
-  while (before > 0 && RUST_SPACE_CHARACTER.test(code[before - 1]!)) before -= 1;
+  while (RUST_SPACE_CHARACTER.test(code[before - 1] ?? '')) before -= 1;
   return before === 0 || ';{}])'.includes(code[before - 1]!) || /(?<!\p{XID_Continue})pub$/u.test(code.slice(Math.max(0, before - 4), before));
 }
 
@@ -989,7 +990,7 @@ class CsharpTokens {
 
   private typeWithin(pointers: boolean): boolean {
     let pointer = false;
-    const word = this.next()?.word;
+    const word = this.next()?.word ?? '';
     if (this.mark('(')) {
       let elements = 0;
       do {
@@ -1003,7 +1004,7 @@ class CsharpTokens {
       this.keyword(word);
       if (!this.mark('*') || (word === 'delegate' && !this.functionPointer())) return false;
       pointer = true;
-    } else if (word !== undefined && CSHARP_TYPE_KEYWORDS.has(word)) {
+    } else if (CSHARP_TYPE_KEYWORDS.has(word)) {
       this.keyword(word);
     } else if (this.name(true) === null) {
       return false;
@@ -1102,7 +1103,7 @@ const CSHARP_GLOBAL_BEFORE = new RegExp(String.raw`(?<![${CSHARP_PART}@\\])globa
  */
 function startsADirective(code: string, at: number): boolean {
   let before = at;
-  while (before > 0 && CSHARP_SPACE_CHARACTER.test(code[before - 1]!)) before -= 1;
+  while (CSHARP_SPACE_CHARACTER.test(code[before - 1] ?? '')) before -= 1;
   return before === 0 || ';{}'.includes(code[before - 1]!) || CSHARP_GLOBAL_BEFORE.test(code.slice(Math.max(0, before - 7), before));
 }
 
