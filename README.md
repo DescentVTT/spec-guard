@@ -289,9 +289,14 @@ stops it being mistaken for a complete answer.
 - **A passing rule prints it** without `--verbose` too, since a green run is
   when it would otherwise go unread.
 - **`--strict` turns those warnings into failures.**
-- **A Python statement that starts as an import and that Python refuses is
-  one of them**, `from a import b,` among them: it names no module, and the
-  rule says so on its file and line.
+- **A statement that starts as an import and that its compiler refuses is
+  one of them**: a Python statement Python refuses, `from a import b,`; a
+  Rust use declaration or extern crate that rustc refuses in every
+  edition, `use a::b c;` or `use a::fn;`; and a C# using directive the
+  compiler refuses, `using A.;`. Each names no module, and the rule says so
+  on its file and line. A `use` among a macro's tokens, or in a bound such
+  as `impl Trait + use<'a>`, a C# using statement or declaration, and a
+  directive in a section an `#if` may leave out start none.
 - **Files in scope in a language whose imports spec-guard cannot read are
   counted and reported**, so a rule pointed at the wrong tree says "analysed 2
   of 3 files; 1 is in a language whose imports spec-guard cannot read (.razor)"
