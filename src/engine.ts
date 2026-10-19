@@ -636,7 +636,7 @@ class RipgrepEngine implements Engine {
       child.stdout.on('data', (chunk: Buffer) => stdout.push(chunk));
       // Without a listener, a listing ripgrep could not start throws from the
       // event, outside every promise, and the run ends on an unhandled error
-      // whatever its searches answered: the sweep counts that mutant an error.
+      // whatever its searches answered.
       child.once('error', reject);
       // Whatever it exits with. 1 is a listing of nothing, and 2 one that met
       // a directory it could not read: a `.git` whose `HEAD` the walk cannot

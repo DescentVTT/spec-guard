@@ -30,8 +30,11 @@ import { loadConfig } from '../src/config.js';
 import { FACT_POLICY, type FactPolicy, type WatchEvent } from '../src/facts.js';
 import { nodeIo, readText, type Io } from '../src/io.js';
 import { createMemo } from '../src/memo.js';
-import { runSpecGuard, type RunResult } from '../src/runner.js';
-import { createSession, ruleCaches, type RuleCaches, type Session, type SessionOptions, type SessionSettings } from '../src/watch.js';
+import { parseDirectives } from '../src/parser.js';
+import { executeAssertion, resolveDirective, runSpecGuard, type RunResult } from '../src/runner.js';
+import { DEFAULT_SCOPE, DEFAULT_SKIPPED_DIRECTORIES, type ScopePolicy } from '../src/scope.js';
+import type { Assertion } from '../src/types.js';
+import { createSession, identity, ruleCaches, type RuleCaches, type Session, type SessionOptions, type SessionSettings } from '../src/watch.js';
 import { makeTempRepo, memoryIo, removeTempRepo } from './helpers.js';
 import { fastestInTurnAsync, instrumented } from './timing.js';
 
@@ -703,6 +706,40 @@ describe('what a session holds to besides the tree', () => {
     const after = await watched.run();
     expect(comparable(after.report)).toEqual(comparable(await fresh(root)));
     expect(after.report.ok).toBe(false);
+  });
+
+  it('tells apart two rules whose scopes differ only in the names they skip', async () => {
+    // The two scopes a session's settings reach differ as well in whether
+    // the other work trees below are walked, which tells the test above its
+    // two rules apart by itself. A caller's rule may be resolved with any
+    // names, and these two answer apart over one tree: under one identity,
+    // a reuse would give one of them the other's verdict.
+    const root = path.resolve('/virtual/skips');
+    const io = memoryIo(root, { 'lib/a.js': '', 'lib/node_modules/x/index.js': 'MARK\n' });
+    const [directive] = parseDirectives('<!-- @assert-absence target="lib" symbol="MARK" -->\n', {
+      file: path.join(root, 'docs', 'rules.md'),
+      relativeFile: 'docs/rules.md',
+    }).directives;
+    const skipping = (skippedDirectories: ScopePolicy['skippedDirectories']): Assertion => {
+      const resolved = resolveDirective(directive!, { root, excludeFiles: new Set(), scope: { ...DEFAULT_SCOPE, skippedDirectories } });
+      if ('error' in resolved) throw new Error(resolved.error.message);
+      return resolved.assertion;
+    };
+    const [defaults, none] = [skipping(DEFAULT_SKIPPED_DIRECTORIES), skipping(new Map())];
+    const passes = async (assertion: Assertion): Promise<boolean> =>
+      (
+        await executeAssertion(assertion, {
+          ...ruleCaches(root, io, createMemo()),
+          root,
+          io,
+          allowMissingTargets: false,
+          strictTargets: false,
+          allowEmptyScope: false,
+          maxSnippets: 5,
+        })
+      ).ok;
+    expect([await passes(defaults), await passes(none)]).toEqual([true, false]);
+    expect(identity(defaults, {})).not.toBe(identity(none, {}));
   });
 });
 

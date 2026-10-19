@@ -736,6 +736,11 @@ function externCrate(text: string, from: number): { crate: string; end: number }
  */
 const RUST_MACRO = new RegExp(
   String.raw`(?:(?<!\p{XID_Continue})macro_rules[${RUST_SPACE}]*![${RUST_SPACE}]*[\p{XID_Start}_]\p{XID_Continue}*|(?<![\p{XID_Continue}#])(macro)[${RUST_SPACE}]+[\p{XID_Start}_]\p{XID_Continue}*|\p{XID_Continue}!|#!?)[${RUST_SPACE}]*([(\[{])`,
+  // Emptied, the flags leave each `exec` in `macroRanges` reading from the
+  // start, and on a file with an attribute its loop pushes a range a turn
+  // for ever. The thread runs out of memory, and no test's timer fires
+  // inside the loop, so a sweep counts an error: the tests of a macro's
+  // tokens see the mutant where they run before any test that meets it.
   'gu',
 );
 const RUST_CLOSERS: Readonly<Record<string, string>> = { '(': ')', '[': ']', '{': '}' };
