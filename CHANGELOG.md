@@ -12,6 +12,26 @@ is deprecated before it goes, is spec-core's
 
 ## Unreleased
 
+### Changed
+
+- **Another git work tree below the root is not read**, by a run or by
+  `cites`: a directory holding a `.git` file, as a linked worktree under
+  `.claude/worktrees` and a submodule do, or a `.git` directory with a
+  `HEAD`, as a clone does. 0.27.0 read a desktop-app session's worktree as
+  part of the checkout above it: a rule over `.` counted its code, `cites`
+  counted its citations twice, and a stale citation in it failed
+  `cites --strict` in the checkout. A run names each work tree it left out, as `skipped` with
+  `reason: "worktree"`, which `--strict` does not fail on; `cites` names
+  them as `workTrees`; `--no-default-skips` reads them
+  ([ADR-0007](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0007-search-scope.md)).
+  Upgrading: a rule over a directory that holds another work tree no longer
+  reads it, so a rule that failed only on a worktree's code passes, and one
+  that needed a file in another work tree, for a minimum or for a scope
+  that holds a file, may now fail; name the work tree as the rule's target
+  to read it. A spec pattern no longer reaches another work tree's specs,
+  nor `impact` its files. A script that took every `skipped` entry for a
+  gap reads its `reason`.
+
 ### Fixed
 
 - **A file two targets that overlap both reach is counted once under

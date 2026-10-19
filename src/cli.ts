@@ -209,7 +209,8 @@ Options
                           Tolerate target paths that do not exist (they fail by default)
       --allow-empty-scope Tolerate assertions whose scope holds no files (they fail by default)
       --print-baseline    Print the baseline="..." that would exempt today's violations, and exit
-      --no-default-skips  Search .git, .hg, .svn and node_modules too
+      --no-default-skips  Search .git, .hg, .svn and node_modules too, and the other git work trees
+                          below the root
       --exclude <globs>   Paths no assertion looks at, beside each directive's exclude; repeatable
       --ignore-status     Execute directives in documents not in force too (see Directives)
       --include-specs     Also count matches inside the spec files themselves

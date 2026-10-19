@@ -220,17 +220,19 @@ describe('createTreeIndex', () => {
       files: ['src/a.ts', 'src/deep/b.ts'],
       directories: ['src/deep', 'src/deep/hollow', 'src/empty', 'src/empty/inner'],
       gaps: [],
+      workTrees: [],
     });
     expect((await createTreeIndex(root).walk('.', DEFAULT_SCOPE)).files).toEqual(['other/c.ts', 'src/a.ts', 'src/deep/b.ts']);
   });
 
   it('skips the default directories without calling them gaps, and walks them when asked to', async () => {
     const root = await tree({ 'src/a.ts': '', 'src/node_modules/x/i.js': '', 'src/.git/HEAD': '' });
-    expect(await createTreeIndex(root).walk('src', DEFAULT_SCOPE)).toEqual({ files: ['src/a.ts'], directories: [], gaps: [] });
+    expect(await createTreeIndex(root).walk('src', DEFAULT_SCOPE)).toEqual({ files: ['src/a.ts'], directories: [], gaps: [], workTrees: [] });
     expect(await createTreeIndex(root).walk('src', SCAN_EVERYTHING)).toEqual({
       files: ['src/.git/HEAD', 'src/a.ts', 'src/node_modules/x/i.js'],
       directories: ['src/.git', 'src/node_modules', 'src/node_modules/x'],
       gaps: [],
+      workTrees: [],
     });
   });
 
@@ -241,9 +243,10 @@ describe('createTreeIndex', () => {
       files: ['src/a.ts'],
       directories: ['src/locked'],
       gaps: ['src/locked'],
+      workTrees: [],
     });
     const whole = countingReader(root, ['src']);
-    expect(await createTreeIndex(root, reading(whole.reader)).walk('src', DEFAULT_SCOPE)).toEqual({ files: [], directories: [], gaps: ['src'] });
+    expect(await createTreeIndex(root, reading(whole.reader)).walk('src', DEFAULT_SCOPE)).toEqual({ files: [], directories: [], gaps: ['src'], workTrees: [] });
   });
 
   it('walks a target once per run and scope, and lists each directory once for walks and lookups alike', async () => {

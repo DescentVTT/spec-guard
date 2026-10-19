@@ -23,7 +23,7 @@ import { comparePaths, MAX_CONCURRENT_READS, withinSizeLimit } from './engine.js
 import { createExcludeMatcher, createPathMatcher, globBase, isGlob, pathPatternError, toPosix, walkPaths } from './glob.js';
 import { nodeIo, type Io } from './io.js';
 import { INACTIVE_STATUSES, parseStatus, parseTitle } from './parser.js';
-import { createScope, isBinary } from './scope.js';
+import { createScope, isBinary, type SkipReason } from './scope.js';
 import { readSpecs, unmatchedSpecs } from './specs.js';
 import { lineStarts, locate } from './text.js';
 import type { CiteFamily, CiteFamilyReport, CiteFinding, CiteGap, CitesReport, SpecStatus } from './types.js';
@@ -539,6 +539,7 @@ export async function findCitations(options: CitesOptions): Promise<CitesReport>
   const candidates: Array<{ file: string; absolute: string }> = [];
   const starts = options.paths?.map((entry) => (entry === '.' ? '' : entry)) ?? [''];
   const seen = new Set<string>();
+  const workTrees: string[] = [];
 
   // With nothing to look for, no path is walked, and every count stays at zero.
   if (families.length > 0) {
@@ -548,7 +549,14 @@ export async function findCitations(options: CitesOptions): Promise<CitesReport>
       const entries: Array<{ relativePath: string; absolutePath: string }> = [];
       if (stats?.isFile()) entries.push({ relativePath: start, absolutePath: absoluteStart });
       else {
-        for await (const entry of walkPaths(absoluteStart, { io, scope })) {
+        // A worktree inside the checkout holds its own copy of every comment,
+        // and its citations were counted twice and its stale ones failed
+        // `cites --strict` in the checkout above it.
+        const onSkip = (relativePath: string, reason: SkipReason): void => {
+          const top = start === '' ? relativePath : `${start}/${relativePath}`;
+          if (reason === 'worktree' && !excluded(`${top}/.git`) && !workTrees.includes(top)) workTrees.push(top);
+        };
+        for await (const entry of walkPaths(absoluteStart, { io, scope, onSkip })) {
           entries.push({ relativePath: start === '' ? entry.relativePath : `${start}/${entry.relativePath}`, absolutePath: entry.absolutePath });
         }
       }
@@ -670,6 +678,7 @@ export async function findCitations(options: CitesOptions): Promise<CitesReport>
     unclassified: [...unclassified]
       .map(([extension, files]) => ({ extension, files }))
       .sort((a, b) => b.files - a.files || comparePaths(a.extension, b.extension)),
+    workTrees,
     notes,
     exclude,
   };
