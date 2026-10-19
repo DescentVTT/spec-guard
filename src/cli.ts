@@ -433,7 +433,10 @@ const LONG_NAMES: Readonly<Record<string, string>> = { '-v': '--verbose', '-r': 
  * which has no case, everywhere else and for a UNC path: so the first
  * character is the one folded, on every host. The rest of the path is the
  * disk's to tell apart, and is compared as resolved. Folded down instead of
- * up, two letters compare alike, so that mutant is equivalent.
+ * up, two letters compare alike, so that mutant is equivalent. So is the
+ * whole path folded with the rest of it added as resolved, `.charAt(0)`
+ * taken off: two keys made so are equal exactly where the first characters
+ * fold alike and the rest is the same, as two made by this line are.
  */
 export function comparedRoot(resolved: string): string {
   return `${resolved.charAt(0).toUpperCase()}${resolved.slice(1)}`;
