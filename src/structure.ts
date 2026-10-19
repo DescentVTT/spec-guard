@@ -38,6 +38,8 @@ export interface Tree {
   directories: string[];
   /** Directories that could not be listed. */
   gaps: string[];
+  /** Directories below the target that are the tops of other work trees, which the walk did not enter. */
+  workTrees: string[];
 }
 
 /**
@@ -100,20 +102,22 @@ export function createTreeIndex(root: string, io: Io = nodeIo): TreeIndex {
   };
 
   const walk = (target: string, scope: ScopePolicy): Promise<Tree> => {
-    const key = JSON.stringify([target, [...scope.skippedDirectories.keys()]]);
+    const key = JSON.stringify([target, [...scope.skippedDirectories.keys()], scope.otherWorkTrees]);
     let pending = walks.get(key);
     if (!pending) {
       pending = (async (): Promise<Tree> => {
-        const tree: Tree = { files: [], directories: [], gaps: [] };
+        const tree: Tree = { files: [], directories: [], gaps: [], workTrees: [] };
         const fromRoot = (relativePath: string): string => path.posix.join(target, relativePath);
         const walked = walkPaths(path.join(root, target), {
           scope,
           io: { ...io, readDirectory: (directory) => read(toPosix(path.relative(root, directory)) || '.').entries },
           onDirectory: (relativePath) => tree.directories.push(fromRoot(relativePath)),
-          // Only the gaps. `.git` and `node_modules` are the run's policy, and
-          // are no more news here than they are to a search.
+          // The gaps, and the other work trees, as a search says them. `.git`
+          // and `node_modules` are the run's policy, and are no more news here
+          // than they are to a search.
           onSkip: (relativePath, reason) => {
             if (UNCERTAIN_REASONS.has(reason)) tree.gaps.push(fromRoot(relativePath));
+            else if (reason === 'worktree') tree.workTrees.push(fromRoot(relativePath));
           },
         });
         for await (const file of walked) tree.files.push(fromRoot(file.relativePath));
@@ -237,7 +241,7 @@ export interface StructureCheck {
   violations: StructureViolation[];
   /** A template that names the file itself, at the first file where it does. */
   selfPartner?: { file: string; template: string };
-  /** Directories under a target that could not be listed. */
+  /** Directories under a target that could not be listed, and the other work trees left out. */
   scope: ScopeLedger;
 }
 
@@ -259,6 +263,7 @@ export async function checkStructure(
   const missing: string[] = [];
   const notDirectories: string[] = [];
   const gaps = new Set<string>();
+  const workTrees = new Set<string>();
   const subjects = new Map<string, string>();
   const add = (subject: string, target: string): void => {
     if (!subjects.has(subject)) subjects.set(subject, target);
@@ -276,6 +281,9 @@ export async function checkStructure(
     } else {
       const tree = await index.walk(target, request.scope);
       for (const gap of tree.gaps) gaps.add(gap);
+      // Not where the rule's own exclude covers its `.git`: the rule had
+      // left that work tree out already.
+      for (const top of tree.workTrees) if (!excluded(`${top}/.git`)) workTrees.add(top);
       if (selects !== null) {
         for (const directory of tree.directories) {
           if (!excluded(directory) && selects(path.posix.relative(target, directory))) add(directory, target);
@@ -288,6 +296,7 @@ export async function checkStructure(
 
   const ledger = new LedgerBuilder();
   for (const gap of gaps) ledger.add(gap, 'unreadable');
+  for (const top of workTrees) ledger.add(top, 'worktree');
   const ordered = [...subjects].sort(([a], [b]) => comparePaths(a, b));
   const check: StructureCheck = {
     missing,

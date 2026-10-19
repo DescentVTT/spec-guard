@@ -740,6 +740,21 @@ export function compareDirents(a: { name: string }, b: { name: string }): number
 }
 
 /**
+ * Whether a directory is the top of a git work tree: it holds a `.git` file,
+ * as a linked worktree and a submodule do, or a `.git` directory with a
+ * `HEAD` in it, as a clone does. A `.git` directory without one is no
+ * repository to git, and a link named `.git` is followed by neither engine.
+ * ripgrep finds the same tops by those two names (`buildWorkTreeArgs`), and
+ * it lists a file and never an empty directory. ADR-0007, amended 2026-10-19.
+ */
+export async function isWorkTreeTop(directory: string, entries: Awaited<ReturnType<Io['readDirectory']>>, io: Io): Promise<boolean> {
+  const git = entries.find((entry) => entry.name === '.git');
+  if (git === undefined) return false;
+  if (git.isFile()) return true;
+  return git.isDirectory() && (await io.stat(path.join(directory, '.git', 'HEAD')))?.isFile() === true;
+}
+
+/**
  * Depth-first directory walk yielding regular files with their sizes.
  * Emits nothing when `root` is missing or is not a directory.
  *
@@ -781,6 +796,13 @@ export async function* walkPaths(root: string, options: WalkOptions = {}): Async
       // A directory we cannot list may hold anything, so it is reported rather
       // than treated as empty.
       onSkip?.(prefix || '.', 'unreadable');
+      return;
+    }
+    // Where the walk starts is walked as asked, a root that is a linked
+    // worktree among them; below it, another work tree's files are another
+    // checkout's.
+    if (prefix !== '' && scope.otherWorkTrees === 'skip' && (await isWorkTreeTop(directory, entries, io))) {
+      onSkip?.(prefix, 'worktree');
       return;
     }
     // Sorted explicitly: readdir order is filesystem-defined (NTFS happens to

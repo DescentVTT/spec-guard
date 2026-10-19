@@ -235,6 +235,18 @@ function scopeNotes(ledger: ScopeLedger): string[] {
     );
   }
 
+  // Not a gap, and said for that reason: a checkout's run that passes because
+  // a worktree inside it was not read must say which one it did not read.
+  const trees = ledger.skipped.filter((entry) => entry.reason === 'worktree');
+  if (trees.length > 0) {
+    notes.push(
+      `${countLabel(trees.length, 'other git work tree')} not read: ${trees
+        .slice(0, 3)
+        .map((entry) => entry.path)
+        .join(', ')}`,
+    );
+  }
+
   return notes;
 }
 
@@ -1388,6 +1400,9 @@ export function formatCites(report: CitesReport, options: ReporterOptions): stri
     const kinds = report.unclassified.map(({ extension, files }) => `${extension} ${files}`).join(', ');
     lines.push(paint(`${glyphs.skip} ${countLabel(summary.unclassified, 'file')} in no language spec-guard knows the comments of, and not read: ${kinds}`, 'dim'), '');
   }
+  if (report.workTrees.length > 0) {
+    lines.push(paint(`${glyphs.skip} ${countLabel(report.workTrees.length, 'other git work tree')} not read: ${report.workTrees.join(', ')}`, 'dim'), '');
+  }
   if (summary.qualified > 0) {
     const verb = summary.qualified === 1 ? 'names' : 'name';
     const were = summary.qualified === 1 ? 'was' : 'were';
@@ -1465,6 +1480,7 @@ export function formatCitesJson(report: CitesReport): string {
       findings: report.findings,
       gaps: report.gaps,
       unclassified: report.unclassified,
+      workTrees: report.workTrees,
       notes: report.notes,
       exclude: report.exclude,
       config: report.config,

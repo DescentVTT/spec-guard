@@ -124,7 +124,10 @@ const TREE = [
   'src/legacy/old.go',
   'src/tests/helper.ts',
   'src/node_modules/vendored/index.js',
-  'src/.git/HEAD',
+  // A .git directory the policy skips by name. With a HEAD in it, src
+  // would be a clone's top, which a run leaves out and a query, reading no
+  // file, cannot tell from a directory (ADR-0007, amended 2026-10-19).
+  'src/.git/config',
   'src2/other.ts',
   'lib/server.go',
   'lib/client.rs',

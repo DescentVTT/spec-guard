@@ -822,7 +822,8 @@ for architecture rules.
 An assertion is worth exactly as much as the set of files behind it, so
 spec-guard is explicit about that set and never quietly narrows it.
 
-**Four directory names are skipped**, and nothing else:
+**Four directory names are skipped**, as is another git work tree below the
+root (see below), and nothing else:
 
 | Skipped | Why |
 | --- | --- |
@@ -847,7 +848,26 @@ To narrow scope, say so in the assertion:
 <!-- @assert-absence target="src" symbol="TODO" exclude="dist coverage" -->
 ```
 
-`--no-default-skips` removes even those four, for a run that has to be certain.
+**Another git work tree below the root is not read either**: a directory
+holding a `.git` file, as a linked worktree and a submodule do (a
+desktop-app session keeps its worktree under `.claude/worktrees`), or a
+`.git` directory with a `HEAD`, as a clone does. Its files are another
+checkout's: read, a stale citation in a session's worktree failed
+`cites --strict` in the checkout above it. A run names each one it left
+out, and `--json` has it in `skipped` with `reason: "worktree"`, which
+`--strict` does not fail on:
+
+```text
+⚠ 1 other git work tree not read: .claude/worktrees/feature
+```
+
+Where a walk starts is read as asked, so a root that is itself a worktree is
+read, and a rule can name a work tree as its `target`. `query` and the MCP
+server read no file, so they cannot tell a work tree from a directory
+([ADR-0007](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0007-search-scope.md)).
+
+`--no-default-skips` removes even those four, and reads the other work trees
+too, for a run that has to be certain.
 
 ### Spec files are left out of their own searches
 
@@ -1210,10 +1230,11 @@ in the file name:
   named. `cites` takes no `--allow-empty`, since it refuses nothing.
 - **Comment text only**, as the comment classifier reads it: an id in a string,
   a raw string or a YAML value is not a citation. Markdown is spec-graph's and
-  is not read, nor are the spec files, the project's `exclude`, and the default
-  skips. Files in a language whose comments spec-guard does not know are
-  counted by extension, and a file read in part - binary, unreadable, or a scan
-  that lost its place - is named.
+  is not read, nor are the spec files, the project's `exclude`, the default
+  skips, and another git work tree below the root, which is named, and is
+  `workTrees` in `--json`. Files in a language whose comments spec-guard does
+  not know are counted by extension, and a file read in part - binary,
+  unreadable, or a scan that lost its place - is named.
 - **Another project's ids are not checked**: `spec-core's ADR-0005`,
   `spec-graph ADR-0017` or `its ADR-12` name a document in another repository,
   and are counted instead.
@@ -1330,7 +1351,7 @@ spec-guard impact <paths...>           # the files that depend on each path, and
 | `--allow-missing-targets` / `--no-allow-missing-targets` | Warn instead of failing when a `target` path does not exist |
 | `--allow-empty-scope` / `--no-allow-empty-scope` | Warn instead of failing when an assertion inspects no files |
 | `--print-baseline` | Print the `baseline="..."` that would exempt today's violations, and exit |
-| `--no-default-skips` / `--default-skips` | Search `.git`, `.hg`, `.svn` and `node_modules` too |
+| `--no-default-skips` / `--default-skips` | Search `.git`, `.hg`, `.svn` and `node_modules` too, and the other git work trees below the root |
 | `--exclude <globs>` | Paths no assertion looks at, beside each directive's own `exclude`. Repeatable; replaces the configuration's list, and `--exclude=` clears it. Separators with nothing between them, `","`, are refused |
 | `--ignore-status` / `--no-ignore-status` | Execute directives in documents not in force too: draft, proposed, rejected, deprecated, superseded or archived |
 | `--include-specs` / `--no-include-specs` | Also count matches inside the spec files themselves |

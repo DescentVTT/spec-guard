@@ -56,6 +56,7 @@ import {
   createScope,
   DEFAULT_SCOPE,
   EMPTY_LEDGER,
+  gapsOf,
   type ScopePolicy,
 } from "./scope.js";
 import {
@@ -1076,8 +1077,12 @@ async function prepareAssertion(
   const nothingLeft = existingTargets.length === 0;
 
   if (!options.allowEmptyScope && !assertion.allowEmpty && (nothingLeft || !(await options.hasFiles(request)))) {
+    // An empty scope's walk went everywhere, and the other work trees it left
+    // out are where a reader will look for the files it did not find.
+    const left = nothingLeft ? EMPTY_LEDGER.skipped : (await enumerateCandidates(request, ANY_FILE_PROBE, options.io)).skipped;
     return {
       ...base,
+      scope: { skipped: left.filter((entry) => entry.reason === "worktree") },
       ok: false,
       actual: 0,
       message: `no files were inspected, so this assertion verified nothing (${EMPTY_SCOPE_HINT})`,
@@ -1093,12 +1098,9 @@ async function prepareAssertion(
       // that was read; --strict is for runs where "true of what we read" is not
       // good enough.
       //
-      // No filter for uncertainty here any more. The ledger only ever holds
-      // gaps: the walk drops a policy skip before recording it, and the only
-      // other reasons the scanner adds are "unreadable" and "binary". Filtering
-      // again was a second statement of an invariant that is enforced where it
-      // is created, and being a no-op, nothing could tell it from its absence.
-      const gaps = search.scope.skipped;
+      // The ledger holds the gaps and the other work trees the walk left out,
+      // which are no gap: the walk drops a policy skip before recording it.
+      const gaps = gapsOf(search.scope);
       const strictFailure = options.strictTargets && gaps.length > 0;
       const { excluded, stale, shows } = applyBaseline(assertion.baseline, search.fileCounts);
       const staleFailure = assertion.ratchet === "two-sided" && stale.length > 0;
@@ -1189,7 +1191,7 @@ async function executeStructureAssertion(
   const fileCounts = new Map(check.violations.map((violation) => [violation.path, 1]));
   const { excluded, stale, shows } = applyBaseline(assertion.baseline, fileCounts);
   const staleFailure = assertion.ratchet === "two-sided" && stale.length > 0;
-  const gaps = check.scope.skipped.length;
+  const gaps = gapsOf(check.scope).length;
   const strictFailure = options.strictTargets && gaps > 0;
   const actual = check.violations.length - excluded;
 
@@ -1276,7 +1278,7 @@ async function executeImportAssertion(
   // the root to the engine, as the text rules above found out.
   const enumeration =
     existingTargets.length === 0
-      ? { files: [] }
+      ? { files: [], skipped: EMPTY_LEDGER.skipped }
       : await enumerateCandidates(
           {
             root: options.root,
@@ -1286,6 +1288,9 @@ async function executeImportAssertion(
           undefined,
           options.io,
         );
+  // The other work trees the walk left out are said, as a text rule says
+  // them. What it could not read is not, as before.
+  const said = { ...base, scope: { skipped: enumeration.skipped.filter((entry) => entry.reason === "worktree") } };
 
   // Why a missing target fails the assertion, or null when it does not. Decided
   // before scope, so a rule whose only target is gone says so rather than that
@@ -1310,7 +1315,7 @@ async function executeImportAssertion(
     // of YAML has nothing this can read, so a dependency claim about it is a
     // claim about nothing.
     return {
-      ...base,
+      ...said,
       ok: false,
       actual: 0,
       message:
@@ -1370,9 +1375,9 @@ async function executeImportAssertion(
     missing,
   };
 
-  if (cycles) return finishCycles(assertion, options, base, warnings, startedAt, read);
+  if (cycles) return finishCycles(assertion, options, said, warnings, startedAt, read);
   if (assertion.layers) {
-    return finishLayers(assertion, assertion.layers, options, base, warnings, startedAt, read);
+    return finishLayers(assertion, assertion.layers, options, said, warnings, startedAt, read);
   }
 
   const matchesModule = createExcludeMatcher(query.modules);
@@ -1409,7 +1414,7 @@ async function executeImportAssertion(
   const ok = satisfies(actual, assertion.bounds) && !strictFailure && !staleFailure;
 
   return {
-    ...base,
+    ...said,
     ok,
     actual,
     message:

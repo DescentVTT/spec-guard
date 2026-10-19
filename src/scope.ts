@@ -32,14 +32,29 @@
  * to prevent. Narrowing scope is the assertion's job, through `exclude`.
  */
 
-/** Why spec-guard, rather than the user, left a path out. */
-export type SkipReason = 'vcs' | 'dependencies' | 'unreadable' | 'binary';
+/**
+ * Why spec-guard, rather than the user, left a path out.
+ *
+ * `worktree` is a directory below where a walk starts that holds a `.git` of
+ * its own: another checkout, of this repository or of another one, whose
+ * files are not this one's (ADR-0007, amended 2026-10-19).
+ */
+export type SkipReason = 'vcs' | 'dependencies' | 'unreadable' | 'binary' | 'worktree';
 
 /**
  * Reasons that represent a gap in the analysis rather than a deliberate
  * omission. These are what `--strict` refuses to pass over.
  */
 export const UNCERTAIN_REASONS: ReadonlySet<SkipReason> = new Set<SkipReason>(['unreadable', 'binary']);
+
+/**
+ * The entries of a ledger that are gaps in the answer, which is what
+ * `--strict` fails on. A ledger also names the other work trees a walk left
+ * out, which are no gap: what they hold is another checkout's.
+ */
+export function gapsOf(ledger: ScopeLedger): SkippedPath[] {
+  return ledger.skipped.filter((entry) => UNCERTAIN_REASONS.has(entry.reason));
+}
 
 /**
  * Directory names skipped unless `--no-default-skips` is given.
@@ -66,12 +81,20 @@ export const DEFAULT_SKIPPED_DIRECTORIES: ReadonlyMap<string, SkipReason> = new 
 export interface ScopePolicy {
   /** Directory names to skip, and why. Empty under `--no-default-skips`. */
   readonly skippedDirectories: ReadonlyMap<string, SkipReason>;
+  /**
+   * Whether a directory below where a walk starts that holds a `.git` of its
+   * own is left out. A linked worktree under `.claude/worktrees`, a submodule
+   * and a clone inside the tree are each another checkout: walked, their
+   * citations were counted twice and a stale one failed `cites --strict` in
+   * the checkout above them. Off under `--no-default-skips`.
+   */
+  readonly otherWorkTrees: 'skip' | 'walk';
 }
 
-export const DEFAULT_SCOPE: ScopePolicy = { skippedDirectories: DEFAULT_SKIPPED_DIRECTORIES };
+export const DEFAULT_SCOPE: ScopePolicy = { skippedDirectories: DEFAULT_SKIPPED_DIRECTORIES, otherWorkTrees: 'skip' };
 
 /** A policy that walks everything, for when only certainty will do. */
-export const SCAN_EVERYTHING: ScopePolicy = { skippedDirectories: new Map() };
+export const SCAN_EVERYTHING: ScopePolicy = { skippedDirectories: new Map(), otherWorkTrees: 'walk' };
 
 export function createScope(useDefaultSkips: boolean): ScopePolicy {
   return useDefaultSkips ? DEFAULT_SCOPE : SCAN_EVERYTHING;

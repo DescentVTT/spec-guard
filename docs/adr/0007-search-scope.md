@@ -308,3 +308,76 @@ What this leaves as it was:
 
 <!-- @assert-present file="tests/line-anchors.test.ts" reason="the line ends each engine reads, and one set of anchored rules run through both" -->
 <!-- @assert-count target="src/engine.ts" symbol="'--multiline'," expected="1" reason="the scanner's match may cross a line end, so ripgrep's list must hold a file where one does" -->
+
+## Amended 2026-10-19: another git work tree below the root is not this one
+
+A linked worktree, which a desktop-app session makes under
+`.claude/worktrees/<name>`, holds a `.git` file rather than a directory, so
+the walk, which skips `.git` by name, read it as any other directory.
+Measured through the launcher on 0.27.0, `--engine js` and `--engine rg`
+alike, over a checkout holding a linked worktree at
+`.claude/worktrees/feature`, a submodule's shape at `modules/sub` (a `.git`
+file), a clone at `vendor/lib` (a `.git` directory with a `HEAD`) and a
+`.git` directory with no `HEAD` at `fixtures/not-a-repo`:
+
+| | 0.27.0 | Now |
+| --- | --- | --- |
+| `@assert-absence symbol="LegacyThing"`, over the root, `LegacyThing` only in the worktree | exit 1 | exit 0, and the three work trees named |
+| `@assert-count target="." symbol="Marker"`, one `Marker` in each of the five | 5 files | 2: the checkout's and the one beside a `.git` with no `HEAD` |
+| `cites`, a superseded ADR cited in the worktree and in the clone | 2 stale, exit 1 under `--strict`, two `.git` files counted as of no language | none, exit 0 under `--strict`, the three named |
+| the spec pattern `**/*.md` | 4 specs, the worktree's two among them, each rule run twice | 2 |
+
+- **A directory below where a walk starts that holds a `.git` file, or a
+  `.git` directory with a `HEAD` in it, is not walked**: by a run, for
+  every kind of rule, its spec patterns and `prove`; by `cites`; and by
+  `impact`. A linked worktree and a submodule hold a `.git` file, and a
+  clone a `.git` directory with a `HEAD`. Git takes a `.git` directory
+  without one for no repository, and so is it taken here, and a link named
+  `.git` is followed by neither engine.
+- **Where a walk starts is walked as asked**: the root, so a root that is
+  itself a linked worktree is read as before, its `.git` file with it; a
+  target, so a rule can name another work tree, or a file in one; and a
+  path given to `cites`.
+- **A run says which it left out.** Each result carries them in `skipped`,
+  with `reason: "worktree"`; the report says
+  `3 other git work trees not read: ...` under a failure and under the
+  passes; and an empty scope's failure names those its walk met, which is
+  where a reader looks for the files it did not find. They are no gap, so
+  `--strict` does not fail on them. `cites` names them as `workTrees`.
+  None is named where the rule's own `exclude`, or for `cites` the
+  project's, covers the work tree's `.git`: it was left out already.
+- **`--no-default-skips` walks them**, as it walks `.git` and
+  `node_modules`.
+- **ripgrep finds them for itself**, so that the two engines leave out the
+  same work trees and name them in the same order: `rg --files` lists each
+  `.git` file and each `HEAD` in a `.git` directory below a target,
+  entering a `.git` directory for its `HEAD` alone, side by side with the
+  search, and the files the search names in a work tree a target's walk
+  leaves out are set aside. Over 40,000 files in 4,040 directories the
+  listing took 139 ms, a walk of spec-guard's own to find them 882 ms, and
+  the search 1,389 ms, medians of ten taken in turn on a busy machine
+  (`node -e 0` took 768 ms).
+- `.gitignore` is still not read: what another work tree holds is left out
+  because it is another checkout's, whatever an ignore file says.
+
+What a run with `target="."` reads of this repository did not change.
+Through a door that records every file read, in its main checkout, which
+holds two test repositories in directories the project's `exclude` names,
+and in a worktree with none, a run read the same 165 files before and after,
+and `cites` the same 179.
+
+Holding the two engines to one ledger over targets that overlap found that
+ripgrep given `.` and `src` names a file in `src` under each, and the
+scanner counted it twice; it is counted once, as the walk reads it.
+
+What this leaves as it was:
+
+- **`query` and the MCP server read no file**, so they cannot tell another
+  work tree from a directory, and a rule over `.` is said to govern a path
+  in one, which no run reads.
+- **A `.git` file is taken at its name**, whatever it holds, and a `.git`
+  directory whose `HEAD` cannot be read for what it is is taken for none, by
+  both engines.
+
+<!-- @assert-present file="tests/work-trees.test.ts" reason="the kinds of work tree, the walk and ripgrep leaving out the same ones, and what a run and cites say of them" -->
+<!-- @assert-count target="src/engine.ts" symbol="buildWorkTreeArgs(" min="2" reason="ripgrep lists the other work trees itself, so the two engines leave out the same ones" -->

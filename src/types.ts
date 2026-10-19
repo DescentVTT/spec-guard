@@ -638,6 +638,13 @@ export interface CitesReport {
   gaps: CiteGap[];
   /** The extensions of the files left unclassified, most common first, with their counts. */
   unclassified: Array<{ extension: string; files: number }>;
+  /**
+   * The directories below where the check walked that hold a `.git` of their
+   * own, and whose comments were not read: a worktree, a submodule, a clone,
+   * each another checkout. Not where the project's `exclude` covers its
+   * `.git`. ADR-0007, amended 2026-10-19.
+   */
+  workTrees: string[];
   /** What a reader should know about how the families were chosen. */
   notes: string[];
   exclude: string[];

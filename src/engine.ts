@@ -35,7 +35,7 @@ import {
 } from './glob.js';
 import { nodeIo, type Io } from './io.js';
 import { NO_MEMO, type Memo } from './memo.js';
-import { isBinary, LedgerBuilder, UNCERTAIN_REASONS, type SkippedPath } from './scope.js';
+import { isBinary, LedgerBuilder, UNCERTAIN_REASONS, type ScopePolicy, type SkippedPath } from './scope.js';
 import { CUT_MARK, lineStarts, locate, MAX_SNIPPET_LENGTH } from './text.js';
 import type { EngineName, MatchLocation, SearchOptions, SearchResult } from './types.js';
 
@@ -211,6 +211,7 @@ function walkKey(request: WalkRequest): string {
     options.excludeGlobs,
     pathsKey(options.excludeFiles),
     [...options.scope.skippedDirectories],
+    options.scope.otherWorkTrees,
   ]);
 }
 
@@ -439,6 +440,112 @@ export function buildRipgrepArgs(request: SearchRequest, patterns: readonly stri
 }
 
 /**
+ * Whether a work tree a walk left out is said: not where the rule's own
+ * `exclude` covers its `.git`, since then the rule had left it out already.
+ * One answer for both engines.
+ */
+function namesWorkTree(options: SearchOptions): (top: string) => boolean {
+  const excluded = createExcludeMatcher(options.excludeGlobs);
+  return (top) => !excluded(`${top}/.git`);
+}
+
+/**
+ * The argv that has ripgrep list where the other work trees below a target
+ * start: each `.git` file, and each `HEAD` in a `.git` directory, the two
+ * names `isWorkTreeTop` reads. A `.git` directory is entered for its
+ * `HEAD` alone, and the scope's other names are left out, as the walk leaves
+ * them. A target that is a file is listed as named, and named no top.
+ *
+ * The globs that leave out a `.git` directory's own directories and the
+ * scope's names save ripgrep a walk and change no answer:
+ * `parseWorkTreeTops` drops a top under any of those names. With any of them
+ * emptied or left out, the loop that adds the names emptied, or the
+ * `!== '.git'` below always false, the tops are the same: each such mutant
+ * is equivalent.
+ */
+export function buildWorkTreeArgs(scope: ScopePolicy, target: string): string[] {
+  const args = ['--files', '--null', '--no-config', '--hidden', '--no-ignore', '--glob', '**/.git', '--glob', '**/.git/HEAD', '--glob', '!**/.git/*/'];
+  for (const name of scope.skippedDirectories.keys()) {
+    if (name !== '.git') args.push('--glob', `!${name}/`);
+  }
+  return [...args, '--', target];
+}
+
+/** Whether a root-relative path is a directory's or lies below it; `''` is the root. */
+function within(relativePath: string, directory: string): boolean {
+  return directory === '' || relativePath === directory || relativePath.startsWith(`${directory}/`);
+}
+
+/**
+ * Root-relative paths in the order a walk meets them: by name, a segment at
+ * a time. Compared whole, `a-b/x` comes before `a/x`, which the walk enters
+ * second, since it sorts the names `a` and `a-b` of one directory.
+ */
+export function compareWalkOrder(a: string, b: string): number {
+  const left = a.split('/');
+  const right = b.split('/');
+  // Past the shorter one a segment is undefined and compares as equal, so
+  // the lengths decide either way: `Math.max` here, and `<=` for `<`, are
+  // equivalent mutants.
+  for (let index = 0; index < Math.min(left.length, right.length); index++) {
+    const order = comparePaths(left[index]!, right[index]!);
+    if (order !== 0) return order;
+  }
+  return left.length - right.length;
+}
+
+/**
+ * The tops of the other work trees ripgrep's listing names below a target,
+ * root-relative, outermost only and in the order a walk meets them: the walk
+ * enters none of them, so it meets none inside another, and none under a
+ * name the scope leaves out. The target itself is walked as asked.
+ */
+export function parseWorkTreeTops(stdout: string, root: string, target: string, scope: ScopePolicy): string[] {
+  const start = toPosix(path.relative(root, path.resolve(root, target)));
+  const tops = new Set<string>();
+  // The empty entry after the last NUL names no `.git`, and falls out with
+  // every other entry that names none.
+  for (const entry of stdout.split('\0')) {
+    const listed = toPosix(path.relative(root, path.resolve(root, entry)));
+    const marker = path.posix.basename(listed) === 'HEAD' ? path.posix.dirname(listed) : listed;
+    if (path.posix.basename(marker) !== '.git') continue;
+    const parent = path.posix.dirname(marker);
+    const top = parent === '.' ? '' : parent;
+    if (top === start || !within(top, start)) continue;
+    if (top.split('/').some((name) => scope.skippedDirectories.has(name))) continue;
+    tops.add(top);
+  }
+  const ordered = [...tops].sort(compareWalkOrder);
+  return ordered.filter((top) => !ordered.some((other) => other !== top && within(top, other)));
+}
+
+/** The tops a target's listing names, with where its walk starts, root-relative. */
+export interface TargetTrees {
+  start: string;
+  tops: string[];
+}
+
+/**
+ * What a search found, less what lies in a work tree a target's walk leaves
+ * out. A file is read where a target reaches it outside every such work tree,
+ * so `src` beside `src/lib`, itself a clone, reads `src/lib` by the
+ * second. A path ripgrep could not read is set aside the same way, as it
+ * printed it: the walk never met it.
+ */
+export function setAsideWorkTrees(
+  trees: readonly TargetTrees[],
+  root: string,
+  found: { files: CandidateFile[]; unreadable: string[] },
+): { files: CandidateFile[]; unreadable: string[] } {
+  const read = (relativePath: string): boolean =>
+    trees.some(({ start, tops }) => within(relativePath, start) && !tops.some((top) => within(relativePath, top)));
+  return {
+    files: found.files.filter((file) => read(file.relativePath)),
+    unreadable: found.unreadable.filter((listed) => read(toPosix(path.relative(root, path.resolve(root, listed))))),
+  };
+}
+
+/**
  * ripgrep, used as a pre-filter rather than as a counter.
  *
  * The two engines used to be two implementations of the same semantics, and
@@ -461,6 +568,7 @@ export function buildRipgrepArgs(request: SearchRequest, patterns: readonly stri
  */
 class RipgrepEngine implements Engine {
   readonly name: EngineName = 'ripgrep';
+  private readonly listings = new Map<string, Promise<string[]>>();
 
   constructor(private readonly binary: string) {}
 
@@ -475,11 +583,67 @@ class RipgrepEngine implements Engine {
     if (!first) return [];
 
     const patterns = [...new Set(requests.map((request) => request.symbol))];
-    const { files, unreadable } = await this.filesWithMatches(first, patterns);
-    const results = await javascriptEngine.searchFiles(files, requests, unreadable);
+    // Side by side: the search walks the other work trees as it always did,
+    // and what it finds there is set aside by the listing, which reads no
+    // file's contents. A walk of spec-guard's own to find them first took
+    // 882 ms over 40,000 files where this listing took 139 and the search
+    // 1,389 (ADR-0007, amended 2026-10-19).
+    const [found, trees] = await Promise.all([this.filesWithMatches(first, patterns), this.workTreesBelow(first)]);
+    const { files, unreadable } = setAsideWorkTrees(trees, first.root, found);
+    const names = namesWorkTree(first.options);
+    const left: SkippedPath[] = trees.flatMap(({ tops }) => tops.filter(names).map((top): SkippedPath => ({ path: top, reason: 'worktree' })));
+    const results = await javascriptEngine.searchFiles(files, requests, unreadable, left);
     // The result names ripgrep because ripgrep is what searched the tree; the
     // scanner is a shared post-step, not a different engine.
     return results.map((result) => ({ ...result, engine: this.name }));
+  }
+
+  /**
+   * The other work trees below each target, listed once a run for each: a
+   * target's walk reaches only those below it, and many rules share one.
+   */
+  private workTreesBelow(request: SearchRequest): Promise<TargetTrees[]> {
+    const { scope } = request.options;
+    return Promise.all(
+      targetsOf(request).map(async (target) => {
+        const start = toPosix(path.relative(request.root, path.resolve(request.root, target)));
+        if (scope.otherWorkTrees === 'walk') return { start, tops: [] };
+        const key = JSON.stringify([request.root, target, [...scope.skippedDirectories.keys()]]);
+        // Kept for the run, since a listing is a process: listed again each
+        // time, the tops are the same, so `if (true)` and the `set` left out
+        // are equivalent mutants. A run has one scope, so the names in the key
+        // tell no two of its listings apart: emptied, they are one too.
+        let listing = this.listings.get(key);
+        if (!listing) {
+          listing = this.list(request.root, target, scope);
+          this.listings.set(key, listing);
+        }
+        return { start, tops: await listing };
+      }),
+    );
+  }
+
+  /** What `buildWorkTreeArgs` has ripgrep list, read as tops. */
+  private list(root: string, target: string, scope: ScopePolicy): Promise<string[]> {
+    return new Promise((resolve, reject) => {
+      // Its errors are not read, so they go nowhere: a pipe nobody empties
+      // stops a process that writes enough to it, and a listing that met many
+      // directories it could not read would not end. `windowsHide` made false
+      // and `stdio` emptied change nothing a test can see, as ADR-0003 records
+      // for every spawn here; emptied, this one's errors would fill a pipe.
+      const child = spawn(this.binary, buildWorkTreeArgs(scope, target), { cwd: root, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+      const stdout: Buffer[] = [];
+      child.stdout.on('data', (chunk: Buffer) => stdout.push(chunk));
+      // Without a listener, a listing ripgrep could not start throws from the
+      // event, outside every promise, and the run ends on an unhandled error
+      // whatever its searches answered: the sweep counts that mutant an error.
+      child.once('error', reject);
+      // Whatever it exits with. 1 is a listing of nothing, and 2 one that met
+      // a directory it could not read: a `.git` whose `HEAD` the walk cannot
+      // stat is no work tree to it either, and what the search could not read
+      // the search names itself.
+      child.once('close', () => resolve(parseWorkTreeTops(Buffer.concat(stdout).toString('utf8'), root, target, scope)));
+    });
   }
 
   /** Which files contain any of these patterns, and which could not be read. */
@@ -555,7 +719,10 @@ export function parseRipgrepFiles(
   root: string,
   excludeFiles: ReadonlySet<string>,
 ): CandidateFile[] {
-  const files: CandidateFile[] = [];
+  // By path: ripgrep given two targets that overlap names a file under both
+  // twice, `src/a.ts` and `./src/a.ts` for `src` beside `.`, and each was
+  // counted, where the walk reads the file once.
+  const files = new Map<string, CandidateFile>();
   // --null separates paths with NUL, which is the only separator a file name
   // cannot contain. Splitting on newlines loses files whose names contain one.
   for (const entry of stdout.split('\0')) {
@@ -563,9 +730,9 @@ export function parseRipgrepFiles(
     if (entry.length === 0) continue;
     const absolutePath = path.resolve(root, entry);
     if (excludeFiles.has(absolutePath)) continue;
-    files.push({ absolutePath, relativePath: toPosix(path.relative(root, absolutePath)) });
+    files.set(absolutePath, { absolutePath, relativePath: toPosix(path.relative(root, absolutePath)) });
   }
-  return files.sort((a, b) => comparePaths(a.relativePath, b.relativePath));
+  return [...files.values()].sort((a, b) => comparePaths(a.relativePath, b.relativePath));
 }
 
 /**
@@ -901,13 +1068,16 @@ export async function enumerateCandidates(
   // it here was reachable only by a tree with a hundred unreadable paths in it -
   // which is to say, by nothing the suite could build.
   const ledger = new LedgerBuilder();
+  const names = namesWorkTree(request.options);
   const note = (relativePath: string, reason: SkippedPath['reason']): void => {
-    // Only gaps go in the ledger. `.git` and `node_modules` are configuration,
-    // not news: they are the same on every run, they are documented, and
-    // reporting them each time would bury the entries that do mean something.
-    // It also keeps the two engines' ledgers identical, since ripgrep is only
-    // ever asked about files it did not skip.
-    if (!UNCERTAIN_REASONS.has(reason)) return;
+    // Gaps go in the ledger, and so do the other work trees the walk left
+    // out, which are not the same on every run: a session's worktree comes
+    // and goes. `.git` and `node_modules` are configuration, not news: they
+    // are the same on every run, they are documented, and reporting them
+    // each time would bury the entries that do mean something. It also keeps
+    // the two engines' ledgers identical, since ripgrep is only ever asked
+    // about files it did not skip, and lists the work trees for itself.
+    if (reason === 'worktree' ? !names(relativePath) : !UNCERTAIN_REASONS.has(reason)) return;
     ledger.add(relativePath, reason);
   };
   let bytes = 0;

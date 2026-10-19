@@ -76,6 +76,24 @@ is deprecated before it goes, is spec-core's
   a `baseline`. A rule that failed only on a match after a file's last line
   end or in an empty file, as `\s+$` did over every file that ends with a
   line end, now passes; `[ \t]+$` reads only the blanks a line ends with.
+- **Another git work tree below the root is not read**, by a run or by
+  `cites`: a directory holding a `.git` file, as a linked worktree under
+  `.claude/worktrees` and a submodule do, or a `.git` directory with a
+  `HEAD`, as a clone does. 0.27.0 read a desktop-app session's worktree as
+  part of the checkout above it: a rule over `.` counted its code, `cites`
+  counted its citations twice, and a stale citation in it failed
+  `cites --strict` in the checkout. A run names each work tree it left
+  out, as `skipped` with `reason: "worktree"`, which `--strict` does not
+  fail on; `cites` names them as `workTrees`; `--no-default-skips` reads
+  them
+  ([ADR-0007](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0007-search-scope.md)).
+  Upgrading: a rule over a directory that holds another work tree no longer
+  reads it, so a rule that failed only on a worktree's code passes, and one
+  that needed a file in another work tree, for a minimum or for a scope
+  that holds a file, may now fail; name the work tree as the rule's target
+  to read it. A spec pattern no longer reaches another work tree's specs,
+  nor `impact` its files. A script that took every `skipped` entry for a
+  gap reads its `reason`.
 
 ### Fixed
 
@@ -86,6 +104,11 @@ is deprecated before it goes, is spec-core's
   `--root C:\X` is still refused, and off Windows the two letters are
   two names and refused as they were
   ([ADR-0014](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0014-configuration-and-watch.md)).
+- **A file two targets that overlap both reach is counted once under
+  ripgrep**, as under the scanner. ripgrep given `.` and `src` named each
+  file in `src` under both, and each match there was counted twice, so
+  `target=".,src"` with a bound could fail under `--engine rg`, and under
+  `auto` past its budget, and pass under `--engine js`.
 
 ## 0.27.0
 

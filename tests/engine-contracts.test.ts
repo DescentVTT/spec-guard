@@ -233,6 +233,14 @@ describe('parseRipgrepFiles', () => {
     expect(files.map((file) => file.relativePath)).toEqual(['lib/m.ts', 'src/a.ts', 'src/z.ts']);
   });
 
+  it('names a file once that two targets that overlap each name', () => {
+    // `src` beside `.`: ripgrep lists the file under each, and the walk
+    // reads it once. Counted twice, a rule over both failed under ripgrep
+    // alone.
+    const files = parseRipgrepFiles('src/a.ts\0./src/a.ts\0b.ts\0', DEMO_REPO, none);
+    expect(files.map((file) => file.relativePath)).toEqual(['b.ts', 'src/a.ts']);
+  });
+
   it('normalises the separators ripgrep uses on Windows', () => {
     const [file] = parseRipgrepFiles('src\\deep\\a.ts\0', DEMO_REPO, none);
     expect(file?.relativePath).toBe('src/deep/a.ts');
