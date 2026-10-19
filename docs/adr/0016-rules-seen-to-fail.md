@@ -182,3 +182,43 @@ could be named with every reason a claim had none, and only a maximum can have
 one. A layer file claimed by two layers was guarded against, and a rule that
 passes has none. And an import at the top of a file was tried when two files
 were needed, where it could only ever add one.
+
+## Amended 2026-10-19: a regular expression is shown its text on a second line too
+
+Every violation of a text rule's maximum put its text at a file's start: a
+new file that held it alone, or the top of a file the rule reads. A pattern
+whose `^` met only a file's start was killed by either, and so was every
+pattern that read a line, so a kill could not tell the two apart. Measured
+through the launcher on 0.27.0, where a regex rule was matched with no `m`
+([ADR-0007](0007-search-scope.md), amended the same day): the rule
+`^\s*-?\s*uses:` passed a run with `uses:` on a workflow's fourth line, and
+`prove` reported it seen to fail, with `checkout@v3$` and `^\s*-\s*uses:`
+beside it.
+
+A regular expression's maximum is now probed twice, as a rule's two bounds
+are: once with its text where it was put before, and once with the text
+below a line of prove's own, `spec-guard-prove`, and in a new file above
+another such line, so that the line it is on starts and ends at line ends
+that are not the file's. The rule survives if either probe survives. Over
+the same three rules, with 0.27.0's matcher put back in a build of this
+change, the second probe of each passed and `prove` exited 1 with all three
+survived; with this change, both probes kill each.
+
+- **A literal is probed once.** It holds no anchor, and where its text
+  stands in a file changes nothing.
+- **A minimum is probed once.** Every line holding a match is taken out,
+  wherever it stands, and each is read with the LF that ends it in the
+  file. Read alone, an empty line was an empty string, which holds no line
+  now that `^` and `$` read one: `^$` with `min="1"` over a blank line
+  emptied its file as a match that spans lines. It takes out the line.
+  (On 0.27.0 that rule failed on any file but an empty one, and `prove`
+  called it unprovable.)
+- **The second probe says where it put the text**:
+  `added src/spec-guard-prove.ts holding "Legacy", below a line holding spec-guard-prove`.
+  In `--json`, a regular expression's `probes` holds two for its maximum,
+  before the one for its minimum.
+- **A pattern that matches the line `spec-guard-prove`** is failed by that
+  line as well as by its text, so its second probe kills and says nothing of
+  its anchors.
+
+Each regex rule runs once more than it did.

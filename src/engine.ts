@@ -403,6 +403,18 @@ export function buildRipgrepArgs(request: SearchRequest, patterns: readonly stri
     //                 engines; ripgrep's job is only to say which files matched.
     '--text',
     `--max-filesize=${MAX_FILE_SIZE}`,
+    //   --crlf        a line ends at CRLF and at a lone CR as well as at LF,
+    //                 as the scanner's `^` and `$` read one. Without it `$`
+    //                 met no line end before a CRLF and `^` none after a lone
+    //                 CR, and ripgrep left out files the scanner would count.
+    '--crlf',
+    //   --multiline   a match may cross a line end, as the scanner's may: it
+    //                 reads a file's whole text. Without it `foo\s+bar` over
+    //                 two lines was counted by the scanner and never named by
+    //                 ripgrep, and `\n` was refused. ripgrep reads a file
+    //                 into memory only for a pattern that can match a line
+    //                 end. ADR-0007, amended 2026-10-19.
+    '--multiline',
   ];
   if (!options.regex) args.push('--fixed-strings');
   if (options.word) args.push('--word-regexp');
@@ -749,12 +761,60 @@ export function parseRipgrepErrors(stderr: string): string[] {
 
 /* --------------------------------------------------------------- javascript */
 
+/**
+ * U+2028 and U+2029, at which JavaScript's `m` ends a line and ripgrep
+ * does not. Made from their numbers, so that no separator stands in this file
+ * where an editor would show a line break.
+ */
+const SEPARATORS = String.fromCharCode(0x2028, 0x2029);
+
+/**
+ * `^` and `$` as ripgrep reads them with `--crlf`: at the start and at the
+ * end of each line, a line ending at LF, at CRLF or at a lone CR, with no line
+ * after the last line end. JavaScript's `m` reads three lines more, and each
+ * is taken back out: one between the CR and the LF of a CRLF, one after the
+ * last line end (and so in an empty file), and a line end at each separator.
+ * With `m` alone `\s+$` matched on every line of a CRLF file and on the
+ * last of every file, `^` met each CRLF line twice, and a line begun at a
+ * separator was counted in a file ripgrep never named. ADR-0007, amended
+ * 2026-10-19.
+ */
+const LINE_START = `(?:^(?<![${SEPARATORS}])(?!(?<=\\r)\\n)(?=[\\s\\S]))`;
+const LINE_END = `(?:$(?![${SEPARATORS}])(?!(?<=\\r)\\n)(?!(?<![^\\n\\r])(?![\\s\\S])))`;
+
+/**
+ * What in a pattern holds a `^` or a `$` that is not an anchor: an escape, a
+ * named group's name and a reference to one (a name may hold a `$`), and a
+ * character class, which in JavaScript ends at its first unescaped `]`. A
+ * regex rule is read without the `u` flag, where nothing else does.
+ *
+ * Outside a class, an escape taken as a backslash before anything but white
+ * space (`\\[\S\S]`) reads every pattern the same: a backslash before
+ * white space escapes no `^`, `$`, `[`, `(` or backslash, so left untaken it
+ * leaves each token where it was. That mutant is equivalent; inside a class it
+ * is not, and `[\ $]` holds it.
+ */
+const NOT_ANCHORS = /\\k<[^>]*>|\\[\s\S]|\(\?<(?![=!])[^>]*>|\[(?:\\[\s\S]|[^\\\]])*\]|[$^]/g;
+
+/** A pattern's source with each `^` and `$` read as the start and the end of a line. */
+function lineAnchors(source: string): string {
+  let read = '';
+  let at = 0;
+  for (const piece of source.matchAll(NOT_ANCHORS)) {
+    const [token] = piece;
+    read += source.slice(at, piece.index) + (token === '^' ? LINE_START : token === '$' ? LINE_END : token);
+    at = piece.index + token.length;
+  }
+  return read + source.slice(at);
+}
+
 /** Builds the matching RegExp shared by the JS engine. */
 export function buildJsRegExp(symbol: string, options: SearchOptions): RegExp {
   const flags = `g${options.ignoreCase ? 'i' : ''}`;
   if (options.regex) {
-    const source = options.word ? `(?<![A-Za-z0-9_])(?:${symbol})(?![A-Za-z0-9_])` : symbol;
-    return new RegExp(source, flags);
+    const anchored = lineAnchors(symbol);
+    const source = options.word ? `(?<![A-Za-z0-9_])(?:${anchored})(?![A-Za-z0-9_])` : anchored;
+    return new RegExp(source, `${flags}m`);
   }
   const escaped = escapeRegExp(symbol);
   const source = options.word ? `(?<![\\p{L}\\p{N}_])(?:${escaped})(?![\\p{L}\\p{N}_])` : escaped;

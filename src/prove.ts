@@ -274,7 +274,13 @@ function forbidden(assertion: Assertion): { text: string } | { reason: string } 
   };
 }
 
-async function textViolations(assertion: Assertion, claim: ProveClaim, now: AssertionResult, context: Context): Promise<Violation[] | string> {
+async function textViolations(
+  assertion: Assertion,
+  claim: ProveClaim,
+  now: AssertionResult,
+  context: Context,
+  below: boolean,
+): Promise<Violation[] | string> {
   const symbol = assertion.symbol as string;
   if (claim === 'min') {
     // Every line holding a match goes, from every file that holds one, which
@@ -288,7 +294,11 @@ async function textViolations(assertion: Assertion, claim: ProveClaim, now: Asse
     let taken = 0;
     for (const { file } of now.fileMatches) {
       const lines = (await readText(context.io, path.resolve(context.root, file))).split('\n');
-      const kept = lines.filter((line) => line.search(matcher) === -1);
+      // Each line with the LF that ends it in the file, which `^` and `$`
+      // read: an empty line is a line, and an empty string alone holds none.
+      // What follows the last LF has no line end of its own.
+      const last = lines.length - 1;
+      const kept = lines.filter((line, index) => (index === last ? line : `${line}\n`).search(matcher) === -1);
       const text = kept.join('\n');
       const spans = text.search(matcher) !== -1;
       write.set(file, spans ? '' : text);
@@ -308,8 +318,13 @@ async function textViolations(assertion: Assertion, claim: ProveClaim, now: Asse
   const need = excess(assertion, now);
   const lines = Array.from({ length: need }, () => text.text).join('\n');
   const times = need === 1 ? '' : ` ${need} times`;
-  const violations = besides(assertion, places, context, 1, () => lines, '').map((write) => ({
-    violation: `added ${[...write.keys()][0]} holding "${text.text}"${times}${unread(assertion, places)}`,
+  // Below a line of prove's own and above another, where the line the text is
+  // on starts and ends at line ends that are not the file's.
+  const above = below ? `${PROVE_NAME}\n` : '';
+  const where = below ? `, below a line holding ${PROVE_NAME}` : '';
+  const added = below ? `${above}${lines}\n${PROVE_NAME}` : lines;
+  const violations = besides(assertion, places, context, 1, () => added, '').map((write) => ({
+    violation: `added ${[...write.keys()][0]} holding "${text.text}"${times}${where}${unread(assertion, places)}`,
     edit: edit(write),
   }));
   if (!places.read) return violations;
@@ -318,7 +333,10 @@ async function textViolations(assertion: Assertion, claim: ProveClaim, now: Asse
   // could open, so it is read as code.
   const first = places.files[0] as string;
   const source = await readText(context.io, path.resolve(context.root, first));
-  return [...violations, { violation: `put "${text.text}"${times} at the top of ${first}`, edit: edit(new Map([[first, `${lines}\n${source}`]])) }];
+  return [
+    ...violations,
+    { violation: `put "${text.text}"${times} at the top of ${first}${where}`, edit: edit(new Map([[first, `${above}${lines}\n${source}`]])) },
+  ];
 }
 
 /* ----------------------------------------------------------------- imports */
@@ -488,7 +506,22 @@ function claimsOf(assertion: Assertion): ProveClaim[] {
   return claims;
 }
 
-function violationsFor(assertion: Assertion, claim: ProveClaim, now: AssertionResult, context: Context): Promise<Violation[] | string> {
+/**
+ * Whether each probe of the claim puts its text below a line of prove's own.
+ *
+ * A regular expression's maximum is shown its text on its file's first line
+ * and on its second. `^` and `$` read a line, and a violation at a file's start
+ * cannot tell a pattern that reads a line from one that reads the file: the
+ * rule `^\s*-?\s*uses:` met only a file's first line, and was seen to fail
+ * by its text at the top of one. ADR-0016, amended 2026-10-19.
+ */
+function placesOf(assertion: Assertion, claim: ProveClaim): boolean[] {
+  // Every rule a maximum is a claim of has search options; `@assert-present`,
+  // the one without, claims only that its files are there.
+  return claim === 'max' && assertion.search!.regex ? [false, true] : [false];
+}
+
+function violationsFor(assertion: Assertion, claim: ProveClaim, now: AssertionResult, context: Context, below: boolean): Promise<Violation[] | string> {
   switch (assertion.kind) {
     case 'assert-present': {
       const [file] = assertion.files as [string];
@@ -504,7 +537,7 @@ function violationsFor(assertion: Assertion, claim: ProveClaim, now: AssertionRe
     case 'assert-structure':
       return structureViolations(assertion, now, context);
     default:
-      return textViolations(assertion, claim, now, context);
+      return textViolations(assertion, claim, now, context, below);
   }
 }
 
@@ -525,8 +558,8 @@ async function changesOf(change: TreeEdit, context: Context): Promise<TreeChange
  * The first that does is the probe. When none does, the first is: it is the
  * most direct violation of the claim, and the one a reader should look at.
  */
-async function probe(assertion: Assertion, claim: ProveClaim, now: AssertionResult, context: Context): Promise<ProveProbe | string> {
-  const violations = await violationsFor(assertion, claim, now, context);
+async function probe(assertion: Assertion, claim: ProveClaim, now: AssertionResult, context: Context, below: boolean): Promise<ProveProbe | string> {
+  const violations = await violationsFor(assertion, claim, now, context, below);
   if (typeof violations === 'string') return violations;
   if (violations.length === 0) return 'every place a violation could go is one the rule does not read, or holds a file already';
   let first: ProveProbe | undefined;
@@ -564,9 +597,11 @@ async function proveAssertion(assertion: Assertion, context: Context): Promise<P
   const probes: ProveProbe[] = [];
   let unprovable: string | undefined;
   for (const claim of claimsOf(assertion)) {
-    const found = await probe(assertion, claim, now, context);
-    if (typeof found === 'string') unprovable = found;
-    else probes.push(found);
+    for (const below of placesOf(assertion, claim)) {
+      const found = await probe(assertion, claim, now, context, below);
+      if (typeof found === 'string') unprovable = found;
+      else probes.push(found);
+    }
   }
   const outcome = probes.some((found) => found.outcome === 'survived') ? 'survived' : unprovable === undefined ? 'killed' : 'unprovable';
   return {
