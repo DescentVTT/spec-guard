@@ -120,6 +120,15 @@ describe('a text rule', () => {
     ]);
   });
 
+  it('takes out an empty line a pattern matches, and keeps the rest of the file', async () => {
+    // Each line is read with its line end, so ^$ meets the empty line and
+    // not the nothing after the file's last LF.
+    const result = await one('<!-- @assert-count target="src/m.txt" symbol="^$" regex="true" min="1" -->', { 'src/m.txt': 'a\n\nb\n' });
+    expect(said(result).probes).toEqual([
+      ['min', 'killed', 'removed 1 line holding "^$" from src/m.txt', 'expected at least 1 match, found 0', [{ path: 'src/m.txt', change: 'replaced', bytes: 4 }]],
+    ]);
+  });
+
   it('empties a file whose match spans lines, since taking out lines leaves it', async () => {
     const result = await one('<!-- @assert-count target="src/m.ts" symbol="a\\nb" regex="true" expected="1" -->', { 'src/m.ts': 'a\nb\n' });
     expect(result.probes.find((probe) => probe.claim === 'min')?.message).toBe('expected exactly 1 match, found 0');

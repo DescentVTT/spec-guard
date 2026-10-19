@@ -297,7 +297,11 @@ async function textViolations(
     let taken = 0;
     for (const { file } of now.fileMatches) {
       const lines = (await readText(context.io, path.resolve(context.root, file))).split('\n');
-      const kept = lines.filter((line) => line.search(matcher) === -1);
+      // Each line with the LF that ends it in the file, which `^` and `$`
+      // read: an empty line is a line, and an empty string alone holds none.
+      // What follows the last LF has no line end of its own.
+      const last = lines.length - 1;
+      const kept = lines.filter((line, index) => (index === last ? line : `${line}\n`).search(matcher) === -1);
       const text = kept.join('\n');
       const spans = text.search(matcher) !== -1;
       write.set(file, spans ? '' : text);

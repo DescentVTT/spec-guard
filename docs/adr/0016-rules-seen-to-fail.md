@@ -207,7 +207,12 @@ survived; with this change, both probes kill each.
 - **A literal is probed once.** It holds no anchor, and where its text
   stands in a file changes nothing.
 - **A minimum is probed once.** Every line holding a match is taken out,
-  wherever it stands.
+  wherever it stands, and each is read with the LF that ends it in the
+  file. Read alone, an empty line was an empty string, which holds no line
+  now that `^` and `$` read one: `^$` with `min="1"` over a blank line
+  emptied its file as a match that spans lines. It takes out the line.
+  (On 0.27.0 that rule failed on any file but an empty one, and `prove`
+  called it unprovable.)
 - **The second probe says where it put the text**:
   `added src/spec-guard-prove.ts holding "Legacy", below a line holding spec-guard-prove`.
   In `--json`, a regular expression's `probes` holds two for its maximum,
