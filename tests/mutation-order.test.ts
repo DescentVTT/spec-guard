@@ -9,6 +9,9 @@
  * keys are held here to those vitest's own sequencer asks for, in the version
  * installed.
  *
+ * What the sweep reports is held here too, as vitest resolves it from the
+ * same file.
+ *
  * Not part of a mutation run: it reaches nothing under `src/`, and no mutant
  * is under the order.
  */
@@ -16,8 +19,8 @@
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { describe, expect, it } from 'vitest';
-import { BaseSequencer, type TestSpecification, type Vitest } from 'vitest/node';
+import { describe, expect, it, vi } from 'vitest';
+import { BaseSequencer, resolveConfig, type TestSpecification, type Vitest } from 'vitest/node';
 
 import unitSuite from '../vitest.config.js';
 import mutationSuite, { QuickestFirst } from '../vitest.mutation.config.js';
@@ -62,6 +65,21 @@ function worker(timed: typeof TIMED, found = FOUND, root = '/work/spec-guard') {
 }
 
 const names = (files: TestSpecification[]) => files.map((file) => /tests\/(.+)\.test\.ts$/.exec(file.moduleId)![1]);
+
+/**
+ * The reporters vitest gives a run of a suite on a GitHub runner, where every
+ * step has GITHUB_ACTIONS set to true, resolved by vitest itself, as Stryker's
+ * runner has it resolve them: it names none of its own.
+ */
+async function onARunner(suite: typeof unitSuite): Promise<string[]> {
+  vi.stubEnv('GITHUB_ACTIONS', 'true');
+  try {
+    const { vitestConfig } = await resolveConfig({ ...suite.test, config: false, root: resolve(import.meta.dirname, '..') });
+    return vitestConfig.reporters.map((reporter) => (Array.isArray(reporter) ? String(reporter[0]) : 'inline'));
+  } finally {
+    vi.unstubAllEnvs();
+  }
+}
 
 describe("the order a mutant's test files run in", () => {
   it('runs the quickest file first, and a file the worker has not timed after those it has, the smaller first', async () => {
@@ -115,6 +133,23 @@ describe('this repository', () => {
     // `npm test` reports every failure and runs its files side by side: the
     // long files started early is the right order there.
     expect(unitSuite.test?.sequence).toBeUndefined();
+  });
+
+  it("names the sweep's reporter, and leaves `npm test` with those vitest gives it", () => {
+    expect(mutationSuite.test?.reporters).toEqual(['default']);
+    expect(unitSuite.test?.reporters).toBeUndefined();
+  });
+
+  it("has the sweep report through vitest's default reporter alone on a runner, so that no mutant's run adds a summary or an annotation", async () => {
+    // Where a suite names none, vitest adds its github-actions reporter on a
+    // runner: it appended a summary of every run to the step's own, some
+    // 2,570 of them in the largest shard of main's sweep of 3b65529, and its
+    // `::error` commands in a crashed worker's output became two annotations
+    // on shard 3 of that sweep, which passed (vitest.mutation.config.ts).
+    expect(await onARunner(mutationSuite)).toEqual(['default']);
+    // The suite `npm test` runs keeps the annotations and the summary vitest
+    // gives a run on a runner.
+    expect(await onARunner(unitSuite)).toContain('github-actions');
   });
 
   it('adds no test to a mutation run and takes none out of it but the four that can kill nothing', () => {

@@ -40,7 +40,7 @@ import { parseDirectives } from '../src/parser.js';
 import { resolveDirective, runSpecGuard } from '../src/runner.js';
 import { compileGlob } from '../src/vendor/spec-core/pattern/index.js';
 import { makeTempRepo, memoryIo, removeTempRepo } from './helpers.js';
-import { fastestInTurnAsync, perRunInTurn } from './timing.js';
+import { fastestInTurnAsync, fastestRatioInTurn } from './timing.js';
 
 /* ------------------------------------------------------------ what is refused */
 
@@ -820,10 +820,13 @@ describe('a pattern that made the RegExp backtrack', () => {
   // seconds, measured for ADR-0015. The automaton keeps a set of live
   // states, so its cost is the pattern's size times the name's length: a
   // name four times as long takes about four times as long, where the
-  // RegExp took about a thousand times as long. Held to a ratio, twice
-  // linear and a tenth of a millisecond for noise, as spec-core's ADR-0007
-  // holds cost, since a loaded machine slows both names alike and can push
-  // either past any number of milliseconds.
+  // RegExp took about a thousand times as long. Held to a ratio, as
+  // spec-core's ADR-0007 holds cost, since a loaded machine can push either
+  // name past any number of milliseconds: twice linear, eight times. No
+  // milliseconds are allowed beside it. A short run takes about ten
+  // microseconds, and the tenth of a millisecond once allowed let the long
+  // name take nineteen times as long, which work that grows with the square
+  // of the name, sixteen times, is within.
   const PATTERN = '*-*-*-*-*-*x';
   const NAME = '-'.repeat(121);
   const SHORT = '-'.repeat(30);
@@ -835,17 +838,22 @@ describe('a pattern that made the RegExp backtrack', () => {
     expect(createExcludeMatcher([PATTERN])(`src/${NAME}`)).toBe(false);
     // A matcher remembers what it answered for each name, so each run builds
     // one: the reading is kept, and the name is asked of the automaton. Each
-    // run takes microseconds, so a few stretches that a busy runner slows
-    // (a macOS one once held all three of the long name's) decide nothing:
-    // the fastest of seven decides.
+    // run takes microseconds, so each size is timed over stretches of three
+    // milliseconds, the fastest of 21 deciding (tests/timing.ts says why).
+    // A reading over the bound is taken once more: a busy runner spoils one
+    // now and then, and a matcher that is not linear spoils every one. One
+    // that asks the automaton of every prefix of the name, whose cost grows
+    // with its square, read 13 to 17 times in every reading on each runner.
     for (const matcher of [createGlobMatcher, createExcludeMatcher]) {
-      const [short, long] = perRunInTurn(
-        7,
-        10,
-        () => matcher([PATTERN])(`src/${SHORT}`),
-        () => matcher([PATTERN])(`src/${LONG}`),
-      ) as [number, number];
-      expect(long).toBeLessThan(8 * short + 0.1);
+      const read = (): number =>
+        fastestRatioInTurn(
+          21,
+          3,
+          () => matcher([PATTERN])(`src/${SHORT}`),
+          () => matcher([PATTERN])(`src/${LONG}`),
+        );
+      const first = read();
+      expect(first < 8 ? first : Math.min(first, read())).toBeLessThan(8);
     }
   });
 

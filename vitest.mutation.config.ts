@@ -47,9 +47,9 @@ export class QuickestFirst extends BaseSequencer {
 /**
  * Vitest configuration for mutation runs.
  *
- * The normal one, less four suites, with the order above and a shorter
- * timeout. Two of the suites read the build, which a mutation run does not
- * have. The end-to-end suite spawns
+ * The normal one, less four suites, with the order above, a shorter
+ * timeout and a reporter named. Two of the suites read the build, which a
+ * mutation run does not have. The end-to-end suite spawns
  * `node bin/spec-guard.js`, which loads the *built* dist/ rather than the
  * mutated source, so it can never kill a mutant and would only add
  * process-spawn time to every single mutant run. The suite that holds the
@@ -75,5 +75,15 @@ export default defineConfig({
     testTimeout: 30_000,
     hookTimeout: 30_000,
     sequence: { sequencer: QuickestFirst },
+    // Named, so that vitest adds none of its own. A suite that names none
+    // gets vitest's github-actions reporter beside the default one on a
+    // runner. It appends a summary of each run to the step's, about 200
+    // bytes a mutant: some 2,570 of them in the largest shard of main's sweep
+    // of 3b65529. And it writes an `::error` command for each failed test to
+    // the worker's output, which Stryker logs for a worker that exits
+    // unexpectedly, and GitHub makes an annotation of each: shard 3 of that
+    // sweep passed with two of them (run 39136659069). The default reporter
+    // writes to the worker's output, as it did.
+    reporters: ['default'],
   },
 });
