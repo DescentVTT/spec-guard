@@ -81,6 +81,17 @@ export interface ImpactUnresolved {
   reason: 'unresolved' | 'dynamic';
 }
 
+/**
+ * What could not be read of a file's imports, and the line it stands on:
+ * a scan that lost its place is said at the head of the file, a statement
+ * the reader refused or cut short where its first word stands.
+ */
+export interface ImpactGap {
+  file: string;
+  line: number;
+  detail: string;
+}
+
 /** The import graph of a whole tree, read backwards. */
 export interface ReverseGraph {
   /** Every file the walk found, root-relative. */
@@ -92,8 +103,8 @@ export interface ReverseGraph {
   unresolved: ImpactUnresolved[];
   /** References that name a module rather than a file, by language: counted, not followed. */
   unfollowed: Map<string, number>;
-  /** Files whose imports could not be read in full. */
-  gaps: Array<{ file: string; detail: string }>;
+  /** What could not be read of each file's imports, one entry to a note. */
+  gaps: ImpactGap[];
 }
 
 /** What each language is called in a sentence. */
@@ -137,7 +148,7 @@ export async function buildReverseGraph(options: { root: string; exclude: readon
   const importers = new Map<string, Edge[]>();
   const unresolved: ImpactUnresolved[] = [];
   const unfollowed = new Map<string, number>();
-  const gaps: Array<{ file: string; detail: string }> = [];
+  const gaps: ImpactGap[] = [];
   const analysable = files.filter((file) => ANALYSABLE_EXTENSIONS.has(path.posix.extname(file)));
   // Read in batches the size of the engine's read limit, as every other
   // reader of a whole tree is: all at once is an EMFILE on a large one.
@@ -151,7 +162,7 @@ export async function buildReverseGraph(options: { root: string; exclude: readon
     const { references, notes } = analyses[position] as Awaited<ReturnType<typeof index.analyze>>;
     for (const note of notes) {
       if (note.kind === 'dynamic') unresolved.push({ file, line: note.line, specifier: note.detail, reason: 'dynamic' });
-      else gaps.push({ file, detail: note.detail });
+      else gaps.push({ file, line: note.line, detail: note.detail });
     }
     const language = languageFor(file);
     for (const reference of references) {
@@ -249,7 +260,7 @@ export interface ImpactReport {
   unresolved: ImpactUnresolved[];
   /** References that name a module rather than a file, by kind, and how many. */
   unfollowed: Array<{ kind: string; references: number }>;
-  gaps: Array<{ file: string; detail: string }>;
+  gaps: ImpactGap[];
   errors: Array<{ file: string; line: number; message: string }>;
   /** Files the walk found. */
   scanned: number;
@@ -495,8 +506,10 @@ export function formatImpact(report: ImpactReport): string {
     out.push('');
   }
   if (report.gaps.length > 0) {
-    out.push(`${plural(report.gaps.length, 'file', 'files')} whose imports could not all be read:`);
-    for (const gap of report.gaps) out.push(`  ${gap.file}: ${gap.detail}`);
+    // A file is counted once and each of its notes is listed on its line,
+    // as a run lists them under a rule.
+    out.push(`${plural(new Set(report.gaps.map(({ file }) => file)).size, 'file', 'files')} whose imports could not all be read:`);
+    for (const gap of report.gaps) out.push(`  ${gap.file}:${gap.line} ${gap.detail}`);
     out.push('');
   }
   if (report.errors.length > 0) {

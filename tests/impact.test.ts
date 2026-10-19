@@ -116,14 +116,23 @@ describe('the graph, read backwards', () => {
     expect(graph.gaps.map(({ file }) => file)).toEqual(['lost.ts']);
   });
 
-  it('names a Python file with a statement that starts as an import and that Python refuses', async () => {
+  it('names a file with a statement that starts as an import and that its compiler refuses, on the line of each', async () => {
     const graph = await buildReverseGraph({
       root: ROOT,
       exclude: [],
       defaultSkips: true,
-      io: memoryIo(ROOT, { 'pkg/a.py': 'from . import b,\n', 'pkg/b.py': 'import os\n' }),
+      io: memoryIo(ROOT, {
+        'pkg/a.py': 'from . import b,\n',
+        'pkg/b.py': 'import os\n',
+        'rs/lib.rs': 'use std::fmt;\nuse a::b c;\n',
+        'cs/Shop.cs': 'using System;\n\nusing A.;\n',
+      }),
     });
-    expect(graph.gaps).toEqual([{ file: 'pkg/a.py', detail: 'a statement that starts as an import is one Python refuses, and no module is read from it' }]);
+    expect(graph.gaps).toEqual([
+      { file: 'cs/Shop.cs', line: 3, detail: 'a directive that starts as a using is one the C# compiler refuses, and no namespace is read from it' },
+      { file: 'pkg/a.py', line: 1, detail: 'a statement that starts as an import is one Python refuses, and no module is read from it' },
+      { file: 'rs/lib.rs', line: 2, detail: 'a declaration that starts as a use or an extern crate is one rustc refuses, and no module is read from it' },
+    ]);
   });
 
   it('reads only the languages it can read, follows only Python relative imports among the rest, and lists a relative Python import that names nothing', async () => {
@@ -617,8 +626,8 @@ describe('the report', () => {
       unresolved: [{ file: 'src/a.ts', line: 1, specifier: '@/x', reason: 'unresolved' }],
       unfollowed: [{ kind: 'Rust use', references: 1 }],
       gaps: [
-        { file: 'a.ts', detail: 'lost' },
-        { file: 'b.ts', detail: 'lost' },
+        { file: 'a.ts', line: 1, detail: 'lost' },
+        { file: 'b.ts', line: 1, detail: 'lost' },
       ],
       errors: [
         { file: 'd.md', line: 2, message: 'bad' },
@@ -644,8 +653,8 @@ describe('the report', () => {
       '  src/a.ts:1  @/x (names no file)',
       '',
       '2 files whose imports could not all be read:',
-      '  a.ts: lost',
-      '  b.ts: lost',
+      '  a.ts:1 lost',
+      '  b.ts:1 lost',
       '',
       '2 directives could not be read, so their rules govern nothing:',
       '  d.md:2 bad',
@@ -669,7 +678,12 @@ describe('the report', () => {
     const report = await impact(['src/one.ts'], {}, { 'docs/x.md': '<!-- @assert-bogus -->\n', 'src/one.ts': '', 'src/two.ts': "import './one.js';\n", 'src/lost.ts': 'const s = `open' });
     const text = formatImpact({ ...report, durationMs: 1, config: { file: '.spec-guard.json', applied: ['exclude'], overridden: [] } });
     expect(text).toContain('src/one.ts\n  1 file depends on it, 1 directly\n    1  src/two.ts  imports src/one.ts (line 1)\n');
-    expect(text).toContain('\n1 file whose imports could not all be read:\n  src/lost.ts: ');
+    expect(text).toContain('\n1 file whose imports could not all be read:\n  src/lost.ts:1 the scan ended inside a string');
+    // A file with two such statements is one file, each statement on its line.
+    const twice = await impact(['src/one.ts'], {}, { 'src/one.ts': '', 'src/a.rs': 'use a::b c;\nuse a::{,};\n' });
+    expect(formatImpact(twice)).toContain(
+      '\n1 file whose imports could not all be read:\n  src/a.rs:1 a declaration that starts as a use or an extern crate is one rustc refuses, and no module is read from it\n  src/a.rs:2 a declaration',
+    );
     expect(text).toContain('\n1 directive could not be read, so its rule governs nothing:\n  docs/x.md:1 ');
     expect(text).toContain('\noptions from .spec-guard.json: exclude (build)\n');
     expect(text).toContain(' and 1 spec file read in ');

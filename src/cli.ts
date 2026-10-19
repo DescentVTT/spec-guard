@@ -239,10 +239,12 @@ Options
   So is an option that takes one value and is given two, since the first of
   them would go unread: --root a --root b, --format json --format sarif, and
   --json beside a --format that names another format. The same value given
-  twice is read as once, as --json beside --format json is. --spec and
-  --exclude are lists, and each use adds to its list. Such a line is refused
-  with --help or --version on it too, as a line with a pair is. And --help
-  beside --version is refused, in either order: a line gets one answer.
+  twice is read as once, as --json beside --format json is, and on Windows
+  a drive letter names its volume in either case, so --root C:\\x beside
+  --root c:\\x is one root. --spec and --exclude are lists, and each use adds
+  to its list. Such a line is refused with --help or --version on it too, as
+  a line with a pair is. And --help beside --version is refused, in either
+  order: a line gets one answer.
 
   A spec pattern that matches no file, beside others that do, is refused the
   same way and by name, since none of its rules was read: a run, prove, impact
@@ -423,6 +425,23 @@ const NOT_WITH_WATCH: ReadonlyArray<[option: string, reason: string]> = [
 
 /** The long name of an option, whichever way it was spelled. */
 const LONG_NAMES: Readonly<Record<string, string>> = { '-v': '--verbose', '-r': '--root', '-h': '--help' };
+
+/**
+ * A resolved root as two of them are compared. On Windows a drive letter
+ * names its volume in either case, so `--root C:\x` beside `--root c:\x` is
+ * one directory asked for twice (spec-core's ADR-0005, amended 2026-10-19).
+ * A resolved path starts with its drive letter there, and with a separator,
+ * which has no case, everywhere else and for a UNC path: so the first
+ * character is the one folded, on every host. The rest of the path is the
+ * disk's to tell apart, and is compared as resolved. Folded down instead of
+ * up, two letters compare alike, so that mutant is equivalent. So is the
+ * whole path folded with the rest of it added as resolved, `.charAt(0)`
+ * taken off: two keys made so are equal exactly where the first characters
+ * fold alike and the rest is the same, as two made by this line are.
+ */
+export function comparedRoot(resolved: string): string {
+  return `${resolved.charAt(0).toUpperCase()}${resolved.slice(1)}`;
+}
 
 /** Minimal, dependency-free argv parser. Supports `--flag value` and `--flag=value`. */
 export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
@@ -631,7 +650,7 @@ export function parseArgs(argv: readonly string[], cwd: string): CliOptions {
           throw new UsageError(`Option ${name} expects a directory, got ${JSON.stringify(value)}. Name one, or leave the option out to run in the working directory.`);
         }
         options.root = path.resolve(cwd, value);
-        asks(options.root, value);
+        asks(comparedRoot(options.root), value);
         break;
       }
       case '--spec':

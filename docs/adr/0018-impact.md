@@ -77,7 +77,8 @@ absent.** Every reference the graph could not follow is in the report:
   dependents are not computed, rather than with an empty list, which would read
   as "nothing depends on this".
 - **a file whose imports could not all be read** - a scan that lost its place,
-  a file that could not be read - is named.
+  a file that could not be read - is named. *Amended 2026-10-19*: with the
+  line of each note, by the amendment of that date below.
 
 A path that does not exist is exit 2: nothing can depend on it yet, and a query
 about a file one is about to create is `query`'s.
@@ -183,3 +184,33 @@ and over the built binary in `tests/e2e.test.ts`, with the new descriptor, its
 schema and the instructions pinned whole.
 
 <!-- @assert-count target="src/mcp.ts" symbol="impactDocument" min="2" reason="get_dependents answers with the document impact --json writes, built by the same function" -->
+
+## Amended 2026-10-19: a file whose imports could not all be read is named with each line
+
+"A file whose imports could not all be read ... is named", above, named
+the file and no more: `impact` wrote `src/c.py: a statement that starts as
+an import is one Python refuses, and no module is read from it`, and its
+JSON a `gaps` entry of `file` and `detail`, so a file with a statement the
+compiler refuses had to be read whole to find it. Measured through the
+launcher on 0.27.0 and on this build (Windows 11 build 26300, Node 24.18.1),
+over a tree with such a statement on the second line of a Python, a Rust
+and a C# file:
+
+| | 0.27.0 | Now |
+| --- | --- | --- |
+| the report | `1 file whose imports could not all be read:` and `src/c.py: ...`; the Rust and the C# file unnamed | `3 files whose imports could not all be read:` and `src/a.rs:2 ...`, `src/b.cs:2 ...`, `src/c.py:2 ...` |
+| `--json`, each of `gaps` | `file` and `detail` | `file`, `line` and `detail` |
+
+- **Each note is an entry, on its line**: the line of the statement's first
+  word for one the reader refused or cut short, and line 1 for a scan that
+  lost its place, as a run reports each. The Rust and the C# file are named
+  by the amendment of this date to [ADR-0008](0008-polyglot-imports.md).
+- **A file is counted once** where it has two notes, and each is listed:
+  the count said two files for one with two before, which no tree measured
+  here held.
+- **`formatVersion` stays 1**: a field is added and none removed, as
+  `IMPACT_FORMAT_VERSION` has it, and `get_dependents` answers with the same
+  document.
+
+`tests/impact.test.ts` holds each language's note to its file and line,
+and a file with two to one count and two lines.

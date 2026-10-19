@@ -75,6 +75,8 @@ interface Masked {
   code: string;
   /** String literal ranges over the original source, ascending. */
   strings: readonly CommentRange[];
+  /** Comment ranges over the original source, delimiters included, ascending: a Rust doc comment is told from another by its opening. */
+  comments: readonly CommentRange[];
   /** Original source, for reading literal values back out. */
   source: string;
   starts: number[];
@@ -104,7 +106,7 @@ function mask(source: string, language: ModuleLanguage): Masked {
   // The opening delimiter is left visible so a reader can see that a literal
   // starts here; everything inside it is blanked so no keyword can hide there.
   const blanks = [...comments, ...strings.map(([start, end]): CommentRange => [start + 1, end])];
-  return { code: maskRanges(source, blanks), strings, source, starts: lineStarts(source), unterminated };
+  return { code: maskRanges(source, blanks), strings, comments, source, starts: lineStarts(source), unterminated };
 }
 
 /** The literal that starts exactly at `offset`, or null. */
@@ -486,8 +488,27 @@ const RUST_BLANK = new RegExp(String.raw`^[${RUST_SPACE}]*$`, 'u');
 /** What `r#` cannot make a raw identifier of. */
 const RUST_NOT_RAW: ReadonlySet<string> = new Set(['_', 'crate', 'self', 'Self', 'super']);
 
-/** What no segment of a path is unless written raw: `_`, and the keywords a declaration starts with. */
-const RUST_NOT_SEGMENT: ReadonlySet<string> = new Set(['_', 'use', 'extern']);
+/**
+ * What no segment of a path, alias or crate name is unless written raw:
+ * `_`, and Rust's keywords in every edition, strict and reserved (Keywords,
+ * as read on 2026-10-19), `Self` among them, which no use path holds
+ * (Use declarations, "use Paths"). So a declaration left open is never read
+ * on into the next, whose `use` or `extern` is one. `crate`, `self` and
+ * `super` are not here: they stand where `rustPathRefused` lets them.
+ * `async`, `await` and `dyn` are keywords from the 2018 edition on, `try`
+ * from 2018 and `gen` from 2024, and the edition is in `Cargo.toml`, which
+ * the reader does not open, so each is read as the name it is before them.
+ */
+const RUST_NOT_SEGMENT: ReadonlySet<string> = new Set([
+  '_',
+  ...['as', 'break', 'const', 'continue', 'else', 'enum', 'extern', 'false', 'fn', 'for', 'if', 'impl', 'in', 'let', 'loop'],
+  ...['match', 'mod', 'move', 'mut', 'pub', 'ref', 'return', 'Self', 'static', 'struct', 'trait', 'true', 'type', 'unsafe'],
+  ...['use', 'where', 'while', 'abstract', 'become', 'box', 'do', 'final', 'macro', 'override', 'priv', 'typeof', 'unsized'],
+  ...['virtual', 'yield'],
+]);
+
+/** The words a path starts with to name a module, which an import binds only under a name of its own. */
+const RUST_PATH_KEYWORDS: ReadonlySet<string> = new Set(['crate', 'self', 'super', '$crate']);
 
 interface RustToken {
   /** A name as rustc compares two, in its NFC form and with no `r#`; or a mark. */
@@ -509,6 +530,43 @@ function rustToken(text: string, index: number): RustToken | null {
   return { text: word?.normalize('NFC') ?? mark!, name: word !== undefined, raw: raw !== undefined, end: RUST_TOKEN.lastIndex };
 }
 
+/** One path of a use tree, segment by segment. */
+interface UsePath {
+  segments: string[];
+  /** Written after a leading `::`, which names the extern prelude, or the crate root in the 2015 edition. */
+  global: boolean;
+  /** Binding what it names under that name: no `as`, no glob and no empty group. */
+  bare: boolean;
+}
+
+/**
+ * Whether rustc refuses a path of a use tree for where `crate`, `self`,
+ * `super` or `$crate` stands in it (Paths, "Path qualifiers"), or for
+ * importing a module that it binds only under a name given with `as` (Use
+ * declarations, "Restrictions"), each as read on 2026-10-19, and each held
+ * to rustc 1.97.1 in every edition.
+ */
+function rustPathRefused({ segments, global, bare }: UsePath): boolean {
+  const last = segments.length - 1;
+  const misplaced = segments.some((segment, at) => {
+    // First, and not after a `::`.
+    if (segment === 'crate' || segment === '$crate') return at > 0 || global;
+    // First and not after a `::`, or last after one: `a::self` names `a`.
+    // `::{self as root}` imports the crate root in the 2015 edition and is
+    // refused from 2018, which the reader cannot tell apart, so it is read.
+    if (segment === 'self') return at < last && (at > 0 || global);
+    // Only after other `super`s, or after a first `self`: a `self` anywhere
+    // else before it is refused where it stands.
+    if (segment === 'super') return global || !segments.slice(0, at).every((before) => before === 'super' || before === 'self');
+    return false;
+  });
+  // `use crate;`, `use self;`, `use super::super;` and `use a::{self}` with
+  // `a` one of them: the module is bound only under a name given with `as`.
+  // `use crate::{};` binds nothing, and rustc takes it. A trailing `self`
+  // is one of those words too, so `use crate::self;` is refused alike.
+  return misplaced || (bare && segments.every((segment) => RUST_PATH_KEYWORDS.has(segment)));
+}
+
 /**
  * The paths one use tree names, segment by segment, read as the Rust
  * Reference's grammar has it:
@@ -519,7 +577,7 @@ function rustToken(text: string, index: number): RustToken | null {
  * MAX_EXPANSION paths or groups nested that deep. `end` is where reading
  * stopped, past the tree or at the token it could not read.
  */
-function readUseTree(text: string, from: number): { paths: string[][] | 'refused' | 'overflow'; end: number } {
+function readUseTree(text: string, from: number): { paths: UsePath[] | 'refused' | 'overflow'; end: number } {
   let index = from;
   const take = (accept: (token: RustToken) => boolean): RustToken | null => {
     const token = rustToken(text, index);
@@ -532,49 +590,56 @@ function readUseTree(text: string, from: number): { paths: string[][] | 'refused
   // A name, or `$crate` or another name of a macro's, which rustc reads
   // where the macro is expanded.
   const named = (token: RustToken): boolean => token.name || token.text.startsWith('$');
-  // `_` is a token of its own, and stands in a path only after `as`. A
-  // segment is never the keyword a declaration starts with, so that a
-  // declaration left open is never read on into the next.
+  // `_` is a token of its own, and stands in a path only after `as`.
   const segment = (): string | null => take((token) => named(token) && (token.raw || !RUST_NOT_SEGMENT.has(token.text)))?.text ?? null;
+  // A name given with `as`: `_`, or a name that is no keyword and no word a path starts with.
+  const alias = (token: RustToken): boolean => named(token) && (token.raw || token.text === '_' || !(RUST_NOT_SEGMENT.has(token.text) || RUST_PATH_KEYWORDS.has(token.text)));
 
-  const paths: string[][] = [];
-  const tree = (head: readonly string[], depth: number): 'read' | 'refused' | 'overflow' => {
+  const paths: UsePath[] = [];
+  const tree = (head: readonly string[], rooted: boolean, depth: number): 'read' | 'refused' | 'overflow' => {
     if (depth > MAX_EXPANSION) return 'overflow';
     const path = [...head];
-    mark('::');
+    // A `::` before the first segment of all is the global root, and rustc
+    // refuses one anywhere else: `use a::{::b};`.
+    const leading = mark('::');
+    if (leading && head.length > 0) return 'refused';
+    const global = rooted || leading;
     for (let name = segment(); name !== null; name = segment()) {
       path.push(name);
       if (mark('::')) continue;
-      if (take((token) => !token.raw && token.text === 'as') !== null && take(named) === null) return 'refused';
-      paths.push(path);
+      const renamed = take((token) => !token.raw && token.text === 'as') !== null;
+      if (renamed && take(alias) === null) return 'refused';
+      paths.push({ segments: path, global, bare: !renamed });
       return 'read';
     }
     // A separator was the last token read, or nothing was.
     if (mark('*')) {
-      paths.push([...path, '*']);
+      // A glob binds no module of its own; its `*` is no word a path starts
+      // with either, so `bare` is never what decides it.
+      paths.push({ segments: [...path, '*'], global, bare: false });
       return 'read';
     }
     if (!mark('{')) return 'refused';
     if (mark('}')) {
       // An empty group imports nothing, and rustc still reads the path before
       // it as an import: its lint names `use a::{};` an unused one.
-      paths.push(path);
+      paths.push({ segments: path, global, bare: false });
       return 'read';
     }
     do {
-      const read = tree(path, depth + 1);
+      const read = tree(path, global, depth + 1);
       if (read !== 'read') return read;
       if (paths.length > MAX_EXPANSION) return 'overflow';
     } while (mark(',') && rustToken(text, index)?.text !== '}');
     return mark('}') ? 'read' : 'refused';
   };
 
-  const read = tree([], 0);
-  return { paths: read === 'read' ? paths : read, end: index };
+  const read = tree([], false, 0);
+  return { paths: read !== 'read' ? read : paths.some(rustPathRefused) ? 'refused' : paths, end: index };
 }
 
 /** The module a path of a use tree names, in the notation a rule writes, or nothing. */
-function usePath(segments: readonly string[]): string {
+function usePath({ segments }: UsePath): string {
   // `a::b::self` names `a::b`, as `a::{self}` names `a`. A glob of nothing,
   // the one path a `*` starts, names no module.
   const named = segments.length > 1 && segments.at(-1) === 'self' ? segments.slice(0, -1) : segments;
@@ -590,7 +655,10 @@ function usePath(segments: readonly string[]): string {
  * space and comments between its tokens, a raw identifier without its `r#`, a
  * name in its NFC form, and `self` at the end of a path naming what is before
  * it. Text that is no use tree, which rustc refuses, names nothing (ADR-0008,
- * amended 2026-10-18). Returns null when the tree would name more than
+ * amended 2026-10-18), and so does a tree with a keyword for a segment, or
+ * with `crate`, `self` or `super` where rustc refuses it (amended
+ * 2026-10-19). A `$` name is read as a macro's, as a tree alone says nothing
+ * of where it stands. Returns null when the tree would name more than
  * MAX_EXPANSION paths, or nest its groups deeper than that, which the caller
  * reports rather than truncating.
  */
@@ -605,36 +673,130 @@ export function expandUsePath(input: string): string[] | null {
 /**
  * The crate an extern crate declaration names, read from after `crate`, or
  * null where rustc refuses it: `extern crate name (as alias)? ;`, the name an
- * identifier or `self`.
+ * identifier that is no keyword, or `self` with an alias, which rustc takes
+ * only so, and the end of its `;`.
  */
-function externCrate(text: string, from: number): string | null {
+function externCrate(text: string, from: number): { crate: string; end: number } | null {
+  // A name that is no keyword and no word a path starts with, raw or not.
+  const name = (token: RustToken): boolean => token.name && (token.raw || !(RUST_NOT_SEGMENT.has(token.text) || RUST_PATH_KEYWORDS.has(token.text)));
   const crate = rustToken(text, from);
-  if (crate === null || !crate.name || crate.text === '_') return null;
+  if (crate === null || !(name(crate) || crate.text === 'self')) return null;
   let next = rustToken(text, crate.end);
-  if (next !== null && !next.raw && next.text === 'as') {
-    const alias = rustToken(text, next.end);
-    next = alias !== null && alias.name ? rustToken(text, alias.end) : null;
+  const renamed = next !== null && !next.raw && next.text === 'as';
+  if (renamed) {
+    const alias = rustToken(text, next!.end);
+    next = alias !== null && (name(alias) || alias.text === '_') ? rustToken(text, alias.end) : null;
   }
-  return next?.text === ';' ? crate.text : null;
+  return next?.text === ';' && (renamed || crate.text !== 'self') ? { crate: crate.text, end: next.end } : null;
 }
 
+/**
+ * Where a macro's tokens stand: the group of an invocation, `m!(...)`,
+ * `path::m![...]` or `m! {...}`, of a definition, `macro_rules! m {...}`
+ * and `macro m(...) {...}`, and of an attribute, `#[...]` and `#![...]`.
+ * rustc reads them as tokens and refuses none of them for not being a
+ * declaration: a matcher holds the word `use`, and `quote!` writes
+ * `use #name::Thing;`. Too wide a reach costs a note, never a reading: a
+ * declaration in one is read as everywhere else.
+ */
+const RUST_MACRO = new RegExp(
+  String.raw`(?:(?<!\p{XID_Continue})macro_rules[${RUST_SPACE}]*![${RUST_SPACE}]*[\p{XID_Start}_]\p{XID_Continue}*|(?<![\p{XID_Continue}#])(macro)[${RUST_SPACE}]+[\p{XID_Start}_]\p{XID_Continue}*|\p{XID_Continue}!|#!?)[${RUST_SPACE}]*([(\[{])`,
+  'gu',
+);
+const RUST_CLOSERS: Readonly<Record<string, string>> = { '(': ')', '[': ']', '{': '}' };
+/** The brace a `macro` definition's body opens after its parameters. */
+const RUST_BODY = new RegExp(String.raw`[${RUST_SPACE}]*\{`, 'uy');
+
+/** The half-open ranges of a file's macro tokens, outermost only, ascending. */
+function macroRanges(code: string): Array<[number, number]> {
+  const ranges: Array<[number, number]> = [];
+  RUST_MACRO.lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = RUST_MACRO.exec(code)) !== null) {
+    const opener = match[2]!;
+    let end = matchingClose(code, RUST_MACRO.lastIndex - 1, opener, RUST_CLOSERS[opener]!) + 1;
+    // The body ends at its `}`, and `- 1` for its `+ 1` is an equivalent
+    // mutant: no `use` starts in the body's last two characters.
+    RUST_BODY.lastIndex = end;
+    if (match[1] !== undefined && RUST_BODY.test(code)) end = matchingClose(code, RUST_BODY.lastIndex - 1, '{', '}') + 1;
+    ranges.push([match.index, end]);
+    // Outermost only: each is read to its end once, so nesting costs nothing.
+    RUST_MACRO.lastIndex = end;
+  }
+  return ranges;
+}
+
+const RUST_SPACE_CHARACTER = new RegExp(`[${RUST_SPACE}]`, 'u');
+
+/** Whether `at` is where an item or a statement may start: at the head of the file, or after `;`, a brace, an attribute's `]`, `pub` or its `(...)`. */
+function startsAnItem(code: string, at: number): boolean {
+  let before = at;
+  while (RUST_SPACE_CHARACTER.test(code[before - 1] ?? '')) before -= 1;
+  return before === 0 || ';{}])'.includes(code[before - 1]!) || /(?<!\p{XID_Continue})pub$/u.test(code.slice(Math.max(0, before - 4), before));
+}
+
+/**
+ * A doc comment, which rustc reads as an attribute: three slashes and no
+ * fourth, `//!`, a block opened with two stars and no third that holds
+ * something, and a block opened with `/*!` (Comments, as read on
+ * 2026-10-19).
+ */
+const RUST_DOC = /^(?:\/\/\/(?!\/)|\/\/!|\/\*\*(?![*/])|\/\*!)/;
+
 function readRust(collector: Collector): void {
-  const { code } = collector.masked;
+  const { code, comments, source } = collector.masked;
+  const macros = macroRanges(code);
+  let macro = 0;
+  let comment = 0;
   RUST_USE.lastIndex = 0;
   let match: RegExpExecArray | null;
 
   while ((match = RUST_USE.exec(code)) !== null) {
-    const start = match.index + match[0].length;
+    const at = match.index;
+    while (macro < macros.length && macros[macro]![1] <= at) macro += 1;
+    // A range starts at a macro's name or an attribute's `#`, never where a
+    // `use` does, so `<` for `<=` is an equivalent mutant; and no comment
+    // starts where a `use` does, so `<=` for the `<` after it is one too.
+    const inMacro = macro < macros.length && macros[macro]![0] <= at;
+    while (comment < comments.length && comments[comment]![0] < at) comment += 1;
+    // A doc comment between `use` and the end of the declaration, which rustc
+    // reads as an attribute where no attribute may stand.
+    const documented = (end: number): boolean => {
+      for (let next = comment; next < comments.length && comments[next]![0] < end; next++) {
+        if (RUST_DOC.test(source.slice(comments[next]![0], comments[next]![0] + 4))) return true;
+      }
+      return false;
+    };
+    // What rustc refuses is said where it starts as a declaration: where an
+    // item or a statement may start, and not among a macro's tokens, which
+    // rustc does not read as one (ADR-0008, amended 2026-10-19).
+    const refused = (): void => {
+      if (!inMacro && startsAnItem(code, at)) {
+        note(collector, 'refused', at, 'a declaration that starts as a use or an extern crate is one rustc refuses, and no module is read from it');
+      }
+    };
+    const start = at + match[0].length;
     if (match[0] !== 'use') {
-      const crate = externCrate(code, start);
-      if (crate !== null) emit(collector, crate, 'use', match.index);
+      const extern = externCrate(code, start);
+      if (extern !== null && !documented(extern.end)) emit(collector, extern.crate, 'use', at);
+      else refused();
       continue;
     }
     const { paths, end } = readUseTree(code, start);
+    const semicolon = rustToken(code, end);
     if (paths === 'overflow') {
-      note(collector, 'truncated', match.index, `a use declaration expands to more than ${MAX_EXPANSION} module paths, or nests its groups deeper than that`);
-    } else if (paths !== 'refused' && rustToken(code, end)?.text === ';') {
-      for (const path of paths) emit(collector, usePath(path), 'use', match.index);
+      note(collector, 'truncated', at, `a use declaration expands to more than ${MAX_EXPANSION} module paths, or nests its groups deeper than that`);
+    } else if (
+      paths !== 'refused' &&
+      semicolon?.text === ';' &&
+      !documented(semicolon.end) &&
+      // A `$` name stands only in a macro's tokens, where it is read as the
+      // macro is expanded.
+      (inMacro || !paths.some(({ segments }) => segments.some((segment) => segment.startsWith('$'))))
+    ) {
+      for (const path of paths) emit(collector, usePath(path), 'use', at);
+    } else {
+      refused();
     }
     // On from where reading stopped, past the tree or at the token rustc
     // would refuse, so that no token is read twice. No segment is `use` or
@@ -678,6 +840,28 @@ const CSHARP_ESCAPE = /\\u([\dA-Fa-f]{4})|\\U([\dA-Fa-f]{8})/g;
 const CSHARP_IDENTIFIER = new RegExp(String.raw`^[\p{L}\p{Nl}_][${CSHARP_PART}]*$`, 'u');
 
 /**
+ * C#'s keywords (6.4.4, as read on 2026-10-19), which no identifier is
+ * unless written with `@`, or with an escape in it, which no keyword holds.
+ * Its contextual keywords, `global`, `var` and `dynamic` among them, are
+ * identifiers where a name stands.
+ */
+const CSHARP_KEYWORDS: ReadonlySet<string> = new Set([
+  ...['abstract', 'as', 'base', 'bool', 'break', 'byte', 'case', 'catch', 'char', 'checked', 'class', 'const', 'continue'],
+  ...['decimal', 'default', 'delegate', 'do', 'double', 'else', 'enum', 'event', 'explicit', 'extern', 'false', 'finally'],
+  ...['fixed', 'float', 'for', 'foreach', 'goto', 'if', 'implicit', 'in', 'int', 'interface', 'internal', 'is', 'lock'],
+  ...['long', 'namespace', 'new', 'null', 'object', 'operator', 'out', 'override', 'params', 'private', 'protected'],
+  ...['public', 'readonly', 'ref', 'return', 'sbyte', 'sealed', 'short', 'sizeof', 'stackalloc', 'static', 'string'],
+  ...['struct', 'switch', 'this', 'throw', 'true', 'try', 'typeof', 'uint', 'ulong', 'unchecked', 'unsafe', 'ushort'],
+  ...['using', 'virtual', 'void', 'volatile', 'while'],
+]);
+
+/** The keywords that name a type (8.2.1, 8.3.1): `void` is one only before a `*`. */
+const CSHARP_TYPE_KEYWORDS: ReadonlySet<string> = new Set([
+  ...['bool', 'byte', 'char', 'decimal', 'double', 'float', 'int', 'long', 'object', 'sbyte', 'short', 'string', 'uint'],
+  ...['ulong', 'ushort'],
+]);
+
+/**
  * The identifier a word is, as C# compares two: with no `@`, each escape the
  * character it stands for, and no formatting character. Null for a word that
  * is no identifier: a digit first, or an escape of what no identifier holds.
@@ -695,11 +879,13 @@ function csharpIdentifier(word: string): string | null {
   return CSHARP_IDENTIFIER.test(decoded) ? decoded.replace(/\p{Cf}/gu, '') : null;
 }
 
-/** What a type argument list holds beside names and angle brackets: no pointer, which no type argument is. */
-const TYPE_MARKS = ['.', ',', '?', '[', ']', '(', ')', '::'];
-
 /** A cursor over the tokens of one directive or declaration. */
 class CsharpTokens {
+  /** How deep the type being read is. */
+  private nesting = 0;
+  /** Whether a type nested deeper than MAX_EXPANSION, and was not read. */
+  overflow = false;
+
   constructor(
     private readonly text: string,
     public index: number,
@@ -727,12 +913,13 @@ class CsharpTokens {
   }
 
   /**
-   * An identifier, which is never the keyword `using` or `namespace`: so a
-   * directive left open is never read on into the next.
+   * An identifier, which is never a keyword as it is written: so `using
+   * class.N;` names nothing, and a directive left open is never read on
+   * into the next, whose `using` or `namespace` is one.
    */
   identifier(): string | null {
     const token = this.next();
-    const name = token?.word === undefined || token.word === 'using' || token.word === 'namespace' ? null : csharpIdentifier(token.word);
+    const name = token?.word === undefined || CSHARP_KEYWORDS.has(token.word) ? null : csharpIdentifier(token.word);
     if (name !== null) this.index = token!.end;
     return name;
   }
@@ -766,28 +953,95 @@ class CsharpTokens {
   }
 
   /**
-   * Passes over a type argument list, `<` to the `>` that closes it, and is
-   * false where something no type holds comes first. Token by token, so it
-   * never reads past a `;`, a brace or the next directive.
+   * Passes over a type argument list, `<` to the `>` that closes it, each
+   * argument a type and none a pointer, which the compiler refuses there;
+   * false where something else stands. Token by token, so it never reads
+   * past a `;`, a brace or the next directive.
    */
   private typeArguments(): boolean {
     if (!this.mark('<')) return true;
-    for (let depth = 1; depth > 0; ) {
-      if (this.mark('<')) depth += 1;
-      else if (this.mark('>')) depth -= 1;
-      else if (this.identifier() === null && !TYPE_MARKS.some((mark) => this.mark(mark))) return false;
-    }
-    return true;
+    do {
+      if (!this.type(false)) return false;
+    } while (this.mark(','));
+    return this.mark('>');
   }
 
-  /** The array, nullable and pointer marks after a type, `[]`, `[,]`, `?` and `*`, and false for `[` left open. */
-  suffixes(): boolean {
+  /**
+   * Passes over a type, as the specification has one (8.1 and 24.3): a
+   * tuple of two or more, a keyword that names a type, a function pointer
+   * or a name with its type arguments, then the marks of a nullable, an
+   * array and a pointer. A pointer, a function pointer among them, only where
+   * `pointers` lets one stand: in an alias that is `unsafe`, and never in a
+   * tuple or a type argument. False where the text is none, and where it
+   * nests deeper than MAX_EXPANSION, as a Rust use group may not, with
+   * `overflow` set: so no type nested twenty thousand deep runs the reader
+   * out of stack.
+   */
+  type(pointers: boolean): boolean {
+    if (this.nesting === MAX_EXPANSION) {
+      this.overflow = true;
+      return false;
+    }
+    this.nesting += 1;
+    const read = this.typeWithin(pointers);
+    this.nesting -= 1;
+    return read;
+  }
+
+  private typeWithin(pointers: boolean): boolean {
+    let pointer = false;
+    const word = this.next()?.word ?? '';
+    if (this.mark('(')) {
+      let elements = 0;
+      do {
+        if (!this.type(false)) return false;
+        // The name an element may have.
+        this.identifier();
+        elements += 1;
+      } while (this.mark(','));
+      if (elements < 2 || !this.mark(')')) return false;
+    } else if (word === 'delegate' || word === 'void') {
+      this.keyword(word);
+      if (!this.mark('*') || (word === 'delegate' && !this.functionPointer())) return false;
+      pointer = true;
+    } else if (CSHARP_TYPE_KEYWORDS.has(word)) {
+      this.keyword(word);
+    } else if (this.name(true) === null) {
+      return false;
+    }
     for (;;) {
-      if (this.mark('?') || this.mark('*')) continue;
-      if (!this.mark('[')) return true;
+      if (this.mark('?')) continue;
+      if (this.mark('*')) {
+        pointer = true;
+        continue;
+      }
+      if (!this.mark('[')) return pointers || !pointer;
       while (this.mark(',')) continue;
       if (!this.mark(']')) return false;
     }
+  }
+
+  /**
+   * What follows `delegate*`: a calling convention or none, then `<`, the
+   * parameters, each `ref`, `ref readonly`, `in` or `out` or none, and the
+   * return type, `void` among them, then `>` (24.3.3).
+   */
+  private functionPointer(): boolean {
+    if (this.keyword('unmanaged') && this.mark('[')) {
+      do {
+        if (this.identifier() === null) return false;
+      } while (this.mark(','));
+      if (!this.mark(']')) return false;
+    } else {
+      this.keyword('managed');
+    }
+    if (!this.mark('<')) return false;
+    do {
+      if (this.keyword('ref')) this.keyword('readonly');
+      else if (!this.keyword('in')) this.keyword('out');
+      if (!this.keyword('void') && !this.type(true)) return false;
+    } while (this.mark(','));
+    return this.mark('>');
   }
 }
 
@@ -797,8 +1051,10 @@ class CsharpTokens {
  *
  *   using static unsafe? type ;    using unsafe? alias = name-or-type ;    using namespace ;
  *
- * `global` before `using` changes nothing of it. A using statement and a
- * using declaration are none of these, and are read as nothing.
+ * `global` before `using` changes nothing of it. An alias of a type that is
+ * no name, a tuple or `int` among them, names nothing, and is no refusal. A
+ * using statement and a using declaration are none of these, and are read
+ * as nothing.
  */
 function usingDirective(tokens: CsharpTokens): string | null {
   let target: string | null;
@@ -809,9 +1065,12 @@ function usingDirective(tokens: CsharpTokens): string | null {
     const unsafe = tokens.keyword('unsafe');
     const start = tokens.index;
     if (tokens.identifier() !== null && tokens.mark('=')) {
-      target = tokens.name(true);
-      // An alias may name an array, a nullable or a pointer of a type.
-      if (!tokens.suffixes()) return null;
+      // An alias may name any type (14.6.2), and a pointer of one where it
+      // is `unsafe`. Where the type is a name, that name is what is read.
+      const type = tokens.index;
+      target = tokens.name(true) ?? '';
+      tokens.index = type;
+      if (!tokens.type(unsafe)) return null;
     } else if (unsafe) {
       return null;
     } else {
@@ -820,6 +1079,57 @@ function usingDirective(tokens: CsharpTokens): string | null {
     }
   }
   return tokens.mark(';') ? target : null;
+}
+
+/**
+ * Whether the tokens after a `using` start a using statement or a using
+ * declaration, which top-level statements may hold where a directive may
+ * stand: `(`, or a type and the name of a local, `using var x = ...;` and
+ * `using N.D? d = null;` among them. Each is a statement the compiler reads
+ * as one, refused or not, and no directive it refuses.
+ */
+function startsAStatement(code: string, from: number): boolean {
+  const tokens = new CsharpTokens(code, from);
+  return tokens.mark('(') || (tokens.type(true) && tokens.identifier() !== null);
+}
+
+const CSHARP_SPACE_CHARACTER = new RegExp(`[${CSHARP_BLANK}${CSHARP_BREAK}]`, 'u');
+const CSHARP_GLOBAL_BEFORE = new RegExp(String.raw`(?<![${CSHARP_PART}@\\])global$`, 'u');
+
+/**
+ * Whether a `using` at `at` stands where a directive may start: at the head
+ * of the file, after `;` or a brace, or after `global`. Where it follows
+ * anything else, `await` or an `)`, it starts a statement.
+ */
+function startsADirective(code: string, at: number): boolean {
+  let before = at;
+  while (CSHARP_SPACE_CHARACTER.test(code[before - 1] ?? '')) before -= 1;
+  return before === 0 || ';{}'.includes(code[before - 1]!) || CSHARP_GLOBAL_BEFORE.test(code.slice(Math.max(0, before - 7), before));
+}
+
+/** The `#if` or `#endif` a pre-processing line is, or neither. */
+const CSHARP_CONDITION = new RegExp(String.raw`^[${CSHARP_BLANK}]*#[${CSHARP_BLANK}]*(if|endif)(?![${CSHARP_PART}])`, 'u');
+
+/**
+ * The half-open ranges from each outermost `#if` to the end of its `#endif`.
+ * The compiler skips the text of a section whose condition is false and reads
+ * none of it (6.5.5), and which condition holds is the build's to say: so a
+ * directive there is read as one anywhere else, and none is said to be
+ * refused. One left open runs to the end of the file.
+ */
+function conditionalRanges(code: string): Array<[number, number]> {
+  const ranges: Array<[number, number]> = [];
+  let depth = 0;
+  let start = 0;
+  CSHARP_DIRECTIVE.lastIndex = 0;
+  let line: RegExpExecArray | null;
+  while ((line = CSHARP_DIRECTIVE.exec(code)) !== null) {
+    const kind = CSHARP_CONDITION.exec(line[0])?.[1];
+    if (kind === 'if' && depth++ === 0) start = line.index;
+    if (kind === 'endif' && depth > 0 && --depth === 0) ranges.push([start, line.index + line[0].length]);
+  }
+  if (depth > 0) ranges.push([start, code.length]);
+  return ranges;
 }
 
 /** A block namespace not yet closed, and the brace depth of its body. */
@@ -847,11 +1157,16 @@ interface OpenNamespace {
  * A directive and a declaration are read token by token, as the C#
  * specification has them (ADR-0008, amended 2026-10-18): white space and
  * comments between the tokens, an identifier as C# compares two, and what
- * C# refuses read as nothing.
+ * C# refuses read as nothing. What it refuses is said where it starts as a
+ * directive: in no brace but a namespace's, where a directive may start,
+ * where no statement does, and outside every `#if` (amended 2026-10-19).
  */
 function readCsharp(collector: Collector): void {
   // A byte order mark at the head of a file is no character of its text.
-  const code = collector.masked.code.replace(/^\u{feff}/u, ' ').replace(CSHARP_DIRECTIVE, (line) => ' '.repeat(line.length));
+  const marked = collector.masked.code.replace(/^\u{feff}/u, ' ');
+  const conditions = conditionalRanges(marked);
+  let condition = 0;
+  const code = marked.replace(CSHARP_DIRECTIVE, (line) => ' '.repeat(line.length));
   const declared = new Set<string>();
   const open: OpenNamespace[] = [];
   let fileScoped: string | undefined;
@@ -889,7 +1204,18 @@ function readCsharp(collector: Collector): void {
       }
     } else {
       const target = usingDirective(tokens);
-      if (target !== null) emit(collector, target, 'using', match.index, open.at(-1)?.name ?? fileScoped);
+      // A section starts at the head of its `#if` line and ends at its
+      // `#endif` line's end, where no `using` starts: `<` for either `<=`
+      // is an equivalent mutant.
+      while (condition < conditions.length && conditions[condition]![1] <= match.index) condition += 1;
+      const conditional = condition < conditions.length && conditions[condition]![0] <= match.index;
+      if (target !== null) {
+        emit(collector, target, 'using', match.index, open.at(-1)?.name ?? fileScoped);
+      } else if (tokens.overflow) {
+        note(collector, 'truncated', match.index, `a using directive nests its types deeper than ${MAX_EXPANSION}`);
+      } else if (!conditional && depth === (open.at(-1)?.depth ?? 0) && startsADirective(code, match.index) && !startsAStatement(code, CSHARP_TOKEN.lastIndex)) {
+        note(collector, 'refused', match.index, 'a directive that starts as a using is one the C# compiler refuses, and no namespace is read from it');
+      }
     }
     // On from where reading stopped, so that no token is read twice. No name
     // is `using` or `namespace`, so no directive is read into the next.
