@@ -841,8 +841,9 @@ holding a `.git` file, as a linked worktree and a submodule do (a
 desktop-app session keeps its worktree under `.claude/worktrees`), or a
 `.git` directory with a `HEAD`, as a clone does. Its files are another
 checkout's: read, a stale citation in a session's worktree failed
-`cites --strict` in the checkout above it. A run names each one it left out, and `--json` has it
-in `skipped` with `reason: "worktree"`, which `--strict` does not fail on:
+`cites --strict` in the checkout above it. A run names each one it left
+out, and `--json` has it in `skipped` with `reason: "worktree"`, which
+`--strict` does not fail on:
 
 ```text
 ⚠ 1 other git work tree not read: .claude/worktrees/feature
