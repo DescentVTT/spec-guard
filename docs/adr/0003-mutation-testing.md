@@ -1555,6 +1555,37 @@ ran high where they were least measured: `runner.ts` and `text.ts` took 7m35s
 against 15.2 minutes, and `cli.ts` alone 8m18s against 15.1, so the next
 split starts from this run's logs rather than 398fe94's.
 
+### 0.28.0: twenty-one survivors more, each said equivalent where it stands
+
+CI's full sweep of 4652c36 (run 39298646675) came out at **99.23% over
+14,224 mutants with 108 survivors and 2 without coverage**, 221 of them
+detected by timeout and none an error; the shards took from 4m46s to
+22m46s. Against 0.27.0's sweep of 2d588e3 (run 39132619565), 87
+survivors, 2 without coverage and 1 error over 13,242:
+
+- the release has 982 mutants more, 653 of them in `src/polyglot.ts`
+  (the Rust and C# readers that note what a compiler refuses, and the Go
+  and C# names read whole) and 187 in `src/engine.ts` (a line read by
+  `^` and `$`, and the listing of other work trees);
+- 24 survivors are new and 3 are gone. Of the new, 23 are mutants of
+  this release's own lines, each said equivalent beside its code: 13 in
+  the listing of other work trees, 7 in the readers, 2 in the folding of
+  a drive letter and 1 beside `NOT_ANCHORS`. The 24th, `target === '.'`
+  made `true` in `src/impact.ts`, is the equivalent its comment names,
+  detected by timeout in 0.27.0's sweep and not in this one. The three
+  gone stood in the readers the release rewrote;
+- main's sweep of b2101b0 had left three things nobody had explained:
+  `[...map]` made `[]` in `src/watch.ts`, which #72's second difference
+  between the two scopes had stopped a test from seeing, and two
+  emptied `'error'` listeners in `src/engine.ts`, which left an error
+  unheard once the listing and the search ran side by side. #73 kills
+  all three with tests and says beside `RUST_MACRO` why its emptied
+  flags, an endless loop that ends the worker, are no test's to catch.
+
+Each of the release's pull requests was swept incrementally before it
+merged, and each ended with every undetected mutant of its own lines
+killed or said equivalent beside its code.
+
 ### 0.27.0: the Rust and C# readers rewritten, and eight survivors fewer
 
 CI's full sweep of 2d588e3 (run 39132619565) came out at **99.33% over

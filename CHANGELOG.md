@@ -10,7 +10,14 @@ what to do when upgrading; the family's policy, including how a flag or field
 is deprecated before it goes, is spec-core's
 [ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
-## Unreleased
+## 0.28.0
+
+A regex rule's `^` and `$` read a line with either engine, where they
+read the file's two ends and a rule passed that should have failed; and
+another git work tree below the root is not read, by a run or by
+`cites`. A Rust or C# declaration its compiler refuses is said, Go and
+C# names are read whole, and on Windows a drive letter names its volume
+in either case.
 
 ### Changed
 
