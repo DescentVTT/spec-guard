@@ -10,6 +10,18 @@ what to do when upgrading; the family's policy, including how a flag or field
 is deprecated before it goes, is spec-core's
 [ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
+## Unreleased
+
+### Fixed
+
+- **On Windows a drive letter names its volume in either case**, so
+  `--root C:\x` beside `--root c:\x` is one root, in either order and on
+  every command. It was refused, exit 2, as two values. The rest of a
+  path is compared as it resolves, as before, so `--root C:\x` beside
+  `--root C:\X` is still refused, and off Windows the two letters are
+  two names and refused as they were
+  ([ADR-0014](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0014-configuration-and-watch.md)).
+
 ## 0.27.0
 
 A Rust use declaration and a C# using directive are read as their

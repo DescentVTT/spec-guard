@@ -40,26 +40,50 @@ export async function fastestInTurnAsync(runs: number, ...work: (() => Promise<u
 }
 
 /**
- * For work too quick to time once: the time one run takes, in milliseconds,
- * over as many runs as fill `span` milliseconds, the fastest of a few such
- * stretches of each piece of work, taken in turn. A stretch holds at least
- * one run, so work grown to take seconds is timed once and not thousands of
- * times over.
+ * The time one run of `work` takes, in milliseconds, over as many runs as
+ * fill `span` milliseconds. A stretch holds at least one run, so work grown
+ * to take seconds is timed once and not thousands of times over.
  */
-export function perRunInTurn(stretches: number, span: number, ...work: (() => unknown)[]): number[] {
-  const best = work.map(() => Number.POSITIVE_INFINITY);
+function perRun(span: number, work: () => unknown): number {
+  let runs = 0;
+  let elapsed = 0;
+  const started = performance.now();
+  do {
+    work();
+    runs += 1;
+    elapsed = performance.now() - started;
+  } while (elapsed < span && runs < 100_000);
+  return elapsed / runs;
+}
+
+/**
+ * For work too quick to time once, at two sizes: how many times as long a
+ * run of the larger takes as a run of the smaller, the fastest stretch of
+ * each, over `stretches` stretches of each taken in turn, after one of each
+ * that is not counted.
+ *
+ * A busy machine only ever adds time, so the fastest stretch is the one
+ * nearest what the work costs, and a reading is spoiled only where every
+ * stretch of one size was slowed and one of the other was not. Measured on
+ * GitHub's runners on 2026-10-19, every image and Node of the suite's
+ * matrix, with the suite running beside it: a stretch of ten milliseconds
+ * was now and then slowed whole, by up to a thousand times, and the fastest
+ * of seven such of each size read up to 8.3 times apart for work four times
+ * as large. The fastest of 21 of three milliseconds read at most 6.1 times
+ * apart in 6,240 readings, and 7.3 in another 5,040: short stretches are
+ * slowed less often, and more of them leave fewer readings with none of one
+ * size spared. One stretch of each is run first and not counted, as it was
+ * where that was measured, so that no reading holds the first runs of
+ * either size.
+ */
+export function fastestRatioInTurn(stretches: number, span: number, smaller: () => unknown, larger: () => unknown): number {
+  perRun(span, smaller);
+  perRun(span, larger);
+  let small = Number.POSITIVE_INFINITY;
+  let large = Number.POSITIVE_INFINITY;
   for (let i = 0; i < stretches; i += 1) {
-    work.forEach((run, k) => {
-      let runs = 0;
-      let elapsed = 0;
-      const started = performance.now();
-      do {
-        run();
-        runs += 1;
-        elapsed = performance.now() - started;
-      } while (elapsed < span && runs < 100_000);
-      best[k] = Math.min(best[k] as number, elapsed / runs);
-    });
+    small = Math.min(small, perRun(span, smaller));
+    large = Math.min(large, perRun(span, larger));
   }
-  return best;
+  return large / small;
 }
