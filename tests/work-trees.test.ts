@@ -303,6 +303,18 @@ describe('a run', () => {
     expect(result?.scope.skipped).toEqual([{ path: '.claude/worktrees/feature', reason: 'worktree' }]);
   });
 
+  it('walks nothing, and names nothing, for a rule whose every target is missing', async () => {
+    const tree = {
+      ...TREE,
+      'docs/rules.md': ['<!-- @assert-absence target="missing" symbol="x" -->', '<!-- @assert-import-absence target="missing" module="x" -->'].join('\n'),
+    };
+    const report = await runSpecGuard({ root: ROOT, patterns: ['docs/rules.md'], io: memoryIo(ROOT, tree), allowMissingTargets: true });
+    expect(report.results.map((result) => [result.ok, result.scope.skipped])).toEqual([
+      [false, []],
+      [false, []],
+    ]);
+  });
+
   it('leaves them out of an import rule, a structure rule and the specs a pattern finds', async () => {
     const tree = {
       ...TREE,

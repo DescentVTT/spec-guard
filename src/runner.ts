@@ -1079,7 +1079,7 @@ async function prepareAssertion(
   if (!options.allowEmptyScope && !assertion.allowEmpty && (nothingLeft || !(await options.hasFiles(request)))) {
     // An empty scope's walk went everywhere, and the other work trees it left
     // out are where a reader will look for the files it did not find.
-    const left = nothingLeft ? [] : (await enumerateCandidates(request, ANY_FILE_PROBE, options.io)).skipped;
+    const left = nothingLeft ? EMPTY_LEDGER.skipped : (await enumerateCandidates(request, ANY_FILE_PROBE, options.io)).skipped;
     return {
       ...base,
       scope: { skipped: left.filter((entry) => entry.reason === "worktree") },
@@ -1278,7 +1278,7 @@ async function executeImportAssertion(
   // the root to the engine, as the text rules above found out.
   const enumeration =
     existingTargets.length === 0
-      ? { files: [], skipped: [] }
+      ? { files: [], skipped: EMPTY_LEDGER.skipped }
       : await enumerateCandidates(
           {
             root: options.root,

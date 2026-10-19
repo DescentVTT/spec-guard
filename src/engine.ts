@@ -610,7 +610,12 @@ class RipgrepEngine implements Engine {
   /** What `buildWorkTreeArgs` has ripgrep list, read as tops. */
   private list(root: string, target: string, scope: ScopePolicy): Promise<string[]> {
     return new Promise((resolve, reject) => {
-      const child = spawn(this.binary, buildWorkTreeArgs(scope, target), { cwd: root, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] });
+      // Its errors are not read, so they go nowhere: a pipe nobody empties
+      // stops a process that writes enough to it, and a listing that met many
+      // directories it could not read would not end. `windowsHide` made false
+      // and `stdio` emptied change nothing a test can see, as ADR-0003 records
+      // for every spawn here; emptied, this one's errors would fill a pipe.
+      const child = spawn(this.binary, buildWorkTreeArgs(scope, target), { cwd: root, windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
       const stdout: Buffer[] = [];
       child.stdout.on('data', (chunk: Buffer) => stdout.push(chunk));
       child.once('error', reject);
