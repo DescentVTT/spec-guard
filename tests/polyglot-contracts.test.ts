@@ -295,10 +295,10 @@ describe('c# using directives', () => {
     ]);
   });
 
-  it('skips a nested generic argument list', () => {
+  it('reads the names a nested generic argument list holds, and no keyword', () => {
     expect(
       specifiers('using D = System.Collections.Generic.Dictionary<int, List<string>>;\n', 'a.cs'),
-    ).toEqual(['System.Collections.Generic.Dictionary']);
+    ).toEqual(['System.Collections.Generic.Dictionary', 'List']);
   });
 
   it('gives up on a generic list that is never closed, rather than running on', () => {
