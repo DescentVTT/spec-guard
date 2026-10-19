@@ -42,6 +42,22 @@ is deprecated before it goes, is spec-core's
   Upgrading: each entry of `gaps` in `impact --json` and in
   `get_dependents` has `line` beside `file` and `detail`; `formatVersion`
   stays 1, and the package exports `ImpactGap`.
+- **A Go package name and the types of a C# alias are read whole.** `import
+  名 "fmt"`, `import café "fmt"` and `import _x "fmt"` were read as no
+  import, so a rule on the package passed over each; a package name is now
+  read as the Go specification has an identifier, a keyword is none, and a
+  name at the end of its line, which Go ends the import at, imports
+  nothing. `using T = G.L<N1.X>;` named `G.L` alone and `using T = (N1.X,
+  N2.Y);` nothing; each type an alias or a `using static` holds is now a
+  reference, its type arguments and the elements of a tuple among them.
+  Of 29 Go sources held to the specification, 0.27.0 read 13 otherwise
+  than it does, and of 23 C# ones compiled by the .NET SDK 10.0.401, 19
+  otherwise than the compiler
+  ([ADR-0008](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0008-polyglot-imports.md)).
+  Upgrading: an import rule over Go or C# that passed may now fail for a
+  dependency written one of those ways; mend the import it names, or give
+  the rule a `baseline`. From the package, `Reader.identifier` reads a
+  name as Go has one.
 - **`^` and `$` in a regex rule read a line, with either engine**, where
   they read only a file's two ends: `symbol="^\s*-?\s*uses:"` passed over a
   workflow with `uses:` on its fourth line, under `--engine js` and

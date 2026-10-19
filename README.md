@@ -232,9 +232,9 @@ These read the dependency rather than the text, in **five languages**:
 | --- | --- | --- |
 | JavaScript / TypeScript | `.js .mjs .cjs .jsx .ts .mts .cts .tsx` | `import`, `export ... from`, `require()`, `import()` |
 | Python | `.py .pyi` | `import a.b` and `from .rel import x` in every spelling Python's grammar takes, 3.15's `lazy import` among them, and `importlib.import_module("x")` |
-| Go | `.go` | `import "x"` and grouped `import ( ... )`, including aliases and `_` |
+| Go | `.go` | `import "x"` and grouped `import ( ... )`, including `.`, `_` and a package name as Go writes one, beyond ASCII too |
 | Rust | `.rs` | `use a::{b, c}` with nested groups, `pub use` and `extern crate`, in every spelling rustc's grammar takes: white space and comments between the tokens, a raw identifier, `self` at the end of a path |
-| C# | `.cs .csx` | `using`, `using static`, `global using`, `using X = A.B`, `global::` and extern-alias qualifiers, and a using relative to its namespace, in every spelling the C# grammar takes: white space and comments between the tokens, a name written with `@` or an escape, `using static unsafe` and a generic type |
+| C# | `.cs .csx` | `using`, `using static`, `global using`, `using X = A.B`, `global::` and extern-alias qualifiers, and a using relative to its namespace, in every spelling the C# grammar takes: white space and comments between the tokens, a name written with `@` or an escape, `using static unsafe` and a generic type, and each type an alias or a `using static` holds, its type arguments and the elements of a tuple among them |
 
 No parser and no new dependency. JavaScript gets a full tokenizer because a
 module reference can appear anywhere in an expression; the other four are read
@@ -380,10 +380,13 @@ single pattern do both halves of a layer rule - hold the files under
 - **`module=` is a namespace too**, as above: `module="Shop.Infrastructure"`
   covers `using Shop.Infrastructure.Persistence;`.
 - **What is read**: `using`, `global using`, `using static` and aliases, with
-  any `global::` or extern-alias qualifier left off the name. A using inside a
-  namespace may be relative to it, so `using Application.Orders;` inside
-  `namespace Shop.Domain` also counts as `Shop.Application.Orders`. Nothing in a
-  comment, a verbatim string or a raw string literal is read.
+  any `global::` or extern-alias qualifier left off the name, and each type
+  an alias or a `using static` holds: `using Pool =
+  Dictionary<Shop.Db.Key, int>;` names `Dictionary` and `Shop.Db.Key`, and
+  `using T = int;` names nothing. A using inside a namespace may be relative
+  to it, so `using Application.Orders;` inside `namespace Shop.Domain` also
+  counts as `Shop.Application.Orders`. Nothing in a comment, a verbatim
+  string or a raw string literal is read.
 
 What it cannot see, and the text rule that covers each - a text rule reads a
 name wherever it is written:

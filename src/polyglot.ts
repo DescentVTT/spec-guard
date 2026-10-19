@@ -153,7 +153,18 @@ export function literalValue(raw: string): string {
 
 /* ------------------------------------------------------------------ reading */
 
-const IDENTIFIER = /[A-Za-z_][A-Za-z0-9_]*/y;
+/**
+ * A Go identifier: a letter, then letters and decimal digits, where a letter
+ * is `_` or a character of a Letter category, Lu, Ll, Lt, Lm or Lo, and a
+ * digit one of Nd (The Go Programming Language Specification, "Characters",
+ * "Letters and digits" and "Identifiers", go1.27, read on 2026-10-19). The
+ * page has those categories as Unicode 8.0 gives them; it follows from it,
+ * and is not on it, that a later Unicode's letters, which the Node that runs
+ * spec-guard has, are read as letters. A mark is no letter, so `cafe` with a
+ * combining accent is no identifier, and the text is not normalised: `café`
+ * written so is two characters of which the second is none.
+ */
+const IDENTIFIER = /[\p{L}_][\p{L}\p{Nd}_]*/uy;
 
 /**
  * Whitespace-skipping cursor over masked code, which a Go import and a Python
@@ -436,6 +447,12 @@ function readPython(collector: Collector): void {
 
 const GO_IMPORT = /\bimport\b/g;
 
+/** Go's keywords, which no identifier is, so no package name ("Keywords"). */
+const GO_KEYWORDS: ReadonlySet<string> = new Set([
+  ...['break', 'case', 'chan', 'const', 'continue', 'default', 'defer', 'else', 'fallthrough', 'for', 'func', 'go', 'goto'],
+  ...['if', 'import', 'interface', 'map', 'package', 'range', 'return', 'select', 'struct', 'switch', 'type', 'var'],
+]);
+
 function readGo(collector: Collector): void {
   const { code } = collector.masked;
   GO_IMPORT.lastIndex = 0;
@@ -455,9 +472,27 @@ function readGo(collector: Collector): void {
       continue;
     }
 
-    // A single import may carry an alias: `import fmt2 "fmt"`, `import _ "x"`.
-    if (reader.peek() === '_' || reader.peek() === '.') reader.index += 1;
-    else reader.identifier();
+    // A single import may carry a package name, `import fmt2 "fmt"`, `import
+    // 名 "fmt"` or `import _ "x"`, or a `.` ("Import declarations"). A name at
+    // the end of its line has a semicolon put after it, and a comment that
+    // holds a line break ends the line too ("Semicolons", "Comments"): the
+    // import ends there, with no path, which Go refuses.
+    if (reader.peek() === '.') {
+      reader.index += 1;
+    } else {
+      const name = reader.identifier();
+      // On from the keyword, so that `import import "x"` is read as no
+      // import, and not as a second.
+      if (GO_KEYWORDS.has(name)) {
+        GO_IMPORT.lastIndex = reader.index;
+        continue;
+      }
+      // With no name the space after `import` was passed over already, so
+      // this finds a line break only after one.
+      const after = reader.index;
+      reader.skipSpace();
+      if (code.slice(after, reader.index).includes('\n')) continue;
+    }
     reader.skipSpace();
     const literal = literalAt(collector.masked, reader.index);
     if (literal !== null) emit(collector, literal, 'import', match.index);
@@ -885,6 +920,8 @@ class CsharpTokens {
   private nesting = 0;
   /** Whether a type nested deeper than MAX_EXPANSION, and was not read. */
   overflow = false;
+  /** The name of each type read, in the order written: a type is its name, then its arguments. */
+  readonly names: string[] = [];
 
   constructor(
     private readonly text: string,
@@ -978,7 +1015,7 @@ class CsharpTokens {
    * out of stack.
    */
   type(pointers: boolean): boolean {
-    if (this.nesting === MAX_EXPANSION) {
+    if (this.nesting >= MAX_EXPANSION) {
       this.overflow = true;
       return false;
     }
@@ -990,6 +1027,9 @@ class CsharpTokens {
 
   private typeWithin(pointers: boolean): boolean {
     let pointer = false;
+    // Where no word is next, at the end of the text or before a mark, `''`
+    // is none of what a word is compared with, `delegate`, `void` and the
+    // type keywords: any other such string for it is an equivalent mutant.
     const word = this.next()?.word ?? '';
     if (this.mark('(')) {
       let elements = 0;
@@ -1006,8 +1046,12 @@ class CsharpTokens {
       pointer = true;
     } else if (CSHARP_TYPE_KEYWORDS.has(word)) {
       this.keyword(word);
-    } else if (this.name(true) === null) {
-      return false;
+    } else {
+      // Before the names its arguments hold, which reading it put here.
+      const at = this.names.length;
+      const name = this.name(true);
+      if (name === null) return false;
+      this.names.splice(at, 0, name);
     }
     for (;;) {
       if (this.mark('?')) continue;
@@ -1046,39 +1090,43 @@ class CsharpTokens {
 }
 
 /**
- * The namespace or type a using directive names, read from after `using`,
- * or null where C# would refuse it:
+ * The namespaces and types a using directive names, read from after
+ * `using`, or null where C# would refuse it:
  *
  *   using static unsafe? type ;    using unsafe? alias = name-or-type ;    using namespace ;
  *
- * `global` before `using` changes nothing of it. An alias of a type that is
- * no name, a tuple or `int` among them, names nothing, and is no refusal. A
- * using statement and a using declaration are none of these, and are read
- * as nothing.
+ * `global` before `using` changes nothing of it. A type is read whole: a
+ * name, then each type its arguments name, and each element of a tuple; a
+ * keyword that names a type, `int` or `string`, names nothing, and nor does
+ * a tuple element's own name, and an alias of a type that names nothing is
+ * no refusal. A using statement and a using declaration are none of these,
+ * and are read as nothing.
  */
-function usingDirective(tokens: CsharpTokens): string | null {
-  let target: string | null;
+function usingDirective(tokens: CsharpTokens): string[] | null {
+  let target: string[] | null;
   if (tokens.keyword('static')) {
     tokens.keyword('unsafe');
-    target = tokens.name(true);
+    const name = tokens.name(true);
+    target = name === null ? null : [name, ...tokens.names];
   } else {
     const unsafe = tokens.keyword('unsafe');
     const start = tokens.index;
     if (tokens.identifier() !== null && tokens.mark('=')) {
       // An alias may name any type (14.6.2), and a pointer of one where it
-      // is `unsafe`. Where the type is a name, that name is what is read.
-      const type = tokens.index;
-      target = tokens.name(true) ?? '';
-      tokens.index = type;
+      // is `unsafe`.
       if (!tokens.type(unsafe)) return null;
+      target = tokens.names;
     } else if (unsafe) {
       return null;
     } else {
       tokens.index = start;
-      target = tokens.name(false);
+      const name = tokens.name(false);
+      target = name === null ? null : [name];
     }
   }
-  return tokens.mark(';') ? target : null;
+  // A type named twice, `G.L<G.L<int>>`, is one dependency. A refused
+  // directive stays null, not an empty list, which is what says it refused.
+  return tokens.mark(';') && target !== null ? [...new Set(target)] : null;
 }
 
 /**
@@ -1157,9 +1205,11 @@ interface OpenNamespace {
  * A directive and a declaration are read token by token, as the C#
  * specification has them (ADR-0008, amended 2026-10-18): white space and
  * comments between the tokens, an identifier as C# compares two, and what
- * C# refuses read as nothing. What it refuses is said where it starts as a
- * directive: in no brace but a namespace's, where a directive may start,
- * where no statement does, and outside every `#if` (amended 2026-10-19).
+ * C# refuses read as nothing. Each type a directive names is read whole,
+ * the types its arguments name and a tuple's elements among them, and each
+ * is a reference. What it refuses is said where it starts as a directive:
+ * in no brace but a namespace's, where a directive may start, where no
+ * statement does, and outside every `#if` (amended 2026-10-19).
  */
 function readCsharp(collector: Collector): void {
   // A byte order mark at the head of a file is no character of its text.
@@ -1203,14 +1253,14 @@ function readCsharp(collector: Collector): void {
         }
       }
     } else {
-      const target = usingDirective(tokens);
+      const targets = usingDirective(tokens);
       // A section starts at the head of its `#if` line and ends at its
       // `#endif` line's end, where no `using` starts: `<` for either `<=`
       // is an equivalent mutant.
       while (condition < conditions.length && conditions[condition]![1] <= match.index) condition += 1;
       const conditional = condition < conditions.length && conditions[condition]![0] <= match.index;
-      if (target !== null) {
-        emit(collector, target, 'using', match.index, open.at(-1)?.name ?? fileScoped);
+      if (targets !== null) {
+        for (const target of targets) emit(collector, target, 'using', match.index, open.at(-1)?.name ?? fileScoped);
       } else if (tokens.overflow) {
         note(collector, 'truncated', match.index, `a using directive nests its types deeper than ${MAX_EXPANSION}`);
       } else if (!conditional && depth === (open.at(-1)?.depth ?? 0) && startsADirective(code, match.index) && !startsAStatement(code, CSHARP_TOKEN.lastIndex)) {
