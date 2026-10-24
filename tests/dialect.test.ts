@@ -168,6 +168,9 @@ describe('a character, and its case, as the regex crate reads them', () => {
     const content = `// a${SMILE}b\nx\n`;
     const tally = scanContent(content, 'a.ts', buildJsRegExp('x*', searchOptions({ regex: true })), () => createCommentMask(content, 'a.ts'));
     expect(tally).toMatchObject({ count: 3, commentCount: 6 });
+    // And a match in a comment that is not empty is stepped past by nothing.
+    const twice = '// xx\n';
+    expect(scanContent(twice, 'a.ts', buildJsRegExp('x', searchOptions({ regex: true })), () => createCommentMask(twice, 'a.ts'))).toMatchObject({ count: 0, commentCount: 2 });
   });
 
   it('counts no empty match after the last line end, where no line is, as ripgrep names no file for one', () => {
@@ -253,6 +256,12 @@ describe('what JavaScript read as itself', () => {
     expect(count('(?<$a>x)\\k<$a>$', 'xx\nxxy\n')).toBe(1);
     expect(count('[$^]', 'a$b^c\n')).toBe(2);
     expect(count('[^]', 'ab')).toBe(2);
+    expect(count('x[^]y', 'xab')).toBe(0);
+    // `\b` in a class is a backspace, a character a range can start at.
+    expect(count(String.raw`x[\b-z]y`, 'xAy')).toBe(1);
+    expect(count(String.raw`x[\!-\/]y`, 'x#y')).toBe(1);
+    // A `{` after `\B` is a character, as it is after any atom it counts nothing of.
+    expect(count(String.raw`x \B{x}`, 'x {x}')).toBe(1);
     expect(count('x[]y', 'xy')).toBe(0);
     expect(count(String.raw`x[\b]y`, `x${at(8)}y`)).toBe(1);
     expect(count(String.raw`x\cAy`, `x${at(1)}y`)).toBe(1);
@@ -274,6 +283,8 @@ describe('what the two engines would read apart', () => {
       ['xa{2, 3}y', '"{2, 3}" is a count to ripgrep, which reads one with blanks in it, and those characters to JavaScript'],
       ['xa{ 2 }y', '"{ 2 }" is a count to ripgrep, which reads one with blanks in it, and those characters to JavaScript'],
       ['xa{2,3 }y', '"{2,3 }" is a count to ripgrep, which reads one with blanks in it, and those characters to JavaScript'],
+      ['xa{2, }y', '"{2, }" is a count to ripgrep, which reads one with blanks in it, and those characters to JavaScript'],
+      ['xa{ 10 }y', '"{ 10 }" is a count to ripgrep, which reads one with blanks in it, and those characters to JavaScript'],
       [String.raw`x\pLy`, String.raw`"\pL" is a class of characters to ripgrep and "pL" to JavaScript`],
       [String.raw`x[\PL]y`, String.raw`"\PL" is a class of characters to ripgrep and "PL" to JavaScript`],
       [String.raw`\x{41}`, String.raw`"\x{" is the code point its braces hold to ripgrep, and an "x" and braces to JavaScript`],

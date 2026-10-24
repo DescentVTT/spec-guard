@@ -127,8 +127,8 @@ interface Piece {
   text: string;
   /** How many characters of the rule it stands for. */
   length: number;
-  /** Whether it stands for a class of characters, which no range can end at. */
-  set: boolean;
+  /** Whether it stands for a class of characters, which no range can end at; a piece that does not, says nothing. */
+  set?: boolean;
 }
 
 /** The escape that starts at `at`, which is a backslash. */
@@ -144,9 +144,9 @@ function escapeAt(source: string, at: number, inClass: boolean): Piece {
   }
   const after = source.charAt(at + 2);
   if (next === 'b' || next === 'B') {
-    if (inClass) return { text: next === 'b' ? '\\x08' : '\\B', length: 2, set: false };
+    if (inClass) return { text: next === 'b' ? '\\x08' : '\\B', length: 2 };
     if (next === 'b' && after === '{') refuse(source, '"\\b{" is a word boundary of the kind its braces name to ripgrep, and a word boundary before a "{" to JavaScript');
-    return { text: next === 'b' ? BOUNDARY : NOT_BOUNDARY, length: 2, set: false };
+    return { text: next === 'b' ? BOUNDARY : NOT_BOUNDARY, length: 2 };
   }
   if ((next === 'p' || next === 'P') && after !== '{') {
     refuse(source, `"\\${next}${after}" is a class of characters to ripgrep and "${next}${after}" to JavaScript`);
@@ -157,12 +157,12 @@ function escapeAt(source: string, at: number, inClass: boolean): Piece {
   NAMED.lastIndex = at;
   const named = NAMED.exec(source);
   if (named !== null) return { text: named[0], length: named[0].length, set: next !== 'u' };
-  if (isAsciiSign(next)) return { text: hex(next), length: 2, set: false };
+  if (isAsciiSign(next)) return { text: hex(next), length: 2 };
   // A letter, a digit, any other character, or nothing: `v` mode reads it as
   // JavaScript reads it, or refuses it, as it refuses a trailing backslash.
   // Two on from a trailing backslash is past the end, where every reading
   // here stops.
-  return { text: source.slice(at, at + 2), length: 2, set: false };
+  return { text: source.slice(at, at + 2), length: 2 };
 }
 
 /** The class that starts at `at`, which is a `[`, and whether it is `[]` or `[^]`, which the crate does not close where JavaScript does. */
@@ -171,7 +171,7 @@ function classAt(source: string, at: number): { text: string; length: number; em
   const negated = source.charAt(i) === '^';
   if (negated) i += 1;
   if (source.charAt(i) === ']') return { text: source.slice(at, i + 1), length: i + 1 - at, empty: true };
-  const atoms: Array<{ text: string; set: boolean; dash: boolean }> = [];
+  const atoms: Array<{ text: string; set?: boolean; dash: boolean }> = [];
   while (i < source.length && source.charAt(i) !== ']') {
     const pair = source.slice(i, i + 2);
     if (pair === '&&' || pair === '--' || pair === '~~') {
@@ -186,7 +186,7 @@ function classAt(source: string, at: number): { text: string; length: number; em
       continue;
     }
     const point = String.fromCodePoint(source.codePointAt(i)!);
-    atoms.push({ text: isAsciiSign(point) ? hex(point) : point, set: false, dash: point === '-' });
+    atoms.push({ text: isAsciiSign(point) ? hex(point) : point, dash: point === '-' });
     i += point.length;
   }
   // A `-` between two characters is a range to both. Beside a class escape,
@@ -200,8 +200,9 @@ function classAt(source: string, at: number): { text: string; length: number; em
     body += ranged ? `${atom.text}-${end.text}` : atom.text;
     k += ranged ? 2 : 0;
   }
-  // An unterminated class stays unterminated, for `v` mode to refuse.
-  const closed = i < source.length ? ']' : '';
+  // The class's `]`, or nothing where the rule ends first: an unterminated
+  // class stays unterminated, for `v` mode to refuse.
+  const closed = source.charAt(i);
   return { text: `[${negated ? '^' : ''}${body}${closed}`, length: i + closed.length - at, empty: false };
 }
 
@@ -216,6 +217,8 @@ export function readRegex(source: string): string {
   let read = '';
   let at = 0;
   let empty = '';
+  // `<=` for the `<` reads one place past the end, where `charAt` gives
+  // nothing and nothing is added: an equivalent mutant.
   while (at < source.length) {
     const char = source.charAt(at);
     if (char === '\\') {
