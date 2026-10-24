@@ -778,7 +778,10 @@ describe('a session over many specs', () => {
     // long on the larger. Twice linear is allowed, and 200 ms for noise. On
     // the machine this was written on, the larger took 5.5 s against 1.2 s
     // allowed with the paths written out, and 150 ms with the set named by its
-    // number, as long as the sixteen smaller.
+    // number, as long as the sixteen smaller. The allowance stays: the
+    // reading past a stall that spec-core's ADR-0007 lets stand in for one
+    // was measured over stretches of a few milliseconds, and one run over
+    // thirty-two hundred specs took 240 ms here (tests/timing.ts).
     const [sixteenSmall, oneLarge] = (await fastestInTurnAsync(
       3,
       async () => {

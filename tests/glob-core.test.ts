@@ -40,7 +40,7 @@ import { parseDirectives } from '../src/parser.js';
 import { resolveDirective, runSpecGuard } from '../src/runner.js';
 import { compileGlob } from '../src/vendor/spec-core/pattern/index.js';
 import { makeTempRepo, memoryIo, removeTempRepo } from './helpers.js';
-import { fastestInTurnAsync, fastestRatioInTurn } from './timing.js';
+import { fastestRatioInTurn, fastestRatioInTurnAsync } from './timing.js';
 
 /* ------------------------------------------------------------ what is refused */
 
@@ -870,9 +870,13 @@ describe('a pattern that made the RegExp backtrack', () => {
     // The name that ends in x is the one the glob reaches.
     expect((await run(long)())?.results[0]?.matches.map((match) => match.file)).toEqual(['src/a-b-c-d-e-fx']);
     // A run reads and plans far more than it matches, so the two take about
-    // as long; the RegExp would have taken the longer 55 seconds.
-    const [shortRun, longRun] = (await fastestInTurnAsync(3, run(short), run(long))) as [number, number];
-    expect(longRun).toBeLessThan(4 * shortRun + 50);
+    // as long; the RegExp would have taken the longer 55 seconds. A run here
+    // takes about a millisecond, which the 50 ms once allowed beside four
+    // times the shorter was fifty times over; read past a stall as the test
+    // above reads, no milliseconds are allowed.
+    const read = (): Promise<number> => fastestRatioInTurnAsync(21, 3, run(short), run(long));
+    const first = await read();
+    expect(first < 4 ? first : Math.min(first, await read())).toBeLessThan(4);
   });
 });
 

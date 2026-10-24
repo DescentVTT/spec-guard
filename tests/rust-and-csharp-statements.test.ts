@@ -753,6 +753,11 @@ describe('what the compiler compiles, or reads as no declaration, is not said', 
     expect(rustSaid('macro m($x:ident);\nfn f() { use a::b c; }')).toEqual([[], [['refused', 2]]]);
     // And after one, a declaration is said again.
     expect(rustSaid(`${tokens}m! { use a::b c; }\nuse a::b c;`)).toEqual([[], [['refused', 3]]]);
+    // A macro that starts where another's tokens end has tokens of its own.
+    expect(rustSaid('m!(x)n!{ fn f() {} use a::b c; }')).toEqual([[], []]);
+    // A group left open among a macro's tokens ends with them: what follows
+    // the macro is read again.
+    expect(rustSaid('m!{ n![ }\nuse a::b c;')).toEqual([[], [['refused', 2]]]);
   });
 
   it('where the glob of a module the reader cannot place is one rustc takes in the 2015 edition', () => {

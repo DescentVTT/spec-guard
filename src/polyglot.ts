@@ -736,11 +736,11 @@ function externCrate(text: string, from: number): { crate: string; end: number }
  */
 const RUST_MACRO = new RegExp(
   String.raw`(?:(?<!\p{XID_Continue})macro_rules[${RUST_SPACE}]*![${RUST_SPACE}]*[\p{XID_Start}_]\p{XID_Continue}*|(?<![\p{XID_Continue}#])(macro)[${RUST_SPACE}]+[\p{XID_Start}_]\p{XID_Continue}*|\p{XID_Continue}!|#!?)[${RUST_SPACE}]*([(\[{])`,
-  // Emptied, the flags leave each `exec` in `macroRanges` reading from the
-  // start, and on a file with an attribute its loop pushes a range a turn
-  // for ever. The thread runs out of memory, and no test's timer fires
-  // inside the loop, so a sweep counts an error: the tests of a macro's
-  // tokens see the mutant where they run before any test that meets it.
+  // Emptied, the flags give `matchAll` in `macroRanges` a pattern without
+  // `g`, which it refuses, so every test that reads a Rust file fails at
+  // once. The `exec` loop it replaced read from the start every turn under
+  // that mutant, and pushed a range a turn until its thread ran out of
+  // memory, with no test's timer able to fire: a sweep counted an error.
   'gu',
 );
 const RUST_CLOSERS: Readonly<Record<string, string>> = { '(': ')', '[': ']', '{': '}' };
@@ -750,18 +750,20 @@ const RUST_BODY = new RegExp(String.raw`[${RUST_SPACE}]*\{`, 'uy');
 /** The half-open ranges of a file's macro tokens, outermost only, ascending. */
 function macroRanges(code: string): Array<[number, number]> {
   const ranges: Array<[number, number]> = [];
-  RUST_MACRO.lastIndex = 0;
-  let match: RegExpExecArray | null;
-  while ((match = RUST_MACRO.exec(code)) !== null) {
+  let reached = 0;
+  for (const match of code.matchAll(RUST_MACRO)) {
+    // Outermost only: a match inside a range is a macro among another's
+    // tokens. No match holds a closing bracket, so none crosses the end of
+    // a range, and the first after it is the one a search from there finds.
+    if (match.index < reached) continue;
     const opener = match[2]!;
-    let end = matchingClose(code, RUST_MACRO.lastIndex - 1, opener, RUST_CLOSERS[opener]!) + 1;
+    let end = matchingClose(code, match.index + match[0].length - 1, opener, RUST_CLOSERS[opener]!) + 1;
     // The body ends at its `}`, and `- 1` for its `+ 1` is an equivalent
     // mutant: no `use` starts in the body's last two characters.
     RUST_BODY.lastIndex = end;
     if (match[1] !== undefined && RUST_BODY.test(code)) end = matchingClose(code, RUST_BODY.lastIndex - 1, '{', '}') + 1;
     ranges.push([match.index, end]);
-    // Outermost only: each is read to its end once, so nesting costs nothing.
-    RUST_MACRO.lastIndex = end;
+    reached = end;
   }
   return ranges;
 }
