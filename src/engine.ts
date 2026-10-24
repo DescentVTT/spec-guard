@@ -23,6 +23,7 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 
 import { createCommentMask, type CommentMask } from './comments.js';
+import { buildRegexRule, WORD_CHARACTER } from './dialect.js';
 import {
   createExcludeMatcher,
   createGlobMatcher,
@@ -415,6 +416,15 @@ export function buildRipgrepArgs(request: SearchRequest, patterns: readonly stri
     //                 into memory only for a pattern that can match a line
     //                 end. ADR-0007, amended 2026-10-19.
     '--multiline',
+    //   --encoding=none  a file's bytes as they are, as the scanner reads
+    //                 them. By default ripgrep takes a UTF-8 byte order mark
+    //                 off the start of a file, so a rule against the mark,
+    //                 and the regex crate's `\S` at a file's start, were
+    //                 counted by the scanner in a file ripgrep never named;
+    //                 and it read a UTF-16 file as the text it holds, which
+    //                 the scanner does not.
+    //                 ADR-0007, amended 2026-10-24.
+    '--encoding=none',
   ];
   if (!options.regex) args.push('--fixed-strings');
   if (options.word) args.push('--word-regexp');
@@ -762,62 +772,16 @@ export function parseRipgrepErrors(stderr: string): string[] {
 /* --------------------------------------------------------------- javascript */
 
 /**
- * U+2028 and U+2029, at which JavaScript's `m` ends a line and ripgrep
- * does not. Made from their numbers, so that no separator stands in this file
- * where an editor would show a line break.
+ * Builds the matching RegExp shared by the JS engine. A regex rule is read
+ * as ripgrep reads it (`dialect.ts`), and a literal's word boundary is the
+ * one ripgrep's `--word-regexp` reads: no word character, the regex crate's
+ * `\w`, on either side. ADR-0007, amended 2026-10-24.
  */
-const SEPARATORS = String.fromCharCode(0x2028, 0x2029);
-
-/**
- * `^` and `$` as ripgrep reads them with `--crlf`: at the start and at the
- * end of each line, a line ending at LF, at CRLF or at a lone CR, with no line
- * after the last line end. JavaScript's `m` reads three lines more, and each
- * is taken back out: one between the CR and the LF of a CRLF, one after the
- * last line end (and so in an empty file), and a line end at each separator.
- * With `m` alone `\s+$` matched on every line of a CRLF file and on the
- * last of every file, `^` met each CRLF line twice, and a line begun at a
- * separator was counted in a file ripgrep never named. ADR-0007, amended
- * 2026-10-19.
- */
-const LINE_START = `(?:^(?<![${SEPARATORS}])(?!(?<=\\r)\\n)(?=[\\s\\S]))`;
-const LINE_END = `(?:$(?![${SEPARATORS}])(?!(?<=\\r)\\n)(?!(?<![^\\n\\r])(?![\\s\\S])))`;
-
-/**
- * What in a pattern holds a `^` or a `$` that is not an anchor: an escape, a
- * named group's name and a reference to one (a name may hold a `$`), and a
- * character class, which in JavaScript ends at its first unescaped `]`. A
- * regex rule is read without the `u` flag, where nothing else does.
- *
- * Outside a class, an escape taken as a backslash before anything but white
- * space (`\\[\S\S]`) reads every pattern the same: a backslash before
- * white space escapes no `^`, `$`, `[`, `(` or backslash, so left untaken it
- * leaves each token where it was. That mutant is equivalent; inside a class it
- * is not, and `[\ $]` holds it.
- */
-const NOT_ANCHORS = /\\k<[^>]*>|\\[\s\S]|\(\?<(?![=!])[^>]*>|\[(?:\\[\s\S]|[^\\\]])*\]|[$^]/g;
-
-/** A pattern's source with each `^` and `$` read as the start and the end of a line. */
-function lineAnchors(source: string): string {
-  let read = '';
-  let at = 0;
-  for (const piece of source.matchAll(NOT_ANCHORS)) {
-    const [token] = piece;
-    read += source.slice(at, piece.index) + (token === '^' ? LINE_START : token === '$' ? LINE_END : token);
-    at = piece.index + token.length;
-  }
-  return read + source.slice(at);
-}
-
-/** Builds the matching RegExp shared by the JS engine. */
 export function buildJsRegExp(symbol: string, options: SearchOptions): RegExp {
   const flags = `g${options.ignoreCase ? 'i' : ''}`;
-  if (options.regex) {
-    const anchored = lineAnchors(symbol);
-    const source = options.word ? `(?<![A-Za-z0-9_])(?:${anchored})(?![A-Za-z0-9_])` : anchored;
-    return new RegExp(source, `${flags}m`);
-  }
+  if (options.regex) return buildRegexRule(symbol, flags, options.word);
   const escaped = escapeRegExp(symbol);
-  const source = options.word ? `(?<![\\p{L}\\p{N}_])(?:${escaped})(?![\\p{L}\\p{N}_])` : escaped;
+  const source = options.word ? `(?<!${WORD_CHARACTER})(?:${escaped})(?!${WORD_CHARACTER})` : escaped;
   return new RegExp(source, `${flags}u`);
 }
 
@@ -1153,11 +1117,34 @@ export function scanContent(
   const lineOf = (index: number): { line: number; column: number } =>
     locate((starts ??= lineStarts(content)), index);
 
+  // Past an empty match by one character. A rule's regular expression has
+  // `u` or `v`, where V8 moves an index left between the two units of a
+  // character outside the Basic Multilingual Plane back to its first, so
+  // that one unit on met the same empty match again, for ever. A step of one
+  // unit always is that hang, which no assertion can see before a clock
+  // does: a sweep counts that mutant a timeout.
+  const past = (index: number): number => index + (content.codePointAt(index)! > 0xffff ? 2 : 1);
+  // No line follows a file's last line end, and an empty file holds none, so
+  // an empty match there is on no line, and ripgrep, which reads lines,
+  // names no file for it. ADR-0007, amended 2026-10-24.
+  const lineless = content.length === 0 || content.endsWith('\n') ? content.length : -1;
+  // At a character's second unit, between the two of one outside the Basic
+  // Multilingual Plane, where no character starts. V8 tries the place all the
+  // same where a match fails at the character before it, and a look-behind
+  // over a class holding such characters meets an empty match there, the
+  // boundaries of `\b` and of `word="true"` among them; ripgrep, which reads
+  // code points, meets none. Text read from a file holds no second unit
+  // without its first: UTF-8 that would encode one is read as U+FFFD.
+  const splits = (index: number): boolean => (content.charCodeAt(index) & 0xfc00) === 0xdc00;
   let match: RegExpExecArray | null;
-  while ((match = regexp.exec(content)) !== null) {
+  while ((match = regexp.exec(content)) !== null && match.index !== lineless) {
+    if (splits(match.index)) {
+      regexp.lastIndex = match.index + 1;
+      continue;
+    }
     if (getMask?.().isComment(match.index)) {
       commentCount += 1;
-      if (match[0].length === 0) regexp.lastIndex += 1;
+      if (match[0].length === 0) regexp.lastIndex = past(regexp.lastIndex);
       continue;
     }
     count += 1;
@@ -1176,7 +1163,7 @@ export function scanContent(
         count: 1,
       });
     }
-    if (match[0].length === 0) regexp.lastIndex += 1;
+    if (match[0].length === 0) regexp.lastIndex = past(regexp.lastIndex);
   }
 
   // No sort: exec scans forward, so lines are discovered in increasing order and
