@@ -587,8 +587,8 @@ Passes when every listed path exists relative to `--root`. Directories count.
 | `min` / `max` | count (`max` on all but present) | Inclusive bounds |
 | `glob` | absence, count, structure | Include-only file filters, e.g. `*.ts,*.tsx` (ripgrep `-g` semantics) |
 | `exclude` | all but present | Paths to leave out, gitignore-style: `src/config/**`, `tests`, `*.test.ts` |
-| `regex` | absence, count | Treat `symbol` as a regular expression, JavaScript's, where `^` and `$` match at each line's start and end |
-| `word` | absence, count | Require word boundaries, so `Primary` does not match `PrimaryButton` |
+| `regex` | absence, count | Treat `symbol` as a regular expression, written as JavaScript's and read as ripgrep reads it, where `^` and `$` match at each line's start and end (below) |
+| `word` | absence, count | Require word boundaries, so `Primary` does not match `PrimaryButton`: no word character, ripgrep's `\w`, just before the match or just after it |
 | `ignore-case` | absence, count | Case-insensitive matching |
 | `comments` | absence, count | `ignore` (default) or `include` for matches inside comments |
 | `module` | import-absence, import-count | Which dependency, matched like `exclude` |
@@ -611,11 +611,30 @@ than no spec tool.
 A `regex` is read against each file's whole text, so a match may cross a
 line end. `^` and `$` match at the start and the end of every line, a line
 ending at LF, at CRLF or at a lone CR, as ripgrep reads one with `--crlf`;
-U+2028 and U+2029 end none, and no line follows a file's last line end.
+U+2028 and U+2029 end none, and no line follows a file's last line end,
+so an empty match there is not counted.
 `symbol="^\s*-?\s*uses:"` meets `uses:` on any line, with either engine
 ([ADR-0007](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0007-search-scope.md)).
 `\s` matches a line end too, so `\s+$` also meets a line followed by an
 empty one; `[ \t]+$` reads only the blanks a line ends with.
+
+Both engines read a `regex` in one dialect: JavaScript's syntax, with the
+meaning ripgrep's regex crate documents wherever the two dialects give the
+same text two, since a file ripgrep's reading leaves out is one the scanner
+never counts in. A character is a code point, and `ignore-case` folds by
+Unicode's simple case folding. `\w` is a letter, a mark, a decimal digit, a
+connector such as `_`, or Join_Control, in any script, and `\b`, `\B` and
+`word="true"` are read with it; `\d` is a decimal digit of any script; `\s`
+is Unicode's white space, so U+FEFF is none and NEL is one. What only
+JavaScript reads, a look-around or a back-reference, is read by the scanner
+alone, as ripgrep refuses it. What the crate reads and JavaScript would
+read otherwise is an invalid directive that names it: `\A`, `\z`, `\<`,
+`\>`, `\b{...}`, `\a`, `\x{...}`, `\U`, `\pL`, a class inside a class such
+as `[[:alpha:]]`, `&&`, `--` or `~~` in a class, and a count with blanks
+in it, `{2, 3}`. An escaped sign such as `\-` or `\#`, a lone `]` or `}`,
+and `[\w-.]` read as they did
+([ADR-0007](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0007-search-scope.md),
+amended 2026-10-24).
 
 ### `exclude` - everywhere except
 
@@ -1885,7 +1904,14 @@ Two honest caveats:
   *which files contain this text*, and the scanner does all the counting,
   classification and reporting for both. `--engine` now changes how long a run
   takes and nothing about its verdict, and the suite asserts that on trees built
-  from every case that used to split them.
+  from every case that used to split them. A regex rule kept two readings
+  until its dialect was one, and ripgrep took a byte order mark off a file's
+  start: `foo\b` over `fooé` was counted by the scanner and passed under
+  ripgrep. What still splits them is a file that is not UTF-8, which the
+  scanner reads with U+FFFD for each byte it cannot, and a character newer
+  than one of the two engines' Unicode
+  ([ADR-0007](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0007-search-scope.md),
+  amended 2026-10-24).
 
 ## Programmatic API
 
