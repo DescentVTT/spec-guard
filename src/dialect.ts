@@ -94,6 +94,17 @@ const COUNT = /\{\d+(?:,\d*)?\}/y;
  */
 const BLANK_COUNT = /\{\s*\d+\s*(?:,\s*\d*\s*)?\}/y;
 
+/**
+ * An escape that holds a name or a number between brackets: `\p{...}`,
+ * `\P{...}`, `\u{...}` and `\k<...>`. Read as a match of its own, so that no
+ * reading of a rule steps back. One left open is read a character at a time,
+ * and `v` mode refuses it in the words it has for it read whole.
+ */
+const NAMED = /\\[pPu]\{[^}]*\}|\\k<[^>]*>/y;
+
+/** A group's name, which may hold a `$`; one left open is read as `NAMED` reads one. */
+const GROUP_NAME = /\(\?<(?![=!])[^>]*>/y;
+
 function refuse(source: string, reason: string): never {
   throw new SyntaxError(`Invalid regular expression: /${source}/: ${reason}`);
 }
@@ -141,15 +152,11 @@ function escapeAt(source: string, at: number, inClass: boolean): Piece {
     refuse(source, `"\\${next}${after}" is a class of characters to ripgrep and "${next}${after}" to JavaScript`);
   }
   if (next === 'x' && after === '{') refuse(source, '"\\x{" is the code point its braces hold to ripgrep, and an "x" and braces to JavaScript');
-  // A property's name and a code point's digits stand between braces, and a
-  // group's name between angle brackets, where no sign is the class's or the
-  // rule's own. `v` mode refuses a `\k<...>` in a class, read whole or not.
-  const close = next === 'k' && after === '<' ? '>' : after === '{' && (next === 'p' || next === 'P' || next === 'u') ? '}' : '';
-  if (close !== '') {
-    const end = source.indexOf(close, at + 3);
-    const length = (end === -1 ? source.length : end + 1) - at;
-    return { text: source.slice(at, at + length), length, set: next !== 'u' };
-  }
+  // No sign between the brackets is the class's or the rule's own. `v` mode
+  // refuses a `\k<...>` in a class, read whole or not.
+  NAMED.lastIndex = at;
+  const named = NAMED.exec(source);
+  if (named !== null) return { text: named[0], length: named[0].length, set: next !== 'u' };
   if (isAsciiSign(next)) return { text: hex(next), length: 2, set: false };
   // A letter, a digit, any other character, or nothing: `v` mode reads it as
   // JavaScript reads it, or refuses it, as it refuses a trailing backslash.
@@ -224,12 +231,11 @@ export function readRegex(source: string): string {
       at += found.length;
       continue;
     }
-    // A group's name may hold a `$`, which is no anchor.
-    if (source.startsWith('(?<', at) && !/[=!]/.test(source.charAt(at + 3))) {
-      const end = source.indexOf('>', at);
-      const length = (end === -1 ? source.length : end + 1) - at;
-      read += source.slice(at, at + length);
-      at += length;
+    GROUP_NAME.lastIndex = at;
+    const group = GROUP_NAME.exec(source);
+    if (group !== null) {
+      read += group[0];
+      at += group[0].length;
       continue;
     }
     if (char === '{') {

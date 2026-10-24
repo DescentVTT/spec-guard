@@ -1120,7 +1120,9 @@ export function scanContent(
   // Past an empty match by one character. A rule's regular expression has
   // `u` or `v`, where V8 moves an index left between the two units of a
   // character outside the Basic Multilingual Plane back to its first, so
-  // that one unit on met the same empty match again, for ever.
+  // that one unit on met the same empty match again, for ever. A step of one
+  // unit always is that hang, which no assertion can see before a clock
+  // does: a sweep counts that mutant a timeout.
   const past = (index: number): number => index + (content.codePointAt(index)! > 0xffff ? 2 : 1);
   // No line follows a file's last line end, and an empty file holds none, so
   // an empty match there is on no line, and ripgrep, which reads lines,
