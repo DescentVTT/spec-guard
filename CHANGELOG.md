@@ -10,6 +10,43 @@ what to do when upgrading; the family's policy, including how a flag or field
 is deprecated before it goes, is spec-core's
 [ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
+## Unreleased
+
+### Changed
+
+- **A regex rule is read in one dialect by both engines, the one ripgrep's
+  regex crate documents**, where the scanner read JavaScript's and ripgrep,
+  which names the files the scanner reads, its own: a file the scanner
+  counted in and ripgrep left out passed the rule under `--engine rg`, and
+  under `auto` past its budget. On 0.28.0 `foo\b` over `fooé`, `\Wbar` over
+  `ébar`, `a\sb` with U+FEFF between, `^..$` over an emoji and `baz` with
+  `regex="true"` and `word="true"` over `ébaz` were each counted by
+  `--engine js` and passed by `--engine rg`, as were 441 of 2,500 rules
+  made at random. `\w`, `\d`, `\s`, their negations, `\b` and `\B` are the
+  crate's Unicode classes, a character is a code point, `ignore-case` folds
+  by Unicode's simple case folding, and `word="true"` puts one boundary
+  round a literal and a regex: no word character before or after. What the
+  two dialects read apart is an invalid directive that names it. ripgrep
+  reads a file's bytes as they are, where it took a UTF-8 byte order mark
+  off a file's start, and an empty match after a file's last line end is
+  not counted, as ripgrep counts none there
+  ([ADR-0007](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0007-search-scope.md)).
+  Upgrading: a regex rule over text that is not ASCII may count otherwise,
+  and fail or pass where it did not: `\w`, `\b` and `word="true"` take a
+  letter, digit or mark of any script for a word character, `\d` takes
+  `٣`, `\s` takes NEL and not U+FEFF, `.` and a negated class take an emoji
+  as one character, `ignore-case` folds `k` with the Kelvin sign, and
+  `\p{L}` and `\u{41}` are a class and a code point where they were
+  letters. A literal with `word="true"` no longer counts beside a mark,
+  ZWJ, `‿` or `Ⓐ`, and counts beside `²`. A regex rule with `\A`, `\z`,
+  `\<`, `\>`, `\b{...}`, `\a`, `\x{...}`, `\U`, `\pL`, a class inside a
+  class such as `[[:alpha:]]`, `&&`, `--` or `~~` in a class, `[]` or `[^]`
+  before a `]`, or a count with blanks in it is an invalid directive, exit
+  1, and so is one with an escape JavaScript's `v` mode refuses, `\e`,
+  `\é`, an octal escape or a back-reference to no group; write it as both
+  dialects read it. A rule against a byte order mark at a file's start now
+  fails under ripgrep as under the scanner.
+
 ## 0.28.0
 
 A regex rule's `^` and `$` read a line with either engine, where they

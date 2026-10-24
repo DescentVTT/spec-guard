@@ -9,6 +9,7 @@
 import path from "node:path";
 
 import {
+  buildJsRegExp,
   comparePaths,
   createCachedEngine,
   createJavaScriptEngine,
@@ -787,10 +788,13 @@ export function resolveDirective(
     };
 
     if (search.regex) {
+      // Built as the scanner builds it, so that a rule the two engines would
+      // read differently is refused here, by name (ADR-0007, amended
+      // 2026-10-24), and not at the first search.
       try {
-        new RegExp(symbol);
+        buildJsRegExp(symbol, search);
       } catch (error) {
-        // No prefix of our own. V8's message already begins "Invalid regular
+        // No prefix of our own. The message already begins "Invalid regular
         // expression: /(/: ...", so adding one produced the phrase twice in a
         // row and pushed the pattern itself off the useful part of the line.
         return fail(error instanceof Error ? error.message : String(error));
