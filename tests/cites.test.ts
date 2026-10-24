@@ -36,7 +36,7 @@ import { EXIT_ERROR, EXIT_FAILED, EXIT_OK, main, parseArgs, UsageError, version,
 import { citesAnnotations, formatCites, formatCitesJson, formatCitesSarif, formatGithub, formatGitlab } from '../src/reporter.js';
 import type { CitesReport } from '../src/types.js';
 import { FIXTURES_DIR, makeTempRepo, memoryIo, removeTempRepo } from './helpers.js';
-import { fastestInTurnAsync, instrumented } from './timing.js';
+import { fastestInTurnAsync, fastestRatioInTurnAsync, instrumented } from './timing.js';
 
 const ROOT = path.resolve('/virtual/cites');
 const ADR = parseIdTemplate('ADR-{n}');
@@ -1610,7 +1610,10 @@ describe('a tree of thousands of files', () => {
     // grows with the square of the tree takes sixteen times as long. Twice
     // linear is allowed, and 200 ms for noise: the whole took under a second
     // here, and 24.7 seconds against a budget of ten on a machine running
-    // five suites, where the sixteenth slows as much.
+    // five suites, where the sixteenth slows as much. The allowance stays:
+    // the reading past a stall that spec-core's ADR-0007 lets stand in for
+    // one was measured over stretches of a few milliseconds, and one read of
+    // the whole tree from disk took 390 ms here (tests/timing.ts).
     const [sixteenParts, oneWhole] = (await fastestInTurnAsync(
       2,
       async () => {
@@ -1625,20 +1628,19 @@ describe('a tree of thousands of files', () => {
     // No citation until the last line. Searched once per comment to the end
     // of the file, as the first version of the scan did, a file of 40,000
     // comments is 40,000 searches of 1.6 MB; read once, it is one. So a file
-    // a sixteenth as long, read sixteen times, takes about as long as it.
+    // sixteen times as long takes about sixteen times as long, and twice
+    // that is allowed. A read of the shorter took 2 ms here and one of the
+    // longer 10, so each is timed in stretches of a few milliseconds and
+    // read past a stall (tests/timing.ts), with no milliseconds allowed
+    // beside the bound, where 100 were, ten times the longer read.
     const file = (comments: number): CitesOptions['io'] =>
       memoryIo(ROOT, { ...DOCS, 'src/big.ts': `${'// a comment with no id in it at all, padding\n'.repeat(comments)}// ADR-0001\n` });
     const [small, large] = [file(2_500), file(40_000)];
     const read = (io: CitesOptions['io']) => () => findCitations({ root: ROOT, patterns: ['docs/**/*.md'], io, paths: ['src/big.ts'] });
     for (const io of [small, large]) expect((await read(io)()).summary).toMatchObject({ files: 1, citations: 1, ghosts: 0 });
     if (instrumented()) return;
-    const [sixteenSmall, oneLarge] = (await fastestInTurnAsync(
-      3,
-      async () => {
-        for (let time = 0; time < 16; time += 1) await read(small)();
-      },
-      read(large),
-    )) as [number, number];
-    expect(oneLarge).toBeLessThan(2 * sixteenSmall + 100);
+    const ratio = (): Promise<number> => fastestRatioInTurnAsync(21, 3, read(small), read(large));
+    const first = await ratio();
+    expect(first < 32 ? first : Math.min(first, await ratio())).toBeLessThan(32);
   }, 120_000);
 });
