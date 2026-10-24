@@ -1719,7 +1719,7 @@ comment on the offending line:
     steps:
       # ...checkout, setup-node and npm ci as above
       - run: npx --no-install @descent-vtt/spec-guard "docs/**/*.md" --format sarif > spec-guard.sarif || true
-      - uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
+      - uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         with:
           sarif_file: spec-guard.sarif
           category: spec-guard
