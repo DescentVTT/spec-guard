@@ -213,6 +213,19 @@ function countingReader(root: string, fail: readonly string[] = []): { reader: D
 }
 
 describe('createTreeIndex', () => {
+  it('walks a root that is itself a linked worktree into each of its directories, its .git file with it', async () => {
+    // Where a walk starts is walked as asked, and below it each directory is
+    // read for itself, so none holds the root's `.git` file and none is
+    // taken for another work tree's top (ADR-0007, amended 2026-10-19).
+    const root = await tree({ '.git': 'gitdir: elsewhere\n', 'src/a.ts': '', 'src/deep/b.ts': '' });
+    expect(await createTreeIndex(root).walk('.', DEFAULT_SCOPE)).toEqual({
+      files: ['.git', 'src/a.ts', 'src/deep/b.ts'],
+      directories: ['src', 'src/deep'],
+      gaps: [],
+      workTrees: [],
+    });
+  });
+
   it('walks every file and every directory below a target, empty directories included', async () => {
     const root = await tree({ 'src/a.ts': '', 'src/deep/b.ts': '', 'other/c.ts': '' }, ['src/empty/inner', 'src/deep/hollow']);
     const walked = await createTreeIndex(root).walk('src', DEFAULT_SCOPE);

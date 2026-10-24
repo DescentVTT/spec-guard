@@ -448,6 +448,10 @@ describe('a run over many specs', () => {
     // larger. Twice linear is allowed, and 200 ms for noise. On the machine
     // this was written on, the larger took 6.6 s against 0.3 s allowed before
     // the set was sealed, and after it, 46 ms, as long as the eight smaller.
+    // The allowance stays: the reading past a stall that spec-core's
+    // ADR-0007 lets stand in for one was measured over stretches of a few
+    // milliseconds, and one run over eight hundred specs took 86 ms here
+    // (tests/timing.ts).
     const [eightSmall, oneLarge] = (await fastestInTurnAsync(
       3,
       async () => {

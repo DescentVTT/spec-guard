@@ -479,6 +479,10 @@ describe('the rules in play', () => {
     // the larger. Twice linear is allowed, and 200 ms for noise. On the
     // machine this was written on, the larger took 940 ms against 480 ms
     // allowed before, and after, 86 ms, as long as the sixteen smaller.
+    // The allowance stays: the reading past a stall that spec-core's
+    // ADR-0007 lets stand in for one was measured over stretches of a few
+    // milliseconds, and one answer over 4,000 files took 240 ms here
+    // (tests/timing.ts).
     const [sixteenSmall, oneLarge] = (await fastestInTurnAsync(
       3,
       async () => {

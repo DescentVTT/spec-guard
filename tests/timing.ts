@@ -87,3 +87,36 @@ export function fastestRatioInTurn(stretches: number, span: number, smaller: () 
   }
   return large / small;
 }
+
+/** `perRun` for work that is awaited, each run awaited before the next starts. */
+async function perRunAsync(span: number, work: () => Promise<unknown>): Promise<number> {
+  let runs = 0;
+  let elapsed = 0;
+  const started = performance.now();
+  do {
+    await work();
+    runs += 1;
+    elapsed = performance.now() - started;
+  } while (elapsed < span && runs < 100_000);
+  return elapsed / runs;
+}
+
+/**
+ * `fastestRatioInTurn` for work that is awaited. It reads past a stall as
+ * that does, which spec-core's ADR-0007 (amended 2026-10-19) lets a test of
+ * cost hold in place of an allowance for noise: where each run of either
+ * size takes a few milliseconds at most, as the stretches its measurement
+ * was of did. Work that takes longer is timed with `fastestInTurnAsync` and
+ * an allowance stated beside its bound.
+ */
+export async function fastestRatioInTurnAsync(stretches: number, span: number, smaller: () => Promise<unknown>, larger: () => Promise<unknown>): Promise<number> {
+  await perRunAsync(span, smaller);
+  await perRunAsync(span, larger);
+  let small = Number.POSITIVE_INFINITY;
+  let large = Number.POSITIVE_INFINITY;
+  for (let i = 0; i < stretches; i += 1) {
+    small = Math.min(small, await perRunAsync(span, smaller));
+    large = Math.min(large, await perRunAsync(span, larger));
+  }
+  return large / small;
+}

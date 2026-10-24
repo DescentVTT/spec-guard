@@ -110,6 +110,13 @@ export function createTreeIndex(root: string, io: Io = nodeIo): TreeIndex {
         const fromRoot = (relativePath: string): string => path.posix.join(target, relativePath);
         const walked = walkPaths(path.join(root, target), {
           scope,
+          // With `&&` for the `||`, every directory below the root reads the
+          // root's listing from the cache, so the walk descends for ever in
+          // microtasks alone: no test's timer can fire, the thread runs out of
+          // memory, and a sweep counts a timeout or an error. A test kills it
+          // only where it runs before any other walk below a root: the walk of
+          // a root that is a linked worktree, which stops at its first
+          // directory on the root's `.git` file (tests/structure.test.ts).
           io: { ...io, readDirectory: (directory) => read(toPosix(path.relative(root, directory)) || '.').entries },
           onDirectory: (relativePath) => tree.directories.push(fromRoot(relativePath)),
           // The gaps, and the other work trees, as a search says them. `.git`

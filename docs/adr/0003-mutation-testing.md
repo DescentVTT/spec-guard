@@ -2556,3 +2556,77 @@ worker reached. So the test this needs was there, and an assertion now
 holds that it loads the function alone.
 
 <!-- @assert-count target="tests/literal.test.ts" symbol="from '../src/" expected="1" reason="the function every table is built through is held by a test that loads it alone: a mutant under which a module throws as it loads takes with it every test file that imports the module" -->
+
+## Amended 2026-10-24: what a sweep reads by assertion
+
+Three things a sweep decided by a clock, or by a worker running out of
+memory, are now an assertion's where one can be, and said beside the code
+where one cannot.
+
+**`RUST_MACRO`'s flags emptied.** `macroRanges` read the macro ranges of a
+Rust file with an `exec` loop that set `lastIndex` itself, so with the
+flags emptied every `exec` read from the start, and the loop pushed a range
+a turn until its thread ran out of memory, before any test's timer could
+fire: replayed by hand on main's code, through
+`tests/rust-and-csharp-statements.test.ts` alone, the worker ran out of
+memory in 5 seconds. Main's two sweeps of f8ffc3f counted one error in
+`src/polyglot.ts`, this one by the comment #73 left beside it, and the
+sweep of 4652c36 counted none there. The loop now
+reads the matches with `matchAll` and leaves out those inside a range read
+already. `matchAll` refuses a pattern without `g`, so under the mutant every
+read of a Rust file throws and the first test that makes one fails. What it
+answers is what the loop answered: no match holds a closing bracket, so
+none crosses the end of a range, and the first after it is the one a search
+from there found. Main's reader and this one gave the same references and
+notes, on the same lines, for the 31,226 Rust files of a cargo registry, of
+which 29,081 hold a macro, an attribute or a definition, and for 20,000
+generated sources of macros nested, adjacent, unclosed and followed by
+declarations. Two tests hold what the old loop's skip decided and no test
+read: a macro that starts where another's tokens end has tokens of its own,
+and a group left open among a macro's tokens ends with them.
+
+**The walk that descends for ever** (`src/structure.ts`, `|| '.'` made
+`&& '.'`). The 0.8.0 section above has it as the one timeout that is a
+kill, since no assertion could fail before a clock did; it has been an
+error in some sweeps since, its worker out of memory. It still cannot be an
+assertion's in every sweep: under it every directory below the root reads
+the root's listing from the cache, so the walk runs in microtasks alone and
+no timer fires. But a walk of a root that is itself a linked worktree
+stops at its first directory, which reads the root's `.git` file as another
+work tree's top, and that is now the first walk of
+`tests/structure.test.ts`. Replayed with `--bail=1`, as Stryker runs a
+mutant, that test failed in 17 ms and nothing ran out of memory; without
+`--bail` the next test's walk did. Where another file's walk meets the
+mutant first, it is a timeout or an error as before, and the comment beside
+the line says so.
+
+The crash a sweep's log showed beside it, `io.stat is not a function` in
+shard 3 of 4652c36's sweep (run 39298646675), was another mutant of the same
+line: the object literal emptied, which `tests/work-trees.test.ts` kills
+at once. The log has that kill, a failing test of `tests/structure.test.ts`
+beside it, and then vitest's `Worker exited unexpectedly`, unhandled, which
+ended Stryker's child process; Stryker ran the mutant again and counted it
+killed. Neither sweep of f8ffc3f has it. Nothing a test holds decides it,
+and nothing here changes it.
+
+**Two tests of cost read past a stall.** spec-core's ADR-0007, amended
+2026-10-19, lets a test of cost hold twice what linear work takes with no
+allowance for noise where it reads past a stall: one uncounted stretch of
+each size, the fastest of at least twenty stretches of a few milliseconds,
+and one more reading of a ratio over the bound before it fails. Of the six
+tests that took the fastest of a few runs, and an allowance beside the
+bound, the work of two fits such stretches, and they are read so through
+`fastestRatioInTurnAsync` (`tests/timing.ts`):
+
+| Test | One run of each size, here | Before | Now | Ten readings, here |
+| --- | --- | --- | --- | --- |
+| `tests/glob-core.test.ts`, a run over a 121-character name | 1.1 ms and 0.9 ms | the longer under four times the shorter and 50 ms | the ratio under 4 | 1.04 to 1.60 |
+| `tests/cites.test.ts`, a file of 40,000 comments against one of 2,500 | 10 ms and 2.1 ms | the longer under twice sixteen of the shorter and 100 ms | the ratio under 32 | 4.2 to 6.2 |
+
+The four others keep their 200 ms, said beside each: one run of the larger
+took 86 ms (`tests/engine-contracts.test.ts`), 240 ms
+(`tests/impact.test.ts`, `tests/watch-equivalence.test.ts`) and 390 ms
+(`tests/cites.test.ts`, the tree of 3,072 files, read from disk), where
+the reading was measured over stretches of a few milliseconds, and twenty
+of each size would add from two to twenty seconds a test. Measured on this
+workstation's Node 24.22.1 with other work running.
