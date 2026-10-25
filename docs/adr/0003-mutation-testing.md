@@ -1555,6 +1555,36 @@ ran high where they were least measured: `runner.ts` and `text.ts` took 7m35s
 against 15.2 minutes, and `cli.ts` alone 8m18s against 15.1, so the next
 split starts from this run's logs rather than 398fe94's.
 
+### 0.29.0: one dialect, two survivors more and six fewer
+
+CI's full sweep of 428137a (run 40161794380) came out at **99.27% over
+14,580 mutants with 105 survivors and 1 without coverage**, 235 of them
+detected by timeout and none an error; the shards took from 8m59s to
+22m24s. Against 0.28.0's sweep of 4652c36 (run 39298646675), 108
+survivors and 2 without coverage over 14,224:
+
+- the release has 356 mutants more: 364 in `src/dialect.ts`, new, which
+  reads a rule as the regex crate does, 3 in `src/polyglot.ts` and 1 in
+  `src/runner.ts`, and 12 fewer in `src/engine.ts`, whose reading of a
+  pattern moved to the dialect;
+- 2 survivors are new, each said equivalent beside its code.
+  `at < source.length` made `<=` in `readRegex` reads one place past the
+  end, where `charAt` gives nothing (#78). `if (search.regex)` made `true` in
+  `src/runner.ts` builds a literal as well, which is escaped first and
+  builds whatever it holds (#79): 0.28.0's sweep killed it, since the
+  test was then `new RegExp(symbol)`, which a literal `(` made throw;
+- 6 are gone: five in `src/engine.ts`, the step past an empty match and
+  the pattern that read a regex's groups, whose code #78 replaced, and
+  `target === '.'` made `true` in `src/impact.ts`, the equivalent its
+  comment names, detected by timeout in this sweep and not in 0.28.0's;
+- #77 has `matchAll` refuse `RUST_MACRO` with its flags emptied, where
+  the worker ran out of memory, and a first walk catch the descending
+  walk's `&&`. Neither sweep counts an error.
+
+Each of the release's pull requests that changed a source was swept
+incrementally before it merged, and each ended with every undetected
+mutant of its own lines killed or said equivalent beside its code.
+
 ### 0.28.0: twenty-one survivors more, each said equivalent where it stands
 
 CI's full sweep of 4652c36 (run 39298646675) came out at **99.23% over

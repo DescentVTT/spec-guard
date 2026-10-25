@@ -10,7 +10,13 @@ what to do when upgrading; the family's policy, including how a flag or field
 is deprecated before it goes, is spec-core's
 [ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
-## Unreleased
+## 0.29.0
+
+A regex rule is read in one dialect by both engines, the one ripgrep's
+regex crate documents: `\w`, `\b`, `\d` and `\s` are Unicode's, a
+character is a code point, and what the two dialects read apart is an
+invalid directive that names it, so a rule no longer passes under
+`--engine rg` where the scanner counts it.
 
 ### Changed
 
