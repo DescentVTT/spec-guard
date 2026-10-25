@@ -790,7 +790,9 @@ export function resolveDirective(
     if (search.regex) {
       // Built as the scanner builds it, so that a rule the two engines would
       // read differently is refused here, by name (ADR-0007, amended
-      // 2026-10-24), and not at the first search.
+      // 2026-10-24), and not at the first search. A literal is escaped
+      // before it is built, and builds whatever it holds, so the test made
+      // `true` refuses nothing more: an equivalent mutant.
       try {
         buildJsRegExp(symbol, search);
       } catch (error) {
