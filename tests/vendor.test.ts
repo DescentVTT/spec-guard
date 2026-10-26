@@ -52,7 +52,7 @@ describe('the copy of spec-core', () => {
   it('names the commit it was copied from', () => {
     // A copy made from a spec-core with uncommitted changes records no commit,
     // and then nobody can say which spec-core this tool runs.
-    expect(record.source).toBe('https://github.com/DescentVTT/spec-core');
+    expect(record.source).toBe('https://github.com/spec-family/spec-core');
     expect(record.commit).toMatch(/^[0-9a-f]{40}$/);
   });
 
