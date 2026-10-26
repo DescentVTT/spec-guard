@@ -20,7 +20,7 @@ const entries = files.map((entry) => entry.replace(/^\//, ''));
 const ships = (file: string): boolean => entries.some((entry) => file === entry || file.startsWith(`${entry}/`));
 
 /** Where an absolute link to a file of this repository points, on its main branch. */
-const REPOSITORY = 'https://github.com/DescentVTT/spec-guard/blob/main/';
+const REPOSITORY = 'https://github.com/spec-family/spec-guard/blob/main/';
 
 /**
  * The Markdown documents the package ships. `files` names the README

@@ -2,13 +2,13 @@
 
 ## Supported versions
 
-| Version of `@descent-vtt/spec-guard` | Gets security fixes |
+| Version of `@spec-family/spec-guard` | Gets security fixes |
 | --- | --- |
 | The latest minor release on npm | Yes, in a patch release of that minor |
 | Any earlier minor | No: upgrade to the latest |
 
 Before 1.0 a fix is made once, on the latest minor, as the family's versions
-policy ([spec-core ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md))
+policy ([spec-core ADR-0009](https://github.com/spec-family/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md))
 sets out.
 
 ## Reporting a vulnerability

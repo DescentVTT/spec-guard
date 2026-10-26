@@ -1285,7 +1285,7 @@ describe('the report, rendered', () => {
     expect([sarif.$schema, sarif.version]).toEqual(['https://json.schemastore.org/sarif-2.1.0.json', '2.1.0']);
     expect(sarif.runs[0]?.tool.driver).toEqual({
       name: 'spec-guard prove',
-      informationUri: 'https://github.com/DescentVTT/spec-guard',
+      informationUri: 'https://github.com/spec-family/spec-guard',
       version: '0.0.0',
       rules: [
         { id: 'rule-cannot-fail', name: 'rule-cannot-fail', shortDescription: { text: 'A rule that passed with a violation of itself in place.' } },

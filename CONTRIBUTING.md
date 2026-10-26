@@ -190,7 +190,7 @@ batched, one per round of work, and the version says what an upgrade can do to
 a run: a minor for anything that can turn a passing run red or change what a
 script reads, a patch for what reports less, crashes, performance and
 documentation (spec-core's
-[ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md)).
+[ADR-0009](https://github.com/spec-family/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md)).
 
 1. **Merge the pull requests** the release carries, each with its `CHANGELOG.md`
    entries under `## Unreleased`.
@@ -240,7 +240,7 @@ Staging is not publishing. The version sits on npmjs.com visible to maintainers
 and installable by nobody until:
 
 ```bash
-npm stage list @descent-vtt/spec-guard
+npm stage list @spec-family/spec-guard
 npm stage view <stage-id>
 npm stage approve <stage-id>   # asks for a second factor
 ```

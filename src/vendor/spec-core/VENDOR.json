@@ -1,6 +1,6 @@
 {
-  "source": "https://github.com/DescentVTT/spec-core",
-  "commit": "ffe9b8a59380dc9ae9225d92643c9b07bec004b5",
+  "source": "https://github.com/spec-family/spec-core",
+  "commit": "1104df782e29fb8969d3d4717c4a507b8027495f",
   "modules": {
     "jsonrpc": {
       "files": {

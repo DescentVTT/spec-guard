@@ -2,7 +2,7 @@
 
 Working agreements for this repository. Short on purpose: the ADRs in
 `docs/adr/` carry the reasoning, `CONTRIBUTING.md` carries the map, and
-spec-core's [ADR-0005](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0005-the-family-contract.md)
+spec-core's [ADR-0005](https://github.com/spec-family/spec-core/blob/main/docs/adr/0005-the-family-contract.md)
 is the contract every spec-* tool keeps.
 
 spec-guard makes the claims Markdown specs and ADRs make about a codebase
@@ -12,7 +12,7 @@ are checked against the tree in CI, by ripgrep or a built-in scanner that give
 one answer. Around them: `query` and an MCP server (which rules govern a
 path), `prove` (can each rule fail), `cites` (do code comments cite decisions in
 force) and `impact` (what depends on a path). It is published as
-`@descent-vtt/spec-guard`, and it checks its own ADRs and README.
+`@spec-family/spec-guard`, and it checks its own ADRs and README.
 
 ## Invariants
 
@@ -101,7 +101,7 @@ bare `npx <name>`: before `npm ci` that fetches whatever the registry has
 under the name. `.npmrc` has npm stop there instead, and `tests/npm.test.ts`
 holds both. One of the family's own tools takes its package's full name
 (spec-core's
-[ADR-0005](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0005-the-family-contract.md#names),
+[ADR-0005](https://github.com/spec-family/spec-core/blob/main/docs/adr/0005-the-family-contract.md#names),
 Names).
 
 Every job names the image it runs on, never a `-latest` label, which GitHub
@@ -109,7 +109,7 @@ moves: the suite's matrix runs Ubuntu 24.04 and 26.04, and coverage, the
 sweep and the release stay on `ubuntu-24.04`, where their numbers were
 measured. `tests/runner-images.test.ts` fails a label that names no image
 and a gate that leaves its own, and spec-core's
-[ADR-0008](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0008-toolchain.md)
+[ADR-0008](https://github.com/spec-family/spec-core/blob/main/docs/adr/0008-toolchain.md)
 has the labels and the steps that move an image.
 
 ## Testing
@@ -135,7 +135,7 @@ has the labels and the steps that move an image.
 ## Versions and releases
 
 Versions follow spec-core's
-[ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md):
+[ADR-0009](https://github.com/spec-family/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md):
 before 1.0, a minor for anything that can turn a passing run red or change what
 a script reads, a patch for what reports less, crashes, performance and
 documentation. A change a user can see gets a `CHANGELOG.md` entry under

@@ -914,7 +914,7 @@ with the facts, not with their square.
 
 The family contract has a tool never fall back to defaults and report clean
 (spec-core's
-[ADR-0005](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0005-the-family-contract.md)).
+[ADR-0005](https://github.com/spec-family/spec-core/blob/main/docs/adr/0005-the-family-contract.md)).
 The command line did, for an option given a value that names nothing: it read
 the option as left out, or as its opposite. Measured through the launcher on
 0.20.1 (Windows 11, Node 24.18.1), in a tree of three specs, one of them
@@ -1248,7 +1248,7 @@ case so that each is one answer on Windows and anywhere else.
 The amendment above refused `--ascii` beside `--no-ascii` and left the
 colour pair as it was. The family contract refuses two things of which one
 would go unread (spec-core's
-[ADR-0005](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0005-the-family-contract.md),
+[ADR-0005](https://github.com/spec-family/spec-core/blob/main/docs/adr/0005-the-family-contract.md),
 amended 2026-10-11), and the colour pair is two such things. So is each
 on/off option this ADR gave an opposite, so that a configuration could be
 overridden either way.
@@ -1373,7 +1373,7 @@ which one goes unread, and said that refusing them wanted a decision of its
 own. This is that decision, for those three and for every option like them.
 The family contract refuses two things of which one would go unread
 (spec-core's
-[ADR-0005](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0005-the-family-contract.md),
+[ADR-0005](https://github.com/spec-family/spec-core/blob/main/docs/adr/0005-the-family-contract.md),
 amended 2026-10-11). An option that takes one value and is given two is
 that: the later was read, and no word was said of the earlier.
 
@@ -1472,7 +1472,7 @@ The amendment above left `--help` beside `--version` as it was. The family
 contract, amended on this date, decides it: the two ask for two answers of
 which one would go unread, and the line is refused, exit 2, with a line that
 names both (spec-core's
-[ADR-0005](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0005-the-family-contract.md),
+[ADR-0005](https://github.com/spec-family/spec-core/blob/main/docs/adr/0005-the-family-contract.md),
 *Runs*, amended 2026-10-18).
 
 Measured through the launcher on 0.26.0 (Windows 11 build 26300, Node
@@ -1512,7 +1512,7 @@ letter in the case it was written in. So on Windows `--root C:\x` beside
 `--root c:\x` was refused as two directories, though they are one. The
 family contract, amended on this date, has each tool fold the case of a
 drive letter before it compares two such values (spec-core's
-[ADR-0005](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0005-the-family-contract.md),
+[ADR-0005](https://github.com/spec-family/spec-core/blob/main/docs/adr/0005-the-family-contract.md),
 *Runs*, amended 2026-10-19), from Microsoft's *Naming Files, Paths, and
 Namespaces* (learn.microsoft.com, *Naming Conventions*, read 2026-10-19),
 which has a drive letter name the same volume in either case.

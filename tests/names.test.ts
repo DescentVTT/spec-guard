@@ -1,7 +1,7 @@
 /**
  * A command names the package it runs.
  *
- * The tools are published as `@descent-vtt/<name>` and each installs a
+ * The tools are published as `@spec-family/<name>` and each installs a
  * command called `<name>`. Without the scope the names are not the family's:
  * on npm `spec-harness` is another publisher's package, and the other four
  * belonged to nobody on 2026-10-07. `npx <name>` runs the project's install
@@ -16,7 +16,7 @@
  * package manager's equivalent gives the package's full name, and this file
  * reads the repository for one that does not
  * (spec-core's ADR-0005, Names:
- * https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0005-the-family-contract.md#names).
+ * https://github.com/spec-family/spec-core/blob/main/docs/adr/0005-the-family-contract.md#names).
  */
 
 import { readdirSync, readFileSync } from 'node:fs';
@@ -155,21 +155,23 @@ describe('reading a line for a bare name behind a runner', () => {
   });
 
   it.each([
+    ['npx --no-install @spec-family/spec-guard "docs/**/*.md"'],
+    ['npx @spec-family/spec-guard@0.19.0 --verbose'],
+    ['npm exec --no -- @spec-family/spec-brief lint'],
+    ['Run `npx --no-install @spec-family/spec-brief lint`.'],
+    ['"command": "npx",\n"args": ["--no-install", "@spec-family/spec-guard", "mcp"]'],
+    // A name under any scope is not the bare name, the scope the family left on 2026-10-26 among them.
     ['npx --no-install @descent-vtt/spec-guard "docs/**/*.md"'],
-    ['npx @descent-vtt/spec-guard@0.19.0 --verbose'],
-    ['npm exec --no -- @descent-vtt/spec-brief lint'],
-    ['Run `npx --no-install @descent-vtt/spec-brief lint`.'],
-    ['"command": "npx",\n"args": ["--no-install", "@descent-vtt/spec-guard", "mcp"]'],
     // The package is named, and the word after it is a command inside it.
-    ['npx --package=@descent-vtt/spec-guard spec-guard --version'],
-    ['npx -p @descent-vtt/spec-guard spec-guard --version'],
+    ['npx --package=@spec-family/spec-guard spec-guard --version'],
+    ['npx -p @spec-family/spec-guard spec-guard --version'],
     // A string for the shell: npm fetches nothing for a word in it.
     ['npx -c "spec-guard --version"'],
     // Not a runner: nothing here fetches by the command's name.
-    ['npm install --save-dev @descent-vtt/spec-guard'],
+    ['npm install --save-dev @spec-family/spec-guard'],
     ['npm run selfcheck'],
     ['"specs": "spec-guard --format github"'],
-    ['node node_modules/@descent-vtt/spec-guard/bin/spec-guard.js'],
+    ['node node_modules/@spec-family/spec-guard/bin/spec-guard.js'],
     ['pnpm exec spec-guard'],
     // Another command, with the name further along.
     ['npx stryker run --mutate src/spec-guard.ts'],
@@ -254,7 +256,7 @@ describe('the commands this repository writes', () => {
       ]),
     );
     // The README is where the commands are: the quick start, the two forms under Names, and the CI jobs.
-    expect(readme.match(/npx --no-install @descent-vtt\/spec-guard\b/g)?.length ?? 0).toBeGreaterThanOrEqual(7);
+    expect(readme.match(/npx --no-install @spec-family\/spec-guard\b/g)?.length ?? 0).toBeGreaterThanOrEqual(7);
   });
 
   it("give a runner the package's full name, never the command's alone", () => {
@@ -271,18 +273,18 @@ describe('the commands this repository writes', () => {
 
   it('start a reader from the install, and then from the full name', () => {
     const first = (/```bash\n([\s\S]*?)```/.exec(readme)?.[1] ?? '').trim().split('\n');
-    expect(first[0]).toBe('npm install --save-dev @descent-vtt/spec-guard');
+    expect(first[0]).toBe('npm install --save-dev @spec-family/spec-guard');
     expect(first.length).toBeGreaterThan(1);
-    expect(first.slice(1).filter((line) => !/^npx --no-install @descent-vtt\/spec-guard(?: |$)/.test(line))).toEqual([]);
+    expect(first.slice(1).filter((line) => !/^npx --no-install @spec-family\/spec-guard(?: |$)/.test(line))).toEqual([]);
   });
 
   it('say whose the name is where a reader looks, under the quick start', () => {
     // As a reader sees it: a sentence is one line, wherever the file wraps it.
     const section = (/^## Names$([\s\S]*?)^## /m.exec(readme)?.[1] ?? '').replace(/\s+/g, ' ');
-    expect(section).toContain('The package is `@descent-vtt/spec-guard`, and the command it installs is `spec-guard`.');
+    expect(section).toContain('The package is `@spec-family/spec-guard`, and the command it installs is `spec-guard`.');
     expect(section).toContain('The name without the scope is not this project');
-    expect(section).toContain('`npx --no-install @descent-vtt/spec-guard`');
-    expect(section).toContain('`npx @descent-vtt/spec-guard`');
+    expect(section).toContain('`npx --no-install @spec-family/spec-guard`');
+    expect(section).toContain('`npx @spec-family/spec-guard`');
     // The quick start comes first, and the names are the next section under
     // it. A `## ` inside a fence is an example's, not a heading.
     let fenced = false;
@@ -302,6 +304,6 @@ describe('the commands this repository writes', () => {
     const { command, args } = JSON.parse(entry) as { command?: string; args?: string[] };
     expect(command).toBe('npx');
     // Without `--no-install` a tree with no install would fetch on every start.
-    expect(args?.slice(0, 3)).toEqual(['--no-install', '@descent-vtt/spec-guard', 'mcp']);
+    expect(args?.slice(0, 3)).toEqual(['--no-install', '@spec-family/spec-guard', 'mcp']);
   });
 });

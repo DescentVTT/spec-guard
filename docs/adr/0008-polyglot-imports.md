@@ -340,7 +340,7 @@ or `from` where a statement may start and wanted a blank or a tab after it;
 the other read a `from` statement, wanted a blank or a tab after its
 `import`, and took whatever followed. `from a import(b)`, with no blank
 before the parenthesis, is an import to Python and was none here
-(DescentVTT/spec-guard#59 found it and left it). It was not the only one.
+(spec-family/spec-guard#59 found it and left it). It was not the only one.
 
 Measured on 2026-10-14 against Python itself: 322 sources, every spelling of
 the statement around parentheses, a star, white space, comments, line

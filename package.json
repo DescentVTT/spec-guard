@@ -1,5 +1,5 @@
 {
-  "name": "@descent-vtt/spec-guard",
+  "name": "@spec-family/spec-guard",
   "version": "0.29.0",
   "description": "Executable architecture assertions for Markdown specs & ADRs.",
   "keywords": [
@@ -62,12 +62,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/DescentVTT/spec-guard.git"
+    "url": "git+https://github.com/spec-family/spec-guard.git"
   },
   "bugs": {
-    "url": "https://github.com/DescentVTT/spec-guard/issues"
+    "url": "https://github.com/spec-family/spec-guard/issues"
   },
-  "homepage": "https://github.com/DescentVTT/spec-guard#readme",
+  "homepage": "https://github.com/spec-family/spec-guard#readme",
   "specGuard": {
     "specs": [
       "docs/**/*.md",

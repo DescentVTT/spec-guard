@@ -38,7 +38,7 @@ its secrets. `prepublishOnly` refuses `npm publish` anywhere but GitHub Actions.
 
 Releases are batched: one per round of work, carrying everything the round
 merged. The version is decided by spec-core's
-[ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md):
+[ADR-0009](https://github.com/spec-family/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md):
 a minor for anything that can turn a passing run red or change what a script
 reads, a patch for what reports less, crashes, performance and documentation.
 
@@ -96,7 +96,7 @@ delete a `v*` tag, because pushing one is the release.
 
 A staged version is visible to maintainers and installable by nobody. The
 maintainer reads it and approves it with a second factor - `npm stage list
-@descent-vtt/spec-guard`, `npm stage view <id>`, `npm stage approve <id>` - or
+@spec-family/spec-guard`, `npm stage view <id>`, `npm stage approve <id>` - or
 discards it with `npm stage reject <id>`, after which the tag can be deleted
 and remade. CI can build a release; it cannot decide to publish one.
 
@@ -197,6 +197,19 @@ main read as the source said. Run 37598036257, under the pin, and run
 npm's version check on 0.19.0; 12.2.0 refused no flag. So npmjs.com does
 give a dry run dispatched from main a token, and the two npms agree as far as
 a dry run goes, which is not as far as signing or uploading.
+
+*Amended 2026-10-26.* From 0.30.0 the package is `@spec-family/spec-guard`,
+published from the repository `spec-family/spec-guard`: that day the family
+moved to a GitHub organization and an npm scope of its own, and its versions
+go on under the new names (spec-core's
+[ADR-0005](https://github.com/spec-family/spec-core/blob/main/docs/adr/0005-the-family-contract.md#names),
+amended 2026-10-26). 0.1.0 to 0.29.0 were published as
+`@descent-vtt/spec-guard` from `DescentVTT/spec-guard`, and keep that name
+on the registry. The new package has a trusted publisher of its own on
+npmjs.com, for the repository `spec-family/spec-guard`, the workflow
+`release.yml` and the `npm` environment; `package.json` names that
+repository, and the commands under *A person publishes* above name the new
+package, as the summary a staged release ends with does.
 
 ## Consequences
 

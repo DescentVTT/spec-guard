@@ -476,7 +476,7 @@ spec-guard: SPEC_GUARD_RG is "/opt/tools/rg", which did not answer --version as 
 
 Asked for and not delivered is a refusal, as the family contract has it
 (spec-core's
-[ADR-0005](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0005-the-family-contract.md)):
+[ADR-0005](https://github.com/spec-family/spec-core/blob/main/docs/adr/0005-the-family-contract.md)):
 a run that asked for ripgrep and was answered by the scanner reported clean
 on an engine nobody chose. The answer is the same either way (ADR-0007), and
 that is not the point; a pipeline that pins the engine to time it, or to

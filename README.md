@@ -15,8 +15,8 @@ If someone reintroduces `LegacyPaymentGateway`, CI fails and points at the line
 of the ADR that promised it was gone.
 
 The words the spec-* tools share are defined in
-[concepts](https://github.com/DescentVTT/spec-core/blob/main/docs/concepts.md),
-and the [tutorial](https://github.com/DescentVTT/spec-core/blob/main/docs/tutorial.md)
+[concepts](https://github.com/spec-family/spec-core/blob/main/docs/concepts.md),
+and the [tutorial](https://github.com/spec-family/spec-core/blob/main/docs/tutorial.md)
 runs spec-guard beside its siblings through one round of work on a small
 repository.
 
@@ -50,8 +50,8 @@ build with a line number, not a landmine.
 ## Quickstart
 
 ```bash
-npm install --save-dev @descent-vtt/spec-guard
-npx --no-install @descent-vtt/spec-guard "docs/**/*.md"
+npm install --save-dev @spec-family/spec-guard
+npx --no-install @spec-family/spec-guard "docs/**/*.md"
 ```
 
 `npx` is given the package's full name, here and in every command below:
@@ -71,7 +71,7 @@ Session state has exactly one owner.
 Run it:
 
 ```bash
-npx --no-install @descent-vtt/spec-guard "docs/**/*.md" --verbose
+npx --no-install @spec-family/spec-guard "docs/**/*.md" --verbose
 ```
 
 ```text
@@ -100,7 +100,7 @@ Exit code 1. The ADR is now a test.
 
 ## Names
 
-The package is `@descent-vtt/spec-guard`, and the command it installs is
+The package is `@spec-family/spec-guard`, and the command it installs is
 `spec-guard`. The name without the scope is not this project: on npm,
 `spec-guard` belonged to nobody on 2026-10-07, and whoever registers it decides
 what it runs.
@@ -110,24 +110,24 @@ project has none installed - a fresh clone, a worktree before `npm ci`, a CI job
 without the install step - and without a terminal it does not ask first. So
 give `npx` the full name:
 
-- `npx --no-install @descent-vtt/spec-guard` in a project that installed it: it
+- `npx --no-install @spec-family/spec-guard` in a project that installed it: it
   runs that install, the version the lockfile pins, and where there is none it
   stops with an error that names this package.
-- `npx @descent-vtt/spec-guard`, without `--no-install`, where nothing is
+- `npx @spec-family/spec-guard`, without `--no-install`, where nothing is
   installed: it fetches this package and runs it.
 
 <!-- bare-name: the two forms in the next sentence are shown as what not to write -->
 Never `npx spec-guard`, and not `npx --no-install spec-guard` either:
 `--no-install` stops a download, and npm still runs a copy of the bare name's
 package that an earlier fetch left in its cache. The family's
-[adopting guide](https://github.com/DescentVTT/spec-core/blob/main/docs/adopting.md#names)
+[adopting guide](https://github.com/spec-family/spec-core/blob/main/docs/adopting.md#names)
 has what was measured, under npm 10, 11 and 12.
 
 The command alone, `spec-guard`, is what a `package.json` script holds - npm
 fetches nothing for a script - and what a global install puts on the path:
 
 ```bash
-npm install -g @descent-vtt/spec-guard   # then: spec-guard "docs/**/*.md"
+npm install -g @spec-family/spec-guard   # then: spec-guard "docs/**/*.md"
 ```
 
 ## Directives
@@ -161,7 +161,7 @@ this README, never executes it.
   `<!--` inside a code span is code. A code span ends with its paragraph, so a
   stray backtick cannot hide the directives after it, and a fence may be
   indented with the list item it sits in.
-  [ADR-0002](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0002-directive-format.md)'s
+  [ADR-0002](https://github.com/spec-family/spec-guard/blob/main/docs/adr/0002-directive-format.md)'s
   amendment lists where this differs from 0.11.0.
 - **What is masked is still counted.** A comment shaped like a directive -
   `<!-- @assert-...` - in code, raw HTML or front matter is not run, and the
@@ -239,9 +239,9 @@ These read the dependency rather than the text, in **five languages**:
 No parser and no new dependency. JavaScript gets a full tokenizer because a
 module reference can appear anywhere in an expression; the other four are read
 by masking comments and string literals with the classifier from
-[ADR-0006](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0006-comment-classification.md) and then reading statements
+[ADR-0006](https://github.com/spec-family/spec-guard/blob/main/docs/adr/0006-comment-classification.md) and then reading statements
 off what is left. Tree-sitter would have cost 94 MB unpacked against this
-package's 0.33 MB - [ADR-0008](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0008-polyglot-imports.md) has the
+package's 0.33 MB - [ADR-0008](https://github.com/spec-family/spec-guard/blob/main/docs/adr/0008-polyglot-imports.md) has the
 measurements, and the list of things a real parser would genuinely see that
 this does not.
 
@@ -303,7 +303,7 @@ stops it being mistaken for a complete answer.
   rather than quietly passing - and if *none* of them can be read, the
   assertion fails rather than passing on an empty analysis.
 
-[ADR-0005](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0005-import-assertions.md) has the measurements and the
+[ADR-0005](https://github.com/spec-family/spec-guard/blob/main/docs/adr/0005-import-assertions.md) has the measurements and the
 reasoning behind each boundary.
 
 ### `@assert-layers` - dependencies point one way
@@ -468,7 +468,7 @@ did not - a relative path matching no file, or an alias like `@/db` or
 `--strict`. An alias spelled like a real package, `@app/db` through `tsconfig`
 paths, is the one thing it cannot see and cannot report: that would mean
 reading `tsconfig.json`, which is the resolver
-[ADR-0011](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0011-layers-and-cycles.md) declines to become, for the
+[ADR-0011](https://github.com/spec-family/spec-guard/blob/main/docs/adr/0011-layers-and-cycles.md) declines to become, for the
 reasons it gives.
 
 ### `@assert-structure` - what files are called, and what comes with them
@@ -564,7 +564,7 @@ src/handlers/invoice.ts (does not exist yet)
       partner: src/handlers/invoice.test.ts
 ```
 
-[ADR-0013](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0013-structure-assertions.md) has the design and what it
+[ADR-0013](https://github.com/spec-family/spec-guard/blob/main/docs/adr/0013-structure-assertions.md) has the design and what it
 costs.
 
 ### `@assert-present` - this file exists
@@ -614,7 +614,7 @@ ending at LF, at CRLF or at a lone CR, as ripgrep reads one with `--crlf`;
 U+2028 and U+2029 end none, and no line follows a file's last line end,
 so an empty match there is not counted.
 `symbol="^\s*-?\s*uses:"` meets `uses:` on any line, with either engine
-([ADR-0007](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0007-search-scope.md)).
+([ADR-0007](https://github.com/spec-family/spec-guard/blob/main/docs/adr/0007-search-scope.md)).
 `\s` matches a line end too, so `\s+$` also meets a line followed by an
 empty one; `[ \t]+$` reads only the blanks a line ends with.
 
@@ -633,7 +633,7 @@ read otherwise is an invalid directive that names it: `\A`, `\z`, `\<`,
 as `[[:alpha:]]`, `&&`, `--` or `~~` in a class, and a count with blanks
 in it, `{2, 3}`. An escaped sign such as `\-` or `\#`, a lone `]` or `}`,
 and `[\w-.]` read as they did
-([ADR-0007](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0007-search-scope.md),
+([ADR-0007](https://github.com/spec-family/spec-guard/blob/main/docs/adr/0007-search-scope.md),
 amended 2026-10-24).
 
 ### `exclude` - everywhere except
@@ -832,7 +832,7 @@ spec-guard docs/adr.md --print-baseline
 ```
 
 prints the attribute that would exempt exactly today's violations, for you to
-paste in. It prints; it does not edit. [ADR-0009](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0009-debt-baselines.md)
+paste in. It prints; it does not edit. [ADR-0009](https://github.com/spec-family/spec-guard/blob/main/docs/adr/0009-debt-baselines.md)
 explains why that distinction is the whole design, and why there is no `--fix`
 for architecture rules.
 
@@ -883,7 +883,7 @@ out, and `--json` has it in `skipped` with `reason: "worktree"`, which
 Where a walk starts is read as asked, so a root that is itself a worktree is
 read, and a rule can name a work tree as its `target`. `query` and the MCP
 server read no file, so they cannot tell a work tree from a directory
-([ADR-0007](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0007-search-scope.md)).
+([ADR-0007](https://github.com/spec-family/spec-guard/blob/main/docs/adr/0007-search-scope.md)).
 
 `--no-default-skips` removes even those four, and reads the other work trees
 too, for a run that has to be certain.
@@ -1021,7 +1021,7 @@ a `nothing-verified` finding. One rule in force is enough to pass, whatever else
 is withheld; and the MCP server's check of paths that no rule governs verified
 what it was asked to, and passes.
 
-[ADR-0010](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0010-spec-status.md) has the full reasoning, including why
+[ADR-0010](https://github.com/spec-family/spec-guard/blob/main/docs/adr/0010-spec-status.md) has the full reasoning, including why
 there is no per-directive `if-status` attribute.
 
 ## Asking before writing - `query` and the MCP server
@@ -1078,7 +1078,7 @@ project's does not.
 
 The arithmetic that decides whether a rule governs a path is tested against the
 walk a real run makes, file for file, under both engines and on randomly
-generated trees. [ADR-0012](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0012-query-and-mcp.md) lists the three
+generated trees. [ADR-0012](https://github.com/spec-family/spec-guard/blob/main/docs/adr/0012-query-and-mcp.md) lists the three
 things it cannot see: file content (binary, oversized, unreadable), symbolic
 links, and letter case on case-insensitive filesystems.
 
@@ -1094,7 +1094,7 @@ usual `mcpServers` entry is:
   "mcpServers": {
     "spec-guard": {
       "command": "npx",
-      "args": ["--no-install", "@descent-vtt/spec-guard", "mcp", "--spec", "docs/**/*.md"]
+      "args": ["--no-install", "@spec-family/spec-guard", "mcp", "--spec", "docs/**/*.md"]
     }
   }
 }
@@ -1108,7 +1108,7 @@ The root defaults to the directory the client starts the server in; pass
 `--root` if yours starts servers somewhere else. On Windows, `npx` is a `.cmd`
 script that a client spawning without a shell cannot launch; point `command` at
 `node` and the first argument at
-`node_modules/@descent-vtt/spec-guard/bin/spec-guard.js` instead. Run flags such
+`node_modules/@spec-family/spec-guard/bin/spec-guard.js` instead. Run flags such
 as `--engine`, `--strict`, `--ignore-status` and `--allow-missing-targets` apply
 to its checks.
 
@@ -1190,7 +1190,7 @@ configuration's specs, exclusions and strictness.
 
 A kill means the rule can fail, not that it catches the way the code is
 written: `module="src/db.ts"` is killed by `import 'src/db.ts'` though every
-file imports `./db.js`. [ADR-0016](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0016-rules-seen-to-fail.md) has the
+file imports `./db.js`. [ADR-0016](https://github.com/spec-family/spec-guard/blob/main/docs/adr/0016-rules-seen-to-fail.md) has the
 violations for each kind of rule, and what `unprovable` means.
 
 ## Do the comments cite decisions in force? - `cites`
@@ -1282,7 +1282,7 @@ are no citation it was, beside `"ok": false`: `nothingRead`,
 `--json` (versioned by `formatVersion`), `--format sarif`, `--format github`
 and `--format gitlab` carry the same findings; `spec-guard cites src lib/a.ts`
 reads only those paths.
-[ADR-0017](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0017-citations-in-comments.md) has the design, and what is
+[ADR-0017](https://github.com/spec-family/spec-guard/blob/main/docs/adr/0017-citations-in-comments.md) has the design, and what is
 out of scope: links to symbols, which need a parser the family does not ship.
 
 ## Who depends on this? - `impact`
@@ -1319,7 +1319,7 @@ src/db/client.ts
 ```
 
 - **Followed**: relative JavaScript and TypeScript imports, by the table the
-  cycle rule uses ([ADR-0011](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0011-layers-and-cycles.md)), and relative
+  cycle rule uses ([ADR-0011](https://github.com/spec-family/spec-guard/blob/main/docs/adr/0011-layers-and-cycles.md)), and relative
   Python imports, which name a module beside the importing file.
 - **Counted, not followed**: Go imports, Rust `use`s, C# `using`s and absolute
   Python imports name modules, and which file a module is depends on `go.mod`,
@@ -1342,7 +1342,7 @@ src/db/client.ts
   are written, and it is exit 2 unless `--allow-empty`.
 - **The MCP server** answers the same question as `get_dependents`, with the
   same document.
-[ADR-0018](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0018-impact.md) has the table and what it leaves out.
+[ADR-0018](https://github.com/spec-family/spec-guard/blob/main/docs/adr/0018-impact.md) has the table and what it leaves out.
 
 ## CLI
 
@@ -1586,7 +1586,7 @@ A session re-executes only the rules whose directive or inputs changed:
 Each of those is a way to report a tree that no longer exists, so a test
 changes trees at random and requires every report a session gives to equal a
 fresh run's, with six deliberately broken sessions that it has to catch.
-[ADR-0014](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0014-configuration-and-watch.md)
+[ADR-0014](https://github.com/spec-family/spec-guard/blob/main/docs/adr/0014-configuration-and-watch.md)
 has the design, the measurements and the limits.
 
 On this repository, from a change to the report, in the quietest of four runs
@@ -1649,7 +1649,7 @@ jobs:
         with:
           node-version: '22'
       - run: npm ci
-      - run: npx --no-install @descent-vtt/spec-guard "docs/**/*.md" "README.md" --verbose
+      - run: npx --no-install @spec-family/spec-guard "docs/**/*.md" "README.md" --verbose
 ```
 
 The actions are pinned to commits, with the version beside each, because a tag
@@ -1703,7 +1703,7 @@ scanner answers that search, and the report carries a warning for it.
 As a pre-commit hook, in a project that installed it:
 
 ```bash
-npx --no-install @descent-vtt/spec-guard "docs/**/*.md" --fail-fast
+npx --no-install @spec-family/spec-guard "docs/**/*.md" --fail-fast
 ```
 
 ### Annotations on the pull request
@@ -1718,7 +1718,7 @@ comment on the offending line:
       actions: read # only in a private repository
     steps:
       # ...checkout, setup-node and npm ci as above
-      - run: npx --no-install @descent-vtt/spec-guard "docs/**/*.md" --format sarif > spec-guard.sarif || true
+      - run: npx --no-install @spec-family/spec-guard "docs/**/*.md" --format sarif > spec-guard.sarif || true
       - uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
         with:
           sarif_file: spec-guard.sarif
@@ -1755,7 +1755,7 @@ which a merge request shows beside its changes:
 spec-guard:
   script:
     - npm ci
-    - npx --no-install @descent-vtt/spec-guard --format gitlab > gl-code-quality-report.json || true
+    - npx --no-install @spec-family/spec-guard --format gitlab > gl-code-quality-report.json || true
   artifacts:
     reports:
       codequality: gl-code-quality-report.json
@@ -1849,7 +1849,7 @@ nothing else it is a number of files set by what starting a process costs, and
 about half as many when a run searches several targets at once, so the budget
 is 32 files on Linux, 64 on macOS and 256 on Windows. `scripts/bench-engines.mjs`
 reproduces this, and
-[ADR-0004](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0004-adaptive-engine.md) has the full tables.
+[ADR-0004](https://github.com/spec-family/spec-guard/blob/main/docs/adr/0004-adaptive-engine.md) has the full tables.
 
 Treat single measurements from one machine with suspicion. On the development
 machine used here, an absence assertion over 2,000 files measures 303 ms with
@@ -1910,13 +1910,13 @@ Two honest caveats:
   ripgrep. What still splits them is a file that is not UTF-8, which the
   scanner reads with U+FFFD for each byte it cannot, and a character newer
   than one of the two engines' Unicode
-  ([ADR-0007](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0007-search-scope.md),
+  ([ADR-0007](https://github.com/spec-family/spec-guard/blob/main/docs/adr/0007-search-scope.md),
   amended 2026-10-24).
 
 ## Programmatic API
 
 ```ts
-import { runSpecGuard, formatReport } from '@descent-vtt/spec-guard';
+import { runSpecGuard, formatReport } from '@spec-family/spec-guard';
 
 const report = await runSpecGuard({
   patterns: ['docs/**/*.md'],
@@ -1942,7 +1942,7 @@ imports and listing directories. That is how to run the rules over a tree that
 is not on disk, or not as the disk has it:
 
 ```ts
-import { nodeIo, runSpecGuard, type Io } from '@descent-vtt/spec-guard';
+import { nodeIo, runSpecGuard, type Io } from '@spec-family/spec-guard';
 
 // The disk, except for one file edited in memory.
 const edited: Io = {
@@ -1979,72 +1979,72 @@ documents of the spec set read last. A single run gains nothing from one.
 This README says what spec-guard does. Why it does it that way, what was
 measured and what was left out are in its ADRs, one decision each:
 
-- [ADR-0001](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0001-invariants.md) -
+- [ADR-0001](https://github.com/spec-family/spec-guard/blob/main/docs/adr/0001-invariants.md) -
   spec-guard's own invariants are directives, executed against it on every CI
   run: output through an injected `CliIO`, processes spawned by the engine
   alone, a parser and a reporter that never touch the filesystem.
-- [ADR-0002](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0002-directive-format.md) -
+- [ADR-0002](https://github.com/spec-family/spec-guard/blob/main/docs/adr/0002-directive-format.md) -
   directives are HTML comments, invisible when rendered; code is masked before
   they are read, by spec-core's Markdown scanner, and spec files are left out
   of their own searches.
-- [ADR-0003](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0003-mutation-testing.md) -
+- [ADR-0003](https://github.com/spec-family/spec-guard/blob/main/docs/adr/0003-mutation-testing.md) -
   mutation testing in CI gates the build, every survivor is replayed rather
   than excused, and vitest is pinned to 4.x until Stryker's runner reads 5.
-- [ADR-0004](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0004-adaptive-engine.md) -
+- [ADR-0004](https://github.com/spec-family/spec-guard/blob/main/docs/adr/0004-adaptive-engine.md) -
   `--engine auto` chooses per search group, by walking the target with a
   budget: the scanner under it, ripgrep over it.
-- [ADR-0005](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0005-import-assertions.md) -
+- [ADR-0005](https://github.com/spec-family/spec-guard/blob/main/docs/adr/0005-import-assertions.md) -
   import assertions read the dependency rather than the text, and report what
   they could not resolve rather than counting it clean.
-- [ADR-0006](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0006-comment-classification.md) -
+- [ADR-0006](https://github.com/spec-family/spec-guard/blob/main/docs/adr/0006-comment-classification.md) -
   matches inside comments do not count by default, every run says how many it
   dropped, and where spec-guard is unsure, text is code.
-- [ADR-0007](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0007-search-scope.md) -
+- [ADR-0007](https://github.com/spec-family/spec-guard/blob/main/docs/adr/0007-search-scope.md) -
   one scope policy drives both engines: four directory names are skipped,
   `.gitignore` is not read, ripgrep only pre-filters, and every other skip is
   reported.
-- [ADR-0008](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0008-polyglot-imports.md) -
+- [ADR-0008](https://github.com/spec-family/spec-guard/blob/main/docs/adr/0008-polyglot-imports.md) -
   Python, Go, Rust and C# imports are read by masking comments and strings and
   reading statements off the rest, with no parser.
-- [ADR-0009](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0009-debt-baselines.md) -
+- [ADR-0009](https://github.com/spec-family/spec-guard/blob/main/docs/adr/0009-debt-baselines.md) -
   a baseline names known violations and ratchets both ways; `--print-baseline`
   prints one, and there is no `--fix`.
-- [ADR-0010](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0010-spec-status.md) -
+- [ADR-0010](https://github.com/spec-family/spec-guard/blob/main/docs/adr/0010-spec-status.md) -
   a document's lifecycle status decides whether its directives run, withholding
   is always reported, and there is no per-directive `if-status`.
-- [ADR-0011](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0011-layers-and-cycles.md) -
+- [ADR-0011](https://github.com/spec-family/spec-guard/blob/main/docs/adr/0011-layers-and-cycles.md) -
   layers and cycles are read off one import graph; a cycle is counted as a
   knot, and `tsconfig` paths are not resolved.
-- [ADR-0012](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0012-query-and-mcp.md) -
+- [ADR-0012](https://github.com/spec-family/spec-guard/blob/main/docs/adr/0012-query-and-mcp.md) -
   `query` and the MCP server answer which rules govern a path from the specs
   alone, held to the walk a real run makes, with no MCP SDK.
-- [ADR-0013](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0013-structure-assertions.md) -
+- [ADR-0013](https://github.com/spec-family/spec-guard/blob/main/docs/adr/0013-structure-assertions.md) -
   one structure directive, one claim each - names, required entries or
   partners - with names compared exactly on every platform.
-- [ADR-0014](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0014-configuration-and-watch.md) -
+- [ADR-0014](https://github.com/spec-family/spec-guard/blob/main/docs/adr/0014-configuration-and-watch.md) -
   a project's policy lives in `package.json` or `.spec-guard.json`, and a watch
   session re-executes only what a change can affect.
-- [ADR-0015](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0015-globs-from-spec-core.md) -
+- [ADR-0015](https://github.com/spec-family/spec-guard/blob/main/docs/adr/0015-globs-from-spec-core.md) -
   globs are spec-core's automata, copied in and held by hash, so no pattern
   backtracks.
-- [ADR-0016](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0016-rules-seen-to-fail.md) -
+- [ADR-0016](https://github.com/spec-family/spec-guard/blob/main/docs/adr/0016-rules-seen-to-fail.md) -
   a rule is trusted when it has been seen to fail: `prove` shows each one a
   violation of itself, in memory.
-- [ADR-0017](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0017-citations-in-comments.md) -
+- [ADR-0017](https://github.com/spec-family/spec-guard/blob/main/docs/adr/0017-citations-in-comments.md) -
   a comment that cites a decision is a claim, and `cites` holds it to a
   document that exists and is in force.
-- [ADR-0018](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0018-impact.md) -
+- [ADR-0018](https://github.com/spec-family/spec-guard/blob/main/docs/adr/0018-impact.md) -
   `impact` reads the import graph backwards, with the rules in play, and lists
   what it could not follow.
-- [ADR-0019](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0019-releases-are-staged-by-ci.md) -
+- [ADR-0019](https://github.com/spec-family/spec-guard/blob/main/docs/adr/0019-releases-are-staged-by-ci.md) -
   a release is a `v*` tag on main after its full mutation sweep, staged on npm
   by CI with provenance and published only when the maintainer approves it with
   a second factor.
 
 ## spec-guard checks itself
 
-The invariants in [`docs/adr/0001-invariants.md`](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0001-invariants.md)
-and [`docs/adr/0002-directive-format.md`](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0002-directive-format.md) are
+The invariants in [`docs/adr/0001-invariants.md`](https://github.com/spec-family/spec-guard/blob/main/docs/adr/0001-invariants.md)
+and [`docs/adr/0002-directive-format.md`](https://github.com/spec-family/spec-guard/blob/main/docs/adr/0002-directive-format.md) are
 executed against this repository on every CI run. The CLI never calls
 `console.log`, nothing outside the engine spawns a process, and the parser and
 reporter never touch the filesystem - because those documents say so, and the
@@ -2054,10 +2054,10 @@ existing and being in force.
 
 Line coverage is 100%, CI's full mutation sweep kills 99.27% of 14,580 mutants
 (0.29.0), and every survivor a release adds is replayed before it ships
-([ADR-0003](https://github.com/DescentVTT/spec-guard/blob/main/docs/adr/0003-mutation-testing.md));
-[CONTRIBUTING.md](https://github.com/DescentVTT/spec-guard/blob/main/CONTRIBUTING.md)
+([ADR-0003](https://github.com/spec-family/spec-guard/blob/main/docs/adr/0003-mutation-testing.md));
+[CONTRIBUTING.md](https://github.com/spec-family/spec-guard/blob/main/CONTRIBUTING.md)
 has how to build, test and release, and
-[SECURITY.md](https://github.com/DescentVTT/spec-guard/blob/main/SECURITY.md)
+[SECURITY.md](https://github.com/spec-family/spec-guard/blob/main/SECURITY.md)
 how to report a vulnerability.
 
 This README is executable too:
