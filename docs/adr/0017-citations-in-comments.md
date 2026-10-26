@@ -336,7 +336,7 @@ spec-guard: the pattern "rfcs/*.md" matched no spec file. Remove it from "specs"
   nothing to look for and exits 0, and 1 under `--strict`; so one pattern
   among several that matched none is said, and is 1 under `--strict`. That
   is the family contract's "nothing measured is not clean" (spec-core's
-  [ADR-0005](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0005-the-family-contract.md)):
+  [ADR-0005](https://github.com/spec-family/spec-core/blob/main/docs/adr/0005-the-family-contract.md)):
   a check says what it did not inspect, and a strict one refuses. Without
   `--strict` the exit code is what it was.
 - **A strict check fails only where the families are read off the specs.**
@@ -461,7 +461,7 @@ passed, which it is.
 - **Not changed: `--help`.** It says when `cites` exits 1 and says nothing
   of how a report ends or what a format places, here or for any command.
 - **A minor**, by spec-core's
-  [ADR-0009](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md):
+  [ADR-0009](https://github.com/spec-family/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md):
   no run that passed fails, and a script that reads the report's last line,
   GitHub's commands, or the errors of a GitLab or SARIF document reads
   something else for a strict check that was already exit 1.

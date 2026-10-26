@@ -188,7 +188,7 @@ jobs:
     # required reviewer can be added there without editing this file.
     environment:
       name: npm
-      url: https://www.npmjs.com/package/@descent-vtt/spec-guard
+      url: https://www.npmjs.com/package/@spec-family/spec-guard
 
     permissions:
       # The entire credential story. Short-lived, minted for this run, and
@@ -341,7 +341,7 @@ jobs:
             echo 'To release it, with 2FA:'
             echo
             echo '```'
-            echo 'npm stage list @descent-vtt/spec-guard'
+            echo 'npm stage list @spec-family/spec-guard'
             echo 'npm stage view <stage-id>'
             echo 'npm stage approve <stage-id>'
             echo '```'

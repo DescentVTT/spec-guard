@@ -523,7 +523,7 @@ describe('the sarif document, in full', () => {
           tool: {
             driver: {
               name: 'spec-guard',
-              informationUri: 'https://github.com/DescentVTT/spec-guard',
+              informationUri: 'https://github.com/spec-family/spec-guard',
               version: '1.2.3',
               rules: [
                 {

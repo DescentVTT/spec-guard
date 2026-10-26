@@ -836,7 +836,7 @@ export function formatSarif(report: RunResult, options: { version?: string } = {
           tool: {
             driver: {
               name: 'spec-guard',
-              informationUri: 'https://github.com/DescentVTT/spec-guard',
+              informationUri: 'https://github.com/spec-family/spec-guard',
               version: options.version ?? '0.0.0',
               rules: SARIF_RULES.map((rule) => ({
                 id: rule.id,
@@ -1078,7 +1078,7 @@ export function formatProveSarif(report: ProveReport, options: { version?: strin
           tool: {
             driver: {
               name: 'spec-guard prove',
-              informationUri: 'https://github.com/DescentVTT/spec-guard',
+              informationUri: 'https://github.com/spec-family/spec-guard',
               version: options.version ?? '0.0.0',
               rules: PROVE_RULES.map((rule) => ({ id: rule.id, name: rule.id, shortDescription: { text: rule.text } })),
             },
@@ -1521,7 +1521,7 @@ export function formatCitesSarif(report: CitesReport, options: { version?: strin
           tool: {
             driver: {
               name: 'spec-guard cites',
-              informationUri: 'https://github.com/DescentVTT/spec-guard',
+              informationUri: 'https://github.com/spec-family/spec-guard',
               version: options.version ?? '0.0.0',
               rules: CITE_SARIF_RULES.map((rule) => ({ id: rule.id, name: rule.id, shortDescription: { text: rule.text } })),
             },

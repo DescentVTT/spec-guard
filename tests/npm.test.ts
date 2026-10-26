@@ -174,7 +174,7 @@ function runsOf(text: string, file: string): Run[] {
 function faultOf({ flags, command }: Run): string | null {
   if (flags.includes('--yes') || flags.includes('-y')) return 'is told to fetch';
   if (flags.includes('--no-install') || flags.includes('--no')) return null;
-  return command.startsWith('@descent-vtt/') ? null : 'fetches where the command is not installed';
+  return command.startsWith('@spec-family/') ? null : 'fetches where the command is not installed';
 }
 
 /** What runs a command here: the workflows, the scripts of package.json, the files under scripts/ and the configuration files beside them. */
@@ -206,6 +206,8 @@ describe('a tool run through npx, in a tree that may not have it installed', () 
     ['npx stryker run --no-install'],
     // Another scope is another publisher.
     ['npx @example/spec-guard'],
+    // The scope the family left on 2026-10-26 holds no release of the family's after it.
+    ['npx @descent-vtt/spec-guard'],
   ])('is one npm would fetch for, as %j runs it', (text) => {
     expect(faults(text)).toEqual(['fetches where the command is not installed']);
   });
@@ -216,7 +218,7 @@ describe('a tool run through npx, in a tree that may not have it installed', () 
     ['npm exec --yes -- cowsay'],
     // Told both: `--yes` is the one that decides nothing good.
     ['npx --no-install --yes cowsay'],
-    ['npx --yes @descent-vtt/spec-guard'],
+    ['npx --yes @spec-family/spec-guard'],
   ])('is one npm is told to fetch for, as %j runs it', (text) => {
     expect(faults(text)).toEqual(['is told to fetch']);
   });
@@ -230,8 +232,8 @@ describe('a tool run through npx, in a tree that may not have it installed', () 
     ['npm exec --no -- tsc --noEmit'],
     // The command's own `--yes`, which npx hands on unread.
     ['npx --no-install stryker run --yes'],
-    ['npx @descent-vtt/spec-guard --format github'],
-    ['npx --no-install @descent-vtt/spec-guard@0.19.0'],
+    ['npx @spec-family/spec-guard --format github'],
+    ['npx --no-install @spec-family/spec-guard@0.19.0'],
   ])('is in order as %j runs it', (text) => {
     expect(faults(text)).toEqual([null]);
   });

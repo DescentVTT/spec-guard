@@ -2033,7 +2033,7 @@ spec-harness, which sweep a pull request in full. Two things changed.
   and every other.
 
 Lifting the pin is the family's decision and has one procedure, in
-[spec-core's ADR-0008](https://github.com/DescentVTT/spec-core/blob/main/docs/adr/0008-toolchain.md)
+[spec-core's ADR-0008](https://github.com/spec-family/spec-core/blob/main/docs/adr/0008-toolchain.md)
 (amended 2026-10-07): the runner's fixed release and vitest 5 together, on
 spec-core first, accepted on its sweep and on a count of covered mutants
 that ran no test, never on a version number. That ADR also records what
