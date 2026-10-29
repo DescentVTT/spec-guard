@@ -10,7 +10,11 @@ what to do when upgrading; the family's policy, including how a flag or field
 is deprecated before it goes, is spec-core's
 [ADR-0009](https://github.com/spec-family/spec-core/blob/main/docs/adr/0009-versions-before-1-0.md).
 
-## Unreleased
+## 0.30.0
+
+The first release as `@spec-family/spec-guard`, from
+`spec-family/spec-guard`: the family moved to a GitHub organization and
+an npm scope of its own. What a run decides is as in 0.29.0.
 
 ### Changed
 

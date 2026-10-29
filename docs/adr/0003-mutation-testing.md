@@ -1555,6 +1555,17 @@ ran high where they were least measured: `runner.ts` and `text.ts` took 7m35s
 against 15.2 minutes, and `cli.ts` alone 8m18s against 15.1, so the next
 split starts from this run's logs rather than 398fe94's.
 
+### 0.30.0: the same survivors, under a new name
+
+CI's full sweep of d2987e2 (run 40317465661) came out at **99.27% over
+14,580 mutants with 105 survivors and 1 without coverage**, 230 of them
+detected by timeout and none an error; the shards took from 6m04s to
+17m58s. Against 0.29.0's sweep of 428137a (run 40161794380) the release
+has the same mutants and the same survivors, mutant for mutant: the move
+to `@spec-family/spec-guard` changed strings, three of them the SARIF
+`informationUri` a test holds, and made no mutant. Five mutants 0.29.0's
+sweep counted as timed out were killed here, a runner's clock.
+
 ### 0.29.0: one dialect, two survivors more and six fewer
 
 CI's full sweep of 428137a (run 40161794380) came out at **99.27% over
